@@ -1,10 +1,10 @@
-﻿# Atelier Backend (Node + Express + PostgreSQL)
+# Atelier Backend (Node + Express + PostgreSQL)
 
 ## Prerequisites
 - Node.js 18+ (or 20+ recommended)
 - PostgreSQL client tools (`psql`) for DB init
 
-## Setup
+## Backend Setup
 1. Install dependencies
 
 ```bash
@@ -31,7 +31,7 @@ npm run initdb
 npm run seed
 ```
 
-5. Start server
+5. Start server (watch mode)
 
 ```bash
 npm run dev
@@ -41,6 +41,26 @@ Health check:
 
 ```bash
 curl http://localhost:3000/health
+```
+
+## Frontend Setup (Vite + Vue)
+1. Install dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+2. Start dev server
+
+```bash
+npm run dev
+```
+
+3. Build for production
+
+```bash
+npm run build
 ```
 
 ## API Examples
