@@ -52,6 +52,13 @@ const retoucheFilters = reactive({
   soldeRestant: "ALL"
 });
 
+const dashboardPeriod = ref("LAST_7");
+const dashboardPeriodOptions = [
+  { value: "TODAY", label: "Aujourd'hui" },
+  { value: "LAST_7", label: "7 derniers jours" },
+  { value: "LAST_30", label: "30 derniers jours" }
+];
+
 const wizard = reactive({
   open: false,
   step: 1,
@@ -767,8 +774,23 @@ const lowStockArticles = computed(() =>
 );
 
 const dashboardCards = computed(() => [
+  {
+    label: "Commandes creees aujourd'hui",
+    value: commandesView.value.filter((c) => dateOnly(c.dateCreation) === todayIso()).length,
+    tone: "blue"
+  },
+  {
+    label: "Retouches creees aujourd'hui",
+    value: retouches.value.filter((r) => dateOnly(r.dateDepot) === todayIso()).length,
+    tone: "teal"
+  },
   { label: "Commandes en cours", value: commandesView.value.filter((c) => c.statutCommande === "EN_COURS").length, tone: "blue" },
   { label: "Commandes pretes", value: commandesView.value.filter((c) => c.statutCommande === "TERMINEE").length, tone: "green" },
+  {
+    label: "Commandes a solder",
+    value: commandesView.value.filter((c) => c.soldeRestant > 0 && c.statutCommande !== "ANNULEE").length,
+    tone: "amber"
+  },
   { label: "Retouches en cours", value: retouches.value.filter((r) => r.statutRetouche === "EN_COURS").length, tone: "teal" },
   { label: "Retouches a solder", value: retouchesView.value.filter((r) => r.soldeRestant > 0).length, tone: "amber" },
   { label: "Clients actifs", value: clients.value.filter((c) => c.actif !== false).length, tone: "slate" }
@@ -790,7 +812,16 @@ const financeMetrics = computed(() => {
   };
 });
 
+function dateOnly(value) {
+  if (!value) return "";
+  return String(value).slice(0, 10);
+}
+
 const recentWorkRows = computed(() => {
+  const today = todayIso();
+  const last7 = addDays(today, -7);
+  const last30 = addDays(today, -30);
+
   const cmdRows = commandesView.value.map((c) => ({
     id: c.idCommande,
     clientNom: c.clientNom,
@@ -798,7 +829,7 @@ const recentWorkRows = computed(() => {
     statut: c.statutCommande,
     montantTotal: c.montantTotal,
     avancePayee: c.montantPaye,
-    dateRef: c.dateCreation || c.datePrevue || ""
+    dateRef: dateOnly(c.dateCreation || c.datePrevue || "")
   }));
 
   const retRows = retouches.value.map((r) => ({
@@ -808,10 +839,19 @@ const recentWorkRows = computed(() => {
     statut: r.statutRetouche,
     montantTotal: Number(r.montantTotal || 0),
     avancePayee: Number(r.montantPaye || 0),
-    dateRef: r.dateDepot || r.datePrevue || ""
+    dateRef: dateOnly(r.dateDepot || r.datePrevue || "")
   }));
 
-  return [...cmdRows, ...retRows]
+  const rows = [...cmdRows, ...retRows];
+  const filtered = rows.filter((row) => {
+    if (!row.dateRef) return true;
+    if (dashboardPeriod.value === "TODAY") return row.dateRef === today;
+    if (dashboardPeriod.value === "LAST_7") return row.dateRef >= last7 && row.dateRef <= today;
+    if (dashboardPeriod.value === "LAST_30") return row.dateRef >= last30 && row.dateRef <= today;
+    return true;
+  });
+
+  return filtered
     .sort((a, b) => String(b.dateRef).localeCompare(String(a.dateRef)))
     .slice(0, 5);
 });
@@ -844,11 +884,11 @@ const alerts = computed(() => {
   const caisseNotClosed = caisseJour.value && caisseJour.value.statutCaisse !== "CLOTUREE";
 
   const items = [];
-  if (lateCommandes.length > 0) items.push(`${lateCommandes.length} commande(s) en retard`);
+  if (lateCommandes.length > 0) items.push({ tone: "due", label: `${lateCommandes.length} commande(s) en retard` });
   for (const article of lowStock) {
-    items.push(`Stock faible: ${article.nomArticle}`);
+    items.push({ tone: "due", label: `Stock faible: ${article.nomArticle}` });
   }
-  if (caisseNotClosed) items.push("Caisse non cloturee");
+  if (caisseNotClosed) items.push({ tone: "due", label: "Caisse non cloturee" });
   return items;
 });
 
@@ -1531,6 +1571,21 @@ function formatDateTime(input) {
   const date = new Date(input);
   if (Number.isNaN(date.getTime())) return String(input);
   return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function capitalize(value) {
+  if (!value) return "";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function todayLabel() {
+  const date = new Date();
+  const weekday = new Intl.DateTimeFormat("fr-FR", { weekday: "long" }).format(date);
+  const day = new Intl.DateTimeFormat("fr-FR", { day: "2-digit" }).format(date);
+  const month = new Intl.DateTimeFormat("fr-FR", { month: "long" }).format(date);
+  const year = new Intl.DateTimeFormat("fr-FR", { year: "numeric" }).format(date);
+  const time = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" }).format(date);
+  return `${capitalize(weekday)} le ${day}/${month}/${year} • ${time}`;
 }
 
 function todayIso() {
@@ -2641,7 +2696,7 @@ async function loadRetoucheDetail(idRetouche) {
     <main class="main">
       <header class="topbar classic-topbar">
         <div>
-          <p class="date-label">{{ todayIso() }}</p>
+          <p class="date-label">{{ todayLabel() }}</p>
           <h2>{{ currentTitle }}</h2>
         </div>
         <div class="topbar-actions">
@@ -2650,12 +2705,27 @@ async function loadRetoucheDetail(idRetouche) {
         </div>
       </header>
 
-      <div v-if="errorMessage" class="panel error-panel">
-        <strong>Erreur de synchronisation API</strong>
-        <p>{{ errorMessage }}</p>
-      </div>
+      <div class="content-scroll">
+        <div v-if="errorMessage" class="panel error-panel">
+          <strong>Erreur de synchronisation API</strong>
+          <p>{{ errorMessage }}</p>
+        </div>
 
-      <section v-if="currentRoute === 'dashboard'" class="dashboard classic-dashboard">
+        <section v-if="currentRoute === 'dashboard'" class="dashboard classic-dashboard">
+        <article class="panel dashboard-filter">
+          <div>
+            <h3>Vue globale</h3>
+            <p class="helper">Filtrer les indicateurs par periode</p>
+          </div>
+          <div class="row-actions">
+            <select v-model="dashboardPeriod">
+              <option v-for="option in dashboardPeriodOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+        </article>
+
         <div class="kpi-grid legacy-kpi-grid">
           <article v-for="card in dashboardCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
             <div class="kpi-head"><span>{{ card.label }}</span></div>
@@ -2704,6 +2774,9 @@ async function loadRetoucheDetail(idRetouche) {
                   <td>{{ formatCurrency(row.montantTotal) }}</td>
                   <td>{{ formatCurrency(row.avancePayee) }}</td>
                 </tr>
+                <tr v-if="recentWorkRows.length === 0">
+                  <td colspan="5">Aucune activite recente.</td>
+                </tr>
               </tbody>
             </table>
             <div class="quick-inline">
@@ -2720,6 +2793,9 @@ async function loadRetoucheDetail(idRetouche) {
                   <span>{{ item.libelle }}</span>
                   <strong>{{ formatCurrency(item.montant) }}</strong>
                 </li>
+                <li v-if="recentCaisseActivity.length === 0">
+                  <span>Aucune operation recente.</span>
+                </li>
               </ul>
             </article>
 
@@ -2731,20 +2807,16 @@ async function loadRetoucheDetail(idRetouche) {
                 Alertes
               </h3>
               <ul class="activity-list">
-                <li v-for="alert in alerts" :key="alert">
-                  <span>{{ alert }}</span>
+                <li v-for="alert in alerts" :key="alert.label">
+                  <span class="status-pill" :data-tone="alert.tone">Alerte</span>
+                  <span>{{ alert.label }}</span>
+                </li>
+                <li v-if="alerts.length === 0">
+                  <span>Aucune alerte active.</span>
                 </li>
               </ul>
             </article>
           </div>
-        </div>
-
-        <div class="quick-actions legacy-actions">
-          <button class="action-btn blue" @click="openNouvelleCommande">Nouvelle Commande</button>
-          <button class="action-btn blue" @click="openNouvelleRetouche">Nouvelle Retouche</button>
-          <button class="action-btn green" @click="placeholderAction('Paiement Client')">Paiement Client</button>
-          <button class="action-btn amber" @click="placeholderAction('Vente Article')">Vente Article</button>
-          <button class="action-btn red" @click="placeholderAction('Cloturer la Caisse')">Cloturer la Caisse</button>
         </div>
       </section>
 
@@ -2864,7 +2936,7 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
       </section>
 
-      <section v-else-if="currentRoute === 'retouches'" class="commandes-page">
+        <section v-else-if="currentRoute === 'retouches'" class="commandes-page">
         <article class="panel panel-header">
           <h3>Page centrale des retouches</h3>
           <button class="action-btn blue" @click="openNouvelleRetouche">
@@ -2984,7 +3056,7 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
       </section>
 
-      <section v-else-if="currentRoute === 'clientsMesures'" class="commandes-page">
+        <section v-else-if="currentRoute === 'clientsMesures'" class="commandes-page">
         <article class="panel panel-header">
           <h3>Fiche Client - Consultation</h3>
           <div class="filters compact" style="min-width: 320px;">
@@ -3186,7 +3258,7 @@ async function loadRetoucheDetail(idRetouche) {
           <p>Selectionnez un client pour consulter sa memoire atelier.</p>
         </article>
       </section>
-<section v-else-if="currentRoute === 'stockVentes'" class="commandes-page">
+        <section v-else-if="currentRoute === 'stockVentes'" class="commandes-page">
         <article class="panel panel-header">
           <h3>Stock & Ventes</h3>
           <div class="segmented">
@@ -3416,7 +3488,7 @@ async function loadRetoucheDetail(idRetouche) {
         </template>
       </section>
 
-      <section v-else-if="currentRoute === 'commande-detail'" class="commande-detail">
+        <section v-else-if="currentRoute === 'commande-detail'" class="commande-detail">
         <article class="panel panel-header detail-header">
           <div>
             <h3>Detail commande</h3>
@@ -3520,7 +3592,7 @@ async function loadRetoucheDetail(idRetouche) {
         </template>
       </section>
 
-      <section v-else-if="currentRoute === 'retouche-detail'" class="commande-detail">
+        <section v-else-if="currentRoute === 'retouche-detail'" class="commande-detail">
         <article class="panel panel-header detail-header">
           <div>
             <h3>Detail retouche</h3>
@@ -3630,7 +3702,7 @@ async function loadRetoucheDetail(idRetouche) {
         </template>
       </section>
 
-      <section v-else-if="currentRoute === 'vente-detail'" class="commande-detail">
+        <section v-else-if="currentRoute === 'vente-detail'" class="commande-detail">
         <article class="panel panel-header detail-header">
           <div>
             <h3>Detail vente</h3>
@@ -3728,7 +3800,7 @@ async function loadRetoucheDetail(idRetouche) {
         </template>
       </section>
 
-      <section v-else-if="currentRoute === 'facturation'" class="commandes-page">
+        <section v-else-if="currentRoute === 'facturation'" class="commandes-page">
         <article class="panel panel-header">
           <div>
             <h3>Factures</h3>
@@ -3779,7 +3851,7 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
       </section>
 
-      <section v-else-if="currentRoute === 'parametres'" class="commandes-page parametres-page">
+        <section v-else-if="currentRoute === 'parametres'" class="commandes-page parametres-page">
         <article class="panel panel-header">
           <div>
             <h3>Parametres Atelier</h3>
@@ -4049,7 +4121,7 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
       </section>
 
-      <section v-else-if="currentRoute === 'facture-detail'" class="commande-detail">
+        <section v-else-if="currentRoute === 'facture-detail'" class="commande-detail">
         <article class="panel panel-header detail-header">
           <div>
             <h3>Detail facture</h3>
@@ -4122,7 +4194,7 @@ async function loadRetoucheDetail(idRetouche) {
         </template>
       </section>
 
-      <section v-else-if="currentRoute === 'caisse'" class="commande-detail">
+        <section v-else-if="currentRoute === 'caisse'" class="commande-detail">
         <article class="panel panel-header detail-header" :class="{ 'caisse-header-closed': !caisseOuverte }">
           <div>
             <h3>Caisse du jour</h3>
@@ -4209,7 +4281,7 @@ async function loadRetoucheDetail(idRetouche) {
         </template>
       </section>
 
-      <section v-else-if="currentRoute === 'audit'" class="commande-detail">
+        <section v-else-if="currentRoute === 'audit'" class="commande-detail">
         <article class="panel panel-header detail-header">
           <div>
             <h3>{{ currentAuditRoute.title }}</h3>
@@ -4595,12 +4667,13 @@ async function loadRetoucheDetail(idRetouche) {
         </template>
       </section>
 
-      <section v-else class="placeholder">
-        <article class="panel">
-          <h3>{{ menuItems.find((item) => item.id === currentRoute)?.label }}</h3>
-          <p>Vue en lecture/preparation. Le dashboard et la page commandes sont relies a la BD via l'API.</p>
-        </article>
-      </section>
+        <section v-else class="placeholder">
+          <article class="panel">
+            <h3>{{ menuItems.find((item) => item.id === currentRoute)?.label }}</h3>
+            <p>Vue en lecture/preparation. Le dashboard et la page commandes sont relies a la BD via l'API.</p>
+          </article>
+        </section>
+      </div>
     </main>
 
   <div v-if="factureEmission.open" class="modal-backdrop" @click.self="closeFactureEmission">
