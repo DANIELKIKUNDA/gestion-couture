@@ -1,0 +1,20 @@
+{
+    "name":  "atelier-backend",
+    "version":  "0.1.0",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "start":  "node src/interfaces/http/server.js",
+                    "test":  "node tests/commandes.usecases.test.js \u0026\u0026 node tests/retouches.usecases.test.js \u0026\u0026 node tests/mesures.rules.test.js \u0026\u0026 node tests/caisse.usecases.test.js \u0026\u0026 node tests/caisse.automations.test.js \u0026\u0026 node tests/clients.usecases.test.js \u0026\u0026 node tests/clients.consultation.service.test.js \u0026\u0026 node tests/stock.usecases.test.js \u0026\u0026 node tests/facturation.usecases.test.js",
+                    "initdb":  "powershell -ExecutionPolicy Bypass -File scripts/init-db.ps1",
+                    "dev":  "node --watch --env-file .env src/interfaces/http/server.js",
+                    "dev:all":  "powershell -ExecutionPolicy Bypass -File scripts/dev-all.ps1",
+                    "seed":  "node scripts/seed.js"
+                },
+    "dependencies":  {
+                         "express":  "^4.19.2",
+                         "pg":  "^8.12.0",
+                         "dotenv":  "^16.4.5"
+                     }
+}
+
