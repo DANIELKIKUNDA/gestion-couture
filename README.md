@@ -1,5 +1,5 @@
 # Atelier Backend (Node + Express + PostgreSQL)
-
+\n[![CI](https://github.com/DANIELKIKUNDA/gestion-couture/actions/workflows/ci.yml/badge.svg)](https://github.com/DANIELKIKUNDA/gestion-couture/actions/workflows/ci.yml)\n
 ## Prerequisites
 - Node.js 18+ (or 20+ recommended)
 - PostgreSQL client tools (`psql`) for DB init
