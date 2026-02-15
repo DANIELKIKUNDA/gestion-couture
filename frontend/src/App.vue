@@ -167,6 +167,24 @@ const auditHubMetrics = ref({
 });
 const auditSubRoute = ref("/audit");
 
+const SETTINGS_STORAGE_KEY = "atelier.settings.v1";
+const settingsEditMode = ref(false);
+const settingsConfirmSave = ref(false);
+const settingsAuditNote = ref("");
+const settingsLoading = ref(false);
+const settingsError = ref("");
+const settingsUser = reactive({
+  nom: "manager",
+  role: "MANAGER"
+});
+const settingsRoleOptions = [
+  { value: "PROPRIETAIRE", label: "Proprietaire" },
+  { value: "MANAGER", label: "Manager" },
+  { value: "CAISSIER", label: "Caissier" },
+  { value: "AGENT", label: "Agent" }
+];
+const deviseOptions = ["FC", "USD", "EUR"];
+
 const periodOptions = [
   { value: "ALL", label: "Toute periode" },
   { value: "TODAY", label: "A livrer aujourd'hui" },
@@ -271,6 +289,221 @@ const mesureLabels = {
   largeur: "Largeur",
   ouvertureManches: "Ouverture manches"
 };
+
+const habitConfigOrder = ["PANTALON", "CHEMISE", "ROBE", "JUPE", "VESTE", "BOUBOU", "GILET", "LIBAYA", "AUTRES"];
+
+function mesureLabelFromKey(key) {
+  return mesureLabels[key] || key;
+}
+
+function buildDefaultHabitConfig() {
+  const config = {};
+  for (const option of habitTypeOptions) {
+    const def = habitMesureDefinitions[option.value] || { required: [], optional: [] };
+    config[option.value] = {
+      label: option.label,
+      mesures: [
+        ...def.required.map((key) => ({ code: key, label: mesureLabelFromKey(key), obligatoire: true })),
+        ...def.optional.map((key) => ({ code: key, label: mesureLabelFromKey(key), obligatoire: false }))
+      ]
+    };
+  }
+  if (!config.AUTRES) {
+    config.AUTRES = {
+      label: "Autres",
+      mesures: []
+    };
+  }
+  return config;
+}
+
+function cloneSettings(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+const atelierSettingsDefault = {
+  meta: {
+    version: 1,
+    lastSavedAt: ""
+  },
+  identite: {
+    nomAtelier: "Atelier",
+    adresse: "",
+    telephone: "",
+    devise: "FC",
+    logoUrl: ""
+  },
+  commandes: {
+    mesuresObligatoires: true,
+    interdictionSansMesures: true,
+    uniteMesure: "cm",
+    decimalesAutorisees: true,
+    delaiDefautJours: 7
+  },
+  retouches: {
+    mesuresOptionnelles: true,
+    saisiePartielle: true,
+    descriptionObligatoire: true
+  },
+  habits: buildDefaultHabitConfig(),
+  caisse: {
+    ouvertureAuto: "07:30",
+    ouvertureDimanche: "08:00",
+    clotureAutoMinuit: true,
+    paiementAvantLivraison: true,
+    livraisonExpress: true
+  },
+  facturation: {
+    prefixeNumero: "FAC",
+    prochainNumero: 1,
+    mentions: "Merci pour votre confiance.",
+    afficherLogo: true
+  },
+  securite: {
+    rolesAutorises: ["PROPRIETAIRE", "MANAGER"],
+    confirmationAvantSauvegarde: true,
+    verrouillageActif: true,
+    auditLog: []
+  }
+};
+
+const atelierSettings = reactive(cloneSettings(atelierSettingsDefault));
+
+function applySettings(target, source) {
+  if (!source || typeof source !== "object") return;
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (Array.isArray(value)) {
+      target[key] = value;
+    } else if (value && typeof value === "object") {
+      if (!target[key] || typeof target[key] !== "object") target[key] = {};
+      applySettings(target[key], value);
+    } else {
+      target[key] = value;
+    }
+  }
+}
+
+function loadAtelierSettingsLocal() {
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    applySettings(atelierSettings, parsed);
+  } catch (err) {
+    console.warn("Failed to load atelier settings (local)", err);
+  }
+}
+
+async function loadAtelierSettings() {
+  loadAtelierSettingsLocal();
+  try {
+    settingsLoading.value = true;
+    settingsError.value = "";
+    const response = await atelierApi.getParametresAtelier();
+    if (response?.payload) {
+      applySettings(atelierSettings, response.payload);
+      persistAtelierSettings();
+    }
+  } catch (err) {
+    settingsError.value = err instanceof ApiError ? err.message : "Erreur chargement parametres.";
+    console.warn("Failed to load atelier settings (api)", err);
+  } finally {
+    settingsLoading.value = false;
+  }
+}
+
+function persistAtelierSettings() {
+  const payload = cloneSettings(atelierSettings);
+  window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
+}
+
+const settingsRoleAllowed = computed(() => atelierSettings.securite.rolesAutorises.includes(settingsUser.role));
+const settingsCanEdit = computed(() => settingsEditMode.value && settingsRoleAllowed.value);
+const settingsLogoPreview = computed(() => (atelierSettings.identite.logoUrl || "").trim());
+const habitConfigEntries = computed(() => {
+  const keys = [
+    ...habitConfigOrder,
+    ...Object.keys(atelierSettings.habits || {}).filter((key) => !habitConfigOrder.includes(key))
+  ];
+  return keys
+    .filter((key) => atelierSettings.habits && atelierSettings.habits[key])
+    .map((key) => ({ key, ...atelierSettings.habits[key] }));
+});
+
+function toggleSettingsEdit() {
+  if (!settingsRoleAllowed.value) {
+    notify("Role non autorise pour modifier ces parametres.");
+    return;
+  }
+  settingsEditMode.value = !settingsEditMode.value;
+  settingsConfirmSave.value = false;
+}
+
+function addMesureToHabit(habitKey) {
+  if (!settingsCanEdit.value) return;
+  const habit = atelierSettings.habits[habitKey];
+  if (!habit) return;
+  const code = `mesure_${Date.now().toString(36)}`;
+  habit.mesures.push({
+    code,
+    label: "Nouvelle mesure",
+    obligatoire: false
+  });
+}
+
+function removeMesureFromHabit(habitKey, index) {
+  if (!settingsCanEdit.value) return;
+  const habit = atelierSettings.habits[habitKey];
+  if (!habit) return;
+  habit.mesures.splice(index, 1);
+}
+
+async function saveAtelierSettings() {
+  if (!settingsRoleAllowed.value) {
+    notify("Role non autorise pour sauvegarder.");
+    return;
+  }
+  if (atelierSettings.securite.confirmationAvantSauvegarde && !settingsConfirmSave.value) {
+    notify("Confirmation obligatoire avant sauvegarde.");
+    return;
+  }
+  const now = new Date().toISOString();
+  atelierSettings.meta.lastSavedAt = now;
+  const note = settingsAuditNote.value.trim() || "Mise a jour des parametres";
+  const entry = {
+    date: now,
+    utilisateur: settingsUser.nom || "inconnu",
+    role: settingsUser.role,
+    note
+  };
+  atelierSettings.securite.auditLog = [entry, ...(atelierSettings.securite.auditLog || [])].slice(0, 30);
+  try {
+    settingsLoading.value = true;
+    settingsError.value = "";
+    await atelierApi.saveParametresAtelier(cloneSettings(atelierSettings), settingsUser.nom || "");
+    persistAtelierSettings();
+    settingsConfirmSave.value = false;
+    settingsAuditNote.value = "";
+    settingsEditMode.value = false;
+    notify("Parametres atelier sauvegardes.");
+  } catch (err) {
+    const message = err instanceof ApiError ? err.message : "Erreur lors de la sauvegarde des parametres.";
+    settingsError.value = message;
+    notify(message);
+  } finally {
+    settingsLoading.value = false;
+  }
+}
+
+function resetAtelierSettings() {
+  applySettings(atelierSettings, cloneSettings(atelierSettingsDefault));
+  persistAtelierSettings();
+  settingsConfirmSave.value = false;
+  settingsEditMode.value = false;
+  settingsAuditNote.value = "";
+  notify("Parametres reinitialises.");
+}
 
 const iconPaths = {
   dashboard: ["M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z"],
@@ -738,6 +971,7 @@ function onBrowserNavigation() {
 onMounted(async () => {
   syncRouteFromLocation();
   window.addEventListener("popstate", onBrowserNavigation);
+  await loadAtelierSettings();
   await reloadAll();
   if (currentRoute.value === "audit") loadAuditPage(auditSubRoute.value);
 });
@@ -3542,6 +3776,276 @@ async function loadRetoucheDetail(idRetouche) {
               </tr>
             </tbody>
           </table>
+        </article>
+      </section>
+
+      <section v-else-if="currentRoute === 'parametres'" class="commandes-page parametres-page">
+        <article class="panel panel-header">
+          <div>
+            <h3>Parametres Atelier</h3>
+            <p class="helper">Configuration metier globale. Lecture par les modules, modification rare et securisee.</p>
+            <p class="helper" v-if="atelierSettings.meta.lastSavedAt">
+              Derniere sauvegarde: {{ formatDateTime(atelierSettings.meta.lastSavedAt) }}
+            </p>
+          </div>
+          <div class="row-actions">
+            <span class="status-pill" :data-tone="settingsCanEdit ? 'ok' : 'due'">
+              {{ settingsCanEdit ? "Edition active" : "Lecture seule" }}
+            </span>
+            <button class="mini-btn" @click="toggleSettingsEdit">
+              {{ settingsCanEdit ? "Verrouiller" : "Activer modifications" }}
+            </button>
+            <button class="action-btn blue" :disabled="!settingsCanEdit" @click="saveAtelierSettings">Sauvegarder</button>
+            <button class="mini-btn" :disabled="!settingsCanEdit" @click="resetAtelierSettings">Reinitialiser</button>
+          </div>
+        </article>
+
+        <article v-if="settingsLoading" class="panel">
+          <p>Chargement des parametres...</p>
+        </article>
+
+        <article v-if="settingsError" class="panel error-panel">
+          <strong>Erreur parametres</strong>
+          <p>{{ settingsError }}</p>
+        </article>
+
+        <article class="panel settings-section">
+          <h3>Identite de l'atelier</h3>
+          <p class="helper">Utilise pour factures, impressions et exports.</p>
+          <div class="settings-grid">
+            <div class="stack-form">
+              <label>Nom de l'atelier</label>
+              <input v-model="atelierSettings.identite.nomAtelier" type="text" :disabled="!settingsCanEdit" />
+            </div>
+            <div class="stack-form">
+              <label>Telephone</label>
+              <input v-model="atelierSettings.identite.telephone" type="text" :disabled="!settingsCanEdit" />
+            </div>
+            <div class="stack-form">
+              <label>Adresse (optionnel)</label>
+              <input v-model="atelierSettings.identite.adresse" type="text" :disabled="!settingsCanEdit" />
+            </div>
+            <div class="stack-form">
+              <label>Devise</label>
+              <select v-model="atelierSettings.identite.devise" :disabled="!settingsCanEdit">
+                <option v-for="devise in deviseOptions" :key="devise" :value="devise">{{ devise }}</option>
+              </select>
+            </div>
+            <div class="stack-form">
+              <label>Logo (URL optionnelle)</label>
+              <input v-model="atelierSettings.identite.logoUrl" type="text" :disabled="!settingsCanEdit" />
+            </div>
+            <div class="settings-logo-preview" v-if="settingsLogoPreview">
+              <label>Previsualisation logo</label>
+              <img :src="settingsLogoPreview" alt="Logo atelier" />
+            </div>
+          </div>
+        </article>
+
+        <article class="panel settings-section">
+          <h3>Regles de commande</h3>
+          <div class="settings-grid">
+            <label class="helper">
+              <input v-model="atelierSettings.commandes.mesuresObligatoires" type="checkbox" :disabled="!settingsCanEdit" />
+              Mesures obligatoires pour une commande
+            </label>
+            <label class="helper">
+              <input v-model="atelierSettings.commandes.interdictionSansMesures" type="checkbox" :disabled="!settingsCanEdit" />
+              Interdiction d'enregistrer sans toutes les mesures requises
+            </label>
+            <div class="stack-form">
+              <label>Unite de mesure</label>
+              <input v-model="atelierSettings.commandes.uniteMesure" type="text" disabled />
+            </div>
+            <label class="helper">
+              <input v-model="atelierSettings.commandes.decimalesAutorisees" type="checkbox" :disabled="!settingsCanEdit" />
+              Valeurs decimales autorisees
+            </label>
+            <div class="stack-form">
+              <label>Delai par defaut (jours)</label>
+              <input v-model="atelierSettings.commandes.delaiDefautJours" type="number" min="0" :disabled="!settingsCanEdit" />
+            </div>
+          </div>
+        </article>
+
+        <article class="panel settings-section">
+          <h3>Regles de retouche</h3>
+          <div class="settings-grid">
+            <label class="helper">
+              <input v-model="atelierSettings.retouches.mesuresOptionnelles" type="checkbox" :disabled="!settingsCanEdit" />
+              Mesures optionnelles pour une retouche
+            </label>
+            <label class="helper">
+              <input v-model="atelierSettings.retouches.saisiePartielle" type="checkbox" :disabled="!settingsCanEdit" />
+              Autoriser la saisie partielle des mesures concernees
+            </label>
+            <label class="helper">
+              <input v-model="atelierSettings.retouches.descriptionObligatoire" type="checkbox" :disabled="!settingsCanEdit" />
+              Description de la retouche obligatoire
+            </label>
+          </div>
+        </article>
+
+        <article class="panel settings-section">
+          <h3>Types d'habits & structure des mesures</h3>
+          <p class="helper">Configuration des champs attendus, pas des valeurs.</p>
+          <div class="measure-config-grid">
+            <article v-for="habit in habitConfigEntries" :key="habit.key" class="panel nested-panel">
+              <div class="panel-header detail-panel-header">
+                <h4>{{ habit.label }}</h4>
+                <div class="row-actions">
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="addMesureToHabit(habit.key)">
+                    Ajouter mesure
+                  </button>
+                </div>
+              </div>
+              <table class="data-table compact">
+                <thead>
+                  <tr>
+                    <th>Mesure</th>
+                    <th>Code</th>
+                    <th>Obligatoire</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(mesure, index) in habit.mesures" :key="`${habit.key}-${mesure.code}-${index}`">
+                    <td>
+                      <input v-model="mesure.label" type="text" :disabled="!settingsCanEdit" />
+                    </td>
+                    <td>{{ mesure.code }}</td>
+                    <td>
+                      <input v-model="mesure.obligatoire" type="checkbox" :disabled="!settingsCanEdit" />
+                    </td>
+                    <td>
+                      <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(habit.key, index)">Retirer</button>
+                    </td>
+                  </tr>
+                  <tr v-if="habit.mesures.length === 0">
+                    <td colspan="4">Aucune mesure configuree.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </article>
+          </div>
+        </article>
+
+        <article class="panel settings-section">
+          <h3>Regles de caisse (configuration)</h3>
+          <div class="settings-grid">
+            <div class="stack-form">
+              <label>Heure ouverture automatique</label>
+              <input v-model="atelierSettings.caisse.ouvertureAuto" type="time" :disabled="!settingsCanEdit" />
+            </div>
+            <div class="stack-form">
+              <label>Heure ouverture dimanche</label>
+              <input v-model="atelierSettings.caisse.ouvertureDimanche" type="time" :disabled="!settingsCanEdit" />
+            </div>
+            <label class="helper">
+              <input v-model="atelierSettings.caisse.clotureAutoMinuit" type="checkbox" :disabled="!settingsCanEdit" />
+              Cloture automatique a minuit
+            </label>
+            <label class="helper">
+              <input v-model="atelierSettings.caisse.paiementAvantLivraison" type="checkbox" :disabled="!settingsCanEdit" />
+              Paiement obligatoire avant livraison
+            </label>
+            <label class="helper">
+              <input v-model="atelierSettings.caisse.livraisonExpress" type="checkbox" :disabled="!settingsCanEdit" />
+              Autoriser livraison express
+            </label>
+          </div>
+        </article>
+
+        <article class="panel settings-section">
+          <h3>Facturation</h3>
+          <div class="settings-grid">
+            <div class="stack-form">
+              <label>Prefixe numerotation</label>
+              <input v-model="atelierSettings.facturation.prefixeNumero" type="text" :disabled="!settingsCanEdit" />
+            </div>
+            <div class="stack-form">
+              <label>Prochain numero</label>
+              <input v-model="atelierSettings.facturation.prochainNumero" type="number" min="1" :disabled="!settingsCanEdit" />
+            </div>
+            <div class="stack-form">
+              <label>Mentions standards</label>
+              <textarea v-model="atelierSettings.facturation.mentions" rows="4" :disabled="!settingsCanEdit"></textarea>
+            </div>
+            <label class="helper">
+              <input v-model="atelierSettings.facturation.afficherLogo" type="checkbox" :disabled="!settingsCanEdit" />
+              Afficher le logo sur la facture
+            </label>
+          </div>
+        </article>
+
+        <article class="panel settings-section">
+          <h3>Securite & verrouillage</h3>
+          <div class="settings-grid">
+            <div class="stack-form">
+              <label>Utilisateur courant</label>
+              <input v-model="settingsUser.nom" type="text" :disabled="!settingsCanEdit" />
+            </div>
+            <div class="stack-form">
+              <label>Role courant</label>
+              <select v-model="settingsUser.role">
+                <option v-for="role in settingsRoleOptions" :key="role.value" :value="role.value">{{ role.label }}</option>
+              </select>
+              <p class="helper">Autorise a modifier: {{ settingsRoleAllowed ? "Oui" : "Non" }}</p>
+            </div>
+            <div class="stack-form">
+              <label>Qui peut modifier les parametres</label>
+              <div class="settings-roles">
+                <label v-for="role in settingsRoleOptions" :key="`role-${role.value}`" class="helper">
+                  <input v-model="atelierSettings.securite.rolesAutorises" type="checkbox" :value="role.value" :disabled="!settingsCanEdit" />
+                  {{ role.label }}
+                </label>
+              </div>
+            </div>
+            <label class="helper">
+              <input v-model="atelierSettings.securite.verrouillageActif" type="checkbox" :disabled="!settingsCanEdit" />
+              Verrouillage actif (modification rare et controlee)
+            </label>
+            <label class="helper">
+              <input v-model="atelierSettings.securite.confirmationAvantSauvegarde" type="checkbox" :disabled="!settingsCanEdit" />
+              Confirmation obligatoire avant sauvegarde
+            </label>
+            <div class="stack-form">
+              <label>Note de changement</label>
+              <input v-model="settingsAuditNote" type="text" placeholder="Ex: Mise a jour regles caisse" :disabled="!settingsCanEdit" />
+            </div>
+            <label class="helper" v-if="atelierSettings.securite.confirmationAvantSauvegarde">
+              <input v-model="settingsConfirmSave" type="checkbox" :disabled="!settingsCanEdit" />
+              Je confirme la sauvegarde des parametres
+            </label>
+          </div>
+
+          <div class="panel settings-audit">
+            <div class="panel-header detail-panel-header">
+              <h4>Historique des changements</h4>
+              <span class="helper">Journal local (lecture seule)</span>
+            </div>
+            <table class="data-table compact">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Utilisateur</th>
+                  <th>Role</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(entry, index) in atelierSettings.securite.auditLog" :key="`audit-${index}`">
+                  <td>{{ formatDateTime(entry.date) }}</td>
+                  <td>{{ entry.utilisateur }}</td>
+                  <td>{{ entry.role }}</td>
+                  <td>{{ entry.note }}</td>
+                </tr>
+                <tr v-if="atelierSettings.securite.auditLog.length === 0">
+                  <td colspan="4">Aucun changement enregistre.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </article>
       </section>
 

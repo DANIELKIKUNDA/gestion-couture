@@ -6,6 +6,7 @@ import caisseRoutes from "../../bc-caisse/interfaces/http/routes.js";
 import clientsRoutes from "../../bc-clients/interfaces/http/routes.js";
 import stockRoutes from "../../bc-stock/interfaces/http/routes.js";
 import facturesRoutes from "../../bc-facturation/interfaces/http/routes.js";
+import parametresRoutes from "../../bc-parametres/interfaces/http/routes.js";
 import { CaisseRepoPg } from "../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
 import { BilanCaisseRepoPg } from "../../bc-caisse/infrastructure/repositories/bilan-caisse-repo-pg.js";
 import { executerAutomationsCaisse } from "../../bc-caisse/application/services/automations-caisse.js";
@@ -19,6 +20,7 @@ app.use("/api", caisseRoutes);
 app.use("/api", clientsRoutes);
 app.use("/api", stockRoutes);
 app.use("/api", facturesRoutes);
+app.use("/api", parametresRoutes);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });

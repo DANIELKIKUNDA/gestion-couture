@@ -5,3 +5,4 @@
 \i schema_clients.sql
 \i schema_stock.sql
 \i schema_facturation.sql
+\i schema_parametres.sql

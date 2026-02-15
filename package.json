@@ -6,7 +6,8 @@
     "scripts":  {
                     "start":  "node src/interfaces/http/server.js",
                     "test":  "node tests/commandes.usecases.test.js \u0026\u0026 node tests/retouches.usecases.test.js \u0026\u0026 node tests/mesures.rules.test.js \u0026\u0026 node tests/caisse.usecases.test.js \u0026\u0026 node tests/caisse.automations.test.js \u0026\u0026 node tests/clients.usecases.test.js \u0026\u0026 node tests/clients.consultation.service.test.js \u0026\u0026 node tests/stock.usecases.test.js \u0026\u0026 node tests/facturation.usecases.test.js",
-                    "initdb":  "powershell -ExecutionPolicy Bypass -File scripts/init-db.ps1",
+    "initdb":  "powershell -ExecutionPolicy Bypass -File scripts/init-db.ps1",
+    "migrate":  "powershell -ExecutionPolicy Bypass -File scripts/migrate.ps1",
                     "dev":  "node --watch --env-file .env src/interfaces/http/server.js",
                     "dev:all":  "powershell -ExecutionPolicy Bypass -File scripts/dev-all.ps1",
                     "seed":  "node scripts/seed.js"

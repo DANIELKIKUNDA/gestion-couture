@@ -255,6 +255,17 @@ export const atelierApi = {
     return request("/audit/factures", { method: "GET" });
   },
 
+  getParametresAtelier() {
+    return request("/parametres-atelier", { method: "GET" });
+  },
+
+  saveParametresAtelier(payload, updatedBy = "") {
+    return request("/parametres-atelier", {
+      method: "PUT",
+      body: JSON.stringify({ payload, updatedBy })
+    });
+  },
+
   getOuvertureCaisseInfo({ overrideHeureOuverture = false, role = "", motifOverride = "", soldeInitial = 0 } = {}) {
     const params = new URLSearchParams({
       overrideHeureOuverture: String(overrideHeureOuverture),

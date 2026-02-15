@@ -10,6 +10,76 @@ const pool = new pg.Pool({
 });
 
 async function run() {
+  // Parametres atelier
+  const parametresPayload = {
+    meta: { version: 1, lastSavedAt: new Date().toISOString() },
+    identite: {
+      nomAtelier: "Atelier",
+      adresse: "",
+      telephone: "",
+      devise: "FC",
+      logoUrl: ""
+    },
+    commandes: {
+      mesuresObligatoires: true,
+      interdictionSansMesures: true,
+      uniteMesure: "cm",
+      decimalesAutorisees: true,
+      delaiDefautJours: 7
+    },
+    retouches: {
+      mesuresOptionnelles: true,
+      saisiePartielle: true,
+      descriptionObligatoire: true
+    },
+    habits: {
+      PANTALON: {
+        label: "Pantalon",
+        mesures: [
+          { code: "longueur", label: "Longueur", obligatoire: true },
+          { code: "tourTaille", label: "Tour taille", obligatoire: true }
+        ]
+      },
+      CHEMISE: {
+        label: "Chemise",
+        mesures: [{ code: "poitrine", label: "Poitrine", obligatoire: true }]
+      },
+      ROBE: { label: "Robe", mesures: [] },
+      JUPE: { label: "Jupe", mesures: [] },
+      VESTE: { label: "Veste", mesures: [] },
+      BOUBOU: { label: "Boubou", mesures: [] },
+      GILET: { label: "Gilet", mesures: [] },
+      LIBAYA: { label: "Libaya", mesures: [] },
+      AUTRES: { label: "Autres", mesures: [] }
+    },
+    caisse: {
+      ouvertureAuto: "07:30",
+      ouvertureDimanche: "08:00",
+      clotureAutoMinuit: true,
+      paiementAvantLivraison: true,
+      livraisonExpress: true
+    },
+    facturation: {
+      prefixeNumero: "FAC",
+      prochainNumero: 1,
+      mentions: "Merci pour votre confiance.",
+      afficherLogo: true
+    },
+    securite: {
+      rolesAutorises: ["PROPRIETAIRE", "MANAGER"],
+      confirmationAvantSauvegarde: true,
+      verrouillageActif: true,
+      auditLog: []
+    }
+  };
+
+  await pool.query(
+    `INSERT INTO atelier_parametres (id, payload, version, updated_at, updated_by)
+     VALUES (1, $1, $2, NOW(), $3)
+     ON CONFLICT (id) DO NOTHING`,
+    [parametresPayload, 1, "seed"]
+  );
+
   // Clients
   await pool.query(
     `INSERT INTO clients (id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation)
