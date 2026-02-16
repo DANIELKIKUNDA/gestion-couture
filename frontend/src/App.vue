@@ -43,6 +43,12 @@ const filters = reactive({
   recherche: "",
   soldeRestant: "ALL"
 });
+const commandeClientQuery = ref("");
+const commandeSection = ref("liste");
+const commandesPagination = reactive({
+  page: 1,
+  pageSize: 10
+});
 
 const retoucheFilters = reactive({
   statut: "ALL",
@@ -50,6 +56,23 @@ const retoucheFilters = reactive({
   periode: "ALL",
   recherche: "",
   soldeRestant: "ALL"
+});
+const retoucheClientQuery = ref("");
+const retoucheSection = ref("liste");
+const retouchesPagination = reactive({
+  page: 1,
+  pageSize: 10
+});
+const factureFilters = reactive({
+  statut: "ALL",
+  source: "ALL",
+  recherche: "",
+  soldeRestant: "ALL"
+});
+const factureSection = ref("liste");
+const facturesPagination = reactive({
+  page: 1,
+  pageSize: 10
 });
 
 const dashboardPeriod = ref("LAST_7");
@@ -140,6 +163,9 @@ const detailFactureLoading = ref(false);
 const detailFactureError = ref("");
 
 const selectedClientConsultationId = ref("");
+const clientConsultationQuery = ref("");
+const clientConsultationSection = ref("commandes");
+const CLIENT_CONSULT_SECTION_KEY = "atelier.clients_consult.section.v1";
 const clientConsultation = ref(null);
 const clientConsultationLoading = ref(false);
 const clientConsultationError = ref("");
@@ -179,7 +205,29 @@ const settingsEditMode = ref(false);
 const settingsConfirmSave = ref(false);
 const settingsAuditNote = ref("");
 const settingsLoading = ref(false);
+const settingsSaving = ref(false);
 const settingsError = ref("");
+const settingsActiveTab = ref("identite");
+const settingsSnapshot = ref("");
+const settingsUserSnapshot = ref("");
+const settingsHabitExpanded = reactive({});
+const settingsConfirmModal = reactive({
+  open: false,
+  title: "",
+  message: "",
+  confirmLabel: "Confirmer",
+  cancelLabel: "Annuler"
+});
+let settingsConfirmResolver = null;
+const settingsTabs = [
+  { id: "identite", label: "Identite" },
+  { id: "commandes", label: "Commandes" },
+  { id: "retouches", label: "Retouches" },
+  { id: "mesures", label: "Mesures" },
+  { id: "caisse", label: "Caisse" },
+  { id: "facturation", label: "Facturation" },
+  { id: "securite", label: "Securite" }
+];
 const settingsUser = reactive({
   nom: "manager",
   role: "MANAGER"
@@ -402,8 +450,63 @@ function loadAtelierSettingsLocal() {
   }
 }
 
+function serializeSettings() {
+  return JSON.stringify(cloneSettings(atelierSettings));
+}
+
+function serializeSettingsUser() {
+  return JSON.stringify({
+    nom: settingsUser.nom,
+    role: settingsUser.role
+  });
+}
+
+function captureSettingsSnapshot() {
+  settingsSnapshot.value = serializeSettings();
+  settingsUserSnapshot.value = serializeSettingsUser();
+}
+
+function restoreSettingsFromSnapshot() {
+  if (!settingsSnapshot.value) return;
+  try {
+    applySettings(atelierSettings, JSON.parse(settingsSnapshot.value));
+    if (settingsUserSnapshot.value) {
+      const parsedUser = JSON.parse(settingsUserSnapshot.value);
+      settingsUser.nom = parsedUser.nom || "";
+      settingsUser.role = parsedUser.role || "MANAGER";
+    }
+  } catch (err) {
+    console.warn("Failed to restore settings snapshot", err);
+  }
+}
+
+function openSettingsConfirmModal({
+  title = "Confirmation",
+  message = "",
+  confirmLabel = "Continuer",
+  cancelLabel = "Annuler"
+}) {
+  settingsConfirmModal.title = title;
+  settingsConfirmModal.message = message;
+  settingsConfirmModal.confirmLabel = confirmLabel;
+  settingsConfirmModal.cancelLabel = cancelLabel;
+  settingsConfirmModal.open = true;
+  return new Promise((resolve) => {
+    settingsConfirmResolver = resolve;
+  });
+}
+
+function closeSettingsConfirmModal(confirmed) {
+  settingsConfirmModal.open = false;
+  if (settingsConfirmResolver) {
+    settingsConfirmResolver(confirmed);
+    settingsConfirmResolver = null;
+  }
+}
+
 async function loadAtelierSettings() {
   loadAtelierSettingsLocal();
+  captureSettingsSnapshot();
   try {
     settingsLoading.value = true;
     settingsError.value = "";
@@ -411,6 +514,7 @@ async function loadAtelierSettings() {
     if (response?.payload) {
       applySettings(atelierSettings, response.payload);
       persistAtelierSettings();
+      captureSettingsSnapshot();
     }
   } catch (err) {
     settingsError.value = err instanceof ApiError ? err.message : "Erreur chargement parametres.";
@@ -428,6 +532,27 @@ function persistAtelierSettings() {
 const settingsRoleAllowed = computed(() => atelierSettings.securite.rolesAutorises.includes(settingsUser.role));
 const settingsCanEdit = computed(() => settingsEditMode.value && settingsRoleAllowed.value);
 const settingsLogoPreview = computed(() => (atelierSettings.identite.logoUrl || "").trim());
+const settingsSnapshotParsed = computed(() => {
+  if (!settingsSnapshot.value) return cloneSettings(atelierSettingsDefault);
+  try {
+    return JSON.parse(settingsSnapshot.value);
+  } catch {
+    return cloneSettings(atelierSettingsDefault);
+  }
+});
+const settingsUserSnapshotParsed = computed(() => {
+  if (!settingsUserSnapshot.value) return { nom: settingsUser.nom, role: settingsUser.role };
+  try {
+    return JSON.parse(settingsUserSnapshot.value);
+  } catch {
+    return { nom: settingsUser.nom, role: settingsUser.role };
+  }
+});
+const settingsHasUnsavedChanges = computed(() => {
+  const noteDirty = settingsAuditNote.value.trim().length > 0;
+  const userDirty = serializeSettingsUser() !== settingsUserSnapshot.value;
+  return serializeSettings() !== settingsSnapshot.value || userDirty || noteDirty;
+});
 const habitConfigEntries = computed(() => {
   const keys = [
     ...habitConfigOrder,
@@ -438,13 +563,61 @@ const habitConfigEntries = computed(() => {
     .map((key) => ({ key, ...atelierSettings.habits[key] }));
 });
 
-function toggleSettingsEdit() {
+function settingsTabIsDirty(tabId) {
+  const current = cloneSettings(atelierSettings);
+  const snapshot = settingsSnapshotParsed.value;
+  if (tabId === "identite") return JSON.stringify(current.identite || {}) !== JSON.stringify(snapshot.identite || {});
+  if (tabId === "commandes") return JSON.stringify(current.commandes || {}) !== JSON.stringify(snapshot.commandes || {});
+  if (tabId === "retouches") return JSON.stringify(current.retouches || {}) !== JSON.stringify(snapshot.retouches || {});
+  if (tabId === "mesures") return JSON.stringify(current.habits || {}) !== JSON.stringify(snapshot.habits || {});
+  if (tabId === "caisse") return JSON.stringify(current.caisse || {}) !== JSON.stringify(snapshot.caisse || {});
+  if (tabId === "facturation") return JSON.stringify(current.facturation || {}) !== JSON.stringify(snapshot.facturation || {});
+  if (tabId === "securite") {
+    const securityDirty = JSON.stringify(current.securite || {}) !== JSON.stringify(snapshot.securite || {});
+    const userDirty = JSON.stringify({
+      nom: settingsUser.nom,
+      role: settingsUser.role
+    }) !== JSON.stringify(settingsUserSnapshotParsed.value || {});
+    return securityDirty || userDirty || settingsAuditNote.value.trim().length > 0;
+  }
+  return false;
+}
+
+async function toggleSettingsEdit() {
   if (!settingsRoleAllowed.value) {
     notify("Role non autorise pour modifier ces parametres.");
     return;
   }
+  if (settingsEditMode.value && settingsHasUnsavedChanges.value) {
+    const discard = await openSettingsConfirmModal({
+      title: "Quitter le mode edition",
+      message: "Des modifications non sauvegardees seront perdues. Continuer ?",
+      confirmLabel: "Oui, abandonner"
+    });
+    if (!discard) return;
+    restoreSettingsFromSnapshot();
+    settingsAuditNote.value = "";
+  }
   settingsEditMode.value = !settingsEditMode.value;
   settingsConfirmSave.value = false;
+}
+
+function toggleHabitExpanded(habitKey) {
+  settingsHabitExpanded[habitKey] = !settingsHabitExpanded[habitKey];
+}
+
+function isHabitExpanded(habitKey) {
+  return settingsHabitExpanded[habitKey] !== false;
+}
+
+async function canLeaveSettings() {
+  if (currentRoute.value !== "parametres") return true;
+  if (!settingsHasUnsavedChanges.value) return true;
+  return openSettingsConfirmModal({
+    title: "Modifications non sauvegardees",
+    message: "Vous avez des modifications non sauvegardees. Quitter la page Parametres ?",
+    confirmLabel: "Quitter"
+  });
 }
 
 function addMesureToHabit(habitKey) {
@@ -486,10 +659,11 @@ async function saveAtelierSettings() {
   };
   atelierSettings.securite.auditLog = [entry, ...(atelierSettings.securite.auditLog || [])].slice(0, 30);
   try {
-    settingsLoading.value = true;
+    settingsSaving.value = true;
     settingsError.value = "";
     await atelierApi.saveParametresAtelier(cloneSettings(atelierSettings), settingsUser.nom || "");
     persistAtelierSettings();
+    captureSettingsSnapshot();
     settingsConfirmSave.value = false;
     settingsAuditNote.value = "";
     settingsEditMode.value = false;
@@ -499,13 +673,21 @@ async function saveAtelierSettings() {
     settingsError.value = message;
     notify(message);
   } finally {
-    settingsLoading.value = false;
+    settingsSaving.value = false;
   }
 }
 
-function resetAtelierSettings() {
+async function resetAtelierSettings() {
+  if (!settingsCanEdit.value) return;
+  const confirmed = await openSettingsConfirmModal({
+    title: "Reinitialiser les parametres",
+    message: "Reinitialiser tous les parametres de l'atelier ?",
+    confirmLabel: "Reinitialiser"
+  });
+  if (!confirmed) return;
   applySettings(atelierSettings, cloneSettings(atelierSettingsDefault));
   persistAtelierSettings();
+  captureSettingsSnapshot();
   settingsConfirmSave.value = false;
   settingsEditMode.value = false;
   settingsAuditNote.value = "";
@@ -558,6 +740,17 @@ const clientMap = computed(() => {
   const map = new Map();
   for (const client of clients.value) {
     map.set(client.idClient, `${client.nom || ""} ${client.prenom || ""}`.trim());
+  }
+  return map;
+});
+
+const clientDirectory = computed(() => {
+  const map = new Map();
+  for (const client of clients.value) {
+    map.set(client.idClient, {
+      nomComplet: `${client.nom || ""} ${client.prenom || ""}`.trim(),
+      telephone: String(client.telephone || "")
+    });
   }
   return map;
 });
@@ -675,6 +868,41 @@ const facturesView = computed(() =>
   }))
 );
 
+const factureStatusOptions = computed(() => {
+  const dynamic = Array.from(new Set(facturesView.value.map((row) => row.statut).filter(Boolean)));
+  const ordered = ["BROUILLON", "VALIDEE", "ANNULEE"];
+  const merged = ordered.filter((status) => dynamic.includes(status));
+  const rest = dynamic.filter((status) => !ordered.includes(status));
+  return ["ALL", ...merged, ...rest];
+});
+
+const facturesFiltered = computed(() => {
+  return facturesView.value.filter((facture) => {
+    if (factureFilters.statut !== "ALL" && facture.statut !== factureFilters.statut) return false;
+    if (factureFilters.source !== "ALL" && facture.typeOrigine !== factureFilters.source) return false;
+    if (factureFilters.soldeRestant === "DUE" && Number(facture.solde || 0) === 0) return false;
+    if (factureFilters.soldeRestant === "PAID" && Number(facture.solde || 0) > 0) return false;
+
+    const query = factureFilters.recherche.trim().toLowerCase();
+    if (!query) return true;
+    const haystack = `${facture.numeroFacture || ""} ${facture.client?.nom || ""} ${facture.typeOrigine || ""} ${facture.idOrigine || ""} ${facture.statut || ""}`.toLowerCase();
+    return haystack.includes(query);
+  });
+});
+
+const facturesPages = computed(() => Math.max(1, Math.ceil(facturesFiltered.value.length / facturesPagination.pageSize)));
+const facturesPaged = computed(() => {
+  const start = (facturesPagination.page - 1) * facturesPagination.pageSize;
+  return facturesFiltered.value.slice(start, start + facturesPagination.pageSize);
+});
+
+const facturesKpi = computed(() => ({
+  total: facturesFiltered.value.length,
+  reglees: facturesFiltered.value.filter((row) => Number(row.solde || 0) === 0).length,
+  enAttente: facturesFiltered.value.filter((row) => Number(row.solde || 0) > 0).length,
+  montantTotal: facturesFiltered.value.reduce((sum, row) => sum + Number(row.montantTotal || 0), 0)
+}));
+
 const facturesOriginesSet = computed(() => {
   const set = new Set();
   for (const facture of facturesView.value) {
@@ -734,6 +962,26 @@ const clientTypeHabitOptions = computed(() => {
   for (const row of clientConsultationMesures.value) if (row.typeHabit) set.add(row.typeHabit);
   return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
 });
+
+const clientConsultationClientOptions = computed(() => {
+  const query = clientConsultationQuery.value.trim().toLowerCase();
+  if (!query) return clients.value;
+  return clients.value.filter((client) => {
+    const haystack = `${client.idClient || ""} ${client.nom || ""} ${client.prenom || ""} ${client.telephone || ""}`.toLowerCase();
+    return haystack.includes(query);
+  });
+});
+
+function loadClientConsultationSectionPreference() {
+  try {
+    const raw = window.localStorage.getItem(CLIENT_CONSULT_SECTION_KEY);
+    if (raw === "commandes" || raw === "retouches" || raw === "mesures") {
+      clientConsultationSection.value = raw;
+    }
+  } catch (err) {
+    console.warn("Failed to load clients consultation section preference", err);
+  }
+}
 
 const clientFilteredCommandes = computed(() => clientConsultationCommandes.value);
 
@@ -903,10 +1151,17 @@ const statusOptions = computed(() => {
 const commandesFiltered = computed(() => {
   const today = todayIso();
   const next7 = addDays(today, 7);
+  const clientQuery = commandeClientQuery.value.trim().toLowerCase();
 
   return commandesView.value.filter((commande) => {
     if (filters.statut !== "ALL" && commande.statutCommande !== filters.statut) return false;
     if (filters.client !== "ALL" && commande.idClient !== filters.client) return false;
+
+    if (clientQuery) {
+      const ref = clientDirectory.value.get(commande.idClient) || { nomComplet: commande.clientNom || "", telephone: "" };
+      const haystackClient = `${commande.idClient || ""} ${ref.nomComplet || ""} ${ref.telephone || ""}`.toLowerCase();
+      if (!haystackClient.includes(clientQuery)) return false;
+    }
 
     if (filters.periode === "TODAY" && commande.datePrevue !== today) return false;
     if (filters.periode === "OVERDUE" && (!commande.datePrevue || commande.datePrevue >= today)) return false;
@@ -927,6 +1182,25 @@ const commandesFiltered = computed(() => {
 });
 
 const commandesSoldeRestantCount = computed(() => commandesFiltered.value.filter((commande) => commande.soldeRestant > 0).length);
+const commandesPages = computed(() => Math.max(1, Math.ceil(commandesFiltered.value.length / commandesPagination.pageSize)));
+const commandesPaged = computed(() => {
+  const start = (commandesPagination.page - 1) * commandesPagination.pageSize;
+  return commandesFiltered.value.slice(start, start + commandesPagination.pageSize);
+});
+const commandesKpi = computed(() => ({
+  total: commandesFiltered.value.length,
+  enCours: commandesFiltered.value.filter((item) => item.statutCommande === "EN_COURS").length,
+  livrees: commandesFiltered.value.filter((item) => item.statutCommande === "LIVREE").length,
+  avecSolde: commandesSoldeRestantCount.value
+}));
+const commandeClientOptions = computed(() => {
+  const query = commandeClientQuery.value.trim().toLowerCase();
+  if (!query) return clients.value;
+  return clients.value.filter((client) => {
+    const haystack = `${client.idClient || ""} ${client.nom || ""} ${client.prenom || ""} ${client.telephone || ""}`.toLowerCase();
+    return haystack.includes(query);
+  });
+});
 
 const retoucheStatusOptions = computed(() => {
   const dynamic = Array.from(new Set(retouches.value.map((row) => row.statutRetouche).filter(Boolean)));
@@ -939,10 +1213,17 @@ const retoucheStatusOptions = computed(() => {
 const retouchesFiltered = computed(() => {
   const today = todayIso();
   const next7 = addDays(today, 7);
+  const clientQuery = retoucheClientQuery.value.trim().toLowerCase();
 
   return retouchesView.value.filter((retouche) => {
     if (retoucheFilters.statut !== "ALL" && retouche.statutRetouche !== retoucheFilters.statut) return false;
     if (retoucheFilters.client !== "ALL" && retouche.idClient !== retoucheFilters.client) return false;
+
+    if (clientQuery) {
+      const ref = clientDirectory.value.get(retouche.idClient) || { nomComplet: retouche.clientNom || "", telephone: "" };
+      const haystackClient = `${retouche.idClient || ""} ${ref.nomComplet || ""} ${ref.telephone || ""}`.toLowerCase();
+      if (!haystackClient.includes(clientQuery)) return false;
+    }
 
     if (retoucheFilters.periode === "TODAY" && retouche.datePrevue !== today) return false;
     if (retoucheFilters.periode === "OVERDUE" && (!retouche.datePrevue || retouche.datePrevue >= today)) return false;
@@ -963,6 +1244,25 @@ const retouchesFiltered = computed(() => {
 });
 
 const retouchesSoldeRestantCount = computed(() => retouchesFiltered.value.filter((retouche) => retouche.soldeRestant > 0).length);
+const retouchesPages = computed(() => Math.max(1, Math.ceil(retouchesFiltered.value.length / retouchesPagination.pageSize)));
+const retouchesPaged = computed(() => {
+  const start = (retouchesPagination.page - 1) * retouchesPagination.pageSize;
+  return retouchesFiltered.value.slice(start, start + retouchesPagination.pageSize);
+});
+const retouchesKpi = computed(() => ({
+  total: retouchesFiltered.value.length,
+  enCours: retouchesFiltered.value.filter((item) => item.statutRetouche === "EN_COURS").length,
+  livrees: retouchesFiltered.value.filter((item) => item.statutRetouche === "LIVREE").length,
+  avecSolde: retouchesSoldeRestantCount.value
+}));
+const retoucheClientOptions = computed(() => {
+  const query = retoucheClientQuery.value.trim().toLowerCase();
+  if (!query) return clients.value;
+  return clients.value.filter((client) => {
+    const haystack = `${client.idClient || ""} ${client.nom || ""} ${client.prenom || ""} ${client.telephone || ""}`.toLowerCase();
+    return haystack.includes(query);
+  });
+});
 
 const selectedCommande = computed(() =>
   commandesView.value.find((commande) => commande.idCommande === selectedCommandeId.value) || null
@@ -1000,7 +1300,12 @@ function navigateAudit(path, replace = false) {
   loadAuditPage(target);
 }
 
-function onBrowserNavigation() {
+async function onBrowserNavigation() {
+  const canLeave = await canLeaveSettings();
+  if (!canLeave) {
+    window.history.pushState({}, "", "/");
+    return;
+  }
   const auditPath = normalizeAuditPath(window.location.pathname);
   if (!auditPath) return;
   currentRoute.value = "audit";
@@ -1008,9 +1313,18 @@ function onBrowserNavigation() {
   loadAuditPage(auditPath);
 }
 
+function onBeforeUnload(event) {
+  if (currentRoute.value !== "parametres") return;
+  if (!settingsHasUnsavedChanges.value) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
+
 onMounted(async () => {
   syncRouteFromLocation();
+  loadClientConsultationSectionPreference();
   window.addEventListener("popstate", onBrowserNavigation);
+  window.addEventListener("beforeunload", onBeforeUnload);
   await loadAtelierSettings();
   await reloadAll();
   if (currentRoute.value === "audit") loadAuditPage(auditSubRoute.value);
@@ -1018,6 +1332,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener("popstate", onBrowserNavigation);
+  window.removeEventListener("beforeunload", onBeforeUnload);
 });
 
 watch(
@@ -1067,6 +1382,17 @@ watch(
 );
 
 watch(
+  () => clientConsultationSection.value,
+  (section) => {
+    try {
+      window.localStorage.setItem(CLIENT_CONSULT_SECTION_KEY, section);
+    } catch (err) {
+      console.warn("Failed to persist clients consultation section preference", err);
+    }
+  }
+);
+
+watch(
   () => [clientPagination.commandesPage, clientPagination.retouchesPage, clientPagination.mesuresPage],
   async () => {
     if (currentRoute.value === "clientsMesures" && selectedClientConsultationId.value) {
@@ -1074,6 +1400,39 @@ watch(
     }
   }
 );
+
+watch(
+  () => [retoucheFilters.statut, retoucheFilters.client, retoucheFilters.periode, retoucheFilters.soldeRestant, retoucheFilters.recherche, retouchesPagination.pageSize],
+  () => {
+    retouchesPagination.page = 1;
+  }
+);
+
+watch(retouchesPages, (total) => {
+  if (retouchesPagination.page > total) retouchesPagination.page = total;
+});
+
+watch(
+  () => [factureFilters.statut, factureFilters.source, factureFilters.recherche, factureFilters.soldeRestant, facturesPagination.pageSize],
+  () => {
+    facturesPagination.page = 1;
+  }
+);
+
+watch(facturesPages, (total) => {
+  if (facturesPagination.page > total) facturesPagination.page = total;
+});
+
+watch(
+  () => [filters.statut, filters.client, filters.periode, filters.soldeRestant, filters.recherche, commandesPagination.pageSize],
+  () => {
+    commandesPagination.page = 1;
+  }
+);
+
+watch(commandesPages, (total) => {
+  if (commandesPagination.page > total) commandesPagination.page = total;
+});
 
 watch(clientCommandesPages, (total) => {
   if (clientPagination.commandesPage > total) clientPagination.commandesPage = total;
@@ -1108,7 +1467,39 @@ function notify(message) {
   }, 2600);
 }
 
-function openRoute(routeId) {
+function resetRetoucheFilters() {
+  retoucheFilters.statut = "ALL";
+  retoucheFilters.client = "ALL";
+  retoucheFilters.periode = "ALL";
+  retoucheFilters.recherche = "";
+  retoucheFilters.soldeRestant = "ALL";
+  retoucheClientQuery.value = "";
+  retouchesPagination.page = 1;
+}
+
+function resetFactureFilters() {
+  factureFilters.statut = "ALL";
+  factureFilters.source = "ALL";
+  factureFilters.recherche = "";
+  factureFilters.soldeRestant = "ALL";
+  facturesPagination.page = 1;
+}
+
+function resetCommandeFilters() {
+  filters.statut = "ALL";
+  filters.client = "ALL";
+  filters.periode = "ALL";
+  filters.recherche = "";
+  filters.soldeRestant = "ALL";
+  commandeClientQuery.value = "";
+  commandesPagination.page = 1;
+}
+
+async function openRoute(routeId) {
+  if (routeId !== currentRoute.value) {
+    const canLeave = await canLeaveSettings();
+    if (!canLeave) return;
+  }
   if (routeId === "audit") {
     navigateAudit("/audit");
     return;
@@ -2832,6 +3223,14 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <article class="panel">
+          <div class="segmented">
+            <button class="mini-btn" :class="{ active: commandeSection === 'liste' }" @click="commandeSection = 'liste'">Liste</button>
+            <button class="mini-btn" :class="{ active: commandeSection === 'indicateurs' }" @click="commandeSection = 'indicateurs'">Indicateurs</button>
+            <button class="mini-btn" :class="{ active: commandeSection === 'actions' }" @click="commandeSection = 'actions'">Actions rapides</button>
+          </div>
+        </article>
+
+        <article v-show="commandeSection === 'liste'" class="panel">
           <h3>Filtres commandes</h3>
           <div class="filters compact">
             <select v-model="filters.statut">
@@ -2839,12 +3238,16 @@ async function loadRetoucheDetail(idRetouche) {
                 {{ status === "ALL" ? "Tous statuts" : status }}
               </option>
             </select>
-            <select v-model="filters.client">
+            <div class="commande-client-picker">
+              <input v-model.trim="commandeClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
+              <select v-model="filters.client">
               <option value="ALL">Tous clients</option>
-              <option v-for="client in clients" :key="client.idClient" :value="client.idClient">
+              <option value="" v-if="commandeClientOptions.length === 0">Aucun resultat</option>
+              <option v-for="client in commandeClientOptions" :key="client.idClient" :value="client.idClient">
                 {{ `${client.nom} ${client.prenom}`.trim() }}
               </option>
             </select>
+            </div>
             <select v-model="filters.periode">
               <option v-for="period in periodOptions" :key="period.value" :value="period.value">
                 {{ period.label }}
@@ -2857,82 +3260,134 @@ async function loadRetoucheDetail(idRetouche) {
             </select>
             <input v-model="filters.recherche" type="text" placeholder="Recherche client / id / statut" />
           </div>
+          <div class="panel-footer">
+            <button class="mini-btn" @click="resetCommandeFilters">Reinitialiser filtres</button>
+          </div>
+          <p class="helper" v-if="commandeClientQuery.trim() || filters.recherche.trim()">
+            Recherche active - {{ commandesFiltered.length }} resultat(s)
+          </p>
 
         </article>
 
-        <article class="panel">
+        <article v-show="commandeSection === 'indicateurs'" class="panel">
+          <h3>Indicateurs commandes</h3>
+          <div class="kpi-grid legacy-kpi-grid">
+            <div class="kpi-card legacy-kpi" data-tone="blue">
+              <div class="kpi-head"><span>Total</span></div>
+              <strong>{{ commandesKpi.total }}</strong>
+            </div>
+            <div class="kpi-card legacy-kpi" data-tone="teal">
+              <div class="kpi-head"><span>En cours</span></div>
+              <strong>{{ commandesKpi.enCours }}</strong>
+            </div>
+            <div class="kpi-card legacy-kpi" data-tone="green">
+              <div class="kpi-head"><span>Livrees</span></div>
+              <strong>{{ commandesKpi.livrees }}</strong>
+            </div>
+            <div class="kpi-card legacy-kpi" data-tone="amber">
+              <div class="kpi-head"><span>Solde restant</span></div>
+              <strong>{{ commandesKpi.avecSolde }}</strong>
+            </div>
+          </div>
+        </article>
+
+        <article v-show="commandeSection === 'actions'" class="panel">
+          <div class="quick-actions">
+            <button class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
+            <button class="action-btn green" @click="commandeSection = 'liste'">Voir la liste</button>
+            <button class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
+          </div>
+        </article>
+
+        <article v-show="commandeSection === 'liste'" class="panel">
           <div class="panel-header">
             <h3>Tableau des commandes API</h3>
             <span class="status-pill" data-tone="due">
               {{ commandesSoldeRestantCount }} avec solde restant
             </span>
           </div>
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Client</th>
-                <th>Description</th>
-                <th>Statut</th>
-                <th>Etat solde</th>
-                <th>Total</th>
-                <th>Paye</th>
-                <th>Solde</th>
-                <th>Date prevue</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="commande in commandesFiltered"
-                :key="commande.idCommande"
-                :class="[`status-row-${commande.statutCommande}`, { selected: selectedCommandeId === commande.idCommande }]"
-              >
-                <td>{{ commande.idCommande }}</td>
-                <td>{{ commande.clientNom }}</td>
-                <td>{{ commande.descriptionCommande }}</td>
-                <td>
-                  <span class="status-pill" :data-status="commande.statutCommande">{{ commande.statutCommande }}</span>
-                </td>
-                <td>
-                  <span class="status-pill" :data-tone="commande.soldeRestant === 0 ? 'ok' : 'due'">
-                    {{ commande.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
-                  </span>
-                </td>
-                <td>{{ formatCurrency(commande.montantTotal) }}</td>
-                <td>{{ formatCurrency(commande.montantPaye) }}</td>
-                <td>{{ formatCurrency(commande.soldeRestant) }}</td>
-                <td>{{ commande.datePrevue || "-" }}</td>
-                <td class="row-actions">
-                  <button class="mini-btn" @click="onVoirCommande(commande)">
-                    <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path v-for="(path, i) in iconPaths.eye" :key="`see-${commande.idCommande}-${i}`" :d="path" />
-                    </svg>
-                    Voir
-                  </button>
-                  <button class="mini-btn" v-if="canPayer(commande)" @click="onPaiementCommande(commande)">
-                    <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path v-for="(path, i) in iconPaths.cash" :key="`cash-${commande.idCommande}-${i}`" :d="path" />
-                    </svg>
-                    Paiement
-                  </button>
-                  <button class="mini-btn" v-if="canLivrer(commande)" @click="onLivrerCommande(commande)">
-                    <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path v-for="(path, i) in iconPaths.check" :key="`liv-${commande.idCommande}-${i}`" :d="path" />
-                    </svg>
-                    Livrer
-                  </button>
-                  <button class="mini-btn" v-if="canAnnuler(commande)" @click="onAnnulerCommande(commande)">
-                    <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3 3l18 18" />
-                      <path d="M21 3L3 21" />
-                    </svg>
-                    Annuler
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="table-scroll-x">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Client</th>
+                  <th>Description</th>
+                  <th>Statut</th>
+                  <th>Etat solde</th>
+                  <th>Total</th>
+                  <th>Paye</th>
+                  <th>Solde</th>
+                  <th>Date prevue</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="commande in commandesPaged"
+                  :key="commande.idCommande"
+                  :class="[`status-row-${commande.statutCommande}`, { selected: selectedCommandeId === commande.idCommande }]"
+                >
+                  <td>{{ commande.idCommande }}</td>
+                  <td>{{ commande.clientNom }}</td>
+                  <td>{{ commande.descriptionCommande }}</td>
+                  <td>
+                    <span class="status-pill" :data-status="commande.statutCommande">{{ commande.statutCommande }}</span>
+                  </td>
+                  <td>
+                    <span class="status-pill" :data-tone="commande.soldeRestant === 0 ? 'ok' : 'due'">
+                      {{ commande.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
+                    </span>
+                  </td>
+                  <td>{{ formatCurrency(commande.montantTotal) }}</td>
+                  <td>{{ formatCurrency(commande.montantPaye) }}</td>
+                  <td>{{ formatCurrency(commande.soldeRestant) }}</td>
+                  <td>{{ commande.datePrevue || "-" }}</td>
+                  <td class="row-actions">
+                    <button class="mini-btn" @click="onVoirCommande(commande)">
+                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path v-for="(path, i) in iconPaths.eye" :key="`see-${commande.idCommande}-${i}`" :d="path" />
+                      </svg>
+                      Voir
+                    </button>
+                    <button class="mini-btn" v-if="canPayer(commande)" @click="onPaiementCommande(commande)">
+                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path v-for="(path, i) in iconPaths.cash" :key="`cash-${commande.idCommande}-${i}`" :d="path" />
+                      </svg>
+                      Paiement
+                    </button>
+                    <button class="mini-btn" v-if="canLivrer(commande)" @click="onLivrerCommande(commande)">
+                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path v-for="(path, i) in iconPaths.check" :key="`liv-${commande.idCommande}-${i}`" :d="path" />
+                      </svg>
+                      Livrer
+                    </button>
+                    <button class="mini-btn" v-if="canAnnuler(commande)" @click="onAnnulerCommande(commande)">
+                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 3l18 18" />
+                        <path d="M21 3L3 21" />
+                      </svg>
+                      Annuler
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="commandesFiltered.length === 0">
+                  <td colspan="10">Aucune commande ne correspond aux filtres actuels.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="panel-footer table-pagination">
+            <select v-model.number="commandesPagination.pageSize">
+              <option :value="5">5 / page</option>
+              <option :value="10">10 / page</option>
+              <option :value="20">20 / page</option>
+              <option :value="50">50 / page</option>
+            </select>
+            <button class="mini-btn" :disabled="commandesPagination.page <= 1" @click="commandesPagination.page -= 1">Precedent</button>
+            <span>Page {{ commandesPagination.page }} / {{ commandesPages }}</span>
+            <button class="mini-btn" :disabled="commandesPagination.page >= commandesPages" @click="commandesPagination.page += 1">Suivant</button>
+          </div>
         </article>
       </section>
 
@@ -2948,6 +3403,14 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <article class="panel">
+          <div class="segmented">
+            <button class="mini-btn" :class="{ active: retoucheSection === 'liste' }" @click="retoucheSection = 'liste'">Liste</button>
+            <button class="mini-btn" :class="{ active: retoucheSection === 'kpi' }" @click="retoucheSection = 'kpi'">Indicateurs</button>
+            <button class="mini-btn" :class="{ active: retoucheSection === 'actions' }" @click="retoucheSection = 'actions'">Actions rapides</button>
+          </div>
+        </article>
+
+        <article v-show="retoucheSection === 'liste'" class="panel">
           <h3>Filtres retouches</h3>
           <div class="filters compact">
             <select v-model="retoucheFilters.statut">
@@ -2955,12 +3418,16 @@ async function loadRetoucheDetail(idRetouche) {
                 {{ status === "ALL" ? "Tous statuts" : status }}
               </option>
             </select>
-            <select v-model="retoucheFilters.client">
+            <div class="retouche-client-picker">
+              <input v-model.trim="retoucheClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
+              <select v-model="retoucheFilters.client">
               <option value="ALL">Tous clients</option>
-              <option v-for="client in clients" :key="client.idClient" :value="client.idClient">
+              <option value="" v-if="retoucheClientOptions.length === 0">Aucun resultat</option>
+              <option v-for="client in retoucheClientOptions" :key="client.idClient" :value="client.idClient">
                 {{ `${client.nom} ${client.prenom}`.trim() }}
               </option>
             </select>
+            </div>
             <select v-model="retoucheFilters.periode">
               <option v-for="period in periodOptions" :key="period.value" :value="period.value">
                 {{ period.label }}
@@ -2973,96 +3440,150 @@ async function loadRetoucheDetail(idRetouche) {
             </select>
             <input v-model="retoucheFilters.recherche" type="text" placeholder="Recherche client / id / statut" />
           </div>
+          <div class="panel-footer">
+            <button class="mini-btn" @click="resetRetoucheFilters">Reinitialiser filtres</button>
+          </div>
+          <p class="helper" v-if="retoucheClientQuery.trim() || retoucheFilters.recherche.trim()">
+            Recherche active - {{ retouchesFiltered.length }} resultat(s)
+          </p>
 
         </article>
 
-        <article class="panel">
+        <article v-show="retoucheSection === 'kpi'" class="panel">
+          <h3>Indicateurs retouches</h3>
+          <div class="kpi-grid legacy-kpi-grid">
+            <div class="kpi-card legacy-kpi" data-tone="teal">
+              <div class="kpi-head"><span>Total</span></div>
+              <strong>{{ retouchesKpi.total }}</strong>
+            </div>
+            <div class="kpi-card legacy-kpi" data-tone="blue">
+              <div class="kpi-head"><span>En cours</span></div>
+              <strong>{{ retouchesKpi.enCours }}</strong>
+            </div>
+            <div class="kpi-card legacy-kpi" data-tone="green">
+              <div class="kpi-head"><span>Livrees</span></div>
+              <strong>{{ retouchesKpi.livrees }}</strong>
+            </div>
+            <div class="kpi-card legacy-kpi" data-tone="amber">
+              <div class="kpi-head"><span>Solde restant</span></div>
+              <strong>{{ retouchesKpi.avecSolde }}</strong>
+            </div>
+          </div>
+        </article>
+
+        <article v-show="retoucheSection === 'actions'" class="panel">
+          <div class="quick-actions">
+            <button class="action-btn blue" @click="openNouvelleRetouche">Nouvelle retouche</button>
+            <button class="action-btn green" @click="retoucheSection = 'liste'">Voir la liste</button>
+            <button class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
+          </div>
+        </article>
+
+        <article v-show="retoucheSection === 'liste'" class="panel">
           <div class="panel-header">
             <h3>Tableau des retouches API</h3>
             <span class="status-pill" data-tone="due">
               {{ retouchesSoldeRestantCount }} avec solde restant
             </span>
           </div>
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Client</th>
-                <th>Type</th>
-                <th>Description</th>
-                <th>Statut</th>
-                <th>Etat solde</th>
-                <th>Total</th>
-                <th>Paye</th>
-                <th>Solde</th>
-                <th>Date depot</th>
-                <th>Date prevue</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="retouche in retouchesFiltered"
-                :key="retouche.idRetouche"
-                :class="[`status-row-${retouche.statutRetouche}`, { selected: selectedRetoucheId === retouche.idRetouche }]"
-              >
-                <td>{{ retouche.idRetouche }}</td>
-                <td>{{ retouche.clientNom }}</td>
-                <td>{{ retouche.typeRetouche || "-" }}</td>
-                <td>{{ retouche.descriptionRetouche }}</td>
-                <td>
-                  <span class="status-pill" :data-status="retouche.statutRetouche">{{ retouche.statutRetouche }}</span>
-                </td>
-                <td>
-                  <span class="status-pill" :data-tone="retouche.soldeRestant === 0 ? 'ok' : 'due'">
-                    {{ retouche.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
-                  </span>
-                </td>
-                <td>{{ formatCurrency(retouche.montantTotal) }}</td>
-                <td>{{ formatCurrency(retouche.montantPaye) }}</td>
-                <td>{{ formatCurrency(retouche.soldeRestant) }}</td>
-                <td>{{ retouche.dateDepot || "-" }}</td>
-                <td>{{ retouche.datePrevue || "-" }}</td>
-                <td class="row-actions">
-                  <button class="mini-btn" @click="onVoirRetouche(retouche)">
-                    <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path v-for="(path, i) in iconPaths.eye" :key="`see-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                    </svg>
-                    Voir
-                  </button>
-                  <button class="mini-btn" v-if="canPayerRetouche(retouche)" @click="onPaiementRetouche(retouche)">
-                    <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path v-for="(path, i) in iconPaths.cash" :key="`cash-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                    </svg>
-                    Paiement
-                  </button>
-                  <button class="mini-btn" v-if="canLivrerRetouche(retouche)" @click="onLivrerRetouche(retouche)">
-                    <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path v-for="(path, i) in iconPaths.check" :key="`liv-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                    </svg>
-                    Livrer
-                  </button>
-                  <button class="mini-btn" v-if="canAnnulerRetouche(retouche)" @click="onAnnulerRetouche(retouche)">
-                    <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M3 3l18 18" />
-                      <path d="M21 3L3 21" />
-                    </svg>
-                    Annuler
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="table-scroll-x">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Client</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                  <th>Statut</th>
+                  <th>Etat solde</th>
+                  <th>Total</th>
+                  <th>Paye</th>
+                  <th>Solde</th>
+                  <th>Date depot</th>
+                  <th>Date prevue</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="retouche in retouchesPaged"
+                  :key="retouche.idRetouche"
+                  :class="[`status-row-${retouche.statutRetouche}`, { selected: selectedRetoucheId === retouche.idRetouche }]"
+                >
+                  <td>{{ retouche.idRetouche }}</td>
+                  <td>{{ retouche.clientNom }}</td>
+                  <td>{{ retouche.typeRetouche || "-" }}</td>
+                  <td>{{ retouche.descriptionRetouche }}</td>
+                  <td>
+                    <span class="status-pill" :data-status="retouche.statutRetouche">{{ retouche.statutRetouche }}</span>
+                  </td>
+                  <td>
+                    <span class="status-pill" :data-tone="retouche.soldeRestant === 0 ? 'ok' : 'due'">
+                      {{ retouche.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
+                    </span>
+                  </td>
+                  <td>{{ formatCurrency(retouche.montantTotal) }}</td>
+                  <td>{{ formatCurrency(retouche.montantPaye) }}</td>
+                  <td>{{ formatCurrency(retouche.soldeRestant) }}</td>
+                  <td>{{ retouche.dateDepot || "-" }}</td>
+                  <td>{{ retouche.datePrevue || "-" }}</td>
+                  <td class="row-actions">
+                    <button class="mini-btn" @click="onVoirRetouche(retouche)">
+                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path v-for="(path, i) in iconPaths.eye" :key="`see-ret-${retouche.idRetouche}-${i}`" :d="path" />
+                      </svg>
+                      Voir
+                    </button>
+                    <button class="mini-btn" v-if="canPayerRetouche(retouche)" @click="onPaiementRetouche(retouche)">
+                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path v-for="(path, i) in iconPaths.cash" :key="`cash-ret-${retouche.idRetouche}-${i}`" :d="path" />
+                      </svg>
+                      Paiement
+                    </button>
+                    <button class="mini-btn" v-if="canLivrerRetouche(retouche)" @click="onLivrerRetouche(retouche)">
+                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path v-for="(path, i) in iconPaths.check" :key="`liv-ret-${retouche.idRetouche}-${i}`" :d="path" />
+                      </svg>
+                      Livrer
+                    </button>
+                    <button class="mini-btn" v-if="canAnnulerRetouche(retouche)" @click="onAnnulerRetouche(retouche)">
+                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 3l18 18" />
+                        <path d="M21 3L3 21" />
+                      </svg>
+                      Annuler
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="retouchesFiltered.length === 0">
+                  <td colspan="12">Aucune retouche ne correspond aux filtres actuels.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="panel-footer table-pagination">
+            <select v-model.number="retouchesPagination.pageSize">
+              <option :value="5">5 / page</option>
+              <option :value="10">10 / page</option>
+              <option :value="20">20 / page</option>
+              <option :value="50">50 / page</option>
+            </select>
+            <button class="mini-btn" :disabled="retouchesPagination.page <= 1" @click="retouchesPagination.page -= 1">Precedent</button>
+            <span>Page {{ retouchesPagination.page }} / {{ retouchesPages }}</span>
+            <button class="mini-btn" :disabled="retouchesPagination.page >= retouchesPages" @click="retouchesPagination.page += 1">Suivant</button>
+          </div>
         </article>
       </section>
 
         <section v-else-if="currentRoute === 'clientsMesures'" class="commandes-page">
         <article class="panel panel-header">
           <h3>Fiche Client - Consultation</h3>
-          <div class="filters compact" style="min-width: 320px;">
+          <div class="filters compact client-consultation-picker" style="min-width: 320px;">
+            <input v-model.trim="clientConsultationQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
             <select v-model="selectedClientConsultationId">
               <option value="" v-if="clients.length === 0">Aucun client disponible</option>
-              <option v-for="client in clients" :key="`consult-${client.idClient}`" :value="client.idClient">
+              <option value="" v-else-if="clientConsultationClientOptions.length === 0">Aucun resultat</option>
+              <option v-for="client in clientConsultationClientOptions" :key="`consult-${client.idClient}`" :value="client.idClient">
                 {{ `${client.nom} ${client.prenom}`.trim() }} - {{ client.telephone }}
               </option>
             </select>
@@ -3151,30 +3672,50 @@ async function loadRetoucheDetail(idRetouche) {
           </article>
 
           <article class="panel">
+            <div class="panel-header">
+              <h3>Historique client</h3>
+              <div class="segmented">
+                <button class="mini-btn" :class="{ active: clientConsultationSection === 'commandes' }" @click="clientConsultationSection = 'commandes'">
+                  Commandes ({{ clientConsultationResultats.commandes }})
+                </button>
+                <button class="mini-btn" :class="{ active: clientConsultationSection === 'retouches' }" @click="clientConsultationSection = 'retouches'">
+                  Retouches ({{ clientConsultationResultats.retouches }})
+                </button>
+                <button class="mini-btn" :class="{ active: clientConsultationSection === 'mesures' }" @click="clientConsultationSection = 'mesures'">
+                  Mesures ({{ clientConsultationResultats.mesures }})
+                </button>
+              </div>
+            </div>
+            <p class="helper">Affichage par section pour reduire la densite visuelle.</p>
+          </article>
+
+          <article v-show="clientConsultationSection === 'commandes'" class="panel">
             <h3>Historique des commandes ({{ clientConsultationResultats.commandes }})</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type d'habit</th>
-                  <th>Statut</th>
-                  <th>Montant</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in clientCommandesPaged" :key="`cc-${row.idCommande}`">
-                  <td>{{ row.date || "-" }}</td>
-                  <td>{{ row.typeHabit || "-" }}</td>
-                  <td>{{ row.statut || "-" }}</td>
-                  <td>{{ formatCurrency(row.montant) }}</td>
-                  <td><button class="mini-btn" @click="openCommandeDetail(row.idCommande)">Voir</button></td>
-                </tr>
-                <tr v-if="clientFilteredCommandes.length === 0">
-                  <td colspan="5">Aucune commande pour les filtres selectionnes.</td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="table-scroll-x">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type d'habit</th>
+                    <th>Statut</th>
+                    <th>Montant</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in clientCommandesPaged" :key="`cc-${row.idCommande}`">
+                    <td>{{ row.date || "-" }}</td>
+                    <td>{{ row.typeHabit || "-" }}</td>
+                    <td>{{ row.statut || "-" }}</td>
+                    <td>{{ formatCurrency(row.montant) }}</td>
+                    <td><button class="mini-btn" @click="openCommandeDetail(row.idCommande)">Voir</button></td>
+                  </tr>
+                  <tr v-if="clientFilteredCommandes.length === 0">
+                    <td colspan="5">Aucune commande pour les filtres selectionnes.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <div class="panel-footer">
               <button class="mini-btn" :disabled="clientPagination.commandesPage <= 1" @click="setClientPage('commandes', clientPagination.commandesPage - 1)">Precedent</button>
               <span>Page {{ clientPagination.commandesPage }} / {{ clientCommandesPages }}</span>
@@ -3182,33 +3723,35 @@ async function loadRetoucheDetail(idRetouche) {
             </div>
           </article>
 
-          <article class="panel">
+          <article v-show="clientConsultationSection === 'retouches'" class="panel">
             <h3>Historique des retouches ({{ clientConsultationResultats.retouches }})</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type d'habit</th>
-                  <th>Type retouche</th>
-                  <th>Statut</th>
-                  <th>Montant</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in clientRetouchesPaged" :key="`cr-${row.idRetouche}`">
-                  <td>{{ row.date || "-" }}</td>
-                  <td>{{ row.typeHabit || "-" }}</td>
-                  <td>{{ row.typeRetouche || "-" }}</td>
-                  <td>{{ row.statut || "-" }}</td>
-                  <td>{{ formatCurrency(row.montant) }}</td>
-                  <td><button class="mini-btn" @click="openRetoucheDetail(row.idRetouche)">Voir</button></td>
-                </tr>
-                <tr v-if="clientFilteredRetouches.length === 0">
-                  <td colspan="6">Aucune retouche pour les filtres selectionnes.</td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="table-scroll-x">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type d'habit</th>
+                    <th>Type retouche</th>
+                    <th>Statut</th>
+                    <th>Montant</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in clientRetouchesPaged" :key="`cr-${row.idRetouche}`">
+                    <td>{{ row.date || "-" }}</td>
+                    <td>{{ row.typeHabit || "-" }}</td>
+                    <td>{{ row.typeRetouche || "-" }}</td>
+                    <td>{{ row.statut || "-" }}</td>
+                    <td>{{ formatCurrency(row.montant) }}</td>
+                    <td><button class="mini-btn" @click="openRetoucheDetail(row.idRetouche)">Voir</button></td>
+                  </tr>
+                  <tr v-if="clientFilteredRetouches.length === 0">
+                    <td colspan="6">Aucune retouche pour les filtres selectionnes.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <div class="panel-footer">
               <button class="mini-btn" :disabled="clientPagination.retouchesPage <= 1" @click="setClientPage('retouches', clientPagination.retouchesPage - 1)">Precedent</button>
               <span>Page {{ clientPagination.retouchesPage }} / {{ clientRetouchesPages }}</span>
@@ -3216,36 +3759,38 @@ async function loadRetoucheDetail(idRetouche) {
             </div>
           </article>
 
-          <article class="panel">
+          <article v-show="clientConsultationSection === 'mesures'" class="panel">
             <h3>Historique des mesures ({{ clientConsultationResultats.mesures }})</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Date de prise</th>
-                  <th>Type d'habit</th>
-                  <th>Source</th>
-                  <th>Mesures</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(row, index) in clientMesuresPaged" :key="`cm-${row.source}-${row.idOrigine}-${index}`">
-                  <td>{{ row.datePrise || "-" }}</td>
-                  <td>{{ row.typeHabit || "-" }}</td>
-                  <td>{{ row.source || "-" }}</td>
-                  <td>
-                    <template v-for="(line, idx) in formatMesuresLines(row.mesures)" :key="`cm-line-${index}-${idx}`">
-                      <div>{{ line }}</div>
-                    </template>
-                    <div v-if="formatMesuresLines(row.mesures).length === 0">Aucune mesure</div>
-                  </td>
-                  <td><button class="mini-btn" @click="onVoirOrigineMesure(row)">Voir</button></td>
-                </tr>
-                <tr v-if="clientFilteredMesures.length === 0">
-                  <td colspan="5">Aucun snapshot de mesures pour les filtres selectionnes.</td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="table-scroll-x">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Date de prise</th>
+                    <th>Type d'habit</th>
+                    <th>Source</th>
+                    <th>Mesures</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, index) in clientMesuresPaged" :key="`cm-${row.source}-${row.idOrigine}-${index}`">
+                    <td>{{ row.datePrise || "-" }}</td>
+                    <td>{{ row.typeHabit || "-" }}</td>
+                    <td>{{ row.source || "-" }}</td>
+                    <td>
+                      <template v-for="(line, idx) in formatMesuresLines(row.mesures)" :key="`cm-line-${index}-${idx}`">
+                        <div>{{ line }}</div>
+                      </template>
+                      <div v-if="formatMesuresLines(row.mesures).length === 0">Aucune mesure</div>
+                    </td>
+                    <td><button class="mini-btn" @click="onVoirOrigineMesure(row)">Voir</button></td>
+                  </tr>
+                  <tr v-if="clientFilteredMesures.length === 0">
+                    <td colspan="5">Aucun snapshot de mesures pour les filtres selectionnes.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <div class="panel-footer">
               <button class="mini-btn" :disabled="clientPagination.mesuresPage <= 1" @click="setClientPage('mesures', clientPagination.mesuresPage - 1)">Precedent</button>
               <span>Page {{ clientPagination.mesuresPage }} / {{ clientMesuresPages }}</span>
@@ -3813,41 +4358,121 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <article class="panel">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Numero</th>
-                <th>Client</th>
-                <th>Origine</th>
-                <th>Date emission</th>
-                <th>Montant total</th>
-                <th>Montant paye</th>
-                <th>Solde</th>
-                <th>Statut</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="facture in facturesView" :key="facture.idFacture">
-                <td>{{ facture.numeroFacture }}</td>
-                <td>{{ facture.client?.nom || "-" }}</td>
-                <td>{{ facture.typeOrigine }} / {{ facture.idOrigine }}</td>
-                <td>{{ formatDateTime(facture.dateEmission) }}</td>
-                <td>{{ formatCurrency(facture.montantTotal) }}</td>
-                <td>{{ formatCurrency(facture.montantPaye) }}</td>
-                <td>{{ formatCurrency(facture.solde) }}</td>
-                <td>{{ facture.statut }}</td>
-                <td class="actions-cell">
-                  <button class="mini-btn" @click="onVoirFacture(facture)">Voir</button>
-                  <button class="mini-btn" @click="onImprimerFacture(facture)">Imprimer</button>
-                  <button class="mini-btn" @click="onGenererPdfFacture(facture)">PDF</button>
-                </td>
-              </tr>
-              <tr v-if="facturesView.length === 0">
-                <td colspan="9">Aucune facture emise.</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="segmented">
+            <button class="mini-btn" :class="{ active: factureSection === 'liste' }" @click="factureSection = 'liste'">Liste</button>
+            <button class="mini-btn" :class="{ active: factureSection === 'indicateurs' }" @click="factureSection = 'indicateurs'">Indicateurs</button>
+            <button class="mini-btn" :class="{ active: factureSection === 'actions' }" @click="factureSection = 'actions'">Actions rapides</button>
+          </div>
+        </article>
+
+        <article v-show="factureSection === 'liste'" class="panel">
+          <h3>Filtres factures</h3>
+          <div class="filters compact">
+            <select v-model="factureFilters.statut">
+              <option v-for="status in factureStatusOptions" :key="`fac-st-${status}`" :value="status">
+                {{ status === "ALL" ? "Tous statuts" : status }}
+              </option>
+            </select>
+            <select v-model="factureFilters.source">
+              <option value="ALL">Toutes origines</option>
+              <option value="COMMANDE">Commande</option>
+              <option value="RETOUCHE">Retouche</option>
+              <option value="VENTE">Vente</option>
+            </select>
+            <select v-model="factureFilters.soldeRestant">
+              <option v-for="option in soldeOptions" :key="`fac-solde-${option.value}`" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+            <input v-model="factureFilters.recherche" type="text" placeholder="Recherche numero / client / origine" />
+          </div>
+          <div class="panel-footer">
+            <button class="mini-btn" @click="resetFactureFilters">Reinitialiser filtres</button>
+          </div>
+          <p class="helper" v-if="factureFilters.recherche.trim()">
+            Recherche active - {{ facturesFiltered.length }} resultat(s)
+          </p>
+        </article>
+
+        <article v-show="factureSection === 'indicateurs'" class="panel">
+          <h3>Indicateurs factures</h3>
+          <div class="kpi-grid legacy-kpi-grid">
+            <div class="kpi-card legacy-kpi" data-tone="blue">
+              <div class="kpi-head"><span>Total</span></div>
+              <strong>{{ facturesKpi.total }}</strong>
+            </div>
+            <div class="kpi-card legacy-kpi" data-tone="green">
+              <div class="kpi-head"><span>Reglees</span></div>
+              <strong>{{ facturesKpi.reglees }}</strong>
+            </div>
+            <div class="kpi-card legacy-kpi" data-tone="amber">
+              <div class="kpi-head"><span>En attente</span></div>
+              <strong>{{ facturesKpi.enAttente }}</strong>
+            </div>
+            <div class="kpi-card legacy-kpi" data-tone="slate">
+              <div class="kpi-head"><span>Montant total</span></div>
+              <strong>{{ formatCurrency(facturesKpi.montantTotal) }}</strong>
+            </div>
+          </div>
+        </article>
+
+        <article v-show="factureSection === 'actions'" class="panel">
+          <div class="quick-actions">
+            <button class="action-btn blue" @click="onEmettreFacture">Emettre facture</button>
+            <button class="action-btn green" @click="factureSection = 'liste'">Voir la liste</button>
+            <button class="action-btn amber" @click="openRoute('audit')">Ouvrir audit</button>
+          </div>
+        </article>
+
+        <article v-show="factureSection === 'liste'" class="panel">
+          <div class="table-scroll-x">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Numero</th>
+                  <th>Client</th>
+                  <th>Origine</th>
+                  <th>Date emission</th>
+                  <th>Montant total</th>
+                  <th>Montant paye</th>
+                  <th>Solde</th>
+                  <th>Statut</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="facture in facturesPaged" :key="facture.idFacture">
+                  <td>{{ facture.numeroFacture }}</td>
+                  <td>{{ facture.client?.nom || "-" }}</td>
+                  <td>{{ facture.typeOrigine }} / {{ facture.idOrigine }}</td>
+                  <td>{{ formatDateTime(facture.dateEmission) }}</td>
+                  <td>{{ formatCurrency(facture.montantTotal) }}</td>
+                  <td>{{ formatCurrency(facture.montantPaye) }}</td>
+                  <td>{{ formatCurrency(facture.solde) }}</td>
+                  <td>{{ facture.statut }}</td>
+                  <td class="actions-cell">
+                    <button class="mini-btn" @click="onVoirFacture(facture)">Voir</button>
+                    <button class="mini-btn" @click="onImprimerFacture(facture)">Imprimer</button>
+                    <button class="mini-btn" @click="onGenererPdfFacture(facture)">PDF</button>
+                  </td>
+                </tr>
+                <tr v-if="facturesFiltered.length === 0">
+                  <td colspan="9">Aucune facture ne correspond aux filtres actuels.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="panel-footer table-pagination">
+            <select v-model.number="facturesPagination.pageSize">
+              <option :value="5">5 / page</option>
+              <option :value="10">10 / page</option>
+              <option :value="20">20 / page</option>
+              <option :value="50">50 / page</option>
+            </select>
+            <button class="mini-btn" :disabled="facturesPagination.page <= 1" @click="facturesPagination.page -= 1">Precedent</button>
+            <span>Page {{ facturesPagination.page }} / {{ facturesPages }}</span>
+            <button class="mini-btn" :disabled="facturesPagination.page >= facturesPages" @click="facturesPagination.page += 1">Suivant</button>
+          </div>
         </article>
       </section>
 
@@ -3864,16 +4489,38 @@ async function loadRetoucheDetail(idRetouche) {
             <span class="status-pill" :data-tone="settingsCanEdit ? 'ok' : 'due'">
               {{ settingsCanEdit ? "Edition active" : "Lecture seule" }}
             </span>
-            <button class="mini-btn" @click="toggleSettingsEdit">
+            <button class="mini-btn" :disabled="settingsSaving" @click="toggleSettingsEdit">
               {{ settingsCanEdit ? "Verrouiller" : "Activer modifications" }}
             </button>
-            <button class="action-btn blue" :disabled="!settingsCanEdit" @click="saveAtelierSettings">Sauvegarder</button>
-            <button class="mini-btn" :disabled="!settingsCanEdit" @click="resetAtelierSettings">Reinitialiser</button>
+            <button class="action-btn blue" :disabled="!settingsCanEdit || settingsSaving" @click="saveAtelierSettings">
+              {{ settingsSaving ? "Sauvegarde..." : "Sauvegarder" }}
+            </button>
+            <button class="mini-btn" :disabled="!settingsCanEdit || settingsSaving" @click="resetAtelierSettings">Reinitialiser</button>
           </div>
+        </article>
+
+        <article class="panel settings-tabs" role="tablist" aria-label="Sections parametres">
+          <button
+            v-for="tab in settingsTabs"
+            :key="`settings-tab-${tab.id}`"
+            class="mini-btn settings-tab-btn"
+            :class="{ active: settingsActiveTab === tab.id }"
+            role="tab"
+            :aria-selected="settingsActiveTab === tab.id"
+            @click="settingsActiveTab = tab.id"
+          >
+            {{ tab.label }}
+            <span v-if="settingsTabIsDirty(tab.id)" class="tab-dirty-dot" aria-hidden="true"></span>
+          </button>
+          <span v-if="settingsHasUnsavedChanges" class="status-pill" data-tone="due">Non sauvegarde</span>
         </article>
 
         <article v-if="settingsLoading" class="panel">
           <p>Chargement des parametres...</p>
+        </article>
+
+        <article v-if="settingsSaving" class="panel info-panel">
+          <p>Sauvegarde des parametres en cours...</p>
         </article>
 
         <article v-if="settingsError" class="panel error-panel">
@@ -3881,7 +4528,7 @@ async function loadRetoucheDetail(idRetouche) {
           <p>{{ settingsError }}</p>
         </article>
 
-        <article class="panel settings-section">
+        <article v-show="settingsActiveTab === 'identite'" id="settings-identite" class="panel settings-section" role="tabpanel">
           <h3>Identite de l'atelier</h3>
           <p class="helper">Utilise pour factures, impressions et exports.</p>
           <div class="settings-grid">
@@ -3914,7 +4561,7 @@ async function loadRetoucheDetail(idRetouche) {
           </div>
         </article>
 
-        <article class="panel settings-section">
+        <article v-show="settingsActiveTab === 'commandes'" id="settings-commandes" class="panel settings-section" role="tabpanel">
           <h3>Regles de commande</h3>
           <div class="settings-grid">
             <label class="helper">
@@ -3940,7 +4587,7 @@ async function loadRetoucheDetail(idRetouche) {
           </div>
         </article>
 
-        <article class="panel settings-section">
+        <article v-show="settingsActiveTab === 'retouches'" id="settings-retouches" class="panel settings-section" role="tabpanel">
           <h3>Regles de retouche</h3>
           <div class="settings-grid">
             <label class="helper">
@@ -3958,7 +4605,7 @@ async function loadRetoucheDetail(idRetouche) {
           </div>
         </article>
 
-        <article class="panel settings-section">
+        <article v-show="settingsActiveTab === 'mesures'" id="settings-mesures" class="panel settings-section" role="tabpanel">
           <h3>Types d'habits & structure des mesures</h3>
           <p class="helper">Configuration des champs attendus, pas des valeurs.</p>
           <div class="measure-config-grid">
@@ -3966,43 +4613,66 @@ async function loadRetoucheDetail(idRetouche) {
               <div class="panel-header detail-panel-header">
                 <h4>{{ habit.label }}</h4>
                 <div class="row-actions">
+                  <button class="mini-btn measure-mobile-toggle" @click="toggleHabitExpanded(habit.key)">
+                    {{ isHabitExpanded(habit.key) ? "Masquer mesures" : "Afficher mesures" }}
+                  </button>
                   <button class="mini-btn" :disabled="!settingsCanEdit" @click="addMesureToHabit(habit.key)">
                     Ajouter mesure
                   </button>
                 </div>
               </div>
-              <table class="data-table compact">
-                <thead>
-                  <tr>
-                    <th>Mesure</th>
-                    <th>Code</th>
-                    <th>Obligatoire</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(mesure, index) in habit.mesures" :key="`${habit.key}-${mesure.code}-${index}`">
-                    <td>
-                      <input v-model="mesure.label" type="text" :disabled="!settingsCanEdit" />
-                    </td>
-                    <td>{{ mesure.code }}</td>
-                    <td>
-                      <input v-model="mesure.obligatoire" type="checkbox" :disabled="!settingsCanEdit" />
-                    </td>
-                    <td>
-                      <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(habit.key, index)">Retirer</button>
-                    </td>
-                  </tr>
-                  <tr v-if="habit.mesures.length === 0">
-                    <td colspan="4">Aucune mesure configuree.</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="table-scroll-x">
+                <table class="data-table compact measure-table">
+                  <thead>
+                    <tr>
+                      <th>Mesure</th>
+                      <th>Code</th>
+                      <th>Obligatoire</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(mesure, index) in habit.mesures" :key="`${habit.key}-${mesure.code}-${index}`">
+                      <td>
+                        <input v-model="mesure.label" type="text" :disabled="!settingsCanEdit" />
+                      </td>
+                      <td>{{ mesure.code }}</td>
+                      <td>
+                        <input v-model="mesure.obligatoire" type="checkbox" :disabled="!settingsCanEdit" />
+                      </td>
+                      <td>
+                        <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(habit.key, index)">Retirer</button>
+                      </td>
+                    </tr>
+                    <tr v-if="habit.mesures.length === 0">
+                      <td colspan="4">Aucune mesure configuree.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="isHabitExpanded(habit.key)" class="measure-cards">
+                <article v-for="(mesure, index) in habit.mesures" :key="`card-${habit.key}-${mesure.code}-${index}`" class="measure-card">
+                  <div class="measure-card-head">
+                    <strong>{{ mesure.label }}</strong>
+                    <span class="helper">{{ mesure.code }}</span>
+                  </div>
+                  <div class="stack-form">
+                    <label>Libelle</label>
+                    <input v-model="mesure.label" type="text" :disabled="!settingsCanEdit" />
+                  </div>
+                  <label class="helper">
+                    <input v-model="mesure.obligatoire" type="checkbox" :disabled="!settingsCanEdit" />
+                    Mesure obligatoire
+                  </label>
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(habit.key, index)">Retirer</button>
+                </article>
+                <p v-if="habit.mesures.length === 0" class="helper">Aucune mesure configuree.</p>
+              </div>
             </article>
           </div>
         </article>
 
-        <article class="panel settings-section">
+        <article v-show="settingsActiveTab === 'caisse'" id="settings-caisse" class="panel settings-section" role="tabpanel">
           <h3>Regles de caisse (configuration)</h3>
           <div class="settings-grid">
             <div class="stack-form">
@@ -4028,7 +4698,7 @@ async function loadRetoucheDetail(idRetouche) {
           </div>
         </article>
 
-        <article class="panel settings-section">
+        <article v-show="settingsActiveTab === 'facturation'" id="settings-facturation" class="panel settings-section" role="tabpanel">
           <h3>Facturation</h3>
           <div class="settings-grid">
             <div class="stack-form">
@@ -4050,7 +4720,7 @@ async function loadRetoucheDetail(idRetouche) {
           </div>
         </article>
 
-        <article class="panel settings-section">
+        <article v-show="settingsActiveTab === 'securite'" id="settings-securite" class="panel settings-section" role="tabpanel">
           <h3>Securite & verrouillage</h3>
           <div class="settings-grid">
             <div class="stack-form">
@@ -4117,6 +4787,21 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </tbody>
             </table>
+          </div>
+        </article>
+
+        <article class="panel settings-sticky-actions">
+          <span class="helper">Fin de page</span>
+          <div class="row-actions">
+            <span class="status-pill" :data-tone="settingsCanEdit ? 'ok' : 'due'">
+              {{ settingsCanEdit ? "Edition active" : "Lecture seule" }}
+            </span>
+            <button class="mini-btn" :disabled="settingsSaving" @click="toggleSettingsEdit">
+              {{ settingsCanEdit ? "Verrouiller" : "Activer modifications" }}
+            </button>
+            <button class="action-btn blue" :disabled="!settingsCanEdit || settingsSaving" @click="saveAtelierSettings">
+              {{ settingsSaving ? "Sauvegarde..." : "Sauvegarder" }}
+            </button>
           </div>
         </article>
       </section>
@@ -4926,6 +5611,21 @@ async function loadRetoucheDetail(idRetouche) {
           <button v-if="retoucheWizard.createdFactureId" class="action-btn blue" @click="onRetoucheWizardStep3FactureRedirect">
             Voir la facture
           </button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div v-if="settingsConfirmModal.open" class="modal-backdrop" @click.self="closeSettingsConfirmModal(false)">
+    <div class="modal-card modal-card-sm">
+      <header class="modal-header">
+        <h3>{{ settingsConfirmModal.title }}</h3>
+      </header>
+      <section class="modal-body">
+        <p>{{ settingsConfirmModal.message }}</p>
+        <div class="modal-actions">
+          <button class="mini-btn" @click="closeSettingsConfirmModal(false)">{{ settingsConfirmModal.cancelLabel }}</button>
+          <button class="action-btn red" @click="closeSettingsConfirmModal(true)">{{ settingsConfirmModal.confirmLabel }}</button>
         </div>
       </section>
     </div>
