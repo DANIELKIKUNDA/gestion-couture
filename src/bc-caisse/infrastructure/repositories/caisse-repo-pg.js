@@ -10,7 +10,7 @@ export class CaisseRepoPg {
     if (res.rowCount === 0) return null;
 
     const opRes = await pool.query(
-      "SELECT id_operation, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation FROM caisse_operation WHERE id_caisse_jour = $1",
+      "SELECT id_operation, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation, type_depense, justification, impact_journalier, impact_global FROM caisse_operation WHERE id_caisse_jour = $1",
       [idCaisseJour]
     );
 
@@ -40,7 +40,11 @@ export class CaisseRepoPg {
         statutOperation: op.statut_operation,
         motifAnnulation: op.motif_annulation,
         annuleePar: op.annulee_par,
-        dateAnnulation: op.date_annulation
+        dateAnnulation: op.date_annulation,
+        typeDepense: op.type_depense,
+        justification: op.justification,
+        impactJournalier: op.impact_journalier === null ? null : op.impact_journalier === true,
+        impactGlobal: op.impact_global === null ? null : op.impact_global === true
       }))
     });
   }
@@ -114,10 +118,10 @@ export class CaisseRepoPg {
     // Persist operations (upsert by id_operation)
     for (const op of caisse.operations) {
       await pool.query(
-        `INSERT INTO caisse_operation (id_operation, id_caisse_jour, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        `INSERT INTO caisse_operation (id_operation, id_caisse_jour, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation, type_depense, justification, impact_journalier, impact_global)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
          ON CONFLICT (id_operation)
-         DO UPDATE SET type_operation=$3, montant=$4, mode_paiement=$5, motif=$6, reference_metier=$7, date_operation=$8, effectue_par=$9, statut_operation=$10, motif_annulation=$11, annulee_par=$12, date_annulation=$13`,
+         DO UPDATE SET type_operation=$3, montant=$4, mode_paiement=$5, motif=$6, reference_metier=$7, date_operation=$8, effectue_par=$9, statut_operation=$10, motif_annulation=$11, annulee_par=$12, date_annulation=$13, type_depense=$14, justification=$15, impact_journalier=$16, impact_global=$17`,
         [
           op.idOperation,
           caisse.idCaisseJour,
@@ -131,7 +135,11 @@ export class CaisseRepoPg {
           op.statutOperation,
           op.motifAnnulation || null,
           op.annuleePar || null,
-          op.dateAnnulation || null
+          op.dateAnnulation || null,
+          op.typeDepense || null,
+          op.justification || null,
+          op.impactJournalier === undefined ? null : op.impactJournalier === true,
+          op.impactGlobal === undefined ? null : op.impactGlobal === true
         ]
       );
     }

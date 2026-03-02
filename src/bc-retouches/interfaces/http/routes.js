@@ -5,13 +5,109 @@ import { deposerRetouche } from "../../application/use-cases/deposer-retouche.js
 import { demarrerTravail } from "../../application/use-cases/demarrer-travail.js";
 import { terminerTravail } from "../../application/use-cases/terminer-travail.js";
 import { appliquerPaiement } from "../../application/use-cases/appliquer-paiement.js";
+import { enregistrerPaiementRetoucheViaCaisse } from "../../application/use-cases/enregistrer-paiement-via-caisse.js";
 import { livrerRetouche } from "../../application/use-cases/livrer-retouche.js";
-import { annulerRetouche } from "../../application/use-cases/annuler-retouche.js";
-import { requireFields, requireNumber } from "../../../shared/interfaces/validation.js";
+import { annulerRetoucheViaCaisse } from "../../application/use-cases/annuler-retouche-via-caisse.js";
+import { requireFields, requireNumber, validateSchema } from "../../../shared/interfaces/validation.js";
 import { generateRetoucheId } from "../../../shared/domain/id-generator.js";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
+import { hasPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
+import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
+import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
+import {
+  getTypeRetoucheDefinition,
+  isRetoucheHabitCompatible,
+  resolveMesureTargetsForHabit,
+  resolveRetouchePolicy
+} from "../../domain/retouche-policy.js";
 
 const router = express.Router();
 const retoucheRepo = new RetoucheRepoPg();
+const parametresRepo = new AtelierParametresRepoPg();
+
+function resolveActeur(req, fallback = null) {
+  const utilisateurId = req.auth?.utilisateurId || null;
+  const utilisateurNom = req.auth?.nom || String(fallback || "").trim() || null;
+  const role = req.auth?.role || null;
+  const utilisateur = utilisateurNom ? `${utilisateurNom}${role ? ` (${role})` : ""}` : null;
+  return { utilisateurId, utilisateurNom, role, utilisateur };
+}
+
+async function loadRetouchePolicy() {
+  if (!parametresRepo || typeof parametresRepo.getCurrent !== "function") {
+    return resolveRetouchePolicy(null);
+  }
+  try {
+    const current = await parametresRepo.getCurrent();
+    return resolveRetouchePolicy(current?.payload || null);
+  } catch {
+    return resolveRetouchePolicy(null);
+  }
+}
+
+function actionRulesForRetouche(retouche) {
+  const soldeRestant = Math.max(0, Number(retouche.montantTotal || 0) - Number(retouche.montantPaye || 0));
+  const statut = retouche.statutRetouche;
+  const actions = {
+    voir: true,
+    payer: false,
+    terminer: false,
+    livrer: false,
+    annuler: false
+  };
+  if (statut === "DEPOSEE") {
+    actions.payer = soldeRestant > 0;
+    actions.annuler = true;
+  } else if (statut === "EN_COURS") {
+    actions.payer = soldeRestant > 0;
+    actions.terminer = true;
+    actions.annuler = true;
+  } else if (statut === "TERMINEE") {
+    actions.payer = soldeRestant > 0;
+    actions.livrer = soldeRestant === 0;
+  }
+  return {
+    statutRetouche: statut,
+    soldeRestant,
+    actions
+  };
+}
+
+function actionRulesForRetoucheAvecPermissions(retouche, auth) {
+  const base = actionRulesForRetouche(retouche);
+  return {
+    ...base,
+    actions: {
+      ...base.actions,
+      terminer: base.actions.terminer && hasPermission(auth, PERMISSIONS.TERMINER_COMMANDE),
+      livrer: base.actions.livrer && hasPermission(auth, PERMISSIONS.LIVRER_COMMANDE),
+      annuler: base.actions.annuler && hasPermission(auth, PERMISSIONS.ANNULER_COMMANDE)
+    }
+  };
+}
+
+async function enregistrerEvenementRetouche({
+  idRetouche,
+  typeEvent,
+  utilisateur = null,
+  ancienStatut = null,
+  nouveauStatut = null,
+  payload = {}
+}) {
+  const eventPayload = {
+    utilisateur,
+    ancienStatut,
+    nouveauStatut,
+    ...payload
+  };
+  await pool.query(
+    `INSERT INTO retouche_events (id_event, id_retouche, type_event, payload, date_event)
+     VALUES ($1, $2, $3, $4::jsonb, NOW())`,
+    [randomUUID(), idRetouche, typeEvent, JSON.stringify(eventPayload)]
+  );
+}
 
 // List retouches
 router.get("/retouches", async (req, res) => {
@@ -56,8 +152,28 @@ router.get("/retouches", async (req, res) => {
   }
 });
 
+router.get("/retouches/types", async (req, res) => {
+  try {
+    const policy = await loadRetouchePolicy();
+    res.json(
+      (policy.typesRetouche || []).map((row) => ({
+        code: row.code,
+        libelle: row.libelle,
+        actif: row.actif !== false,
+        ordreAffichage: Number(row.ordreAffichage || 1),
+        necessiteMesures: row.necessiteMesures,
+        mesuresCibles: row.mesuresCibles || [],
+        descriptionObligatoire: row.descriptionObligatoire,
+        habitsCompatibles: row.habitsCompatibles || ["*"]
+      }))
+    );
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Audit retouches (read-only)
-router.get("/audit/retouches", async (req, res) => {
+router.get("/audit/retouches", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
@@ -151,6 +267,41 @@ router.get("/retouches/:id", async (req, res) => {
   }
 });
 
+// Get actions autorisees for retouche
+router.get("/retouches/:id/actions", async (req, res) => {
+  try {
+    const retouche = await retoucheRepo.getById(req.params.id);
+    if (!retouche) return res.status(404).json({ error: "Retouche introuvable" });
+    res.json(actionRulesForRetoucheAvecPermissions(retouche, req.auth));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Get events for retouche (audit trail)
+router.get("/retouches/:id/events", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id_event, id_retouche, type_event, payload, date_event
+       FROM retouche_events
+       WHERE id_retouche = $1
+       ORDER BY date_event DESC`,
+      [req.params.id]
+    );
+    res.json(
+      result.rows.map((row) => ({
+        idEvent: row.id_event,
+        idRetouche: row.id_retouche,
+        typeEvent: row.type_event,
+        payload: row.payload,
+        dateEvent: row.date_event
+      }))
+    );
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Get paiements for retouche
 router.get("/retouches/:id/paiements", async (req, res) => {
   try {
@@ -195,17 +346,68 @@ router.get("/retouches/:id/paiements", async (req, res) => {
 
 // Create a new Retouche
 router.post("/retouches", async (req, res) => {
-  const r1 = requireFields(req.body, ["idClient", "descriptionRetouche", "typeRetouche", "montantTotal", "typeHabit", "mesuresHabit"]);
+  const schema = z
+    .object({
+      idClient: z.string().min(1),
+      descriptionRetouche: z.string().optional(),
+      typeRetouche: z.string().min(1),
+      montantTotal: z.coerce.number(),
+      typeHabit: z.string().min(1),
+      mesuresHabit: z.any().optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+  const body = parsed.data;
+  const r1 = requireFields(body, ["idClient", "typeRetouche", "montantTotal", "typeHabit"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
-  const r2 = requireNumber(req.body, "montantTotal");
+  const r2 = requireNumber(body, "montantTotal");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
 
   try {
+    const acteur = resolveActeur(req);
+    const policy = await loadRetouchePolicy();
+    const typeDefinition = getTypeRetoucheDefinition(body.typeRetouche, policy);
+    const habitCompatible = isRetoucheHabitCompatible(typeDefinition, body.typeHabit);
+    if (!habitCompatible) throw new Error("Type d'habit incompatible avec ce type de retouche");
+    const mesureTargets = resolveMesureTargetsForHabit({
+      typeDefinition,
+      typeHabit: body.typeHabit
+    });
+    const measuresRequired = typeDefinition.necessiteMesures === true;
     const retouche = deposerRetouche({
-      ...req.body,
+      ...body,
       idRetouche: generateRetoucheId()
+    }, {
+      policy: { retouches: policy }
     });
     await retoucheRepo.save(retouche);
+    await enregistrerEvenementRetouche({
+      idRetouche: retouche.idRetouche,
+      typeEvent: "RETOUCHE_DEPOSEE",
+      utilisateur: acteur.utilisateur,
+      nouveauStatut: retouche.statutRetouche,
+      payload: {
+        utilisateurId: acteur.utilisateurId,
+        utilisateurNom: acteur.utilisateurNom,
+        role: acteur.role,
+        montantTotal: Number(retouche.montantTotal || 0),
+        typeRetouche: retouche.typeRetouche,
+        necessiteMesures: measuresRequired,
+        mesuresCibles: mesureTargets
+      }
+    });
+    await enregistrerEvenementAudit({
+      utilisateurId: acteur.utilisateurId,
+      role: acteur.role,
+      atelierId: req.auth?.atelierId,
+      action: "CREER_RETOUCHE",
+      entite: "RETOUCHE",
+      entiteId: retouche.idRetouche,
+      payload: {
+        utilisateurNom: acteur.utilisateurNom
+      }
+    });
     res.status(201).json(retouche);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -215,10 +417,31 @@ router.post("/retouches", async (req, res) => {
 // Start work
 router.post("/retouches/:id/demarrer", async (req, res) => {
   try {
+    const schema = z
+      .object({
+        parametresAtelier: z.record(z.any()).optional()
+      })
+      .passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    const acteur = resolveActeur(req);
+    const before = await retoucheRepo.getById(req.params.id);
     const retouche = await demarrerTravail({
       idRetouche: req.params.id,
-      parametresAtelier: req.body.parametresAtelier || {},
+      parametresAtelier: parsed.data.parametresAtelier || {},
       retoucheRepo
+    });
+    await enregistrerEvenementRetouche({
+      idRetouche: retouche.idRetouche,
+      typeEvent: "TRAVAIL_DEMARRE",
+      utilisateur: acteur.utilisateur,
+      ancienStatut: before?.statutRetouche || null,
+      nouveauStatut: retouche.statutRetouche,
+      payload: {
+        utilisateurId: acteur.utilisateurId,
+        utilisateurNom: acteur.utilisateurNom,
+        role: acteur.role
+      }
     });
     res.json(retouche);
   } catch (err) {
@@ -227,11 +450,43 @@ router.post("/retouches/:id/demarrer", async (req, res) => {
 });
 
 // Finish work
-router.post("/retouches/:id/terminer", async (req, res) => {
+router.post("/retouches/:id/terminer", requirePermission(PERMISSIONS.TERMINER_COMMANDE), async (req, res) => {
+  const schema = z
+    .object({
+      utilisateur: z.string().min(1).optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   try {
+    const acteur = resolveActeur(req, parsed.data.utilisateur);
+    const before = await retoucheRepo.getById(req.params.id);
     const retouche = await terminerTravail({
       idRetouche: req.params.id,
       retoucheRepo
+    });
+    await enregistrerEvenementRetouche({
+      idRetouche: retouche.idRetouche,
+      typeEvent: "TRAVAIL_TERMINE",
+      utilisateur: acteur.utilisateur,
+      ancienStatut: before?.statutRetouche || null,
+      nouveauStatut: retouche.statutRetouche,
+      payload: {
+        utilisateurId: acteur.utilisateurId,
+        utilisateurNom: acteur.utilisateurNom,
+        role: acteur.role
+      }
+    });
+    await enregistrerEvenementAudit({
+      utilisateurId: acteur.utilisateurId,
+      role: acteur.role,
+      atelierId: req.auth?.atelierId,
+      action: "TERMINER_RETOUCHE",
+      entite: "RETOUCHE",
+      entiteId: retouche.idRetouche,
+      payload: {
+        utilisateurNom: acteur.utilisateurNom
+      }
     });
     res.json(retouche);
   } catch (err) {
@@ -241,16 +496,114 @@ router.post("/retouches/:id/terminer", async (req, res) => {
 
 // Apply payment
 router.post("/retouches/:id/paiements", async (req, res) => {
-  const r1 = requireFields(req.body, ["montant"]);
+  const schema = z
+    .object({
+      montant: z.coerce.number(),
+      utilisateur: z.string().min(1).optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+  const body = parsed.data;
+  const r1 = requireFields(body, ["montant"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
-  const r2 = requireNumber(req.body, "montant");
+  const r2 = requireNumber(body, "montant");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
 
   try {
+    const acteur = resolveActeur(req, body.utilisateur);
+    const before = await retoucheRepo.getById(req.params.id);
     const retouche = await appliquerPaiement({
       idRetouche: req.params.id,
-      montant: req.body.montant,
+      montant: body.montant,
       retoucheRepo
+    });
+    await enregistrerEvenementRetouche({
+      idRetouche: retouche.idRetouche,
+      typeEvent: "PAIEMENT_ENREGISTRE",
+      utilisateur: acteur.utilisateur,
+      ancienStatut: before?.statutRetouche || null,
+      nouveauStatut: retouche.statutRetouche,
+      payload: {
+        utilisateurId: acteur.utilisateurId,
+        utilisateurNom: acteur.utilisateurNom,
+        role: acteur.role,
+        montant: Number(body.montant || 0)
+      }
+    });
+    await enregistrerEvenementAudit({
+      utilisateurId: acteur.utilisateurId,
+      role: acteur.role,
+      atelierId: req.auth?.atelierId,
+      action: "PAYER_RETOUCHE",
+      entite: "RETOUCHE",
+      entiteId: retouche.idRetouche,
+      payload: {
+        utilisateurNom: acteur.utilisateurNom,
+        montant: Number(body.montant || 0)
+      }
+    });
+    res.json(retouche);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Apply payment via caisse (atomic)
+router.post("/retouches/:id/paiements/caisse", async (req, res) => {
+  const schema = z
+    .object({
+      montant: z.coerce.number(),
+      idCaisseJour: z.string().min(1),
+      utilisateur: z.string().min(1),
+      modePaiement: z.string().optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+  const body = parsed.data;
+  const r1 = requireFields(body, ["montant", "idCaisseJour", "utilisateur"]);
+  if (!r1.ok) return res.status(400).json({ error: r1.error });
+  const r2 = requireNumber(body, "montant");
+  if (!r2.ok) return res.status(400).json({ error: r2.error });
+
+  try {
+    const acteur = resolveActeur(req, body.utilisateur);
+    const before = await retoucheRepo.getById(req.params.id);
+    const retouche = await enregistrerPaiementRetoucheViaCaisse({
+      idRetouche: req.params.id,
+      montant: body.montant,
+      idCaisseJour: body.idCaisseJour,
+      utilisateur: acteur.utilisateur || body.utilisateur,
+      modePaiement: body.modePaiement || "CASH"
+    });
+    await enregistrerEvenementRetouche({
+      idRetouche: retouche.idRetouche,
+      typeEvent: "PAIEMENT_CAISSE_ENREGISTRE",
+      utilisateur: acteur.utilisateur,
+      ancienStatut: before?.statutRetouche || null,
+      nouveauStatut: retouche.statutRetouche,
+      payload: {
+        utilisateurId: acteur.utilisateurId,
+        utilisateurNom: acteur.utilisateurNom,
+        role: acteur.role,
+        montant: Number(body.montant || 0),
+        idCaisseJour: body.idCaisseJour || null,
+        modePaiement: body.modePaiement || "CASH"
+      }
+    });
+    await enregistrerEvenementAudit({
+      utilisateurId: acteur.utilisateurId,
+      role: acteur.role,
+      atelierId: req.auth?.atelierId,
+      action: "PAYER_RETOUCHE_CAISSE",
+      entite: "RETOUCHE",
+      entiteId: retouche.idRetouche,
+      payload: {
+        utilisateurNom: acteur.utilisateurNom,
+        montant: Number(body.montant || 0),
+        idCaisseJour: body.idCaisseJour || null
+      }
     });
     res.json(retouche);
   } catch (err) {
@@ -259,9 +612,41 @@ router.post("/retouches/:id/paiements", async (req, res) => {
 });
 
 // Deliver
-router.post("/retouches/:id/livrer", async (req, res) => {
+router.post("/retouches/:id/livrer", requirePermission(PERMISSIONS.LIVRER_COMMANDE), async (req, res) => {
+  const schema = z
+    .object({
+      utilisateur: z.string().min(1).optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   try {
+    const acteur = resolveActeur(req, parsed.data.utilisateur);
+    const before = await retoucheRepo.getById(req.params.id);
     const retouche = await livrerRetouche({ idRetouche: req.params.id, retoucheRepo });
+    await enregistrerEvenementRetouche({
+      idRetouche: retouche.idRetouche,
+      typeEvent: "RETOUCHE_LIVREE",
+      utilisateur: acteur.utilisateur,
+      ancienStatut: before?.statutRetouche || null,
+      nouveauStatut: retouche.statutRetouche,
+      payload: {
+        utilisateurId: acteur.utilisateurId,
+        utilisateurNom: acteur.utilisateurNom,
+        role: acteur.role
+      }
+    });
+    await enregistrerEvenementAudit({
+      utilisateurId: acteur.utilisateurId,
+      role: acteur.role,
+      atelierId: req.auth?.atelierId,
+      action: "LIVRER_RETOUCHE",
+      entite: "RETOUCHE",
+      entiteId: retouche.idRetouche,
+      payload: {
+        utilisateurNom: acteur.utilisateurNom
+      }
+    });
     res.json(retouche);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -269,9 +654,52 @@ router.post("/retouches/:id/livrer", async (req, res) => {
 });
 
 // Cancel
-router.post("/retouches/:id/annuler", async (req, res) => {
+router.post("/retouches/:id/annuler", requirePermission(PERMISSIONS.ANNULER_COMMANDE), async (req, res) => {
+  const schema = z
+    .object({
+      idCaisseJour: z.string().min(1).optional(),
+      utilisateur: z.string().min(1).optional(),
+      modePaiement: z.string().optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   try {
-    const retouche = await annulerRetouche({ idRetouche: req.params.id, retoucheRepo });
+    const acteur = resolveActeur(req, parsed.data.utilisateur);
+    const before = await retoucheRepo.getById(req.params.id);
+    const retouche = await annulerRetoucheViaCaisse({
+      idRetouche: req.params.id,
+      idCaisseJour: parsed.data.idCaisseJour,
+      utilisateur: acteur.utilisateur || parsed.data.utilisateur,
+      modePaiement: parsed.data.modePaiement || "CASH"
+    });
+    await enregistrerEvenementRetouche({
+      idRetouche: retouche.idRetouche,
+      typeEvent: "RETOUCHE_ANNULEE",
+      utilisateur: acteur.utilisateur,
+      ancienStatut: before?.statutRetouche || null,
+      nouveauStatut: retouche.statutRetouche,
+      payload: {
+        utilisateurId: acteur.utilisateurId,
+        utilisateurNom: acteur.utilisateurNom,
+        role: acteur.role,
+        montantRembourse: Number(before?.montantPaye || 0),
+        idCaisseJour: parsed.data.idCaisseJour || null,
+        modePaiement: parsed.data.modePaiement || "CASH"
+      }
+    });
+    await enregistrerEvenementAudit({
+      utilisateurId: acteur.utilisateurId,
+      role: acteur.role,
+      atelierId: req.auth?.atelierId,
+      action: "ANNULER_RETOUCHE",
+      entite: "RETOUCHE",
+      entiteId: retouche.idRetouche,
+      payload: {
+        utilisateurNom: acteur.utilisateurNom,
+        montantRembourse: Number(before?.montantPaye || 0)
+      }
+    });
     res.json(retouche);
   } catch (err) {
     res.status(400).json({ error: err.message });

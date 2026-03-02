@@ -1,31 +1,22 @@
-﻿import "dotenv/config";
-import express from "express";
-import commandesRoutes from "../../bc-commandes/interfaces/http/routes.js";
-import retouchesRoutes from "../../bc-retouches/interfaces/http/routes.js";
-import caisseRoutes from "../../bc-caisse/interfaces/http/routes.js";
-import clientsRoutes from "../../bc-clients/interfaces/http/routes.js";
-import stockRoutes from "../../bc-stock/interfaces/http/routes.js";
-import facturesRoutes from "../../bc-facturation/interfaces/http/routes.js";
-import parametresRoutes from "../../bc-parametres/interfaces/http/routes.js";
+import "dotenv/config";
 import { CaisseRepoPg } from "../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
 import { BilanCaisseRepoPg } from "../../bc-caisse/infrastructure/repositories/bilan-caisse-repo-pg.js";
+import { AtelierParametresRepoPg } from "../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
 import { executerAutomationsCaisse } from "../../bc-caisse/application/services/automations-caisse.js";
+import { pool } from "../../shared/infrastructure/db.js";
+import { createApp } from "./app.js";
 
-const app = express();
-app.use(express.json());
+async function autoRepairLegacyRetouchesConstraint() {
+  await pool.query("ALTER TABLE retouches DROP CONSTRAINT IF EXISTS retouches_type_retouche_check");
+}
 
-app.use("/api", commandesRoutes);
-app.use("/api", retouchesRoutes);
-app.use("/api", caisseRoutes);
-app.use("/api", clientsRoutes);
-app.use("/api", stockRoutes);
-app.use("/api", facturesRoutes);
-app.use("/api", parametresRoutes);
+try {
+  await autoRepairLegacyRetouchesConstraint();
+} catch (err) {
+  console.warn("Retouches legacy constraint auto-repair skipped:", err?.message || err);
+}
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
-});
-
+const app = createApp();
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`API listening on ${port}`);
@@ -33,13 +24,14 @@ app.listen(port, () => {
 
 const caisseRepo = new CaisseRepoPg();
 const bilanRepo = new BilanCaisseRepoPg();
+const parametresRepo = new AtelierParametresRepoPg();
 let autoJobRunning = false;
 
 setInterval(async () => {
   if (autoJobRunning) return;
   autoJobRunning = true;
   try {
-    await executerAutomationsCaisse({ caisseRepo, bilanRepo });
+    await executerAutomationsCaisse({ caisseRepo, bilanRepo, parametresRepo });
   } catch (err) {
     console.error("Automations caisse erreur:", err.message);
   } finally {
