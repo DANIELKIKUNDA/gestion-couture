@@ -239,15 +239,37 @@ const settingsTabs = [
   { id: "securite", label: "Securite" }
 ];
 const settingsUser = reactive({
-  nom: "manager",
-  role: "MANAGER"
+  nom: "",
+  role: "COUTURIER"
 });
 const settingsRoleOptions = [
   { value: "PROPRIETAIRE", label: "Proprietaire" },
-  { value: "MANAGER", label: "Manager" },
-  { value: "CAISSIER", label: "Caissier" },
-  { value: "AGENT", label: "Agent" }
+  { value: "COUTURIER", label: "Couturier" },
+  { value: "CAISSIER", label: "Caissier" }
 ];
+const securityRoleOptions = [...settingsRoleOptions];
+const securityPermissionLabels = {
+  ANNULER_COMMANDE: "Annuler commande/retouche",
+  VOIR_BILANS_GLOBAUX: "Voir bilans & audit",
+  CLOTURER_CAISSE: "Cloturer caisse",
+  LIVRER_COMMANDE: "Livrer commande/retouche",
+  TERMINER_COMMANDE: "Terminer commande/retouche",
+  MODIFIER_PARAMETRES: "Modifier parametres atelier",
+  GERER_UTILISATEURS: "Gerer utilisateurs & permissions"
+};
+const securityPermissionOptions = Object.keys(securityPermissionLabels);
+const securityUsers = ref([]);
+const securityRolePermissions = ref({});
+const securityLoading = ref(false);
+const securitySaving = ref(false);
+const securityError = ref("");
+const securityNewUser = reactive({
+  nom: "",
+  email: "",
+  motDePasse: "",
+  roleId: "COUTURIER",
+  actif: true
+});
 const deviseOptions = ["FC", "USD", "EUR"];
 
 const periodOptions = [
@@ -425,7 +447,7 @@ const atelierSettingsDefault = {
     afficherLogo: true
   },
   securite: {
-    rolesAutorises: ["PROPRIETAIRE", "MANAGER"],
+    rolesAutorises: ["PROPRIETAIRE"],
     confirmationAvantSauvegarde: true,
     verrouillageActif: true,
     auditLog: []
@@ -483,7 +505,7 @@ function restoreSettingsFromSnapshot() {
     if (settingsUserSnapshot.value) {
       const parsedUser = JSON.parse(settingsUserSnapshot.value);
       settingsUser.nom = parsedUser.nom || "";
-      settingsUser.role = parsedUser.role || "MANAGER";
+      settingsUser.role = parsedUser.role || "COUTURIER";
     }
   } catch (err) {
     console.warn("Failed to restore settings snapshot", err);
@@ -539,8 +561,12 @@ function persistAtelierSettings() {
   window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
 }
 
-const settingsRoleAllowed = computed(() => atelierSettings.securite.rolesAutorises.includes(settingsUser.role));
+const settingsRoleAllowed = computed(() => hasPermission(PERMISSIONS.MODIFIER_PARAMETRES));
 const settingsCanEdit = computed(() => settingsEditMode.value && settingsRoleAllowed.value);
+const canAccessSecurityModule = computed(() => currentRole.value === "PROPRIETAIRE");
+const visibleSettingsTabs = computed(() =>
+  settingsTabs.filter((tab) => tab.id !== "securite" || canAccessSecurityModule.value)
+);
 const settingsLogoPreview = computed(() => (atelierSettings.identite.logoUrl || "").trim());
 const settingsSnapshotParsed = computed(() => {
   if (!settingsSnapshot.value) return cloneSettings(atelierSettingsDefault);
@@ -704,6 +730,119 @@ async function resetAtelierSettings() {
   notify("Parametres reinitialises.");
 }
 
+function getRolePermissionSet(roleId) {
+  const role = String(roleId || "").toUpperCase();
+  const raw = securityRolePermissions.value[role];
+  return new Set(Array.isArray(raw) ? raw : []);
+}
+
+function roleHasPermission(roleId, permission) {
+  return getRolePermissionSet(roleId).has(permission);
+}
+
+function setRolePermission(roleId, permission, enabled) {
+  const role = String(roleId || "").toUpperCase();
+  const next = getRolePermissionSet(role);
+  if (enabled) next.add(permission);
+  else next.delete(permission);
+  securityRolePermissions.value = {
+    ...securityRolePermissions.value,
+    [role]: [...next]
+  };
+}
+
+async function loadSecurityModule() {
+  if (!canAccessSecurityModule.value) return;
+  securityLoading.value = true;
+  securityError.value = "";
+  try {
+    const [users, roleRows] = await Promise.all([atelierApi.listUsers(), atelierApi.listRolePermissions()]);
+    securityUsers.value = (users || []).map((u) => ({
+      id: u.id,
+      nom: u.nom,
+      email: u.email,
+      roleId: String(u.roleId || "COUTURIER").toUpperCase(),
+      actif: u.actif !== false
+    }));
+    const map = {};
+    for (const role of securityRoleOptions) map[role.value] = [];
+    for (const row of roleRows || []) {
+      const role = String(row.role || "").toUpperCase();
+      if (!Object.prototype.hasOwnProperty.call(map, role)) continue;
+      map[role] = Array.from(new Set((row.permissions || []).map((p) => String(p || "").toUpperCase())));
+    }
+    securityRolePermissions.value = map;
+  } catch (err) {
+    securityError.value = readableError(err);
+  } finally {
+    securityLoading.value = false;
+  }
+}
+
+async function saveRolePermissions(roleId) {
+  if (!canAccessSecurityModule.value) return;
+  const role = String(roleId || "").toUpperCase();
+  securitySaving.value = true;
+  securityError.value = "";
+  try {
+    await atelierApi.updateRolePermissions(role, securityRolePermissions.value[role] || []);
+    notify(`Permissions enregistrees pour ${role}.`);
+    if (authUser.value?.roleId === role) {
+      const me = await atelierApi.me();
+      const session = normalizeSessionPayload(me);
+      applyAuthSession(session);
+    }
+  } catch (err) {
+    securityError.value = readableError(err);
+  } finally {
+    securitySaving.value = false;
+  }
+}
+
+async function createSecurityUser() {
+  if (!canAccessSecurityModule.value) return;
+  securitySaving.value = true;
+  securityError.value = "";
+  try {
+    await atelierApi.createUser({
+      nom: securityNewUser.nom,
+      email: securityNewUser.email,
+      motDePasse: securityNewUser.motDePasse,
+      roleId: securityNewUser.roleId,
+      actif: securityNewUser.actif
+    });
+    securityNewUser.nom = "";
+    securityNewUser.email = "";
+    securityNewUser.motDePasse = "";
+    securityNewUser.roleId = "COUTURIER";
+    securityNewUser.actif = true;
+    await loadSecurityModule();
+    notify("Utilisateur cree.");
+  } catch (err) {
+    securityError.value = readableError(err);
+  } finally {
+    securitySaving.value = false;
+  }
+}
+
+async function saveSecurityUser(user) {
+  if (!canAccessSecurityModule.value || !user?.id) return;
+  securitySaving.value = true;
+  securityError.value = "";
+  try {
+    await atelierApi.updateUser(user.id, {
+      nom: user.nom,
+      roleId: user.roleId,
+      actif: user.actif !== false
+    });
+    notify(`Utilisateur ${user.nom} mis a jour.`);
+  } catch (err) {
+    securityError.value = readableError(err);
+  } finally {
+    securitySaving.value = false;
+  }
+}
+
 const iconPaths = {
   dashboard: ["M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z"],
   clipboard: ["M9 3h6", "M8 2h8v4H8z", "M6 6h12v16H6z"],
@@ -742,7 +881,7 @@ const currentRole = computed(() => String(authUser.value?.roleId || "").toUpperC
 function hasPermission(permission) {
   if (!permission) return true;
   if (!isAuthenticated.value) return false;
-  if (currentRole.value === "PROPRIETAIRE" || currentRole.value === "ADMIN") return true;
+  if (currentRole.value === "PROPRIETAIRE") return true;
   return authPermissions.value.includes(permission);
 }
 
@@ -753,7 +892,7 @@ function hasAnyPermission(list = []) {
 
 function canAccessModule(moduleId) {
   if (!isAuthenticated.value) return false;
-  if (currentRole.value === "PROPRIETAIRE" || currentRole.value === "ADMIN") return true;
+  if (currentRole.value === "PROPRIETAIRE") return true;
   if (moduleId === "dashboard") return true;
   if (moduleId === "commandes") {
     if (currentRole.value === "CAISSIER" || currentRole.value === "COUTURIER") return true;
@@ -1394,7 +1533,7 @@ function applyAuthSession(session) {
     authUser.value = null;
     authPermissions.value = [];
     settingsUser.nom = "";
-    settingsUser.role = "MANAGER";
+    settingsUser.role = "COUTURIER";
     return;
   }
   authUser.value = {
@@ -1405,7 +1544,7 @@ function applyAuthSession(session) {
   };
   authPermissions.value = Array.from(new Set((session.permissions || []).map((p) => String(p || "").toUpperCase())));
   settingsUser.nom = authUser.value.nom || "";
-  settingsUser.role = authUser.value.roleId || "MANAGER";
+  settingsUser.role = authUser.value.roleId || "COUTURIER";
 }
 
 async function hydrateAuthSession() {
@@ -1492,6 +1631,23 @@ watch(
     if (!canAccessRoute(currentRoute.value)) {
       forbiddenMessage.value = "Acces refuse pour cette section.";
       currentRoute.value = "forbidden";
+    }
+  }
+);
+
+watch(
+  () => [currentRoute.value, settingsActiveTab.value, canAccessSecurityModule.value],
+  async ([route, tab, canAccess]) => {
+    if (route !== "parametres" || tab !== "securite" || !canAccess) return;
+    await loadSecurityModule();
+  }
+);
+
+watch(
+  () => canAccessSecurityModule.value,
+  (canAccess) => {
+    if (!canAccess && settingsActiveTab.value === "securite") {
+      settingsActiveTab.value = "identite";
     }
   }
 );
@@ -4707,7 +4863,7 @@ async function loadRetoucheDetail(idRetouche) {
 
         <article class="panel settings-tabs" role="tablist" aria-label="Sections parametres">
           <button
-            v-for="tab in settingsTabs"
+            v-for="tab in visibleSettingsTabs"
             :key="`settings-tab-${tab.id}`"
             class="mini-btn settings-tab-btn"
             :class="{ active: settingsActiveTab === tab.id }"
@@ -4927,73 +5083,109 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <article v-show="settingsActiveTab === 'securite'" id="settings-securite" class="panel settings-section" role="tabpanel">
-          <h3>Securite & verrouillage</h3>
-          <div class="settings-grid">
-            <div class="stack-form">
-              <label>Utilisateur courant</label>
-              <input v-model="settingsUser.nom" type="text" :disabled="!settingsCanEdit" />
-            </div>
-            <div class="stack-form">
-              <label>Role courant</label>
-              <select v-model="settingsUser.role">
-                <option v-for="role in settingsRoleOptions" :key="role.value" :value="role.value">{{ role.label }}</option>
-              </select>
-              <p class="helper">Autorise a modifier: {{ settingsRoleAllowed ? "Oui" : "Non" }}</p>
-            </div>
-            <div class="stack-form">
-              <label>Qui peut modifier les parametres</label>
-              <div class="settings-roles">
-                <label v-for="role in settingsRoleOptions" :key="`role-${role.value}`" class="helper">
-                  <input v-model="atelierSettings.securite.rolesAutorises" type="checkbox" :value="role.value" :disabled="!settingsCanEdit" />
-                  {{ role.label }}
+          <h3>Module Securite</h3>
+          <p class="helper">Gestion dynamique des utilisateurs, roles et permissions.</p>
+          <p v-if="!canAccessSecurityModule" class="helper">Acces reserve au proprietaire.</p>
+          <p v-if="securityError" class="auth-error">{{ securityError }}</p>
+
+          <template v-if="canAccessSecurityModule">
+            <article class="panel nested-panel">
+              <div class="panel-header detail-panel-header">
+                <h4>Creer un utilisateur</h4>
+              </div>
+              <div class="settings-grid">
+                <div class="stack-form">
+                  <label>Nom complet</label>
+                  <input v-model="securityNewUser.nom" type="text" />
+                </div>
+                <div class="stack-form">
+                  <label>Email</label>
+                  <input v-model="securityNewUser.email" type="email" />
+                </div>
+                <div class="stack-form">
+                  <label>Mot de passe</label>
+                  <input v-model="securityNewUser.motDePasse" type="password" />
+                </div>
+                <div class="stack-form">
+                  <label>Role</label>
+                  <select v-model="securityNewUser.roleId">
+                    <option v-for="role in securityRoleOptions" :key="`new-role-${role.value}`" :value="role.value">{{ role.label }}</option>
+                  </select>
+                </div>
+                <label class="helper">
+                  <input v-model="securityNewUser.actif" type="checkbox" />
+                  Compte actif
                 </label>
               </div>
-            </div>
-            <label class="helper">
-              <input v-model="atelierSettings.securite.verrouillageActif" type="checkbox" :disabled="!settingsCanEdit" />
-              Verrouillage actif (modification rare et controlee)
-            </label>
-            <label class="helper">
-              <input v-model="atelierSettings.securite.confirmationAvantSauvegarde" type="checkbox" :disabled="!settingsCanEdit" />
-              Confirmation obligatoire avant sauvegarde
-            </label>
-            <div class="stack-form">
-              <label>Note de changement</label>
-              <input v-model="settingsAuditNote" type="text" placeholder="Ex: Mise a jour regles caisse" :disabled="!settingsCanEdit" />
-            </div>
-            <label class="helper" v-if="atelierSettings.securite.confirmationAvantSauvegarde">
-              <input v-model="settingsConfirmSave" type="checkbox" :disabled="!settingsCanEdit" />
-              Je confirme la sauvegarde des parametres
-            </label>
-          </div>
+              <div class="row-actions">
+                <button class="action-btn blue" :disabled="securitySaving" @click="createSecurityUser">
+                  {{ securitySaving ? "Traitement..." : "Creer utilisateur" }}
+                </button>
+              </div>
+            </article>
 
-          <div class="panel settings-audit">
-            <div class="panel-header detail-panel-header">
-              <h4>Historique des changements</h4>
-              <span class="helper">Journal local (lecture seule)</span>
-            </div>
-            <table class="data-table compact">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Utilisateur</th>
-                  <th>Role</th>
-                  <th>Note</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(entry, index) in atelierSettings.securite.auditLog" :key="`audit-${index}`">
-                  <td>{{ formatDateTime(entry.date) }}</td>
-                  <td>{{ entry.utilisateur }}</td>
-                  <td>{{ entry.role }}</td>
-                  <td>{{ entry.note }}</td>
-                </tr>
-                <tr v-if="atelierSettings.securite.auditLog.length === 0">
-                  <td colspan="4">Aucun changement enregistre.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+            <article class="panel nested-panel">
+              <div class="panel-header detail-panel-header">
+                <h4>Utilisateurs</h4>
+                <button class="mini-btn" :disabled="securityLoading" @click="loadSecurityModule">Actualiser</button>
+              </div>
+              <table class="data-table compact">
+                <thead>
+                  <tr>
+                    <th>Nom</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Actif</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="user in securityUsers" :key="user.id">
+                    <td><input v-model="user.nom" type="text" /></td>
+                    <td>{{ user.email }}</td>
+                    <td>
+                      <select v-model="user.roleId">
+                        <option v-for="role in securityRoleOptions" :key="`user-role-${user.id}-${role.value}`" :value="role.value">
+                          {{ role.label }}
+                        </option>
+                      </select>
+                    </td>
+                    <td><input v-model="user.actif" type="checkbox" /></td>
+                    <td>
+                      <button class="mini-btn" :disabled="securitySaving" @click="saveSecurityUser(user)">Sauver</button>
+                    </td>
+                  </tr>
+                  <tr v-if="securityUsers.length === 0">
+                    <td colspan="5">Aucun utilisateur.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </article>
+
+            <article class="panel nested-panel">
+              <div class="panel-header detail-panel-header">
+                <h4>Permissions par role</h4>
+              </div>
+              <div class="settings-grid">
+                <article class="panel nested-panel" v-for="role in securityRoleOptions" :key="`role-perm-${role.value}`">
+                  <h4>{{ role.label }}</h4>
+                  <div class="settings-roles">
+                    <label class="helper" v-for="perm in securityPermissionOptions" :key="`perm-${role.value}-${perm}`">
+                      <input
+                        type="checkbox"
+                        :checked="roleHasPermission(role.value, perm)"
+                        @change="setRolePermission(role.value, perm, $event.target.checked)"
+                      />
+                      {{ securityPermissionLabels[perm] }}
+                    </label>
+                  </div>
+                  <div class="row-actions">
+                    <button class="mini-btn" :disabled="securitySaving" @click="saveRolePermissions(role.value)">Enregistrer permissions</button>
+                  </div>
+                </article>
+              </div>
+            </article>
+          </template>
         </article>
 
         <article class="panel settings-sticky-actions">

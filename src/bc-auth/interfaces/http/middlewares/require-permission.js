@@ -1,7 +1,7 @@
 export function hasPermission(auth, permission) {
   if (!permission) return true;
   const role = String(auth?.role || auth?.roleId || "").toUpperCase();
-  if (role === "PROPRIETAIRE" || role === "ADMIN") return true;
+  if (role === "PROPRIETAIRE") return true;
   const perms = Array.isArray(auth?.permissions) ? auth.permissions : [];
   return perms.map((p) => String(p || "").toUpperCase()).includes(String(permission).toUpperCase());
 }

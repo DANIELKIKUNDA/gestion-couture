@@ -21,6 +21,8 @@ import { seDeconnecterUtilisateur } from "../../application/use-cases/se-deconne
 import { reinitialiserMotDePasse } from "../../application/use-cases/reinitialiser-mot-de-passe.js";
 import { gererUtilisateurs } from "../../application/use-cases/gerer-utilisateurs.js";
 import { requireAuth } from "./middlewares/auth-guard.js";
+import { requirePermission } from "./middlewares/require-permission.js";
+import { PERMISSIONS } from "../../domain/permissions.js";
 
 const router = express.Router();
 const utilisateurRepo = new UtilisateurRepoPg();
@@ -31,6 +33,7 @@ const resetTokenRepo = new PasswordResetTokenRepoPg();
 const REFRESH_COOKIE = process.env.AUTH_REFRESH_COOKIE_NAME || "atelier_refresh_token";
 const COOKIE_SAMESITE = process.env.AUTH_COOKIE_SAMESITE || "lax";
 const COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || "false").toLowerCase() === "true";
+const ALLOWED_ROLES = [ROLES.PROPRIETAIRE, ROLES.COUTURIER, ROLES.CAISSIER];
 
 function getCookie(req, name) {
   const header = String(req.headers?.cookie || "");
@@ -219,7 +222,7 @@ router.post("/auth/password/reset", async (req, res) => {
   }
 });
 
-router.get("/auth/role-permissions", requireAuth, async (_req, res) => {
+router.get("/auth/role-permissions", requirePermission(PERMISSIONS.GERER_UTILISATEURS), async (_req, res) => {
   try {
     await ensureRolePermissions();
     const rows = await rolePermissionRepo.listByAtelier("ATELIER");
@@ -229,12 +232,15 @@ router.get("/auth/role-permissions", requireAuth, async (_req, res) => {
   }
 });
 
-router.put("/auth/role-permissions/:role", requireAuth, async (req, res) => {
+router.put("/auth/role-permissions/:role", requirePermission(PERMISSIONS.GERER_UTILISATEURS), async (req, res) => {
   try {
     const schema = z.object({ permissions: z.array(z.string()) }).passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
     const role = String(req.params.role || "").toUpperCase();
+    if (!ALLOWED_ROLES.includes(role)) {
+      return res.status(400).json({ error: "Role invalide" });
+    }
     const row = await rolePermissionRepo.save({
       atelierId: "ATELIER",
       role,
@@ -247,7 +253,7 @@ router.put("/auth/role-permissions/:role", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/auth/users", requireAuth, async (_req, res) => {
+router.get("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), async (_req, res) => {
   try {
     const rows = await gererUtilisateurs({ utilisateurRepo, input: { action: "list" } });
     res.json(rows.map((u) => ({ id: u.id, nom: u.nom, email: u.email, roleId: u.roleId, actif: u.actif !== false })));
@@ -256,9 +262,17 @@ router.get("/auth/users", requireAuth, async (_req, res) => {
   }
 });
 
-router.post("/auth/users", requireAuth, async (req, res) => {
+router.post("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), async (req, res) => {
   try {
-    const schema = z.object({ nom: z.string().min(1), email: z.string().email(), motDePasse: z.string().min(8), roleId: z.string().min(1), actif: z.boolean().optional() }).passthrough();
+    const schema = z
+      .object({
+        nom: z.string().min(1),
+        email: z.string().email(),
+        motDePasse: z.string().min(8),
+        roleId: z.enum(ALLOWED_ROLES),
+        actif: z.boolean().optional()
+      })
+      .passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
     const user = await gererUtilisateurs({ utilisateurRepo, input: { action: "create", ...parsed.data } });
@@ -268,9 +282,15 @@ router.post("/auth/users", requireAuth, async (req, res) => {
   }
 });
 
-router.patch("/auth/users/:id", requireAuth, async (req, res) => {
+router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS), async (req, res) => {
   try {
-    const schema = z.object({ nom: z.string().optional(), roleId: z.string().optional(), actif: z.boolean().optional() }).passthrough();
+    const schema = z
+      .object({
+        nom: z.string().optional(),
+        roleId: z.enum(ALLOWED_ROLES).optional(),
+        actif: z.boolean().optional()
+      })
+      .passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
     const user = await gererUtilisateurs({ utilisateurRepo, input: { action: "update", id: req.params.id, ...parsed.data } });
