@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { atelierApi, ApiError, setAuthLostHandler } from "./services/api.js";
 
 const currentRoute = ref("dashboard");
@@ -231,7 +231,21 @@ const settingsConfirmModal = reactive({
   confirmLabel: "Confirmer",
   cancelLabel: "Annuler"
 });
+const actionModal = reactive({
+  open: false,
+  title: "",
+  message: "",
+  confirmLabel: "Confirmer",
+  cancelLabel: "Annuler",
+  tone: "blue",
+  fields: [],
+  values: {},
+  error: ""
+});
 let settingsConfirmResolver = null;
+let actionModalResolver = null;
+const settingsCancelButtonRef = ref(null);
+const actionCancelButtonRef = ref(null);
 const settingsTabs = [
   { id: "identite", label: "Identite" },
   { id: "commandes", label: "Commandes" },
@@ -526,6 +540,7 @@ function openSettingsConfirmModal({
   settingsConfirmModal.confirmLabel = confirmLabel;
   settingsConfirmModal.cancelLabel = cancelLabel;
   settingsConfirmModal.open = true;
+  nextTick(() => settingsCancelButtonRef.value?.focus());
   return new Promise((resolve) => {
     settingsConfirmResolver = resolve;
   });
@@ -780,6 +795,83 @@ async function loadSecurityModule() {
   } finally {
     securityLoading.value = false;
   }
+}
+
+function sanitizeModalValue(field, value) {
+  if (field.type === "number") {
+    const num = Number(value);
+    if (Number.isNaN(num)) return value;
+    return num;
+  }
+  return typeof value === "string" ? value.trim() : value;
+}
+
+function openActionModal({
+  title = "Confirmation",
+  message = "",
+  confirmLabel = "Confirmer",
+  cancelLabel = "Annuler",
+  tone = "blue",
+  fields = []
+}) {
+  actionModal.title = title;
+  actionModal.message = message;
+  actionModal.confirmLabel = confirmLabel;
+  actionModal.cancelLabel = cancelLabel;
+  actionModal.tone = tone;
+  actionModal.fields = fields;
+  actionModal.error = "";
+  actionModal.values = fields.reduce((acc, field) => {
+    acc[field.key] = field.defaultValue ?? "";
+    return acc;
+  }, {});
+  actionModal.open = true;
+  nextTick(() => actionCancelButtonRef.value?.focus());
+  return new Promise((resolve) => {
+    actionModalResolver = resolve;
+  });
+}
+
+function closeActionModal(payload) {
+  actionModal.open = false;
+  if (actionModalResolver) {
+    actionModalResolver(payload);
+    actionModalResolver = null;
+  }
+}
+
+function validateActionModal() {
+  for (const field of actionModal.fields) {
+    const raw = actionModal.values[field.key];
+    const value = sanitizeModalValue(field, raw);
+    if (field.required && (value === "" || value === null || value === undefined)) {
+      actionModal.error = `${field.label} est obligatoire.`;
+      return null;
+    }
+    if (field.type === "number" && value !== "" && value !== null && value !== undefined) {
+      if (Number.isNaN(Number(value))) {
+        actionModal.error = `${field.label} est invalide.`;
+        return null;
+      }
+      if (field.min !== undefined && Number(value) < Number(field.min)) {
+        actionModal.error = `${field.label} doit etre superieur ou egal a ${field.min}.`;
+        return null;
+      }
+    }
+  }
+
+  actionModal.error = "";
+  const payload = actionModal.fields.reduce((acc, field) => {
+    acc[field.key] = sanitizeModalValue(field, actionModal.values[field.key]);
+    return acc;
+  }, {});
+  return payload;
+}
+
+function confirmActionModal() {
+  const payload = validateActionModal();
+  if (!payload) return;
+  closeActionModal(payload);
 }
 
 async function saveRolePermissions(roleId) {
@@ -1628,19 +1720,28 @@ async function sendForgotPassword() {
 
 async function bootstrapAtelier() {
   if (bootstrapInitializing.value) return;
-  const nom = window.prompt("Nom du proprietaire");
-  if (nom === null) return;
-  const email = window.prompt("Email du proprietaire");
-  if (email === null) return;
-  const motDePasse = window.prompt("Mot de passe du proprietaire");
-  if (motDePasse === null) return;
+  const payload = await openActionModal({
+    title: "Initialiser l'atelier",
+    message: "Creer le compte proprietaire initial.",
+    confirmLabel: "Initialiser",
+    fields: [
+      { key: "nom", label: "Nom du proprietaire", type: "text", required: true, defaultValue: "" },
+      { key: "email", label: "Email du proprietaire", type: "email", required: true, defaultValue: "" },
+      { key: "motDePasse", label: "Mot de passe", type: "password", required: true, defaultValue: "" }
+    ]
+  });
+  if (!payload) return;
 
   bootstrapInitializing.value = true;
   authError.value = "";
   try {
-    await atelierApi.bootstrapOwner({ nom: nom.trim(), email: email.trim(), motDePasse });
+    await atelierApi.bootstrapOwner({
+      nom: String(payload.nom || "").trim(),
+      email: String(payload.email || "").trim(),
+      motDePasse: String(payload.motDePasse || "")
+    });
     authMode.value = "login";
-    loginForm.email = email.trim();
+    loginForm.email = String(payload.email || "").trim();
     loginForm.motDePasse = "";
     authError.value = "Atelier initialise. Connecte-toi avec le compte proprietaire.";
   } catch (err) {
@@ -2533,6 +2634,13 @@ function canAnnulerRetouche(retouche) {
 }
 
 async function onAnnulerCommande(commande) {
+  const confirmed = await openActionModal({
+    title: "Annuler la commande",
+    message: `Cette action annule la commande ${commande.idCommande}.`,
+    confirmLabel: "Confirmer l'annulation",
+    tone: "red"
+  });
+  if (!confirmed) return;
   try {
     await atelierApi.annulerCommande(commande.idCommande);
     await reloadAll();
@@ -2886,9 +2994,16 @@ async function onValiderVenteEtFacturer(vente) {
 
 async function onAnnulerVente(vente) {
   if (!vente || vente.statut !== "BROUILLON") return;
-  const motif = window.prompt("Motif d'annulation (optionnel)", "") ?? "";
+  const payload = await openActionModal({
+    title: "Annuler la vente",
+    message: `La vente ${vente.idVente} sera annulee.`,
+    confirmLabel: "Confirmer l'annulation",
+    tone: "red",
+    fields: [{ key: "motif", label: "Motif (optionnel)", type: "textarea", defaultValue: "" }]
+  });
+  if (!payload) return;
   try {
-    await atelierApi.annulerVente(vente.idVente, motif);
+    await atelierApi.annulerVente(vente.idVente, String(payload.motif || ""));
     await reloadAll();
     if (currentRoute.value === "vente-detail" && detailVente.value?.idVente === vente.idVente) {
       await loadVenteDetail(vente.idVente);
@@ -2955,14 +3070,14 @@ async function onApprovisionnerStock(article) {
 }
 
 async function onPaiementCommande(commande) {
-  const raw = window.prompt(`Montant du paiement caisse pour ${commande.idCommande} (FC)`, "25000");
-  if (raw === null) return;
-
-  const montant = Number(raw);
-  if (Number.isNaN(montant) || montant <= 0) {
-    notify("Montant invalide.");
-    return;
-  }
+  const payload = await openActionModal({
+    title: "Confirmer le paiement",
+    message: `Enregistrer un paiement pour la commande ${commande.idCommande}.`,
+    confirmLabel: "Confirmer le paiement",
+    fields: [{ key: "montant", label: "Montant (FC)", type: "number", required: true, min: 1, defaultValue: 25000 }]
+  });
+  if (!payload) return;
+  const montant = Number(payload.montant);
 
   try {
     await atelierApi.enregistrerPaiementViaCaisse({ idCommande: commande.idCommande, montant, utilisateur: "frontend" });
@@ -2975,14 +3090,14 @@ async function onPaiementCommande(commande) {
 
 async function onPaiementDetail() {
   if (!detailCommande.value) return;
-  const raw = window.prompt(`Montant du paiement caisse pour ${detailCommande.value.idCommande} (FC)`, "25000");
-  if (raw === null) return;
-
-  const montant = Number(raw);
-  if (Number.isNaN(montant) || montant <= 0) {
-    notify("Montant invalide.");
-    return;
-  }
+  const payload = await openActionModal({
+    title: "Confirmer le paiement",
+    message: `Enregistrer un paiement pour la commande ${detailCommande.value.idCommande}.`,
+    confirmLabel: "Confirmer le paiement",
+    fields: [{ key: "montant", label: "Montant (FC)", type: "number", required: true, min: 1, defaultValue: 25000 }]
+  });
+  if (!payload) return;
+  const montant = Number(payload.montant);
 
   try {
     await atelierApi.enregistrerPaiementViaCaisse({ idCommande: detailCommande.value.idCommande, montant, utilisateur: "frontend" });
@@ -3018,6 +3133,13 @@ async function onLivrerDetail() {
 
 async function onAnnulerDetail() {
   if (!detailCommande.value) return;
+  const confirmed = await openActionModal({
+    title: "Annuler la commande",
+    message: `Cette action annule la commande ${detailCommande.value.idCommande}.`,
+    confirmLabel: "Confirmer l'annulation",
+    tone: "red"
+  });
+  if (!confirmed) return;
   try {
     await atelierApi.annulerCommande(detailCommande.value.idCommande);
     await loadCommandeDetail(detailCommande.value.idCommande);
@@ -3029,14 +3151,14 @@ async function onAnnulerDetail() {
 }
 
 async function onPaiementRetouche(retouche) {
-  const raw = window.prompt(`Montant du paiement caisse pour ${retouche.idRetouche} (FC)`, "10000");
-  if (raw === null) return;
-
-  const montant = Number(raw);
-  if (Number.isNaN(montant) || montant <= 0) {
-    notify("Montant invalide.");
-    return;
-  }
+  const payload = await openActionModal({
+    title: "Confirmer le paiement",
+    message: `Enregistrer un paiement pour la retouche ${retouche.idRetouche}.`,
+    confirmLabel: "Confirmer le paiement",
+    fields: [{ key: "montant", label: "Montant (FC)", type: "number", required: true, min: 1, defaultValue: 10000 }]
+  });
+  if (!payload) return;
+  const montant = Number(payload.montant);
 
   try {
     await atelierApi.enregistrerPaiementRetoucheViaCaisse({ idRetouche: retouche.idRetouche, montant, utilisateur: "frontend" });
@@ -3049,14 +3171,14 @@ async function onPaiementRetouche(retouche) {
 
 async function onPaiementRetoucheDetail() {
   if (!detailRetouche.value) return;
-  const raw = window.prompt(`Montant du paiement caisse pour ${detailRetouche.value.idRetouche} (FC)`, "10000");
-  if (raw === null) return;
-
-  const montant = Number(raw);
-  if (Number.isNaN(montant) || montant <= 0) {
-    notify("Montant invalide.");
-    return;
-  }
+  const payload = await openActionModal({
+    title: "Confirmer le paiement",
+    message: `Enregistrer un paiement pour la retouche ${detailRetouche.value.idRetouche}.`,
+    confirmLabel: "Confirmer le paiement",
+    fields: [{ key: "montant", label: "Montant (FC)", type: "number", required: true, min: 1, defaultValue: 10000 }]
+  });
+  if (!payload) return;
+  const montant = Number(payload.montant);
 
   try {
     await atelierApi.enregistrerPaiementRetoucheViaCaisse({ idRetouche: detailRetouche.value.idRetouche, montant, utilisateur: "frontend" });
@@ -3091,6 +3213,13 @@ async function onLivrerRetoucheDetail() {
 }
 
 async function onAnnulerRetouche(retouche) {
+  const confirmed = await openActionModal({
+    title: "Annuler la retouche",
+    message: `Cette action annule la retouche ${retouche.idRetouche}.`,
+    confirmLabel: "Confirmer l'annulation",
+    tone: "red"
+  });
+  if (!confirmed) return;
   try {
     await atelierApi.annulerRetouche(retouche.idRetouche);
     await reloadAll();
@@ -3102,6 +3231,13 @@ async function onAnnulerRetouche(retouche) {
 
 async function onAnnulerRetoucheDetail() {
   if (!detailRetouche.value) return;
+  const confirmed = await openActionModal({
+    title: "Annuler la retouche",
+    message: `Cette action annule la retouche ${detailRetouche.value.idRetouche}.`,
+    confirmLabel: "Confirmer l'annulation",
+    tone: "red"
+  });
+  if (!confirmed) return;
   try {
     await atelierApi.annulerRetouche(detailRetouche.value.idRetouche);
     await loadRetoucheDetail(detailRetouche.value.idRetouche);
@@ -3119,41 +3255,42 @@ async function onDepenseCaisse() {
     return;
   }
 
-  const motif = window.prompt("Motif de la depense", "");
-  if (motif === null) return;
-  if (!motif.trim()) {
-    notify("Motif obligatoire.");
+  const payload = await openActionModal({
+    title: "Enregistrer une depense",
+    message: "Verifier le type de depense avant confirmation.",
+    confirmLabel: "Confirmer la depense",
+    tone: "amber",
+    fields: [
+      { key: "motif", label: "Motif", type: "text", required: true, defaultValue: "" },
+      { key: "montant", label: "Montant (FC)", type: "number", required: true, min: 1, defaultValue: 5000 },
+      {
+        key: "typeDepense",
+        label: "Type de depense",
+        type: "select",
+        required: true,
+        defaultValue: "QUOTIDIENNE",
+        options: [
+          { value: "QUOTIDIENNE", label: "Quotidienne" },
+          { value: "EXCEPTIONNELLE", label: "Exceptionnelle" }
+        ]
+      },
+      { key: "justification", label: "Justification (obligatoire si exceptionnelle)", type: "textarea", defaultValue: "" }
+    ]
+  });
+  if (!payload) return;
+  const montant = Number(payload.montant);
+  const typeDepense = String(payload.typeDepense || "QUOTIDIENNE").toUpperCase();
+  const justification = String(payload.justification || "").trim();
+  if (typeDepense === "EXCEPTIONNELLE" && !justification) {
+    notify("Justification obligatoire pour depense exceptionnelle.");
     return;
-  }
-
-  const raw = window.prompt("Montant de la depense (FC)", "5000");
-  if (raw === null) return;
-  const montant = Number(raw);
-  if (Number.isNaN(montant) || montant <= 0) {
-    notify("Montant invalide.");
-    return;
-  }
-
-  const typeInput = window.prompt("Type de depense (Q=Quotidienne, E=Exceptionnelle)", "Q");
-  if (typeInput === null) return;
-  const typeToken = String(typeInput || "").trim().toUpperCase();
-  const typeDepense = typeToken === "E" || typeToken === "EXCEPTIONNELLE" ? "EXCEPTIONNELLE" : "QUOTIDIENNE";
-  let justification = "";
-  if (typeDepense === "EXCEPTIONNELLE") {
-    const rawJustification = window.prompt("Justification obligatoire pour depense exceptionnelle", "");
-    if (rawJustification === null) return;
-    if (!rawJustification.trim()) {
-      notify("Justification obligatoire pour depense exceptionnelle.");
-      return;
-    }
-    justification = rawJustification.trim();
   }
 
   try {
     await atelierApi.enregistrerDepenseCaisse({
       idCaisseJour: caisseJour.value.idCaisseJour,
       montant,
-      motif: motif.trim(),
+      motif: String(payload.motif || "").trim(),
       typeDepense,
       justification,
       utilisateur: "frontend",
@@ -3173,8 +3310,13 @@ async function onCloturerCaisse() {
     return;
   }
 
-  const confirm = window.confirm("Cloturer la caisse ? Cette action bloque toute nouvelle ecriture.");
-  if (!confirm) return;
+  const confirmed = await openActionModal({
+    title: "Cloturer la caisse",
+    message: "Cette action bloque toute nouvelle ecriture sur la caisse du jour.",
+    confirmLabel: "Confirmer la cloture",
+    tone: "red"
+  });
+  if (!confirmed) return;
 
   try {
     await atelierApi.cloturerCaisse(caisseJour.value.idCaisseJour, "frontend");
@@ -3190,13 +3332,14 @@ async function onOuvrirCaisseDuJour() {
     const info = await atelierApi.getOuvertureCaisseInfo();
     let soldeOuverture = 0;
     if (info.source === "INITIAL_REQUIRED") {
-      const raw = window.prompt("Solde d'ouverture initial (FC)", "0");
-      if (raw === null) return;
-      soldeOuverture = Number(raw);
-      if (Number.isNaN(soldeOuverture) || soldeOuverture < 0) {
-        notify("Solde d'ouverture invalide.");
-        return;
-      }
+      const payload = await openActionModal({
+        title: "Ouvrir la caisse",
+        message: "Renseigne le solde d'ouverture initial.",
+        confirmLabel: "Ouvrir",
+        fields: [{ key: "soldeOuverture", label: "Solde d'ouverture (FC)", type: "number", required: true, min: 0, defaultValue: 0 }]
+      });
+      if (!payload) return;
+      soldeOuverture = Number(payload.soldeOuverture);
     }
 
     await atelierApi.ouvrirCaisseDuJour({ soldeOuverture, utilisateur: "frontend" });
@@ -3208,28 +3351,31 @@ async function onOuvrirCaisseDuJour() {
 }
 
 async function onOuvrirCaisseAnticipee() {
-  const motif = window.prompt("Motif ouverture anticipee (manager)", "");
-  if (motif === null) return;
-  if (!motif.trim()) {
-    notify("Motif obligatoire.");
-    return;
-  }
+  const ouverturePayload = await openActionModal({
+    title: "Ouverture anticipee",
+    message: "Cette action est reservee au manager.",
+    confirmLabel: "Continuer",
+    fields: [{ key: "motif", label: "Motif ouverture anticipee", type: "text", required: true, defaultValue: "" }]
+  });
+  if (!ouverturePayload) return;
+  const motif = String(ouverturePayload.motif || "").trim();
 
   try {
     const info = await atelierApi.getOuvertureCaisseInfo({
       overrideHeureOuverture: true,
       role: "manager",
-      motifOverride: motif.trim()
+      motifOverride: motif
     });
     let soldeOuverture = 0;
     if (info.source === "INITIAL_REQUIRED") {
-      const raw = window.prompt("Solde d'ouverture initial (FC)", "0");
-      if (raw === null) return;
-      soldeOuverture = Number(raw);
-      if (Number.isNaN(soldeOuverture) || soldeOuverture < 0) {
-        notify("Solde d'ouverture invalide.");
-        return;
-      }
+      const payload = await openActionModal({
+        title: "Ouverture anticipee",
+        message: "Renseigne le solde d'ouverture initial.",
+        confirmLabel: "Ouvrir",
+        fields: [{ key: "soldeOuverture", label: "Solde d'ouverture (FC)", type: "number", required: true, min: 0, defaultValue: 0 }]
+      });
+      if (!payload) return;
+      soldeOuverture = Number(payload.soldeOuverture);
     }
 
     await atelierApi.ouvrirCaisseDuJour({
@@ -3237,7 +3383,7 @@ async function onOuvrirCaisseAnticipee() {
       utilisateur: "manager",
       overrideHeureOuverture: true,
       role: "manager",
-      motifOverride: motif.trim()
+      motifOverride: motif
     });
     await reloadAll();
     notify("Caisse ouverte (exception manager).");
@@ -6192,8 +6338,43 @@ async function loadRetoucheDetail(idRetouche) {
       <section class="modal-body">
         <p>{{ settingsConfirmModal.message }}</p>
         <div class="modal-actions">
-          <button class="mini-btn" @click="closeSettingsConfirmModal(false)">{{ settingsConfirmModal.cancelLabel }}</button>
+          <button ref="settingsCancelButtonRef" class="mini-btn" @click="closeSettingsConfirmModal(false)">{{ settingsConfirmModal.cancelLabel }}</button>
           <button class="action-btn red" @click="closeSettingsConfirmModal(true)">{{ settingsConfirmModal.confirmLabel }}</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div v-if="actionModal.open" class="modal-backdrop" @click.self="closeActionModal(null)">
+    <div class="modal-card modal-card-sm">
+      <header class="modal-header">
+        <h3>{{ actionModal.title }}</h3>
+      </header>
+      <section class="modal-body stack-form">
+        <p>{{ actionModal.message }}</p>
+        <label v-for="field in actionModal.fields" :key="field.key">
+          {{ field.label }}
+          <textarea
+            v-if="field.type === 'textarea'"
+            v-model="actionModal.values[field.key]"
+            rows="3"
+            :placeholder="field.placeholder || ''"
+          ></textarea>
+          <select v-else-if="field.type === 'select'" v-model="actionModal.values[field.key]">
+            <option v-for="option in field.options || []" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+          <input
+            v-else
+            v-model="actionModal.values[field.key]"
+            :type="field.type || 'text'"
+            :min="field.min"
+            :placeholder="field.placeholder || ''"
+          />
+        </label>
+        <p v-if="actionModal.error" class="auth-error">{{ actionModal.error }}</p>
+        <div class="modal-actions">
+          <button ref="actionCancelButtonRef" class="mini-btn" @click="closeActionModal(null)">{{ actionModal.cancelLabel }}</button>
+          <button class="action-btn" :class="actionModal.tone" @click="confirmActionModal">{{ actionModal.confirmLabel }}</button>
         </div>
       </section>
     </div>
