@@ -9,10 +9,8 @@ import { enregistrerSerieMesures } from "../../application/use-cases/enregistrer
 import { activerSerieMesures } from "../../application/use-cases/activer-serie-mesures.js";
 import { desactiverSerieMesures } from "../../application/use-cases/desactiver-serie-mesures.js";
 import { DomainError } from "../../domain/errors.js";
-import { requireFields, validateSchema } from "../../../shared/interfaces/validation.js";
+import { requireFields } from "../../../shared/interfaces/validation.js";
 import { generateClientId, generateSerieMesuresId } from "../../../shared/domain/id-generator.js";
-import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
-import { z } from "zod";
 import {
   positiveInt,
   paginateRows,
@@ -27,28 +25,12 @@ import {
 const router = express.Router();
 const clientRepo = new ClientRepoPg();
 const serieRepo = new SerieMesuresRepoPg();
-const parametresRepo = new AtelierParametresRepoPg();
-const atelierConfigFallback = {
+const atelierConfig = {
   nom: process.env.ATELIER_NOM || "Atelier de Couture",
   adresse: process.env.ATELIER_ADRESSE || "Adresse atelier",
   telephone: process.env.ATELIER_TELEPHONE || "Telephone atelier",
   email: process.env.ATELIER_EMAIL || "contact@atelier.local"
 };
-
-async function resolveAtelierConfig() {
-  try {
-    const current = await parametresRepo.getCurrent();
-    const identite = current?.payload?.identite || {};
-    return {
-      nom: String(identite.nomAtelier || atelierConfigFallback.nom),
-      adresse: String(identite.adresse || atelierConfigFallback.adresse),
-      telephone: String(identite.telephone || atelierConfigFallback.telephone),
-      email: atelierConfigFallback.email
-    };
-  } catch {
-    return atelierConfigFallback;
-  }
-}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -63,7 +45,7 @@ function formatCurrency(value) {
   return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} FC`;
 }
 
-function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelierConfigFallback) {
+function consultationPdfHtml(payload, autoPrint = false) {
   const client = payload.client || {};
   const synthese = payload.synthese || {};
   const historique = payload.historique || {};
@@ -450,9 +432,8 @@ router.get("/clients/:id/consultation/pdf", async (req, res) => {
       }
     };
 
-    const atelierConfig = await resolveAtelierConfig();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(consultationPdfHtml(payload, req.query.autoprint === "1", atelierConfig));
+    res.send(consultationPdfHtml(payload, req.query.autoprint === "1"));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -460,22 +441,12 @@ router.get("/clients/:id/consultation/pdf", async (req, res) => {
 
 // Create client
 router.post("/clients", async (req, res) => {
-  const schema = z
-    .object({
-      nom: z.string().min(1),
-      prenom: z.string().min(1),
-      telephone: z.string().min(1)
-    })
-    .passthrough();
-  const parsed = validateSchema(schema, req.body);
-  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-  const body = parsed.data;
-  const r1 = requireFields(body, ["nom", "prenom", "telephone"]);
+  const r1 = requireFields(req.body, ["nom", "prenom", "telephone"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
 
   try {
     const client = creerClient({
-      ...body,
+      ...req.body,
       idClient: generateClientId()
     });
     await clientRepo.save(client);
@@ -503,10 +474,7 @@ router.post("/clients", async (req, res) => {
 // Update client
 router.put("/clients/:id", async (req, res) => {
   try {
-    const schema = z.object({}).passthrough();
-    const parsed = validateSchema(schema, req.body || {});
-    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-    const client = await modifierClient({ idClient: req.params.id, input: parsed.data, clientRepo });
+    const client = await modifierClient({ idClient: req.params.id, input: req.body, clientRepo });
     res.json(client);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -525,28 +493,17 @@ router.post("/clients/:id/desactiver", async (req, res) => {
 
 // Enregistrer serie mesures
 router.post("/clients/:id/mesures", async (req, res) => {
-  const schema = z
-    .object({
-      typeVetement: z.string().min(1),
-      ensembleMesures: z.array(z.any()),
-      prisePar: z.string().optional(),
-      observations: z.string().optional()
-    })
-    .passthrough();
-  const parsed = validateSchema(schema, req.body);
-  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-  const body = parsed.data;
-  const r1 = requireFields(body, ["typeVetement", "ensembleMesures"]);
+  const r1 = requireFields(req.body, ["typeVetement", "ensembleMesures"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
 
   try {
     const serie = enregistrerSerieMesures({
       idSerieMesures: generateSerieMesuresId(),
       idClient: req.params.id,
-      typeVetement: body.typeVetement,
-      ensembleMesures: body.ensembleMesures,
-      prisePar: body.prisePar,
-      observations: body.observations
+      typeVetement: req.body.typeVetement,
+      ensembleMesures: req.body.ensembleMesures,
+      prisePar: req.body.prisePar,
+      observations: req.body.observations
     });
     await serieRepo.save(serie);
     res.status(201).json(serie);
@@ -558,16 +515,9 @@ router.post("/clients/:id/mesures", async (req, res) => {
 // Activer serie mesures
 router.post("/clients/:id/mesures/:idSerie/activer", async (req, res) => {
   try {
-    const schema = z
-      .object({
-        typeVetement: z.string().min(1)
-      })
-      .passthrough();
-    const parsed = validateSchema(schema, req.body || {});
-    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
     const serie = await activerSerieMesures({
       idClient: req.params.id,
-      typeVetement: parsed.data.typeVetement,
+      typeVetement: req.body.typeVetement,
       idSerieMesures: req.params.idSerie,
       serieRepo
     });

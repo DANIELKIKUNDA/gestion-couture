@@ -1,39 +1,19 @@
 import express from "express";
-import { requireFields, validateSchema } from "../../../shared/interfaces/validation.js";
+import { requireFields } from "../../../shared/interfaces/validation.js";
 import { emettreFacture } from "../../application/use-cases/emettre-facture.js";
 import { listerFactures, obtenirFacture } from "../../application/use-cases/lister-factures.js";
 import { FactureRepoPg } from "../../infrastructure/repositories/facture-repo-pg.js";
 import { OrigineFactureReaderPg } from "../../infrastructure/repositories/origine-facture-reader-pg.js";
-import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
-import { z } from "zod";
-import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
-import { requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 
 const router = express.Router();
 const factureRepo = new FactureRepoPg();
 const origineReader = new OrigineFactureReaderPg();
-const parametresRepo = new AtelierParametresRepoPg();
-const atelierConfigFallback = {
+const atelierConfig = {
   nom: process.env.ATELIER_NOM || "Atelier de Couture",
   adresse: process.env.ATELIER_ADRESSE || "Adresse atelier",
   telephone: process.env.ATELIER_TELEPHONE || "Telephone atelier",
   email: process.env.ATELIER_EMAIL || "contact@atelier.local"
 };
-
-async function resolveAtelierConfig() {
-  try {
-    const current = await parametresRepo.getCurrent();
-    const identite = current?.payload?.identite || {};
-    return {
-      nom: String(identite.nomAtelier || atelierConfigFallback.nom),
-      adresse: String(identite.adresse || atelierConfigFallback.adresse),
-      telephone: String(identite.telephone || atelierConfigFallback.telephone),
-      email: atelierConfigFallback.email
-    };
-  } catch {
-    return atelierConfigFallback;
-  }
-}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -48,7 +28,7 @@ function formatCurrency(value) {
   return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} FC`;
 }
 
-function facturePdfHtml(facture, autoPrint = false, atelierConfig = atelierConfigFallback) {
+function facturePdfHtml(facture, autoPrint = false) {
   const lignes = facture.lignes
     .map(
       (ligne) => `
@@ -151,20 +131,11 @@ router.get("/factures/:id", async (req, res) => {
 });
 
 router.post("/factures/emettre", async (req, res) => {
-  const schema = z
-    .object({
-      typeOrigine: z.string().min(1),
-      idOrigine: z.string().min(1)
-    })
-    .passthrough();
-  const parsed = validateSchema(schema, req.body);
-  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-  const body = parsed.data;
-  const required = requireFields(body, ["typeOrigine", "idOrigine"]);
+  const required = requireFields(req.body, ["typeOrigine", "idOrigine"]);
   if (!required.ok) return res.status(400).json({ error: required.error });
   try {
     const facture = await emettreFacture({
-      input: body,
+      input: req.body,
       factureRepo,
       origineReader
     });
@@ -178,15 +149,14 @@ router.post("/factures/emettre", async (req, res) => {
 router.get("/factures/:id/pdf", async (req, res) => {
   try {
     const facture = await obtenirFacture({ idFacture: req.params.id, factureRepo });
-    const atelierConfig = await resolveAtelierConfig();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(facturePdfHtml(facture, req.query.autoprint === "1", atelierConfig));
+    res.send(facturePdfHtml(facture, req.query.autoprint === "1"));
   } catch (err) {
     res.status(404).json({ error: err.message });
   }
 });
 
-router.get("/audit/factures", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX), async (req, res) => {
+router.get("/audit/factures", async (req, res) => {
   try {
     const factures = await listerFactures({ factureRepo });
     res.json(factures);

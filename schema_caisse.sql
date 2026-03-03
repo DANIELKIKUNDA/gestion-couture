@@ -28,11 +28,7 @@ CREATE TABLE IF NOT EXISTS caisse_operation (
   statut_operation TEXT NOT NULL CHECK (statut_operation IN ('VALIDE','ANNULEE')),
   motif_annulation TEXT NULL,
   annulee_par TEXT NULL,
-  date_annulation TIMESTAMP NULL,
-  type_depense TEXT NULL CHECK (type_depense IN ('QUOTIDIENNE','EXCEPTIONNELLE')),
-  justification TEXT NULL,
-  impact_journalier BOOLEAN NULL,
-  impact_global BOOLEAN NULL
+  date_annulation TIMESTAMP NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_caisse_jour_date ON caisse_jour (date_jour);
@@ -41,75 +37,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_caisse_jour_unique_date ON caisse_jour (da
 ALTER TABLE caisse_jour ADD COLUMN IF NOT EXISTS ouverture_anticipee BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE caisse_jour ADD COLUMN IF NOT EXISTS motif_ouverture_anticipee TEXT NULL;
 ALTER TABLE caisse_jour ADD COLUMN IF NOT EXISTS autorisee_par TEXT NULL;
-ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS type_depense TEXT NULL;
-ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS justification TEXT NULL;
-ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS impact_journalier BOOLEAN NULL;
-ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS impact_global BOOLEAN NULL;
-
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conrelid = 'caisse_operation'::regclass
-      AND conname = 'caisse_operation_type_depense_check'
-  ) THEN
-    ALTER TABLE caisse_operation DROP CONSTRAINT caisse_operation_type_depense_check;
-  END IF;
-END $$;
-
-ALTER TABLE caisse_operation
-  ADD CONSTRAINT caisse_operation_type_depense_check
-  CHECK (type_depense IN ('QUOTIDIENNE','EXCEPTIONNELLE'));
-
-UPDATE caisse_operation
-SET
-  type_depense = COALESCE(type_depense, 'QUOTIDIENNE'),
-  impact_journalier = COALESCE(impact_journalier, TRUE),
-  impact_global = COALESCE(impact_global, TRUE)
-WHERE type_operation = 'SORTIE' AND (type_depense IS NULL OR impact_journalier IS NULL OR impact_global IS NULL);
 CREATE INDEX IF NOT EXISTS idx_caisse_operation_jour ON caisse_operation (id_caisse_jour);
 CREATE INDEX IF NOT EXISTS idx_caisse_operation_statut ON caisse_operation (statut_operation);
 
--- Bilans caisse (hebdo / mensuel / annuel)
+-- Bilans caisse (hebdo / mensuel)
 CREATE TABLE IF NOT EXISTS caisse_bilan (
   id_bilan TEXT PRIMARY KEY,
-  type_bilan TEXT NOT NULL CHECK (type_bilan IN ('HEBDO','MENSUEL','ANNUEL')),
-  semaine_iso SMALLINT NULL,
-  mois SMALLINT NULL,
-  annee INTEGER NULL,
+  type_bilan TEXT NOT NULL CHECK (type_bilan IN ('HEBDO','MENSUEL')),
   date_debut DATE NOT NULL,
   date_fin DATE NOT NULL,
   solde_ouverture NUMERIC(12,2) NOT NULL DEFAULT 0,
   total_entrees NUMERIC(12,2) NOT NULL DEFAULT 0,
   total_sorties NUMERIC(12,2) NOT NULL DEFAULT 0,
   solde_cloture NUMERIC(12,2) NOT NULL DEFAULT 0,
-  nombre_jours INTEGER NOT NULL DEFAULT 0,
-  nombre_operations INTEGER NOT NULL DEFAULT 0,
   cree_par TEXT NULL,
   date_creation TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_caisse_bilan_unique ON caisse_bilan (type_bilan, date_debut, date_fin);
-
-ALTER TABLE caisse_bilan ADD COLUMN IF NOT EXISTS semaine_iso SMALLINT NULL;
-ALTER TABLE caisse_bilan ADD COLUMN IF NOT EXISTS mois SMALLINT NULL;
-ALTER TABLE caisse_bilan ADD COLUMN IF NOT EXISTS annee INTEGER NULL;
-ALTER TABLE caisse_bilan ADD COLUMN IF NOT EXISTS nombre_jours INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE caisse_bilan ADD COLUMN IF NOT EXISTS nombre_operations INTEGER NOT NULL DEFAULT 0;
-
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conrelid = 'caisse_bilan'::regclass
-      AND conname = 'caisse_bilan_type_bilan_check'
-  ) THEN
-    ALTER TABLE caisse_bilan DROP CONSTRAINT caisse_bilan_type_bilan_check;
-  END IF;
-END $$;
-
-ALTER TABLE caisse_bilan
-  ADD CONSTRAINT caisse_bilan_type_bilan_check
-  CHECK (type_bilan IN ('HEBDO','MENSUEL','ANNUEL'));

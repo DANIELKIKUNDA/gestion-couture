@@ -14,7 +14,15 @@ curl -X POST http://localhost:3000/api/commandes \
   }'
 ```
 
-Note: le premier paiement fait automatiquement passer la commande de `CREEE` a `EN_COURS`.
+Start work
+
+```bash
+curl -X POST http://localhost:3000/api/commandes/CMD-1/demarrer \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parametresAtelier": { "avanceObligatoireCommande": true, "avanceMinimum": 30 }
+  }'
+```
 
 Finish work
 
@@ -36,6 +44,11 @@ Deliver
 curl -X POST http://localhost:3000/api/commandes/CMD-1/livrer
 ```
 
+Cancel (if not delivered)
+
+```bash
+curl -X POST http://localhost:3000/api/commandes/CMD-1/annuler
+```
 
 # HTTP Examples (BC Retouches)
 
@@ -117,69 +130,6 @@ curl -X POST http://localhost:3000/api/caisse/2026-02-10/entrees \
     "motif": "PAIEMENT_COMMANDE",
     "referenceMetier": "CMD-1",
     "utilisateur": "admin"
-  }'
-```
-
-# HTTP Examples (Auth / Roles / Permissions)
-
-Connexion
-
-```bash
-curl -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "owner@atelier.local",
-    "motDePasse": "ChangeMe123!"
-  }'
-```
-
-Utilisateur connecte
-
-```bash
-curl -X GET http://localhost:3000/api/auth/me \
-  -H "Authorization: Bearer <TOKEN>"
-```
-
-Mot de passe oublie
-
-```bash
-curl -X POST http://localhost:3000/api/auth/password/forgot \
-  -H "Content-Type: application/json" \
-  -d '{ "email": "owner@atelier.local" }'
-```
-
-Reinitialiser mot de passe
-
-```bash
-curl -X POST http://localhost:3000/api/auth/password/reset \
-  -H "Content-Type: application/json" \
-  -d '{
-    "token": "<RESET_TOKEN>",
-    "nouveauMotDePasse": "NouveauMotDePasse#2026"
-  }'
-```
-
-Lister utilisateurs (permission `GERER_UTILISATEURS`)
-
-```bash
-curl -X GET http://localhost:3000/api/auth/users \
-  -H "Authorization: Bearer <TOKEN>"
-```
-
-Configurer permissions d'un role
-
-```bash
-curl -X PUT http://localhost:3000/api/auth/role-permissions/COUTURIER \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "permissions": [
-      "ANNULER_COMMANDE",
-      "VOIR_BILANS_GLOBAUX",
-      "CLOTURER_CAISSE",
-      "TERMINER_COMMANDE",
-      "LIVRER_COMMANDE"
-    ]
   }'
 ```
 

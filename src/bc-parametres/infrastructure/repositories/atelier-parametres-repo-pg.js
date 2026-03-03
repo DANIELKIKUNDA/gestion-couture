@@ -1,13 +1,5 @@
 import { pool } from "../../../shared/infrastructure/db.js";
 
-export class ConflitVersionParametresError extends Error {
-  constructor(currentVersion = null) {
-    super("Conflit de version des parametres. Rechargez puis reessayez.");
-    this.name = "ConflitVersionParametresError";
-    this.currentVersion = currentVersion;
-  }
-}
-
 export class AtelierParametresRepoPg {
   async getCurrent() {
     const res = await pool.query("SELECT payload, version, updated_at, updated_by FROM atelier_parametres WHERE id = 1");
@@ -21,24 +13,15 @@ export class AtelierParametresRepoPg {
     };
   }
 
-  async save({ payload, expectedVersion = null, updatedBy = null }) {
+  async save({ payload, version = 1, updatedBy = null }) {
     const res = await pool.query(
       `INSERT INTO atelier_parametres (id, payload, version, updated_at, updated_by)
-       VALUES (1, $1, 1, NOW(), $2)
+       VALUES (1, $1, $2, NOW(), $3)
        ON CONFLICT (id)
-       DO UPDATE SET
-         payload = EXCLUDED.payload,
-         version = atelier_parametres.version + 1,
-         updated_at = NOW(),
-         updated_by = EXCLUDED.updated_by
-       WHERE ($3::int IS NULL OR atelier_parametres.version = $3::int)
+       DO UPDATE SET payload = $1, version = $2, updated_at = NOW(), updated_by = $3
        RETURNING payload, version, updated_at, updated_by`,
-      [payload, updatedBy, expectedVersion]
+      [payload, version, updatedBy]
     );
-    if (res.rowCount === 0) {
-      const current = await this.getCurrent();
-      throw new ConflitVersionParametresError(current?.version || null);
-    }
     const row = res.rows[0];
     return {
       payload: row.payload,

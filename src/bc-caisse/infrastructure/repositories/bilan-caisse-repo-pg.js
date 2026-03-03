@@ -35,27 +35,18 @@ export class BilanCaisseRepoPg {
 
   async save(bilan) {
     await pool.query(
-      `INSERT INTO caisse_bilan (
-         id_bilan, type_bilan, semaine_iso, mois, annee, date_debut, date_fin,
-         solde_ouverture, total_entrees, total_sorties, solde_cloture,
-         nombre_jours, nombre_operations, cree_par, date_creation
-       )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      `INSERT INTO caisse_bilan (id_bilan, type_bilan, date_debut, date_fin, solde_ouverture, total_entrees, total_sorties, solde_cloture, cree_par, date_creation)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (type_bilan, date_debut, date_fin) DO NOTHING`,
       [
         bilan.idBilan,
         bilan.typeBilan,
-        bilan.semaine === undefined ? null : bilan.semaine,
-        bilan.mois === undefined ? null : bilan.mois,
-        bilan.annee === undefined ? null : bilan.annee,
         bilan.dateDebut,
         bilan.dateFin,
         bilan.soldeOuverture,
         bilan.totalEntrees,
         bilan.totalSorties,
         bilan.soldeCloture,
-        bilan.nombreJours || 0,
-        bilan.nombreOperations || 0,
         bilan.creePar || null,
         bilan.dateCreation
       ]

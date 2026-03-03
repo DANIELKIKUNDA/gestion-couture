@@ -15,7 +15,3 @@ export class OuvertureInterdite extends DomainError {}
 export class CaisseDejaCreeeJour extends DomainError {}
 export class CaissePrecedenteNonCloturee extends DomainError {}
 export class BilanDejaCree extends DomainError {}
-export class TypeDepenseInvalide extends DomainError {}
-export class JustificationObligatoire extends DomainError {}
-export class PermissionInsuffisante extends DomainError {}
-export class SoldeJournalierInsuffisant extends DomainError {}

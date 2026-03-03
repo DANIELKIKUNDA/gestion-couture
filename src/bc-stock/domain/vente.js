@@ -5,10 +5,6 @@ function calculerTotal(lignesVente = []) {
   return lignesVente.reduce((sum, ligne) => sum + Number(ligne.quantite || 0) * Number(ligne.prixUnitaire || 0), 0);
 }
 
-function calculerTotalPrixAchat(lignesVente = []) {
-  return lignesVente.reduce((sum, ligne) => sum + Number(ligne.quantite || 0) * Number(ligne.prixAchatUnitaire || 0), 0);
-}
-
 function normalizeLignes(lignesVente = []) {
   if (!Array.isArray(lignesVente) || lignesVente.length === 0) {
     throw new VenteInvalide("lignesVente must contain at least one line");
@@ -23,37 +19,18 @@ function normalizeLignes(lignesVente = []) {
     if (Number.isNaN(prix) || prix < 0) {
       throw new VenteInvalide("prixUnitaire must be >= 0");
     }
-    const prixAchat = Number(ligne.prixAchatUnitaire ?? 0);
-    if (Number.isNaN(prixAchat) || prixAchat < 0) {
-      throw new VenteInvalide("prixAchatUnitaire must be >= 0");
-    }
-    const beneficeUnitaire = Number(ligne.beneficeUnitaire ?? prix - prixAchat);
-    const beneficeTotal = Number(ligne.beneficeTotal ?? beneficeUnitaire * Number(ligne.quantite));
     return {
       idLigne: ligne.idLigne,
       idArticle: ligne.idArticle,
       libelleArticle: ligne.libelleArticle,
       quantite: Number(ligne.quantite),
-      prixUnitaire: prix,
-      prixAchatUnitaire: prixAchat,
-      beneficeUnitaire,
-      beneficeTotal
+      prixUnitaire: prix
     };
   });
 }
 
 export class Vente {
-  constructor({
-    idVente,
-    date,
-    lignesVente,
-    total = null,
-    totalPrixAchat = null,
-    beneficeTotal = null,
-    statut = StatutVente.BROUILLON,
-    referenceCaisse = null,
-    motifAnnulation = null
-  }) {
+  constructor({ idVente, date, lignesVente, total = null, statut = StatutVente.BROUILLON, referenceCaisse = null, motifAnnulation = null }) {
     assertNonEmpty(idVente, "idVente");
     this.idVente = idVente;
     this.date = date || new Date().toISOString();
@@ -63,20 +40,9 @@ export class Vente {
 
     this.lignesVente = normalizeLignes(lignesVente);
     const computedTotal = calculerTotal(this.lignesVente);
-    const computedTotalPrixAchat = calculerTotalPrixAchat(this.lignesVente);
     this.total = total === null || total === undefined ? computedTotal : Number(total);
-    this.totalPrixAchat =
-      totalPrixAchat === null || totalPrixAchat === undefined ? computedTotalPrixAchat : Number(totalPrixAchat);
-    this.beneficeTotal =
-      beneficeTotal === null || beneficeTotal === undefined ? this.total - this.totalPrixAchat : Number(beneficeTotal);
     if (Number.isNaN(this.total) || this.total < 0) {
       throw new VenteInvalide("total must be >= 0");
-    }
-    if (Number.isNaN(this.totalPrixAchat) || this.totalPrixAchat < 0) {
-      throw new VenteInvalide("totalPrixAchat must be >= 0");
-    }
-    if (Number.isNaN(this.beneficeTotal)) {
-      throw new VenteInvalide("beneficeTotal invalide");
     }
   }
 
@@ -93,26 +59,6 @@ export class Vente {
     this.assertBrouillon();
     this.lignesVente = normalizeLignes(lignesVente);
     this.total = calculerTotal(this.lignesVente);
-    this.totalPrixAchat = calculerTotalPrixAchat(this.lignesVente);
-    this.beneficeTotal = this.total - this.totalPrixAchat;
-  }
-
-  appliquerPrixAchatParArticle(mapPrixAchat = new Map()) {
-    this.assertBrouillon();
-    this.lignesVente = this.lignesVente.map((ligne) => {
-      const prixAchatUnitaire = Number(mapPrixAchat.get(ligne.idArticle) ?? ligne.prixAchatUnitaire ?? 0);
-      const beneficeUnitaire = Number(ligne.prixUnitaire) - prixAchatUnitaire;
-      const beneficeTotal = beneficeUnitaire * Number(ligne.quantite);
-      return {
-        ...ligne,
-        prixAchatUnitaire,
-        beneficeUnitaire,
-        beneficeTotal
-      };
-    });
-    this.total = calculerTotal(this.lignesVente);
-    this.totalPrixAchat = calculerTotalPrixAchat(this.lignesVente);
-    this.beneficeTotal = this.total - this.totalPrixAchat;
   }
 
   valider({ referenceCaisse }) {

@@ -6,16 +6,9 @@ import {
   RetoucheNonTerminee,
   RetoucheNonPayee,
   RetoucheAnnulee,
-  AvanceInsuffisante,
-  TransitionStatutRetoucheInvalide
+  AvanceInsuffisante
 } from "./errors.js";
 import { createMesuresRetouche } from "../../shared/domain/mesures-habit.js";
-import {
-  getTypeRetoucheDefinition,
-  isRetoucheHabitCompatible,
-  resolveMesureTargetsForHabit,
-  resolveRetouchePolicy
-} from "./retouche-policy.js";
 
 export class Retouche {
   constructor({
@@ -29,9 +22,7 @@ export class Retouche {
     montantPaye = 0,
     statutRetouche = StatutRetouche.DEPOSEE,
     typeHabit,
-    mesuresHabit,
-    policy = null,
-    rehydrate = false
+    mesuresHabit
   }) {
     // Basic validations at creation time
     assertNonEmpty(idRetouche, "idRetouche");
@@ -40,77 +31,22 @@ export class Retouche {
     if (montantTotal < 0) throw new Error("montantTotal must be >= 0");
     if (montantPaye < 0) throw new Error("montantPaye must be >= 0");
     if (montantPaye > montantTotal) throw new PaiementExcedentaire("montantPaye > montantTotal");
-    if (
-      statutRetouche !== StatutRetouche.DEPOSEE &&
-      statutRetouche !== StatutRetouche.EN_COURS &&
-      statutRetouche !== StatutRetouche.TERMINEE &&
-      statutRetouche !== StatutRetouche.LIVREE &&
-      statutRetouche !== StatutRetouche.ANNULEE
-    ) {
-      throw new TransitionStatutRetoucheInvalide("Statut de retouche invalide");
-    }
 
     this.idRetouche = idRetouche;
     this.idClient = idClient;
     this.descriptionRetouche = descriptionRetouche;
+    this.typeRetouche = typeRetouche;
     this.dateDepot = dateDepot;
     this.datePrevue = datePrevue;
     this.montantTotal = montantTotal;
     this.montantPaye = montantPaye;
     this.statutRetouche = statutRetouche;
-    const resolvedPolicy = resolveRetouchePolicy(policy);
-    const typeDef = getTypeRetoucheDefinition(typeRetouche, resolvedPolicy);
-    this.typeRetouche = typeDef.code;
-    if (!isRetoucheHabitCompatible(typeDef, typeHabit)) {
-      throw new Error("Type d'habit incompatible avec ce type de retouche");
-    }
-    const descriptionRequired = typeDef.descriptionObligatoire || resolvedPolicy.descriptionObligatoire;
-    if (descriptionRequired && !String(descriptionRetouche || "").trim()) {
-      throw new Error("Description retouche obligatoire");
-    }
-
-    const shouldRequireMeasures = typeDef.necessiteMesures === true;
-    const mesureTargets = resolveMesureTargetsForHabit({
-      typeDefinition: typeDef,
-      typeHabit
-    });
-
     if (typeHabit || mesuresHabit) {
-      try {
-        const snapshot = createMesuresRetouche(typeHabit, mesuresHabit, {
-          requireAtLeastOne: shouldRequireMeasures,
-          allowDecimals: true,
-          unit: "cm"
-        });
-        const values = snapshot?.valeurs || {};
-        if (!shouldRequireMeasures && resolvedPolicy.mesuresOptionnelles === false && Object.keys(values).length > 0) {
-          throw new Error("Mesures non autorisees pour ce type de retouche");
-        }
-        if (shouldRequireMeasures) {
-          if (resolvedPolicy.saisiePartielle) {
-            const hasAnyTarget = mesureTargets.some((key) => values[key] !== undefined && values[key] !== null && values[key] !== "");
-            if (!hasAnyTarget) throw new Error("Mesures requises pour ce type de retouche");
-          } else {
-            for (const key of mesureTargets) {
-              if (values[key] === undefined || values[key] === null || values[key] === "") {
-                throw new Error(`Mesure obligatoire: ${key}`);
-              }
-            }
-          }
-        }
-        this.typeHabit = snapshot.typeHabit;
-        this.mesuresHabit = snapshot;
-      } catch (err) {
-        if (!rehydrate) throw err;
-        // Compatibility for historical rows with incomplete measures.
-        this.typeHabit = typeHabit || mesuresHabit?.typeHabit || null;
-        this.mesuresHabit = mesuresHabit || null;
-      }
+      const snapshot = createMesuresRetouche(typeHabit, mesuresHabit);
+      this.typeHabit = snapshot.typeHabit;
+      this.mesuresHabit = snapshot;
     } else {
       // Compatibility for historical rows created before mesures were enforced.
-      if (!rehydrate && shouldRequireMeasures) {
-        throw new Error("Mesures requises pour ce type de retouche");
-      }
       this.typeHabit = null;
       this.mesuresHabit = null;
     }
@@ -118,21 +54,14 @@ export class Retouche {
 
   assertNotLivree() {
     if (this.statutRetouche === StatutRetouche.LIVREE) {
-      throw new RetoucheDejaLivree("Retouche deja livree");
-    }
-  }
-
-  assertNotAnnulee() {
-    if (this.statutRetouche === StatutRetouche.ANNULEE) {
-      throw new RetoucheAnnulee("Retouche annulee");
+      throw new RetoucheDejaLivree("Retouche already delivered");
     }
   }
 
   demarrerTravail(parametresAtelier) {
     this.assertNotLivree();
-    this.assertNotAnnulee();
-    if (this.statutRetouche !== StatutRetouche.DEPOSEE || this.montantPaye <= 0) {
-      throw new TransitionStatutRetoucheInvalide("Transition invalide: premier paiement requis");
+    if (this.statutRetouche === StatutRetouche.ANNULEE) {
+      throw new RetoucheAnnulee("Retouche is cancelled");
     }
 
     if (parametresAtelier?.avanceObligatoireRetouche) {
@@ -147,16 +76,17 @@ export class Retouche {
 
   terminerTravail() {
     this.assertNotLivree();
-    this.assertNotAnnulee();
-    if (this.statutRetouche !== StatutRetouche.EN_COURS) {
-      throw new TransitionStatutRetoucheInvalide("Transition invalide: seule une retouche EN_COURS peut etre terminee");
+    if (this.statutRetouche === StatutRetouche.ANNULEE) {
+      throw new RetoucheAnnulee("Retouche is cancelled");
     }
     this.statutRetouche = StatutRetouche.TERMINEE;
   }
 
   appliquerPaiement(montant) {
     this.assertNotLivree();
-    this.assertNotAnnulee();
+    if (this.statutRetouche === StatutRetouche.ANNULEE) {
+      throw new RetoucheAnnulee("Retouche is cancelled");
+    }
     if (montant <= 0) throw new Error("montant must be > 0");
 
     const nouveau = this.montantPaye + montant;
@@ -164,31 +94,21 @@ export class Retouche {
       throw new PaiementExcedentaire("Payment exceeds total");
     }
     this.montantPaye = nouveau;
-
-    // Transition metier automatique: premier paiement -> EN_COURS.
-    if (this.statutRetouche === StatutRetouche.DEPOSEE) {
-      this.statutRetouche = StatutRetouche.EN_COURS;
-    }
   }
 
   livrerRetouche() {
     this.assertNotLivree();
-    this.assertNotAnnulee();
     if (this.statutRetouche !== StatutRetouche.TERMINEE) {
-      throw new RetoucheNonTerminee("Livraison interdite: retouche non terminee");
+      throw new RetoucheNonTerminee("Retouche must be finished before delivery");
     }
     if (this.montantPaye < this.montantTotal) {
-      throw new RetoucheNonPayee("Livraison interdite: solde restant > 0");
+      throw new RetoucheNonPayee("Retouche must be fully paid before delivery");
     }
     this.statutRetouche = StatutRetouche.LIVREE;
   }
 
   annulerRetouche() {
     this.assertNotLivree();
-    this.assertNotAnnulee();
-    if (this.statutRetouche !== StatutRetouche.DEPOSEE && this.statutRetouche !== StatutRetouche.EN_COURS) {
-      throw new TransitionStatutRetoucheInvalide("Transition invalide: annulation autorisee uniquement pour DEPOSEE ou EN_COURS");
-    }
     this.statutRetouche = StatutRetouche.ANNULEE;
   }
 
