@@ -22,7 +22,8 @@ export async function mettreAJourVente({ idVente, lignesVente, articleRepo, vent
       idArticle: article.idArticle,
       libelleArticle: article.nomArticle,
       quantite: Number(ligne.quantite),
-      prixUnitaire: Number(article.prixVenteUnitaire || 0)
+      prixUnitaire: Number(article.prixVenteUnitaire || 0),
+      prixAchatUnitaire: Number(article.prixAchatMoyen || 0)
     });
   }
 

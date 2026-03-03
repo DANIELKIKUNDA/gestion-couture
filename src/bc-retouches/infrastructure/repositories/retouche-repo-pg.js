@@ -21,7 +21,8 @@ export class RetoucheRepoPg {
       montantPaye: Number(row.montant_paye),
       statutRetouche: row.statut,
       typeHabit: row.type_habit,
-      mesuresHabit: row.mesures_habit_snapshot
+      mesuresHabit: row.mesures_habit_snapshot,
+      rehydrate: true
     });
   }
 

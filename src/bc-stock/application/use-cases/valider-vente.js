@@ -7,7 +7,14 @@ export async function validerVente({ idVente, idCaisseJour, modePaiement, utilis
 
   const caisse = await caisseRepo.getById(idCaisseJour);
   if (!caisse) throw new Error("Caisse introuvable");
-  caisse.assertOuverte();
+  try {
+    caisse.assertOuverte();
+  } catch (err) {
+    if (String(err?.name || "") === "CaisseCloturee") {
+      throw new Error("Caisse cloturee: vente impossible");
+    }
+    throw err;
+  }
 
   const articles = new Map();
   const quantitesParArticle = new Map();
@@ -24,6 +31,12 @@ export async function validerVente({ idVente, idCaisseJour, modePaiement, utilis
     }
     articles.set(idArticle, article);
   }
+
+  const prixAchatMap = new Map();
+  for (const [idArticle, article] of articles.entries()) {
+    prixAchatMap.set(idArticle, Number(article.prixAchatMoyen || 0));
+  }
+  vente.appliquerPrixAchatParArticle(prixAchatMap);
 
   for (const ligne of vente.lignesVente) {
     const article = articles.get(ligne.idArticle);

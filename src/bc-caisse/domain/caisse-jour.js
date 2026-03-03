@@ -3,6 +3,7 @@ import {
   StatutCaisse,
   TypeOperation,
   StatutOperation,
+  TypeDepense,
   assertPositive
 } from "./value-objects.js";
 import {
@@ -10,7 +11,11 @@ import {
   SoldeInsuffisant,
   MontantInvalide,
   OperationInexistante,
-  OperationDejaAnnulee
+  OperationDejaAnnulee,
+  TypeDepenseInvalide,
+  JustificationObligatoire,
+  PermissionInsuffisante,
+  SoldeJournalierInsuffisant
 } from "./errors.js";
 
 export class CaisseJour {
@@ -62,6 +67,38 @@ export class CaisseJour {
     return solde;
   }
 
+  totauxJour() {
+    let totalEntrees = 0;
+    let totalSorties = 0;
+    let totalSortiesQuotidiennes = 0;
+
+    for (const op of this.operations) {
+      if (op.statutOperation === StatutOperation.ANNULEE) continue;
+      if (op.typeOperation === TypeOperation.ENTREE) {
+        totalEntrees += op.montant;
+        continue;
+      }
+      if (op.typeOperation !== TypeOperation.SORTIE) continue;
+      totalSorties += op.montant;
+      const depenseType = op.typeDepense || TypeDepense.QUOTIDIENNE;
+      if (depenseType === TypeDepense.QUOTIDIENNE) {
+        totalSortiesQuotidiennes += op.montant;
+      }
+    }
+
+    return {
+      totalEntrees,
+      totalSorties,
+      totalSortiesQuotidiennes,
+      resultatJournalier: totalEntrees - totalSortiesQuotidiennes
+    };
+  }
+
+  soldeJournalierCourant() {
+    const totals = this.totauxJour();
+    return totals.resultatJournalier;
+  }
+
   ouvrirCaisse({ soldeOuverture, utilisateur, dateOuverture, ouvertureAnticipee, motifOuvertureAnticipee, autoriseePar }) {
     if (this.statutCaisse === StatutCaisse.OUVERTE) return;
     if (soldeOuverture < 0) throw new MontantInvalide("soldeOuverture must be >= 0");
@@ -90,20 +127,61 @@ export class CaisseJour {
     });
   }
 
-  enregistrerSortie({ idOperation, montant, motif, utilisateur, dateOperation }) {
+  enregistrerSortie({
+    idOperation,
+    montant,
+    motif,
+    referenceMetier,
+    utilisateur,
+    dateOperation,
+    typeDepense = null,
+    justification = null,
+    role = "",
+    rolesAutorises = []
+  }) {
     this.assertOuverte();
     assertPositive(montant, "montant");
-    const solde = this.soldeCourant();
-    if (solde < montant) throw new SoldeInsuffisant("Insufficient balance");
+    const normalizedType = typeDepense ? String(typeDepense || "").toUpperCase() : TypeDepense.QUOTIDIENNE;
+    if (![TypeDepense.QUOTIDIENNE, TypeDepense.EXCEPTIONNELLE].includes(normalizedType)) {
+      throw new TypeDepenseInvalide("typeDepense invalide");
+    }
+    const soldeGlobal = this.soldeCourant();
+    if (soldeGlobal < montant) throw new SoldeInsuffisant("Insufficient balance");
+
+    if (normalizedType === TypeDepense.QUOTIDIENNE) {
+      const soldeJournalier = this.soldeJournalierCourant();
+      if (soldeJournalier < montant) {
+        throw new SoldeJournalierInsuffisant("Solde journalier insuffisant");
+      }
+    }
+
+    if (normalizedType === TypeDepense.EXCEPTIONNELLE) {
+      const justificationValue = String(justification || "").trim();
+      if (!justificationValue) {
+        throw new JustificationObligatoire("Justification obligatoire");
+      }
+      const roleValue = String(role || "").trim();
+      const roleUpper = roleValue.toUpperCase();
+      const allowed = Array.isArray(rolesAutorises) ? rolesAutorises.map((r) => String(r || "").toUpperCase()) : [];
+      const isAdmin = roleUpper === "ADMIN";
+      if (!isAdmin && !allowed.includes(roleUpper)) {
+        throw new PermissionInsuffisante("Permission insuffisante");
+      }
+    }
 
     this.operations.push({
       idOperation,
       typeOperation: TypeOperation.SORTIE,
       montant,
       motif,
+      referenceMetier: referenceMetier || null,
       dateOperation: dateOperation || new Date().toISOString(),
       effectuePar: utilisateur,
-      statutOperation: StatutOperation.VALIDE
+      statutOperation: StatutOperation.VALIDE,
+      typeDepense: normalizedType,
+      justification: normalizedType === TypeDepense.EXCEPTIONNELLE ? String(justification || "").trim() : null,
+      impactJournalier: normalizedType === TypeDepense.QUOTIDIENNE,
+      impactGlobal: true
     });
   }
 

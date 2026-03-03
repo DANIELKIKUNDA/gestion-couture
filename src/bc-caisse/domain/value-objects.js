@@ -9,6 +9,11 @@ export const TypeOperation = Object.freeze({
   SORTIE: "SORTIE"
 });
 
+export const TypeDepense = Object.freeze({
+  QUOTIDIENNE: "QUOTIDIENNE",
+  EXCEPTIONNELLE: "EXCEPTIONNELLE"
+});
+
 export const ModePaiement = Object.freeze({
   CASH: "CASH",
   MOBILE_MONEY: "MOBILE_MONEY",
@@ -31,7 +36,8 @@ export const MotifOperation = Object.freeze({
 
 export const TypeBilan = Object.freeze({
   HEBDO: "HEBDO",
-  MENSUEL: "MENSUEL"
+  MENSUEL: "MENSUEL",
+  ANNUEL: "ANNUEL"
 });
 
 export function assertPositive(value, label) {

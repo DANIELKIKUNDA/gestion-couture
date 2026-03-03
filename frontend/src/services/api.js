@@ -12,15 +12,130 @@ export class ApiError extends Error {
   }
 }
 
-function authHeaders() {
-  const token = localStorage.getItem("access_token") || localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
+let authLostHandler = null;
+
+export function setAuthLostHandler(handler) {
+  authLostHandler = typeof handler === "function" ? handler : null;
+}
+
+function notifyAuthLost(reason) {
+  if (!authLostHandler) return;
+  try {
+    authLostHandler(reason);
+  } catch {
+    // ignore handler errors
+  }
+}
+
+function getStoredAccessToken() {
+  return localStorage.getItem("access_token") || localStorage.getItem("token") || "";
+}
+
+function clearStoredTokens() {
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("token");
+}
+
+function setAccessToken(token) {
+  if (!token) {
+    clearStoredTokens();
+    return;
+  }
+  localStorage.setItem("access_token", token);
+  localStorage.setItem("token", token);
+}
+
+let refreshInFlight = null;
+
+async function refreshAccessToken() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: "POST",
+      credentials: "include"
+    });
+    const text = await response.text();
+    const payload = text ? tryParseJson(text) : null;
+    if (!response.ok || !payload?.token) {
+      const message = payload?.error || "Connexion requise. Connecte-toi pour continuer.";
+      throw new ApiError(message, response.status || 401, payload);
+    }
+    setAccessToken(payload.token);
+    return payload.token;
+  })();
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+
+async function ensureAccessToken() {
+  const token = getStoredAccessToken();
+  if (token) return token;
+  try {
+    return await refreshAccessToken();
+  } catch {
+    return "";
+  }
+}
+
+async function fetchBlobWithAuthRetry(path, options = {}) {
+  const token = await ensureAccessToken();
+  if (!token) {
+    const err = new ApiError("Connexion requise. Connecte-toi pour continuer.", 401, { path, reason: "missing_token" });
+    notifyAuthLost({ reason: err.message, path, status: 401 });
+    throw err;
+  }
+  const headers = {
+    ...{ Authorization: `Bearer ${token}` },
+    ...(options.headers || {})
+  };
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+      credentials: "include"
+    });
+  } catch (err) {
+    throw new ApiError(
+      "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
+      0,
+      { path, cause: String(err?.message || err || "network_error") }
+    );
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    const payload = text ? tryParseJson(text) : null;
+    const message = payload?.error || text || `Erreur API (${response.status}) sur ${path}`;
+    throw new ApiError(message, response.status, payload);
+  }
+
+  return response.blob();
 }
 
 async function request(path, options = {}) {
+  return requestWithRetry(path, options);
+}
+
+async function requestWithRetry(path, options = {}) {
   const hasBody = Object.prototype.hasOwnProperty.call(options, "body");
+  const isAuthPublicEndpoint =
+    path === "/auth/login" ||
+    path === "/auth/bootstrap-owner" ||
+    path === "/auth/password/forgot" ||
+    path === "/auth/password/reset";
+  const token = isAuthPublicEndpoint ? "" : await ensureAccessToken();
+  if (!isAuthPublicEndpoint && !token) {
+    const err = new ApiError("Connexion requise. Connecte-toi pour continuer.", 401, { path, reason: "missing_token" });
+    notifyAuthLost({ reason: err.message, path, status: 401 });
+    throw err;
+  }
   const headers = {
-    ...authHeaders(),
+    ...(isAuthPublicEndpoint ? {} : { Authorization: `Bearer ${token}` }),
     ...(options.headers || {})
   };
 
@@ -28,16 +143,29 @@ async function request(path, options = {}) {
     headers["Content-Type"] = "application/json";
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+      credentials: "include"
+    });
+  } catch (err) {
+    throw new ApiError(
+      "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
+      0,
+      { path, cause: String(err?.message || err || "network_error") }
+    );
+  }
 
   const text = await response.text();
   const payload = text ? tryParseJson(text) : null;
 
   if (!response.ok) {
     const message = payload?.error || `Erreur API (${response.status}) sur ${path}`;
+    if (!isAuthPublicEndpoint && response.status === 401) {
+      notifyAuthLost({ reason: message, path, status: response.status });
+    }
     throw new ApiError(message, response.status, payload);
   }
 
@@ -65,6 +193,92 @@ async function resolveCaisseJourId(preferredId = "") {
 }
 
 export const atelierApi = {
+  async login({ email, motDePasse }) {
+    const response = await request("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, motDePasse })
+    });
+    if (response?.token) {
+      setAccessToken(response.token);
+    }
+    return response;
+  },
+
+  async logout() {
+    try {
+      await request("/auth/logout", { method: "POST" });
+    } finally {
+      setAccessToken("");
+    }
+  },
+
+  me() {
+    return request("/auth/me", { method: "GET" });
+  },
+
+  async restoreSession() {
+    const storedToken = getStoredAccessToken();
+    if (!storedToken) return null;
+    try {
+      return await request("/auth/me", { method: "GET" });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        return null;
+      }
+      throw err;
+    }
+  },
+
+  forgotPassword(email) {
+    return request("/auth/password/forgot", {
+      method: "POST",
+      body: JSON.stringify({ email })
+    });
+  },
+
+  resetPassword({ token, nouveauMotDePasse }) {
+    return request("/auth/password/reset", {
+      method: "POST",
+      body: JSON.stringify({ token, nouveauMotDePasse })
+    });
+  },
+
+  bootstrapOwner({ nom, email, motDePasse }) {
+    return request("/auth/bootstrap-owner", {
+      method: "POST",
+      body: JSON.stringify({ nom, email, motDePasse })
+    });
+  },
+
+  listRolePermissions() {
+    return request("/auth/role-permissions", { method: "GET" });
+  },
+
+  updateRolePermissions(role, permissions) {
+    return request(`/auth/role-permissions/${encodeURIComponent(role)}`, {
+      method: "PUT",
+      body: JSON.stringify({ permissions })
+    });
+  },
+
+  listUsers() {
+    return request("/auth/users", { method: "GET" });
+  },
+
+  createUser(input) {
+    return request("/auth/users", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  },
+
+  updateUser(id, input) {
+    return request(`/auth/users/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    });
+  },
+
   listClients() {
     return request("/clients", { method: "GET" });
   },
@@ -97,6 +311,14 @@ export const atelierApi = {
     return request(`/commandes/${idCommande}`, { method: "GET" });
   },
 
+  getCommandeActions(idCommande) {
+    return request(`/commandes/${idCommande}/actions`, { method: "GET" });
+  },
+
+  listCommandeEvents(idCommande) {
+    return request(`/commandes/${idCommande}/events`, { method: "GET" });
+  },
+
   listPaiementsCommande(idCommande) {
     return request(`/commandes/${idCommande}/paiements`, { method: "GET" });
   },
@@ -105,8 +327,20 @@ export const atelierApi = {
     return request("/retouches", { method: "GET" });
   },
 
+  listRetoucheTypes() {
+    return request("/retouches/types", { method: "GET" });
+  },
+
   getRetouche(idRetouche) {
     return request(`/retouches/${idRetouche}`, { method: "GET" });
+  },
+
+  getRetoucheActions(idRetouche) {
+    return request(`/retouches/${idRetouche}/actions`, { method: "GET" });
+  },
+
+  listRetoucheEvents(idRetouche) {
+    return request(`/retouches/${idRetouche}/events`, { method: "GET" });
   },
 
   listPaiementsRetouche(idRetouche) {
@@ -117,6 +351,24 @@ export const atelierApi = {
     return request("/stock/articles", { method: "GET" });
   },
 
+  listFournisseurs() {
+    return request("/stock/fournisseurs", { method: "GET" });
+  },
+
+  createFournisseur(input) {
+    return request("/stock/fournisseurs", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  },
+
+  updateFournisseur(idFournisseur, input) {
+    return request(`/stock/fournisseurs/${idFournisseur}`, {
+      method: "PUT",
+      body: JSON.stringify(input)
+    });
+  },
+
   createArticle(input) {
     return request("/stock/articles", {
       method: "POST",
@@ -124,10 +376,75 @@ export const atelierApi = {
     });
   },
 
-  entrerStockArticle(idArticle, { quantite, motif, utilisateur = CAISSE_USER, referenceMetier = null } = {}) {
+  updateStockArticle(idArticle, input) {
+    return request(`/stock/articles/${idArticle}`, {
+      method: "PUT",
+      body: JSON.stringify(input)
+    });
+  },
+
+  listHistoriquePrixArticle(idArticle) {
+    return request(`/stock/articles/${idArticle}/prix-historique`, { method: "GET" });
+  },
+
+  entrerStockArticle(
+    idArticle,
+    {
+      quantite,
+      motif,
+      utilisateur = CAISSE_USER,
+      idCaisseJour = null,
+      referenceMetier = null,
+      fournisseurId = null,
+      fournisseur = null,
+      referenceAchat = null,
+      prixAchatUnitaire = null
+    } = {}
+  ) {
+    const payload = { quantite, motif, utilisateur };
+    if (idCaisseJour !== null && idCaisseJour !== undefined && idCaisseJour !== "") {
+      payload.idCaisseJour = idCaisseJour;
+    }
+    if (referenceMetier !== null && referenceMetier !== undefined && referenceMetier !== "") {
+      payload.referenceMetier = referenceMetier;
+    }
+    if (fournisseur !== null && fournisseur !== undefined && fournisseur !== "") {
+      payload.fournisseur = fournisseur;
+    }
+    if (fournisseurId !== null && fournisseurId !== undefined && fournisseurId !== "") {
+      payload.fournisseurId = fournisseurId;
+    }
+    if (referenceAchat !== null && referenceAchat !== undefined && referenceAchat !== "") {
+      payload.referenceAchat = referenceAchat;
+    }
+    if (prixAchatUnitaire !== null && prixAchatUnitaire !== undefined && prixAchatUnitaire !== "") {
+      payload.prixAchatUnitaire = prixAchatUnitaire;
+    }
     return request(`/stock/articles/${idArticle}/entrees`, {
       method: "POST",
-      body: JSON.stringify({ quantite, motif, utilisateur, referenceMetier })
+      body: JSON.stringify(payload)
+    });
+  },
+
+  sortirStockArticle(idArticle, { quantite, motif, utilisateur = CAISSE_USER, referenceMetier = null } = {}) {
+    const payload = { quantite, motif, utilisateur };
+    if (referenceMetier !== null && referenceMetier !== undefined && referenceMetier !== "") {
+      payload.referenceMetier = referenceMetier;
+    }
+    return request(`/stock/articles/${idArticle}/sorties`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+
+  ajusterStockArticle(idArticle, { quantite, motif, utilisateur = CAISSE_USER, referenceMetier = null } = {}) {
+    const payload = { quantite, motif, utilisateur };
+    if (referenceMetier !== null && referenceMetier !== undefined && referenceMetier !== "") {
+      payload.referenceMetier = referenceMetier;
+    }
+    return request(`/stock/articles/${idArticle}/ajuster`, {
+      method: "POST",
+      body: JSON.stringify(payload)
     });
   },
 
@@ -176,10 +493,10 @@ export const atelierApi = {
     return request(`/caisse/${idCaisseJour}`, { method: "GET" });
   },
 
-  enregistrerDepenseCaisse({ idCaisseJour, montant, motif, utilisateur = CAISSE_USER }) {
+  enregistrerDepenseCaisse({ idCaisseJour, montant, motif, typeDepense, justification = "", utilisateur = CAISSE_USER, role = "" }) {
     return request(`/caisse/${idCaisseJour}/sorties`, {
       method: "POST",
-      body: JSON.stringify({ montant, motif, utilisateur })
+      body: JSON.stringify({ montant, motif, utilisateur, typeDepense, justification, role })
     });
   },
 
@@ -232,6 +549,10 @@ export const atelierApi = {
     return request("/audit/stock-ventes", { method: "GET" });
   },
 
+  getStockMouvement(idMouvement) {
+    return request(`/stock/mouvements/${idMouvement}`, { method: "GET" });
+  },
+
   listFactures() {
     return request("/factures", { method: "GET" });
   },
@@ -251,6 +572,12 @@ export const atelierApi = {
     return `${API_BASE_URL}/factures/${encodeURIComponent(idFacture)}/pdf`;
   },
 
+  async getFacturePdfBlobUrl(idFacture, { autoPrint = false } = {}) {
+    const suffix = autoPrint ? "?autoprint=1" : "";
+    const blob = await fetchBlobWithAuthRetry(`/factures/${encodeURIComponent(idFacture)}/pdf${suffix}`, { method: "GET" });
+    return URL.createObjectURL(blob);
+  },
+
   listAuditFactures() {
     return request("/audit/factures", { method: "GET" });
   },
@@ -259,10 +586,10 @@ export const atelierApi = {
     return request("/parametres-atelier", { method: "GET" });
   },
 
-  saveParametresAtelier(payload, updatedBy = "") {
+  saveParametresAtelier(payload, updatedBy = "", expectedVersion = null) {
     return request("/parametres-atelier", {
       method: "PUT",
-      body: JSON.stringify({ payload, updatedBy })
+      body: JSON.stringify({ payload, updatedBy, expectedVersion })
     });
   },
 
@@ -301,16 +628,40 @@ export const atelierApi = {
     return request(`/commandes/${idCommande}/livrer`, { method: "POST" });
   },
 
-  annulerCommande(idCommande) {
-    return request(`/commandes/${idCommande}/annuler`, { method: "POST" });
+  terminerCommande(idCommande) {
+    return request(`/commandes/${idCommande}/terminer`, { method: "POST" });
+  },
+
+  annulerCommande(idCommande, { utilisateur = CAISSE_USER, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT } = {}) {
+    const payload = {
+      utilisateur,
+      modePaiement
+    };
+    if (idCaisseJour) payload.idCaisseJour = idCaisseJour;
+    return request(`/commandes/${idCommande}/annuler`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
   },
 
   livrerRetouche(idRetouche) {
     return request(`/retouches/${idRetouche}/livrer`, { method: "POST" });
   },
 
-  annulerRetouche(idRetouche) {
-    return request(`/retouches/${idRetouche}/annuler`, { method: "POST" });
+  terminerRetouche(idRetouche) {
+    return request(`/retouches/${idRetouche}/terminer`, { method: "POST" });
+  },
+
+  annulerRetouche(idRetouche, { utilisateur = CAISSE_USER, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT } = {}) {
+    const payload = {
+      utilisateur,
+      modePaiement
+    };
+    if (idCaisseJour) payload.idCaisseJour = idCaisseJour;
+    return request(`/retouches/${idRetouche}/annuler`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
   },
 
   appliquerPaiementCommande(idCommande, montant) {
@@ -329,36 +680,27 @@ export const atelierApi = {
 
   async enregistrerPaiementViaCaisse({ idCommande, montant, utilisateur = CAISSE_USER, idCaisseJour = "" }) {
     const caisseJourId = await resolveCaisseJourId(idCaisseJour);
-
-    await request(`/caisse/${caisseJourId}/entrees`, {
+    return request(`/commandes/${idCommande}/paiements/caisse`, {
       method: "POST",
       body: JSON.stringify({
         montant,
+        idCaisseJour: caisseJourId,
         modePaiement: CAISSE_MODE_PAIEMENT,
-        motif: "PAIEMENT_COMMANDE",
-        referenceMetier: idCommande,
         utilisateur
       })
     });
-
-    return this.appliquerPaiementCommande(idCommande, montant);
   },
 
   async enregistrerPaiementRetoucheViaCaisse({ idRetouche, montant, utilisateur = CAISSE_USER, idCaisseJour = "" }) {
     const caisseJourId = await resolveCaisseJourId(idCaisseJour);
-
-    await request(`/caisse/${caisseJourId}/entrees`, {
+    return request(`/retouches/${idRetouche}/paiements/caisse`, {
       method: "POST",
       body: JSON.stringify({
         montant,
+        idCaisseJour: caisseJourId,
         modePaiement: CAISSE_MODE_PAIEMENT,
-        motif: "PAIEMENT_RETOUCHE",
-        referenceMetier: idRetouche,
         utilisateur
       })
     });
-
-    return this.appliquerPaiementRetouche(idRetouche, montant);
   }
 };
-

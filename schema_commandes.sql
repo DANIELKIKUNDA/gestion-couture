@@ -22,18 +22,27 @@ ALTER TABLE commandes ADD COLUMN IF NOT EXISTS mesures_habit_snapshot JSONB NULL
 
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'commandes_type_habit_valide'
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'commandes_statut_check'
+      AND conrelid = 'commandes'::regclass
   ) THEN
-    ALTER TABLE commandes
-      ADD CONSTRAINT commandes_type_habit_valide
-      CHECK (
-        type_habit IS NULL OR type_habit IN (
-          'PANTALON','CHEMISE','CHEMISIER','VESTE','GILET','JACKET',
-          'BOUBOU','ROBE','JUPE','VESTE_FEMME','LIBAYA','ENSEMBLE'
-        )
-      );
+    ALTER TABLE commandes DROP CONSTRAINT commandes_statut_check;
   END IF;
+  ALTER TABLE commandes
+    ADD CONSTRAINT commandes_statut_check
+    CHECK (statut IN ('CREEE','EN_COURS','TERMINEE','LIVREE','ANNULEE'));
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE commandes DROP CONSTRAINT IF EXISTS commandes_type_habit_valide;
+  ALTER TABLE commandes
+    ADD CONSTRAINT commandes_type_habit_valide
+    CHECK (
+      type_habit IS NULL OR type_habit ~ '^[A-Z0-9_]+$'
+    ) NOT VALID;
 END $$;
 
 DO $$
@@ -52,74 +61,6 @@ BEGIN
           AND mesures_habit_snapshot->>'unite' = 'cm'
           AND mesures_habit_snapshot->>'typeHabit' = type_habit
           AND jsonb_typeof(mesures_habit_snapshot->'valeurs') = 'object'
-          AND (mesures_habit_snapshot->'valeurs') <> '{}'::jsonb
-          AND (
-            CASE type_habit
-              WHEN 'PANTALON' THEN (mesures_habit_snapshot->'valeurs' ? 'longueur')
-                                   AND (mesures_habit_snapshot->'valeurs' ? 'tourTaille')
-                                   AND (mesures_habit_snapshot->'valeurs' ? 'tourHanche')
-                                   AND (mesures_habit_snapshot->'valeurs' ? 'largeurBas')
-                                   AND (mesures_habit_snapshot->'valeurs' ? 'hauteurFourche')
-              WHEN 'CHEMISE' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                                  AND (mesures_habit_snapshot->'valeurs' ? 'longueurChemise')
-                                  AND (mesures_habit_snapshot->'valeurs' ? 'typeManches')
-                                  AND (mesures_habit_snapshot->'valeurs' ? 'poignet')
-                                  AND (mesures_habit_snapshot->'valeurs' ? 'carrure')
-              WHEN 'CHEMISIER' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                                    AND (mesures_habit_snapshot->'valeurs' ? 'longueurChemise')
-                                    AND (mesures_habit_snapshot->'valeurs' ? 'typeManches')
-                                    AND (mesures_habit_snapshot->'valeurs' ? 'poignet')
-                                    AND (mesures_habit_snapshot->'valeurs' ? 'carrure')
-              WHEN 'VESTE' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                                AND (mesures_habit_snapshot->'valeurs' ? 'taille')
-                                AND (mesures_habit_snapshot->'valeurs' ? 'longueurVeste')
-                                AND (mesures_habit_snapshot->'valeurs' ? 'longueurManches')
-                                AND (mesures_habit_snapshot->'valeurs' ? 'carrure')
-                                AND (mesures_habit_snapshot->'valeurs' ? 'poignet')
-              WHEN 'GILET' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                                AND (mesures_habit_snapshot->'valeurs' ? 'taille')
-                                AND (mesures_habit_snapshot->'valeurs' ? 'longueurVeste')
-                                AND (mesures_habit_snapshot->'valeurs' ? 'longueurManches')
-                                AND (mesures_habit_snapshot->'valeurs' ? 'carrure')
-                                AND (mesures_habit_snapshot->'valeurs' ? 'poignet')
-              WHEN 'JACKET' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'taille')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'longueurVeste')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'longueurManches')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'carrure')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'poignet')
-              WHEN 'ROBE' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                               AND (mesures_habit_snapshot->'valeurs' ? 'taille')
-                               AND (mesures_habit_snapshot->'valeurs' ? 'hanche')
-                               AND (mesures_habit_snapshot->'valeurs' ? 'longueur')
-              WHEN 'JUPE' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                               AND (mesures_habit_snapshot->'valeurs' ? 'taille')
-                               AND (mesures_habit_snapshot->'valeurs' ? 'hanche')
-                               AND (mesures_habit_snapshot->'valeurs' ? 'longueur')
-              WHEN 'LIBAYA' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'taille')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'hanche')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'longueur')
-              WHEN 'BOUBOU' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'longueur')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'largeur')
-                                 AND (mesures_habit_snapshot->'valeurs' ? 'ouvertureManches')
-              WHEN 'VESTE_FEMME' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                                      AND (mesures_habit_snapshot->'valeurs' ? 'taille')
-                                      AND (mesures_habit_snapshot->'valeurs' ? 'longueurVeste')
-                                      AND (mesures_habit_snapshot->'valeurs' ? 'longueurManches')
-                                      AND (mesures_habit_snapshot->'valeurs' ? 'carrure')
-                                      AND (mesures_habit_snapshot->'valeurs' ? 'poignet')
-              WHEN 'ENSEMBLE' THEN (mesures_habit_snapshot->'valeurs' ? 'poitrine')
-                                   AND (mesures_habit_snapshot->'valeurs' ? 'taille')
-                                   AND (mesures_habit_snapshot->'valeurs' ? 'hanche')
-                                   AND (mesures_habit_snapshot->'valeurs' ? 'longueur')
-                                   AND (mesures_habit_snapshot->'valeurs' ? 'tourTaille')
-                                   AND (mesures_habit_snapshot->'valeurs' ? 'tourHanche')
-                                   AND (mesures_habit_snapshot->'valeurs' ? 'largeurBas')
-              ELSE FALSE
-            END
-          )
         )
       ) NOT VALID;
   END IF;
@@ -142,6 +83,36 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_commandes_client ON commandes (id_client);
 CREATE INDEX IF NOT EXISTS idx_commandes_statut ON commandes (statut);
 CREATE INDEX IF NOT EXISTS idx_commandes_date_prevue ON commandes (date_prevue);
+
+CREATE OR REPLACE FUNCTION commandes_validate_statut_transition()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF TG_OP <> 'UPDATE' OR NEW.statut IS NOT DISTINCT FROM OLD.statut THEN
+    RETURN NEW;
+  END IF;
+
+  IF OLD.statut = 'CREEE' AND NEW.statut IN ('EN_COURS', 'ANNULEE') THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.statut = 'EN_COURS' AND NEW.statut IN ('TERMINEE', 'ANNULEE') THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.statut = 'TERMINEE' AND NEW.statut = 'LIVREE' THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'Transition de statut commande invalide: % -> %', OLD.statut, NEW.statut
+    USING ERRCODE = 'check_violation';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_commandes_validate_transition ON commandes;
+CREATE TRIGGER trg_commandes_validate_transition
+BEFORE UPDATE OF statut ON commandes
+FOR EACH ROW
+EXECUTE FUNCTION commandes_validate_statut_transition();
 
 -- Optional: table for commande events (audit trail)
 CREATE TABLE IF NOT EXISTS commande_events (
