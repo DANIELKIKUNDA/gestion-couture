@@ -1,4 +1,5 @@
 import { pool } from "../../../shared/infrastructure/db.js";
+import { ACCOUNT_STATES, normalizeAccountState } from "../../domain/account-state.js";
 import { getAuthStore } from "./_store.js";
 
 let schemaReady = false;
@@ -18,19 +19,39 @@ async function ensureSchema() {
       date_creation TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS etat_compte TEXT NOT NULL DEFAULT 'ACTIVE'`);
+  await pool.query(`ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1`);
   schemaReady = true;
+}
+
+function buildAccountState(row) {
+  if (row?.etat_compte) return normalizeAccountState(row.etat_compte);
+  return row?.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE;
 }
 
 function mapRow(row) {
   if (!row) return null;
+  const etatCompte = buildAccountState(row);
   return {
     id: row.id_utilisateur,
     nom: row.nom_complet,
     email: row.email,
     roleId: row.role,
-    actif: row.actif !== false,
+    actif: etatCompte !== ACCOUNT_STATES.DISABLED,
+    etatCompte,
+    tokenVersion: Number(row.token_version || 1),
     motDePasseHash: row.mot_de_passe_hash,
     atelierId: "ATELIER"
+  };
+}
+
+function mapMemoryUser(user) {
+  if (!user) return null;
+  return {
+    ...user,
+    etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
+    tokenVersion: Number(user.tokenVersion || 1),
+    actif: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)) !== ACCOUNT_STATES.DISABLED
   };
 }
 
@@ -45,7 +66,7 @@ export class UtilisateurRepoPg {
       try {
         await ensureSchema();
         const result = await pool.query(
-          `SELECT id_utilisateur, nom_complet, email, role, actif, mot_de_passe_hash
+          `SELECT id_utilisateur, nom_complet, email, role, actif, etat_compte, token_version, mot_de_passe_hash
            FROM utilisateurs
            WHERE LOWER(email) = $1
            LIMIT 1`,
@@ -57,7 +78,7 @@ export class UtilisateurRepoPg {
       }
     }
     for (const user of this.store.users.values()) {
-      if (String(user.email || "").toLowerCase() === value) return { ...user };
+      if (String(user.email || "").toLowerCase() === value) return mapMemoryUser(user);
     }
     return null;
   }
@@ -68,7 +89,7 @@ export class UtilisateurRepoPg {
       try {
         await ensureSchema();
         const result = await pool.query(
-          `SELECT id_utilisateur, nom_complet, email, role, actif, mot_de_passe_hash
+          `SELECT id_utilisateur, nom_complet, email, role, actif, etat_compte, token_version, mot_de_passe_hash
            FROM utilisateurs
            WHERE id_utilisateur = $1
            LIMIT 1`,
@@ -79,8 +100,7 @@ export class UtilisateurRepoPg {
         useMemory = true;
       }
     }
-    const user = this.store.users.get(value);
-    return user ? { ...user } : null;
+    return mapMemoryUser(this.store.users.get(value));
   }
 
   async list() {
@@ -88,7 +108,7 @@ export class UtilisateurRepoPg {
       try {
         await ensureSchema();
         const result = await pool.query(
-          `SELECT id_utilisateur, nom_complet, email, role, actif, mot_de_passe_hash
+          `SELECT id_utilisateur, nom_complet, email, role, actif, etat_compte, token_version, mot_de_passe_hash
            FROM utilisateurs
            ORDER BY date_creation DESC`
         );
@@ -97,32 +117,37 @@ export class UtilisateurRepoPg {
         useMemory = true;
       }
     }
-    return Array.from(this.store.users.values()).map((u) => ({ ...u }));
+    return Array.from(this.store.users.values()).map((u) => mapMemoryUser(u));
   }
 
   async save(user) {
+    const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
     const payload = {
       id: String(user.id || ""),
       nom: String(user.nom || "").trim(),
       email: String(user.email || "").trim().toLowerCase() || null,
       roleId: String(user.roleId || "").toUpperCase(),
-      actif: user.actif !== false,
+      actif: etatCompte !== ACCOUNT_STATES.DISABLED,
+      etatCompte,
+      tokenVersion: Number(user.tokenVersion || 1),
       motDePasseHash: String(user.motDePasseHash || "")
     };
     if (!useMemory) {
       try {
         await ensureSchema();
         await pool.query(
-          `INSERT INTO utilisateurs (id_utilisateur, nom_complet, email, role, actif, mot_de_passe_hash)
-           VALUES ($1, $2, $3, $4, $5, $6)
+          `INSERT INTO utilisateurs (id_utilisateur, nom_complet, email, role, actif, etat_compte, token_version, mot_de_passe_hash)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT (id_utilisateur)
            DO UPDATE SET
              nom_complet = EXCLUDED.nom_complet,
              email = EXCLUDED.email,
              role = EXCLUDED.role,
              actif = EXCLUDED.actif,
+             etat_compte = EXCLUDED.etat_compte,
+             token_version = EXCLUDED.token_version,
              mot_de_passe_hash = EXCLUDED.mot_de_passe_hash`,
-          [payload.id, payload.nom, payload.email, payload.roleId, payload.actif, payload.motDePasseHash]
+          [payload.id, payload.nom, payload.email, payload.roleId, payload.actif, payload.etatCompte, payload.tokenVersion, payload.motDePasseHash]
         );
       } catch {
         useMemory = true;
@@ -134,6 +159,8 @@ export class UtilisateurRepoPg {
       email: payload.email,
       roleId: payload.roleId,
       actif: payload.actif,
+      etatCompte: payload.etatCompte,
+      tokenVersion: payload.tokenVersion,
       motDePasseHash: payload.motDePasseHash,
       atelierId: "ATELIER"
     };

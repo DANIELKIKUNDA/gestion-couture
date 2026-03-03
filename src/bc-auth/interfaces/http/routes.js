@@ -5,6 +5,7 @@ import { z } from "zod";
 import { validateSchema } from "../../../shared/interfaces/validation.js";
 import { ROLES } from "../../domain/roles.js";
 import { DEFAULT_ROLE_PERMISSIONS } from "../../domain/default-role-permissions.js";
+import { ACCOUNT_STATES, normalizeAccountState } from "../../domain/account-state.js";
 import { validatePasswordPolicy } from "../../domain/password-policy.js";
 import { Utilisateur } from "../../domain/utilisateur.js";
 import { hashPassword } from "../../infrastructure/security/password-hasher.js";
@@ -15,6 +16,7 @@ import { UtilisateurRepoPg } from "../../infrastructure/repositories/utilisateur
 import { RolePermissionAtelierRepoPg } from "../../infrastructure/repositories/role-permission-atelier-repo-pg.js";
 import { AuthSessionRepoPg } from "../../infrastructure/repositories/auth-session-repo-pg.js";
 import { PasswordResetTokenRepoPg } from "../../infrastructure/repositories/password-reset-token-repo-pg.js";
+import { AccessTokenRevocationRepoPg } from "../../infrastructure/repositories/access-token-revocation-repo-pg.js";
 
 import { seConnecterUtilisateur } from "../../application/use-cases/se-connecter-utilisateur.js";
 import { seDeconnecterUtilisateur } from "../../application/use-cases/se-deconnecter-utilisateur.js";
@@ -23,12 +25,14 @@ import { gererUtilisateurs } from "../../application/use-cases/gerer-utilisateur
 import { requireAuth } from "./middlewares/auth-guard.js";
 import { requirePermission } from "./middlewares/require-permission.js";
 import { PERMISSIONS } from "../../domain/permissions.js";
+import { logSecurityAudit } from "./security-audit.js";
 
 const router = express.Router();
 const utilisateurRepo = new UtilisateurRepoPg();
 const rolePermissionRepo = new RolePermissionAtelierRepoPg();
 const authSessionRepo = new AuthSessionRepoPg();
 const resetTokenRepo = new PasswordResetTokenRepoPg();
+const revocationRepo = new AccessTokenRevocationRepoPg();
 
 const REFRESH_COOKIE = process.env.AUTH_REFRESH_COOKIE_NAME || "atelier_refresh_token";
 const COOKIE_SAMESITE = process.env.AUTH_COOKIE_SAMESITE || "lax";
@@ -46,6 +50,12 @@ function getCookie(req, name) {
   return null;
 }
 
+function getBearerToken(req) {
+  const auth = String(req.headers?.authorization || "");
+  if (!auth.toLowerCase().startsWith("bearer ")) return "";
+  return auth.slice(7).trim();
+}
+
 async function ensureRolePermissions() {
   const existing = await rolePermissionRepo.listByAtelier("ATELIER");
   if (existing.length > 0) return;
@@ -58,12 +68,15 @@ async function withPermissions(user) {
   await ensureRolePermissions();
   const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
   const permissions = rolePerm?.permissions || [];
+  const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
   return {
     id: user.id,
     nom: user.nom,
     email: user.email,
     roleId: user.roleId,
     actif: user.actif !== false,
+    etatCompte,
+    tokenVersion: Number(user.tokenVersion || 1),
     permissions
   };
 }
@@ -135,7 +148,8 @@ router.post("/auth/refresh", async (req, res) => {
     if (!session) return res.status(401).json({ error: "Session invalide" });
 
     const user = await utilisateurRepo.getById(session.utilisateurId);
-    if (!user || !user.actif) return res.status(401).json({ error: "Session invalide" });
+    const etatCompte = normalizeAccountState(user?.etatCompte || (user?.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
+    if (!user || etatCompte === ACCOUNT_STATES.DISABLED) return res.status(401).json({ error: "Session invalide" });
 
     const userWithPerms = await withPermissions(user);
     const token = signAccessToken({
@@ -144,7 +158,9 @@ router.post("/auth/refresh", async (req, res) => {
       role: user.roleId,
       roleId: user.roleId,
       atelierId: user.atelierId || "ATELIER",
-      permissions: userWithPerms.permissions
+      permissions: userWithPerms.permissions,
+      etatCompte,
+      tokenVersion: Number(user.tokenVersion || 1)
     });
 
     res.json({ token });
@@ -156,8 +172,23 @@ router.post("/auth/refresh", async (req, res) => {
 router.post("/auth/logout", requireAuth, async (req, res) => {
   try {
     const refreshToken = getCookie(req, REFRESH_COOKIE);
+    const accessToken = getBearerToken(req);
     await seDeconnecterUtilisateur({ authSessionRepo, refreshToken });
+    if (accessToken) {
+      await revocationRepo.revoke({
+        token: accessToken,
+        utilisateurId: req.auth?.utilisateurId || null,
+        reason: "logout_volontaire"
+      });
+    }
     res.clearCookie(REFRESH_COOKIE, { path: "/" });
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      action: "LOGOUT",
+      entite: "/auth/logout",
+      succes: true
+    });
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -176,7 +207,9 @@ router.get("/auth/me", requireAuth, async (req, res) => {
         email: me.email,
         roles: [me.roleId],
         roleId: me.roleId,
-        actif: me.actif !== false
+        actif: me.actif !== false,
+        etatCompte: me.etatCompte,
+        tokenVersion: Number(me.tokenVersion || 1)
       },
       permissions: me.permissions || []
     });
@@ -255,7 +288,17 @@ router.put("/auth/role-permissions/:role", requirePermission(PERMISSIONS.GERER_U
 router.get("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), async (_req, res) => {
   try {
     const rows = await gererUtilisateurs({ utilisateurRepo, input: { action: "list" } });
-    res.json(rows.map((u) => ({ id: u.id, nom: u.nom, email: u.email, roleId: u.roleId, actif: u.actif !== false })));
+    res.json(
+      rows.map((u) => ({
+        id: u.id,
+        nom: u.nom,
+        email: u.email,
+        roleId: u.roleId,
+        actif: u.actif !== false,
+        etatCompte: normalizeAccountState(u.etatCompte || (u.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
+        tokenVersion: Number(u.tokenVersion || 1)
+      }))
+    );
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -269,13 +312,35 @@ router.post("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), as
         email: z.string().email(),
         motDePasse: z.string().min(8),
         roleId: z.enum(ALLOWED_ROLES),
-        actif: z.boolean().optional()
+        actif: z.boolean().optional(),
+        etatCompte: z.enum([ACCOUNT_STATES.ACTIVE, ACCOUNT_STATES.SUSPENDED, ACCOUNT_STATES.DISABLED]).optional()
       })
       .passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-    const user = await gererUtilisateurs({ utilisateurRepo, input: { action: "create", ...parsed.data } });
-    res.status(201).json({ id: user.id, nom: user.nom, email: user.email, roleId: user.roleId, actif: user.actif !== false });
+    const etatCompte = normalizeAccountState(parsed.data.etatCompte || (parsed.data.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
+    const created = await gererUtilisateurs({
+      utilisateurRepo,
+      input: {
+        action: "create",
+        ...parsed.data,
+        actif: etatCompte !== ACCOUNT_STATES.DISABLED
+      }
+    });
+    const user = await utilisateurRepo.save({
+      ...created,
+      etatCompte,
+      actif: etatCompte !== ACCOUNT_STATES.DISABLED
+    });
+    res.status(201).json({
+      id: user.id,
+      nom: user.nom,
+      email: user.email,
+      roleId: user.roleId,
+      actif: user.actif !== false,
+      etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
+      tokenVersion: Number(user.tokenVersion || 1)
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -287,13 +352,49 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
       .object({
         nom: z.string().optional(),
         roleId: z.enum(ALLOWED_ROLES).optional(),
-        actif: z.boolean().optional()
+        actif: z.boolean().optional(),
+        etatCompte: z.enum([ACCOUNT_STATES.ACTIVE, ACCOUNT_STATES.SUSPENDED, ACCOUNT_STATES.DISABLED]).optional()
       })
       .passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-    const user = await gererUtilisateurs({ utilisateurRepo, input: { action: "update", id: req.params.id, ...parsed.data } });
-    res.json({ id: user.id, nom: user.nom, email: user.email, roleId: user.roleId, actif: user.actif !== false });
+    const current = await utilisateurRepo.getById(req.params.id);
+    if (!current) return res.status(404).json({ error: "Utilisateur introuvable" });
+    const currentState = normalizeAccountState(current.etatCompte || (current.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
+    const hasExplicitState = parsed.data.etatCompte !== undefined;
+    const nextState = normalizeAccountState(
+      hasExplicitState
+        ? parsed.data.etatCompte
+        : parsed.data.actif === undefined
+          ? currentState
+          : parsed.data.actif === false
+            ? ACCOUNT_STATES.DISABLED
+            : ACCOUNT_STATES.ACTIVE
+    );
+    const updated = await gererUtilisateurs({
+      utilisateurRepo,
+      input: {
+        action: "update",
+        id: req.params.id,
+        ...parsed.data,
+        actif: nextState !== ACCOUNT_STATES.DISABLED
+      }
+    });
+    const user = await utilisateurRepo.save({
+      ...updated,
+      etatCompte: nextState,
+      actif: nextState !== ACCOUNT_STATES.DISABLED,
+      tokenVersion: hasExplicitState && nextState !== currentState ? Number(current.tokenVersion || 1) + 1 : Number(updated.tokenVersion || current.tokenVersion || 1)
+    });
+    res.json({
+      id: user.id,
+      nom: user.nom,
+      email: user.email,
+      roleId: user.roleId,
+      actif: user.actif !== false,
+      etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
+      tokenVersion: Number(user.tokenVersion || 1)
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

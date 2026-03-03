@@ -8,6 +8,7 @@ export async function reinitialiserMotDePasse({ utilisateurRepo, resetTokenRepo,
   if (!user) throw new Error("Utilisateur introuvable");
   validatePasswordPolicy(nouveauMotDePasse);
   user.motDePasseHash = hashPassword(nouveauMotDePasse);
+  user.tokenVersion = Number(user.tokenVersion || 1) + 1;
   await utilisateurRepo.save(user);
   await resetTokenRepo.markUsed(token);
   return true;

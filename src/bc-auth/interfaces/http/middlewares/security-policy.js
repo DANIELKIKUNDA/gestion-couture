@@ -1,4 +1,104 @@
-﻿export function securityPolicy(req, _res, next) {
+import { ACCOUNT_STATES, isWriteMethod, normalizeAccountState } from "../../../domain/account-state.js";
+import { UtilisateurRepoPg } from "../../../infrastructure/repositories/utilisateur-repo-pg.js";
+import { RolePermissionAtelierRepoPg } from "../../../infrastructure/repositories/role-permission-atelier-repo-pg.js";
+import { AccessTokenRevocationRepoPg } from "../../../infrastructure/repositories/access-token-revocation-repo-pg.js";
+import { logSecurityAudit } from "../security-audit.js";
+
+const utilisateurRepo = new UtilisateurRepoPg();
+const rolePermissionRepo = new RolePermissionAtelierRepoPg();
+const revocationRepo = new AccessTokenRevocationRepoPg();
+
+function parseBearer(req) {
+  const auth = String(req.headers?.authorization || "");
+  if (!auth.toLowerCase().startsWith("bearer ")) return "";
+  return auth.slice(7).trim();
+}
+
+function securityError(res, message = "Acces non autorise") {
+  return res.status(403).json({ error: message });
+}
+
+export async function securityPolicy(req, res, next) {
   req.isReadOnly = false;
+  if (!req.auth?.utilisateurId) return next();
+
+  const token = parseBearer(req);
+  if (token && (await revocationRepo.isRevoked(token))) {
+    await logSecurityAudit({
+      utilisateurId: req.auth.utilisateurId,
+      role: req.auth.roleId || req.auth.role,
+      action: "TOKEN_REVOQUE_REFUS",
+      entite: req.path,
+      succes: false,
+      raison: "token_revoque"
+    });
+    return securityError(res);
+  }
+
+  const user = await utilisateurRepo.getById(req.auth.utilisateurId);
+  if (!user) {
+    await logSecurityAudit({
+      utilisateurId: req.auth.utilisateurId,
+      role: req.auth.roleId || req.auth.role,
+      action: "UTILISATEUR_INTROUVABLE_REFUS",
+      entite: req.path,
+      succes: false,
+      raison: "utilisateur_introuvable"
+    });
+    return securityError(res);
+  }
+
+  const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
+  if (etatCompte === ACCOUNT_STATES.DISABLED) {
+    await logSecurityAudit({
+      utilisateurId: user.id,
+      role: user.roleId,
+      action: "COMPTE_DESACTIVE_REFUS",
+      entite: req.path,
+      succes: false,
+      raison: "compte_desactive"
+    });
+    return securityError(res);
+  }
+
+  const tokenVersion = Number(req.auth.tokenVersion || 1);
+  const currentTokenVersion = Number(user.tokenVersion || 1);
+  if (tokenVersion !== currentTokenVersion) {
+    await logSecurityAudit({
+      utilisateurId: user.id,
+      role: user.roleId,
+      action: "TOKEN_REVOQUE_PAR_CHANGEMENT_REFUS",
+      entite: req.path,
+      succes: false,
+      raison: "version_token_invalide"
+    });
+    return securityError(res);
+  }
+
+  if (etatCompte === ACCOUNT_STATES.SUSPENDED && isWriteMethod(req.method)) {
+    await logSecurityAudit({
+      utilisateurId: user.id,
+      role: user.roleId,
+      action: "ECRITURE_SUSPENDUE_REFUS",
+      entite: req.path,
+      succes: false,
+      raison: "compte_suspendu"
+    });
+    return securityError(res, "Compte suspendu: modifications interdites");
+  }
+
+  if (etatCompte === ACCOUNT_STATES.SUSPENDED) req.isReadOnly = true;
+
+  const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
+  req.auth = {
+    ...req.auth,
+    nom: user.nom,
+    role: user.roleId,
+    roleId: user.roleId,
+    etatCompte,
+    tokenVersion: currentTokenVersion,
+    permissions: rolePerm?.permissions || []
+  };
+
   next();
 }

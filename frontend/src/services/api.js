@@ -133,9 +133,6 @@ async function requestWithRetry(path, options = {}) {
 
   if (!response.ok) {
     const message = payload?.error || `Erreur API (${response.status}) sur ${path}`;
-    if (!isAuthPublicEndpoint && response.status === 401) {
-      notifyAuthLost({ reason: message, path, status: response.status });
-    }
     throw new ApiError(message, response.status, payload);
   }
 

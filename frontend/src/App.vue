@@ -1597,9 +1597,8 @@ async function submitLogout() {
 }
 
 onMounted(async () => {
-  setAuthLostHandler(() => {
-    applyAuthSession(null);
-    authError.value = "Session invalide. Connecte-toi pour continuer.";
+  setAuthLostHandler((context) => {
+    authError.value = context?.reason || "Acces refuse. Verifie ton compte et tes permissions.";
   });
   syncRouteFromLocation();
   loadClientConsultationSectionPreference();

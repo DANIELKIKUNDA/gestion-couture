@@ -1,9 +1,12 @@
-﻿import { verifyPassword } from "../../infrastructure/security/password-hasher.js";
+import { verifyPassword } from "../../infrastructure/security/password-hasher.js";
 import { signAccessToken, createOpaqueToken } from "../../infrastructure/security/jwt-service.js";
+import { ACCOUNT_STATES, normalizeAccountState } from "../../domain/account-state.js";
 
 export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRepo, authSessionRepo, email, motDePasse }) {
   const user = await utilisateurRepo.findByEmail(email);
-  if (!user || !user.actif) throw new Error("Identifiants invalides");
+  if (!user) throw new Error("Identifiants invalides");
+  const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
+  if (etatCompte === ACCOUNT_STATES.DISABLED) throw new Error("Acces refuse");
   if (!verifyPassword(motDePasse, user.motDePasseHash)) throw new Error("Identifiants invalides");
 
   const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
@@ -14,7 +17,9 @@ export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRe
     role: user.roleId,
     roleId: user.roleId,
     atelierId: user.atelierId || "ATELIER",
-    permissions
+    permissions,
+    etatCompte,
+    tokenVersion: Number(user.tokenVersion || 1)
   });
 
   const refreshToken = createOpaqueToken();
