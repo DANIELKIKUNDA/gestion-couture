@@ -18,7 +18,7 @@ export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRe
   });
 
   const refreshToken = createOpaqueToken();
-  const expiresAt = new Date(Date.now() + Number(process.env.AUTH_REFRESH_TTL_SECONDS || 31536000) * 1000).toISOString();
+  const expiresAt = "9999-12-31T23:59:59.000Z";
   await authSessionRepo.save({ refreshToken, utilisateurId: user.id, expiresAt, revokedAt: null });
 
   return {

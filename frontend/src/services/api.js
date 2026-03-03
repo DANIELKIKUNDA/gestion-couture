@@ -45,39 +45,9 @@ function setAccessToken(token) {
   localStorage.setItem("token", token);
 }
 
-let refreshInFlight = null;
-
-async function refreshAccessToken() {
-  if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = (async () => {
-    const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
-      method: "POST",
-      credentials: "include"
-    });
-    const text = await response.text();
-    const payload = text ? tryParseJson(text) : null;
-    if (!response.ok || !payload?.token) {
-      const message = payload?.error || "Connexion requise. Connecte-toi pour continuer.";
-      throw new ApiError(message, response.status || 401, payload);
-    }
-    setAccessToken(payload.token);
-    return payload.token;
-  })();
-  try {
-    return await refreshInFlight;
-  } finally {
-    refreshInFlight = null;
-  }
-}
-
 async function ensureAccessToken() {
   const token = getStoredAccessToken();
-  if (token) return token;
-  try {
-    return await refreshAccessToken();
-  } catch {
-    return "";
-  }
+  return token || "";
 }
 
 async function fetchBlobWithAuthRetry(path, options = {}) {
@@ -118,10 +88,10 @@ async function fetchBlobWithAuthRetry(path, options = {}) {
 }
 
 async function request(path, options = {}) {
-  return requestWithRetry(path, options, false);
+  return requestWithRetry(path, options);
 }
 
-async function requestWithRetry(path, options = {}, hasRetriedAuth = false) {
+async function requestWithRetry(path, options = {}) {
   const hasBody = Object.prototype.hasOwnProperty.call(options, "body");
   const isAuthPublicEndpoint =
     path === "/auth/login" ||
@@ -163,14 +133,6 @@ async function requestWithRetry(path, options = {}, hasRetriedAuth = false) {
 
   if (!response.ok) {
     const message = payload?.error || `Erreur API (${response.status}) sur ${path}`;
-    if (!isAuthPublicEndpoint && response.status === 401 && !hasRetriedAuth) {
-      try {
-        await refreshAccessToken();
-        return requestWithRetry(path, options, true);
-      } catch {
-        // fallthrough to auth-lost notification
-      }
-    }
     if (!isAuthPublicEndpoint && response.status === 401) {
       notifyAuthLost({ reason: message, path, status: response.status });
     }

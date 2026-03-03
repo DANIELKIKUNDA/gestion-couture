@@ -27,7 +27,7 @@ export class AuthSessionRepoPg {
     const payload = {
       refreshToken: String(session.refreshToken || ""),
       utilisateurId: String(session.utilisateurId || ""),
-      expiresAt: String(session.expiresAt || new Date(Date.now() + 86400_000).toISOString()),
+      expiresAt: String(session.expiresAt || "9999-12-31T23:59:59.000Z"),
       revokedAt: session.revokedAt || null
     };
     if (!useMemory) {
@@ -66,7 +66,6 @@ export class AuthSessionRepoPg {
         const row = result.rows[0];
         if (!row) return null;
         if (row.revoked_at) return null;
-        if (new Date(row.expire_at).getTime() < Date.now()) return null;
         return {
           refreshToken: row.refresh_token,
           utilisateurId: row.utilisateur_id,
@@ -80,7 +79,6 @@ export class AuthSessionRepoPg {
     const row = this.store.sessions.get(token);
     if (!row) return null;
     if (row.revokedAt) return null;
-    if (new Date(row.expiresAt).getTime() < Date.now()) return null;
     return { ...row };
   }
 

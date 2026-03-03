@@ -73,8 +73,7 @@ function setRefreshCookie(res, value) {
     httpOnly: true,
     sameSite: COOKIE_SAMESITE,
     secure: COOKIE_SECURE,
-    path: "/",
-    maxAge: Number(process.env.AUTH_REFRESH_TTL_SECONDS || 31536000) * 1000
+    path: "/"
   });
 }
 
