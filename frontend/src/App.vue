@@ -9,13 +9,16 @@ const errorMessage = ref("");
 const authReady = ref(false);
 const authenticating = ref(false);
 const authError = ref("");
+const authMode = ref("checking");
 const forbiddenMessage = ref("Acces refuse: permissions insuffisantes.");
 const loginForm = reactive({
   email: "",
   motDePasse: ""
 });
+const showPassword = ref(false);
 const authUser = ref(null);
 const authPermissions = ref([]);
+const bootstrapInitializing = ref(false);
 
 const clients = ref([]);
 const commandes = ref([]);
@@ -877,6 +880,10 @@ function normalizeSessionPayload(payload) {
 
 const isAuthenticated = computed(() => Boolean(authUser.value));
 const currentRole = computed(() => String(authUser.value?.roleId || "").toUpperCase());
+const atelierNomConnexion = computed(() => {
+  const value = String(atelierSettings.identite?.nomAtelier || "").trim();
+  return value ? value.toUpperCase() : "KSG COUTURE";
+});
 
 function hasPermission(permission) {
   if (!permission) return true;
@@ -1552,11 +1559,27 @@ async function hydrateAuthSession() {
     const session = await atelierApi.restoreSession();
     applyAuthSession(session);
     authError.value = "";
+    authMode.value = session ? "login" : "checking";
     return Boolean(session);
   } catch (err) {
     applyAuthSession(null);
     authError.value = readableError(err);
+    authMode.value = "login";
     return false;
+  }
+}
+
+async function detectAuthMode() {
+  if (isAuthenticated.value) {
+    authMode.value = "login";
+    return;
+  }
+  authMode.value = "checking";
+  try {
+    const ownerExists = await atelierApi.hasOwnerBootstrapDone();
+    authMode.value = ownerExists ? "login" : "bootstrap";
+  } catch {
+    authMode.value = "login";
   }
 }
 
@@ -1571,6 +1594,7 @@ async function submitLogin() {
     });
     const session = normalizeSessionPayload(response?.utilisateur ? { ...response.utilisateur } : await atelierApi.me());
     applyAuthSession(session);
+    authMode.value = "login";
     loginForm.motDePasse = "";
     if (canAccessModule("parametres")) {
       await loadAtelierSettings();
@@ -1582,6 +1606,50 @@ async function submitLogin() {
     authError.value = readableError(err);
   } finally {
     authenticating.value = false;
+  }
+}
+
+async function sendForgotPassword() {
+  const email = loginForm.email.trim();
+  if (!email) {
+    authError.value = "Renseigne d'abord ton email.";
+    return;
+  }
+  try {
+    await atelierApi.forgotPassword(email);
+    authError.value = "Si ce compte existe, un lien de reinitialisation a ete envoye.";
+  } catch (err) {
+    authError.value = readableError(err);
+  }
+}
+
+async function bootstrapAtelier() {
+  if (bootstrapInitializing.value) return;
+  const nom = window.prompt("Nom du proprietaire");
+  if (nom === null) return;
+  const email = window.prompt("Email du proprietaire");
+  if (email === null) return;
+  const motDePasse = window.prompt("Mot de passe du proprietaire");
+  if (motDePasse === null) return;
+
+  bootstrapInitializing.value = true;
+  authError.value = "";
+  try {
+    await atelierApi.bootstrapOwner({ nom: nom.trim(), email: email.trim(), motDePasse });
+    authMode.value = "login";
+    loginForm.email = email.trim();
+    loginForm.motDePasse = "";
+    authError.value = "Atelier initialise. Connecte-toi avec le compte proprietaire.";
+  } catch (err) {
+    const message = readableError(err);
+    if (message.toLowerCase().includes("deja initialise")) {
+      authMode.value = "login";
+      authError.value = "Un proprietaire existe deja. Utilise la connexion.";
+    } else {
+      authError.value = message;
+    }
+  } finally {
+    bootstrapInitializing.value = false;
   }
 }
 
@@ -1605,6 +1673,9 @@ onMounted(async () => {
   window.addEventListener("popstate", onBrowserNavigation);
   window.addEventListener("beforeunload", onBeforeUnload);
   await hydrateAuthSession();
+  if (!isAuthenticated.value) {
+    await detectAuthMode();
+  }
   if (isAuthenticated.value) {
     if (canAccessModule("parametres")) {
       await loadAtelierSettings();
@@ -3395,18 +3466,37 @@ async function loadRetoucheDetail(idRetouche) {
     <article class="auth-card">
       <header class="auth-card-head">
         <div class="auth-logo">AT</div>
-        <h2>Connexion Atelier</h2>
-        <p>Connecte-toi pour acceder a l'application.</p>
+        <h2>{{ atelierNomConnexion }}</h2>
+        <p>Connexion securisee</p>
       </header>
       <p v-if="authError" class="auth-error">{{ authError }}</p>
-      <form class="auth-form" @submit.prevent="submitLogin">
+      <div v-if="authMode === 'checking'" class="auth-message">
+        <p>Verification de la configuration de l'atelier...</p>
+      </div>
+      <div v-else-if="authMode === 'bootstrap'" class="auth-message">
+        <p>Aucun compte proprietaire n'existe encore pour cet atelier.</p>
+        <button class="action-btn blue auth-submit" type="button" :disabled="bootstrapInitializing" @click="bootstrapAtelier">
+          {{ bootstrapInitializing ? "Initialisation..." : "Initialiser l'atelier" }}
+        </button>
+      </div>
+      <form v-else class="auth-form" @submit.prevent="submitLogin">
         <label for="login-email">Email</label>
         <input id="login-email" v-model="loginForm.email" type="email" required autocomplete="username" />
         <label for="login-password">Mot de passe</label>
-        <input id="login-password" v-model="loginForm.motDePasse" type="password" required autocomplete="current-password" />
+        <div class="auth-password-field">
+          <input
+            id="login-password"
+            v-model="loginForm.motDePasse"
+            :type="showPassword ? 'text' : 'password'"
+            required
+            autocomplete="current-password"
+          />
+          <button class="auth-password-toggle" type="button" @click="showPassword = !showPassword">{{ showPassword ? "Masquer" : "Voir" }}</button>
+        </div>
         <button class="action-btn blue auth-submit" type="submit" :disabled="authenticating">
           {{ authenticating ? "Connexion..." : "Se connecter" }}
         </button>
+        <button type="button" class="auth-link-btn auth-link-inline" @click="sendForgotPassword">Mot de passe oublie ?</button>
       </form>
     </article>
   </div>

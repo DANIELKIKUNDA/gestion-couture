@@ -244,6 +244,27 @@ export const atelierApi = {
     });
   },
 
+  async hasOwnerBootstrapDone() {
+    const probeEmail = `probe.${Date.now()}@ksg.local`;
+    try {
+      await request("/auth/bootstrap-owner", {
+        method: "POST",
+        body: JSON.stringify({
+          nom: "probe",
+          email: probeEmail,
+          motDePasse: "aaaaaaaa"
+        })
+      });
+      return false;
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 409) return true;
+        if (err.status === 400) return false;
+      }
+      throw err;
+    }
+  },
+
   listRolePermissions() {
     return request("/auth/role-permissions", { method: "GET" });
   },
