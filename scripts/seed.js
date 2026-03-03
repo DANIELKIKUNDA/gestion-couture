@@ -30,7 +30,201 @@ async function run() {
     retouches: {
       mesuresOptionnelles: true,
       saisiePartielle: true,
-      descriptionObligatoire: true
+      descriptionObligatoire: true,
+      typesRetouche: [
+        {
+          code: "OURLET_PANTALON",
+          libelle: "Ourlet pantalon",
+          necessiteMesures: true,
+          mesuresCibles: ["LONGUEUR_PANTALON"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["PANTALON"]
+        },
+        {
+          code: "DIMINUER_LONGUEUR_PANTALON",
+          libelle: "Diminuer longueur pantalon",
+          necessiteMesures: true,
+          mesuresCibles: ["LONGUEUR_PANTALON"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["PANTALON"]
+        },
+        {
+          code: "RESSERRER_TAILLE_PANTALON",
+          libelle: "Resserrer taille pantalon",
+          necessiteMesures: true,
+          mesuresCibles: ["TOUR_HANCHE"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["PANTALON"]
+        },
+        {
+          code: "AGRANDIR_TAILLE_PANTALON",
+          libelle: "Agrandir taille pantalon",
+          necessiteMesures: true,
+          mesuresCibles: ["TOUR_HANCHE"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["PANTALON"]
+        },
+        {
+          code: "AJUSTER_BAS_PANTALON",
+          libelle: "Ajuster bas pantalon",
+          necessiteMesures: true,
+          mesuresCibles: ["TOUR_BAS_PANTALON"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["PANTALON"]
+        },
+        {
+          code: "RESSERRER_TAILLE_CHEMISE",
+          libelle: "Resserrer taille chemise",
+          necessiteMesures: true,
+          mesuresCibles: ["TOUR_POITRINE", "LONGUEUR_CHEMISE"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["CHEMISE"]
+        },
+        {
+          code: "AGRANDIR_TAILLE_CHEMISE",
+          libelle: "Agrandir taille chemise",
+          necessiteMesures: true,
+          mesuresCibles: ["TOUR_POITRINE", "LONGUEUR_CHEMISE"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["CHEMISE"]
+        },
+        {
+          code: "REDUIRE_MANCHES_CHEMISE",
+          libelle: "Reduire manches chemise",
+          necessiteMesures: true,
+          mesuresCibles: ["LONGUEUR_MANCHE"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["CHEMISE"]
+        },
+        {
+          code: "RESSERRER_ROBE",
+          libelle: "Resserrer robe",
+          necessiteMesures: true,
+          mesuresCibles: ["TOUR_POITRINE", "TOUR_HANCHE", "LONGUEUR_TOTALE"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["ROBE"]
+        },
+        {
+          code: "AGRANDIR_ROBE",
+          libelle: "Agrandir robe",
+          necessiteMesures: true,
+          mesuresCibles: ["TOUR_POITRINE", "TOUR_HANCHE", "LONGUEUR_TOTALE"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["ROBE"]
+        },
+        {
+          code: "AJUSTER_LONGUEUR_ROBE",
+          libelle: "Ajuster longueur robe",
+          necessiteMesures: true,
+          mesuresCibles: ["LONGUEUR_TOTALE"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["ROBE"]
+        },
+        {
+          code: "REPARATION_DECHIRURE",
+          libelle: "Reparation dechirure",
+          necessiteMesures: false,
+          mesuresCibles: [],
+          descriptionObligatoire: true,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "REMPLACER_FERMETURE",
+          libelle: "Remplacer fermeture",
+          necessiteMesures: false,
+          mesuresCibles: [],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["PANTALON", "JUPE", "ROBE"]
+        },
+        {
+          code: "SURFILAGE",
+          libelle: "Surfilage",
+          necessiteMesures: false,
+          mesuresCibles: [],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "POSER_BOUTON",
+          libelle: "Poser bouton",
+          necessiteMesures: false,
+          mesuresCibles: [],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "BRODERIE",
+          libelle: "Broderie",
+          necessiteMesures: false,
+          mesuresCibles: [],
+          descriptionObligatoire: true,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "REPARATION",
+          libelle: "Reparation",
+          necessiteMesures: false,
+          mesuresCibles: [],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "ZIGZAG",
+          libelle: "Zigzag",
+          necessiteMesures: false,
+          mesuresCibles: [],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "AUTRES",
+          libelle: "Autres",
+          necessiteMesures: false,
+          mesuresCibles: [],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "OURLET",
+          libelle: "Ourlet (legacy)",
+          necessiteMesures: true,
+          mesuresCibles: ["LONGUEUR"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "RESSERRAGE",
+          libelle: "Resserrage (legacy)",
+          necessiteMesures: true,
+          mesuresCibles: ["TAILLE", "HANCHE"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "AGRANDISSEMENT",
+          libelle: "Agrandissement (legacy)",
+          necessiteMesures: true,
+          mesuresCibles: ["TAILLE", "HANCHE"],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "FERMETURE",
+          libelle: "Fermeture (legacy)",
+          necessiteMesures: false,
+          mesuresCibles: [],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["*"]
+        },
+        {
+          code: "AUTRE",
+          libelle: "Autre (legacy)",
+          necessiteMesures: false,
+          mesuresCibles: [],
+          descriptionObligatoire: false,
+          habitsCompatibles: ["*"]
+        }
+      ]
     },
     habits: {
       PANTALON: {
@@ -55,6 +249,7 @@ async function run() {
     caisse: {
       ouvertureAuto: "07:30",
       ouvertureDimanche: "08:00",
+      finSemaine: "DIMANCHE",
       clotureAutoMinuit: true,
       paiementAvantLivraison: true,
       livraisonExpress: true
@@ -66,7 +261,7 @@ async function run() {
       afficherLogo: true
     },
     securite: {
-      rolesAutorises: ["PROPRIETAIRE", "MANAGER"],
+      rolesAutorises: ["PROPRIETAIRE"],
       confirmationAvantSauvegarde: true,
       verrouillageActif: true,
       auditLog: []

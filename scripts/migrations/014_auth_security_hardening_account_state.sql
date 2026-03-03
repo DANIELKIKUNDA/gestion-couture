@@ -1,0 +1,3 @@
+﻿ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS compte_verrouille BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS echecs_connexion INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS derniere_connexion TIMESTAMP NULL;

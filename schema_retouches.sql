@@ -4,7 +4,16 @@ CREATE TABLE IF NOT EXISTS retouches (
   id_retouche TEXT PRIMARY KEY,
   id_client TEXT NOT NULL,
   description TEXT NOT NULL,
-  type_retouche TEXT NOT NULL CHECK (type_retouche IN ('OURLET','RESSERRAGE','AGRANDISSEMENT','REPARATION','FERMETURE','AUTRE')),
+  type_retouche TEXT NOT NULL CHECK (
+    type_retouche IN (
+      'OURLET_PANTALON','DIMINUER_LONGUEUR_PANTALON','RESSERRER_TAILLE_PANTALON','AGRANDIR_TAILLE_PANTALON','AJUSTER_BAS_PANTALON',
+      'RESSERRER_TAILLE_CHEMISE','AGRANDIR_TAILLE_CHEMISE','REDUIRE_MANCHES_CHEMISE',
+      'RESSERRER_ROBE','AGRANDIR_ROBE','AJUSTER_LONGUEUR_ROBE',
+      'REPARATION_DECHIRURE','REMPLACER_FERMETURE','SURFILAGE','POSER_BOUTON','BRODERIE',
+      'ZIGZAG','AUTRES',
+      'OURLET','RESSERRAGE','AGRANDISSEMENT','REPARATION','FERMETURE','AUTRE'
+    )
+  ),
   date_depot TIMESTAMP NOT NULL,
   date_prevue TIMESTAMP NULL,
   montant_total NUMERIC(12,2) NOT NULL CHECK (montant_total >= 0),
@@ -30,7 +39,7 @@ BEGIN
       CHECK (
         type_habit IS NULL OR type_habit IN (
           'PANTALON','CHEMISE','CHEMISIER','VESTE','GILET','JACKET',
-          'BOUBOU','ROBE','JUPE','VESTE_FEMME','LIBAYA','ENSEMBLE'
+          'BOUBOU','ROBE','JUPE','VESTE_FEMME','LIBAYA','ENSEMBLE','AUTRES'
         )
       );
   END IF;
@@ -52,7 +61,6 @@ BEGIN
           AND mesures_habit_snapshot->>'unite' = 'cm'
           AND mesures_habit_snapshot->>'typeHabit' = type_habit
           AND jsonb_typeof(mesures_habit_snapshot->'valeurs') = 'object'
-          AND (mesures_habit_snapshot->'valeurs') <> '{}'::jsonb
         )
       ) NOT VALID;
   END IF;
@@ -73,6 +81,36 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_retouches_client ON retouches (id_client);
 CREATE INDEX IF NOT EXISTS idx_retouches_statut ON retouches (statut);
 CREATE INDEX IF NOT EXISTS idx_retouches_date_prevue ON retouches (date_prevue);
+
+CREATE OR REPLACE FUNCTION retouches_validate_statut_transition()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF TG_OP <> 'UPDATE' OR NEW.statut IS NOT DISTINCT FROM OLD.statut THEN
+    RETURN NEW;
+  END IF;
+
+  IF OLD.statut = 'DEPOSEE' AND NEW.statut IN ('EN_COURS', 'ANNULEE') THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.statut = 'EN_COURS' AND NEW.statut IN ('TERMINEE', 'ANNULEE') THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.statut = 'TERMINEE' AND NEW.statut = 'LIVREE' THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'Transition de statut retouche invalide: % -> %', OLD.statut, NEW.statut
+    USING ERRCODE = 'check_violation';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_retouches_validate_transition ON retouches;
+CREATE TRIGGER trg_retouches_validate_transition
+BEFORE UPDATE OF statut ON retouches
+FOR EACH ROW
+EXECUTE FUNCTION retouches_validate_statut_transition();
 
 CREATE TABLE IF NOT EXISTS retouche_events (
   id_event TEXT PRIMARY KEY,

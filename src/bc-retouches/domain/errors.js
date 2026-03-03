@@ -12,3 +12,4 @@ export class RetoucheNonTerminee extends DomainError {}
 export class RetoucheNonPayee extends DomainError {}
 export class RetoucheAnnulee extends DomainError {}
 export class AvanceInsuffisante extends DomainError {}
+export class TransitionStatutRetoucheInvalide extends DomainError {}

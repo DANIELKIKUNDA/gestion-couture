@@ -10,7 +10,8 @@ export const TypeHabit = Object.freeze({
   JUPE: "JUPE",
   VESTE_FEMME: "VESTE_FEMME",
   LIBAYA: "LIBAYA",
-  ENSEMBLE: "ENSEMBLE"
+  ENSEMBLE: "ENSEMBLE",
+  AUTRES: "AUTRES"
 });
 
 const MAX_CM = 400;
@@ -63,21 +64,71 @@ const DEFINITIONS = Object.freeze({
   ENSEMBLE: {
     required: ["poitrine", "taille", "hanche", "longueur", "tourTaille", "tourHanche", "largeurBas"],
     optional: []
+  },
+  AUTRES: {
+    required: [],
+    optional: []
   }
 });
 
-function assertTypeHabit(typeHabit) {
+function assertTypeHabit(typeHabit, habitDefinitions = null) {
   const value = String(typeHabit || "").trim().toUpperCase();
-  if (!Object.values(TypeHabit).includes(value)) {
+  const fromEnum = Object.values(TypeHabit).includes(value);
+  const fromConfig =
+    !!habitDefinitions &&
+    typeof habitDefinitions === "object" &&
+    Object.prototype.hasOwnProperty.call(habitDefinitions, value);
+  if (!fromEnum && !fromConfig) {
     throw new Error("typeHabit invalide");
   }
   return value;
 }
 
-function assertPositiveCm(value, field) {
+function resolveDefinition(typeHabit, habitDefinitions = null) {
+  const type = assertTypeHabit(typeHabit, habitDefinitions);
+  const configured = habitDefinitions && typeof habitDefinitions === "object" ? habitDefinitions[type] : null;
+  if (configured && Array.isArray(configured.mesures)) {
+    const required = [];
+    const optional = [];
+    const fieldTypes = {};
+    for (const row of configured.mesures) {
+      const code = String(row?.code || "").trim();
+      if (!code) continue;
+      if (row?.obligatoire === true) required.push(code);
+      else optional.push(code);
+      const typeChamp = String(row?.typeChamp || "").trim().toLowerCase();
+      fieldTypes[code] = typeChamp === "text" || typeChamp === "select" ? typeChamp : "number";
+    }
+    return {
+      type,
+      definition: {
+        required: Array.from(new Set(required)),
+        optional: Array.from(new Set(optional)),
+        fieldTypes
+      }
+    };
+  }
+  const fallback = DEFINITIONS[type];
+  const fallbackTypes = {};
+  for (const field of [...fallback.required, ...fallback.optional]) {
+    fallbackTypes[field] = field === "typeManches" ? "select" : "number";
+  }
+  return {
+    type,
+    definition: {
+      ...fallback,
+      fieldTypes: fallbackTypes
+    }
+  };
+}
+
+function assertPositiveCm(value, field, { allowDecimals = true } = {}) {
   const n = Number(value);
   if (Number.isNaN(n) || n <= 0) throw new Error(`Mesure invalide: ${field}`);
   if (n > MAX_CM) throw new Error(`Mesure aberrante: ${field}`);
+  if (!allowDecimals && !Number.isInteger(n)) {
+    throw new Error(`Mesure decimale interdite: ${field}`);
+  }
   return n;
 }
 
@@ -93,14 +144,20 @@ function normalizeTypeManches(value, required = false) {
   return normalized;
 }
 
-function normalizeMesures(typeHabit, mesures, { requireComplete }) {
-  const type = assertTypeHabit(typeHabit);
-  const definition = DEFINITIONS[type];
+function normalizeMesures(typeHabit, mesures, { requireComplete, requireAtLeastOne = true, allowDecimals = true, unit = "cm", habitDefinitions = null }) {
+  const resolved = resolveDefinition(typeHabit, habitDefinitions);
+  const type = resolved.type;
+  const normalizedUnit = String(unit || "").trim().toLowerCase();
+  if (normalizedUnit !== "cm") {
+    throw new Error(`Unite de mesure non supportee: ${normalizedUnit || "inconnue"}`);
+  }
+  const definition = resolved.definition;
   const source = mesures && typeof mesures === "object" ? mesures : {};
   const out = {};
 
-  const numericFields = new Set([...definition.required, ...definition.optional].filter((f) => f !== "typeManches"));
-  for (const field of numericFields) {
+  const measureFields = new Set([...definition.required, ...definition.optional].filter((f) => f !== "typeManches"));
+  for (const field of measureFields) {
+    const fieldType = definition.fieldTypes?.[field] || "number";
     const raw = source[field];
     if (raw === undefined || raw === null || raw === "") {
       if (requireComplete && definition.required.includes(field)) {
@@ -108,7 +165,13 @@ function normalizeMesures(typeHabit, mesures, { requireComplete }) {
       }
       continue;
     }
-    out[field] = assertPositiveCm(raw, field);
+    if (fieldType === "number") {
+      out[field] = assertPositiveCm(raw, field, { allowDecimals });
+    } else {
+      const normalizedText = String(raw || "").trim();
+      if (!normalizedText) throw new Error(`Mesure invalide: ${field}`);
+      out[field] = normalizedText;
+    }
   }
 
   if (definition.required.includes("typeManches") || definition.optional.includes("typeManches")) {
@@ -118,29 +181,40 @@ function normalizeMesures(typeHabit, mesures, { requireComplete }) {
       if (source.longueurManches === undefined || source.longueurManches === null || source.longueurManches === "") {
         if (requireComplete) throw new Error("Mesure manquante: longueurManches");
       } else {
-        out.longueurManches = assertPositiveCm(source.longueurManches, "longueurManches");
+        out.longueurManches = assertPositiveCm(source.longueurManches, "longueurManches", { allowDecimals });
       }
     } else if (source.longueurManches !== undefined && source.longueurManches !== null && source.longueurManches !== "") {
-      out.longueurManches = assertPositiveCm(source.longueurManches, "longueurManches");
+      out.longueurManches = assertPositiveCm(source.longueurManches, "longueurManches", { allowDecimals });
     }
   }
 
-  if (!requireComplete) {
+  if (!requireComplete && requireAtLeastOne) {
     const hasAtLeastOne = Object.keys(out).length > 0;
     if (!hasAtLeastOne) throw new Error("Au moins une mesure est requise");
   }
 
   return {
     typeHabit: type,
-    unite: "cm",
+    unite: normalizedUnit,
     valeurs: out
   };
 }
 
-export function createMesuresCommande(typeHabit, mesures) {
-  return normalizeMesures(typeHabit, mesures, { requireComplete: true });
+export function createMesuresCommande(typeHabit, mesures, options = {}) {
+  return normalizeMesures(typeHabit, mesures, {
+    requireComplete: options.requireComplete !== false,
+    requireAtLeastOne: options.requireAtLeastOne !== false,
+    allowDecimals: options.allowDecimals !== false,
+    unit: options.unit || "cm",
+    habitDefinitions: options.habitDefinitions || null
+  });
 }
 
-export function createMesuresRetouche(typeHabit, mesures) {
-  return normalizeMesures(typeHabit, mesures, { requireComplete: false });
+export function createMesuresRetouche(typeHabit, mesures, options = {}) {
+  return normalizeMesures(typeHabit, mesures, {
+    requireComplete: false,
+    requireAtLeastOne: options.requireAtLeastOne !== false,
+    allowDecimals: options.allowDecimals !== false,
+    unit: options.unit || "cm"
+  });
 }

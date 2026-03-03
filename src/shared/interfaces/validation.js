@@ -1,4 +1,6 @@
-﻿// Minimal request validation helper
+import { z } from "zod";
+
+// Minimal request validation helper
 export function requireFields(body, fields) {
   const missing = fields.filter((f) => body[f] === undefined || body[f] === null || body[f] === "");
   if (missing.length > 0) {
@@ -14,3 +16,16 @@ export function requireNumber(body, field) {
   }
   return { ok: true };
 }
+
+export function validateSchema(schema, payload) {
+  const result = schema.safeParse(payload);
+  if (!result.success) {
+    return {
+      ok: false,
+      error: result.error.issues.map((issue) => issue.message).join("; ")
+    };
+  }
+  return { ok: true, data: result.data };
+}
+
+export const zod = z;

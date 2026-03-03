@@ -66,6 +66,13 @@ npm run build
 ## API Examples
 See `docs/http-examples.md`.
 
+## API Docs (OpenAPI)
+OpenAPI JSON is available at:
+
+```
+http://localhost:3000/openapi.json
+```
+
 ## Project Structure
 - `src/bc-*` per bounded context (domain, application, infrastructure, interfaces)
 - `src/shared` shared helpers
@@ -75,4 +82,30 @@ See `docs/http-examples.md`.
 ## Tests
 ```bash
 npm test
+```
+
+Integration smoke test:
+
+```bash
+npm run test:integration
+```
+
+Read-only integration tests (skip if DB is unreachable):
+
+```bash
+npm run test:integration:readonly
+```
+
+## Windows Launcher (One Icon)
+Create a single desktop icon that starts backend + frontend in background and opens the app:
+
+```powershell
+npm run app:install-icon
+```
+
+Then use only `Atelier Couture.lnk` on Desktop (double-click).  
+Manual start without shortcut:
+
+```powershell
+npm run app:open
 ```

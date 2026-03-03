@@ -3,12 +3,13 @@ import { StatutCommande, assertNonEmpty } from "./value-objects.js";
 import {
   PaiementExcedentaire,
   CommandeDejaLivree,
+  CommandeAnnulee,
   CommandeNonTerminee,
   CommandeNonPayee,
-  CommandeAnnulee,
-  AvanceInsuffisante
+  TransitionStatutCommandeInvalide
 } from "./errors.js";
 import { createMesuresCommande } from "../../shared/domain/mesures-habit.js";
+import { resolveCommandePolicy } from "./commande-policy.js";
 
 export class Commande {
   constructor({
@@ -21,7 +22,9 @@ export class Commande {
     montantPaye = 0,
     statutCommande = StatutCommande.CREEE,
     typeHabit,
-    mesuresHabit
+    mesuresHabit,
+    policy = null,
+    rehydrate = false
   }) {
     // Basic validations at creation time
     assertNonEmpty(idCommande, "idCommande");
@@ -30,6 +33,15 @@ export class Commande {
     if (montantTotal < 0) throw new Error("montantTotal must be >= 0");
     if (montantPaye < 0) throw new Error("montantPaye must be >= 0");
     if (montantPaye > montantTotal) throw new PaiementExcedentaire("montantPaye > montantTotal");
+    if (
+      statutCommande !== StatutCommande.CREEE &&
+      statutCommande !== StatutCommande.EN_COURS &&
+      statutCommande !== StatutCommande.TERMINEE &&
+      statutCommande !== StatutCommande.LIVREE &&
+      statutCommande !== StatutCommande.ANNULEE
+    ) {
+      throw new TransitionStatutCommandeInvalide("Statut de commande invalide");
+    }
 
     this.idCommande = idCommande;
     this.idClient = idClient;
@@ -39,12 +51,40 @@ export class Commande {
     this.montantTotal = montantTotal;
     this.montantPaye = montantPaye;
     this.statutCommande = statutCommande;
+    this.habitDefinitions = policy?.habits && typeof policy.habits === "object" ? policy.habits : null;
+    this.commandePolicy = resolveCommandePolicy(policy);
+    const hasMesuresInput =
+      mesuresHabit &&
+      typeof mesuresHabit === "object" &&
+      Object.values(mesuresHabit).some((value) => value !== undefined && value !== null && value !== "");
     if (typeHabit || mesuresHabit) {
-      const snapshot = createMesuresCommande(typeHabit, mesuresHabit);
-      this.typeHabit = snapshot.typeHabit;
-      this.mesuresHabit = snapshot;
+      if (!hasMesuresInput && !this.commandePolicy.mesuresObligatoiresPourCommande) {
+        this.typeHabit = null;
+        this.mesuresHabit = null;
+        return;
+      }
+      try {
+        const requireMesures = this.commandePolicy.mesuresObligatoiresPourCommande;
+        const snapshot = createMesuresCommande(typeHabit, mesuresHabit, {
+          requireComplete: requireMesures && this.commandePolicy.interdireEnregistrementSansToutesMesuresUtiles,
+          requireAtLeastOne: requireMesures,
+          allowDecimals: this.commandePolicy.valeursDecimalesAutorisees,
+          unit: this.commandePolicy.uniteMesure,
+          habitDefinitions: this.habitDefinitions
+        });
+        this.typeHabit = snapshot.typeHabit;
+        this.mesuresHabit = snapshot;
+      } catch (err) {
+        if (!rehydrate) throw err;
+        // Compatibility for historical rows with incomplete measures.
+        this.typeHabit = typeHabit || mesuresHabit?.typeHabit || null;
+        this.mesuresHabit = mesuresHabit || null;
+      }
     } else {
       // Compatibility for historical rows created before mesures were enforced.
+      if (!rehydrate && this.commandePolicy.mesuresObligatoiresPourCommande) {
+        throw new Error("Mesures obligatoires pour cette commande");
+      }
       this.typeHabit = null;
       this.mesuresHabit = null;
     }
@@ -53,40 +93,28 @@ export class Commande {
   // Domain invariant: no changes after delivery
   assertNotLivree() {
     if (this.statutCommande === StatutCommande.LIVREE) {
-      throw new CommandeDejaLivree("Commande already delivered");
+      throw new CommandeDejaLivree("Commande deja livree");
     }
   }
 
-  // Use when the atelier requires a minimum advance to start work
-  demarrerTravail(parametresAtelier) {
-    this.assertNotLivree();
+  assertNotAnnulee() {
     if (this.statutCommande === StatutCommande.ANNULEE) {
-      throw new CommandeAnnulee("Commande is cancelled");
+      throw new CommandeAnnulee("Commande annulee");
     }
-
-    if (parametresAtelier?.avanceObligatoireCommande) {
-      const min = parametresAtelier.avanceMinimum ?? 0;
-      if (this.montantPaye < min) {
-        throw new AvanceInsuffisante("Advance is insufficient to start work");
-      }
-    }
-
-    this.statutCommande = StatutCommande.EN_COURS;
   }
 
   terminerTravail() {
     this.assertNotLivree();
-    if (this.statutCommande === StatutCommande.ANNULEE) {
-      throw new CommandeAnnulee("Commande is cancelled");
+    this.assertNotAnnulee();
+    if (this.statutCommande !== StatutCommande.EN_COURS) {
+      throw new TransitionStatutCommandeInvalide("Transition invalide: seule une commande EN_COURS peut etre terminee");
     }
     this.statutCommande = StatutCommande.TERMINEE;
   }
 
-  appliquerPaiement(montant) {
+  appliquerPaiement(montant, { policy = null } = {}) {
     this.assertNotLivree();
-    if (this.statutCommande === StatutCommande.ANNULEE) {
-      throw new CommandeAnnulee("Commande is cancelled");
-    }
+    this.assertNotAnnulee();
     if (montant <= 0) throw new Error("montant must be > 0");
 
     const nouveau = this.montantPaye + montant;
@@ -94,22 +122,60 @@ export class Commande {
       throw new PaiementExcedentaire("Payment exceeds total");
     }
     this.montantPaye = nouveau;
+
+    // Transition metier automatique: premier paiement -> EN_COURS.
+    const resolvedPolicy = resolveCommandePolicy(policy || this.commandePolicy);
+    if (resolvedPolicy.passageAutomatiqueEnCoursApresPremierPaiement && this.statutCommande === StatutCommande.CREEE) {
+      this.statutCommande = StatutCommande.EN_COURS;
+    }
   }
 
-  livrerCommande() {
+  livrerCommande({ policy = null } = {}) {
     this.assertNotLivree();
+    this.assertNotAnnulee();
     if (this.statutCommande !== StatutCommande.TERMINEE) {
-      throw new CommandeNonTerminee("Commande must be finished before delivery");
+      throw new CommandeNonTerminee("Livraison interdite: commande non terminee");
     }
-    if (this.montantPaye < this.montantTotal) {
-      throw new CommandeNonPayee("Commande must be fully paid before delivery");
+    const resolvedPolicy = resolveCommandePolicy(policy || this.commandePolicy);
+    if (resolvedPolicy.livraisonAutoriseeSeulementSiPaiementTotal && this.montantPaye < this.montantTotal) {
+      throw new CommandeNonPayee("Livraison interdite: solde restant > 0");
     }
     this.statutCommande = StatutCommande.LIVREE;
   }
 
-  annulerCommande() {
+  annulerCommande({ policy = null } = {}) {
     this.assertNotLivree();
+    this.assertNotAnnulee();
+    if (
+      this.statutCommande !== StatutCommande.CREEE &&
+      this.statutCommande !== StatutCommande.EN_COURS &&
+      this.statutCommande !== StatutCommande.TERMINEE
+    ) {
+      throw new TransitionStatutCommandeInvalide("Transition invalide: annulation impossible pour ce statut");
+    }
+    const resolvedPolicy = resolveCommandePolicy(policy || this.commandePolicy);
+    if (!resolvedPolicy.autoriserAnnulationApresPaiement && this.montantPaye > 0) {
+      throw new TransitionStatutCommandeInvalide("Annulation interdite: la commande a deja recu un paiement");
+    }
     this.statutCommande = StatutCommande.ANNULEE;
+  }
+
+  mettreAJourMesures({ typeHabit, mesuresHabit, policy = null }) {
+    this.assertNotLivree();
+    this.assertNotAnnulee();
+    const resolvedPolicy = resolveCommandePolicy(policy || this.commandePolicy);
+    if (!resolvedPolicy.autoriserModificationMesuresApresCreation && this.statutCommande !== StatutCommande.CREEE) {
+      throw new TransitionStatutCommandeInvalide("Modification des mesures interdite apres validation de la commande");
+    }
+    const snapshot = createMesuresCommande(typeHabit, mesuresHabit, {
+      requireComplete: resolvedPolicy.mesuresObligatoiresPourCommande && resolvedPolicy.interdireEnregistrementSansToutesMesuresUtiles,
+      requireAtLeastOne: resolvedPolicy.mesuresObligatoiresPourCommande,
+      allowDecimals: resolvedPolicy.valeursDecimalesAutorisees,
+      unit: resolvedPolicy.uniteMesure,
+      habitDefinitions: this.habitDefinitions
+    });
+    this.typeHabit = snapshot.typeHabit;
+    this.mesuresHabit = snapshot;
   }
 
   resteAPayer() {

@@ -25,6 +25,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Run integration tests
+        run: npm run test:integration
+
   frontend-build:
     runs-on: ubuntu-latest
     defaults:
