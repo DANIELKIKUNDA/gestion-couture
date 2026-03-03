@@ -1,0 +1,2 @@
+﻿ALTER TABLE commandes ADD COLUMN IF NOT EXISTS type_habit TEXT NULL;
+ALTER TABLE commandes ADD COLUMN IF NOT EXISTS mesures_habit_snapshot JSONB NULL;

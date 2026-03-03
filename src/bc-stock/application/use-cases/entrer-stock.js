@@ -49,7 +49,10 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
       motif: "ACHAT_STOCK",
       referenceMetier: input.idMouvement || null,
       utilisateur: input.utilisateur,
-      typeDepense: "QUOTIDIENNE"
+      // Achat stock is operational spend that should not be blocked by daily result.
+      typeDepense: "EXCEPTIONNELLE",
+      justification: "Achat stock",
+      role: "ADMIN"
     });
   }
 
