@@ -1,4 +1,74 @@
-﻿import assert from 'node:assert/strict';
-console.log('tests/integration.commandes.parametres.auth.test.js SKIPPED (recovery placeholder)');
-assert.equal(true, true);
+import assert from "node:assert/strict";
+import request from "supertest";
 
+import { createApp } from "../src/interfaces/http/app.js";
+import { pool } from "../src/shared/infrastructure/db.js";
+
+async function run() {
+  const app = createApp();
+  const client = request(app);
+
+  const ownerEmail = "owner.integration@atelier.local";
+  const ownerPassword = "Passw0rd!owner";
+
+  await client
+    .post("/api/auth/bootstrap-owner")
+    .send({ nom: "Owner Integration", email: ownerEmail, motDePasse: ownerPassword });
+
+  const loginOwner = await client.post("/api/auth/login").send({ email: ownerEmail, motDePasse: ownerPassword });
+  assert.equal(loginOwner.status, 200, "1) /api/auth/login doit repondre 200");
+  const ownerToken = loginOwner.body?.token || "";
+  assert.ok(ownerToken, "token proprietaire manquant");
+
+  const me = await client.get("/api/auth/me").set("Authorization", `Bearer ${ownerToken}`);
+  assert.equal(me.status, 200, "2) /api/auth/me avec token doit repondre 200");
+  assert.ok(Array.isArray(me.body?.permissions), "permissions[] manquant dans /auth/me");
+
+  const commandesNoToken = await client.get("/api/commandes");
+  assert.equal(commandesNoToken.status, 401, "3) /api/commandes sans token doit repondre 401");
+
+  const originalPoolQuery = pool.query.bind(pool);
+  pool.query = async (text, params) => {
+    const sql = String(text || "");
+    if (sql.includes("FROM commandes")) return { rows: [], rowCount: 0 };
+    return originalPoolQuery(text, params);
+  };
+
+  const commandesOwner = await client.get("/api/commandes").set("Authorization", `Bearer ${ownerToken}`);
+  assert.equal(commandesOwner.status, 200, "4) /api/commandes avec token proprietaire doit repondre 200");
+
+  const couturierEmail = "couturier.integration@atelier.local";
+  const couturierPassword = "Passw0rd!couturier";
+  const createUser = await client
+    .post("/api/auth/users")
+    .set("Authorization", `Bearer ${ownerToken}`)
+    .send({
+      nom: "Couturier Integration",
+      email: couturierEmail,
+      motDePasse: couturierPassword,
+      roleId: "COUTURIER",
+      actif: true
+    });
+  assert.equal(createUser.status, 201, "creation utilisateur couturier impossible");
+
+  const loginCouturier = await client.post("/api/auth/login").send({ email: couturierEmail, motDePasse: couturierPassword });
+  assert.equal(loginCouturier.status, 200, "login couturier impossible");
+  const couturierToken = loginCouturier.body?.token || "";
+  assert.ok(couturierToken, "token couturier manquant");
+
+  const parametresForbidden = await client
+    .get("/api/parametres-atelier")
+    .set("Authorization", `Bearer ${couturierToken}`);
+  assert.equal(parametresForbidden.status, 403, "5) /api/parametres-atelier non autorise doit repondre 403");
+
+  pool.query = originalPoolQuery;
+}
+
+run()
+  .then(() => {
+    console.log("OK: integration auth/commandes/parametres");
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

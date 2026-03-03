@@ -5,6 +5,7 @@ import morgan from "morgan";
 
 import authRoutes from "../../bc-auth/interfaces/http/routes.js";
 import { authGuard } from "../../bc-auth/interfaces/http/middlewares/auth-guard.js";
+import { requireAuth } from "../../bc-auth/interfaces/http/middlewares/auth-guard.js";
 import { securityPolicy } from "../../bc-auth/interfaces/http/middlewares/security-policy.js";
 import commandesRoutes from "../../bc-commandes/interfaces/http/routes.js";
 import retouchesRoutes from "../../bc-retouches/interfaces/http/routes.js";
@@ -29,13 +30,13 @@ export function createApp() {
   });
 
   app.use("/api", authRoutes);
-  app.use("/api", commandesRoutes);
-  app.use("/api", retouchesRoutes);
-  app.use("/api", clientsRoutes);
-  app.use("/api", stockRoutes);
-  app.use("/api", caisseRoutes);
-  app.use("/api", facturationRoutes);
-  app.use("/api", parametresRoutes);
+  app.use("/api", requireAuth, commandesRoutes);
+  app.use("/api", requireAuth, retouchesRoutes);
+  app.use("/api", requireAuth, clientsRoutes);
+  app.use("/api", requireAuth, stockRoutes);
+  app.use("/api", requireAuth, caisseRoutes);
+  app.use("/api", requireAuth, facturationRoutes);
+  app.use("/api", requireAuth, parametresRoutes);
 
   app.use((err, _req, res, _next) => {
     const message = err?.message || "Erreur serveur";

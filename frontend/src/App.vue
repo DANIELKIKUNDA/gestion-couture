@@ -1,11 +1,21 @@
 ﻿<script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { atelierApi, ApiError } from "./services/api.js";
+import { atelierApi, ApiError, setAuthLostHandler } from "./services/api.js";
 
 const currentRoute = ref("dashboard");
 const toast = ref("");
 const loading = ref(false);
 const errorMessage = ref("");
+const authReady = ref(false);
+const authenticating = ref(false);
+const authError = ref("");
+const forbiddenMessage = ref("Acces refuse: permissions insuffisantes.");
+const loginForm = reactive({
+  email: "",
+  motDePasse: ""
+});
+const authUser = ref(null);
+const authPermissions = ref([]);
 
 const clients = ref([]);
 const commandes = ref([]);
@@ -712,6 +722,61 @@ const iconPaths = {
   alert: ["M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z", "M12 9v4", "M12 17h.01"]
 };
 
+const PERMISSIONS = {
+  ANNULER_COMMANDE: "ANNULER_COMMANDE",
+  VOIR_BILANS_GLOBAUX: "VOIR_BILANS_GLOBAUX",
+  CLOTURER_CAISSE: "CLOTURER_CAISSE",
+  LIVRER_COMMANDE: "LIVRER_COMMANDE",
+  TERMINER_COMMANDE: "TERMINER_COMMANDE",
+  MODIFIER_PARAMETRES: "MODIFIER_PARAMETRES",
+  GERER_UTILISATEURS: "GERER_UTILISATEURS"
+};
+
+function normalizeSessionPayload(payload) {
+  return atelierApi.normalizeSession(payload);
+}
+
+const isAuthenticated = computed(() => Boolean(authUser.value));
+const currentRole = computed(() => String(authUser.value?.roleId || "").toUpperCase());
+
+function hasPermission(permission) {
+  if (!permission) return true;
+  if (!isAuthenticated.value) return false;
+  if (currentRole.value === "PROPRIETAIRE" || currentRole.value === "ADMIN") return true;
+  return authPermissions.value.includes(permission);
+}
+
+function hasAnyPermission(list = []) {
+  if (!Array.isArray(list) || list.length === 0) return isAuthenticated.value;
+  return list.some((permission) => hasPermission(permission));
+}
+
+function canAccessModule(moduleId) {
+  if (!isAuthenticated.value) return false;
+  if (currentRole.value === "PROPRIETAIRE" || currentRole.value === "ADMIN") return true;
+  if (moduleId === "dashboard") return true;
+  if (moduleId === "commandes") {
+    if (currentRole.value === "CAISSIER" || currentRole.value === "COUTURIER") return true;
+    return hasAnyPermission([PERMISSIONS.TERMINER_COMMANDE, PERMISSIONS.LIVRER_COMMANDE, PERMISSIONS.ANNULER_COMMANDE]);
+  }
+  if (moduleId === "retouches") return currentRole.value === "CAISSIER" || currentRole.value === "COUTURIER" || canAccessModule("commandes");
+  if (moduleId === "clientsMesures") return currentRole.value === "CAISSIER" || currentRole.value === "COUTURIER" || canAccessModule("commandes");
+  if (moduleId === "caisse") return currentRole.value === "CAISSIER" || hasPermission(PERMISSIONS.CLOTURER_CAISSE);
+  if (moduleId === "facturation") return currentRole.value === "CAISSIER" || canAccessModule("commandes");
+  if (moduleId === "stockVentes") return hasPermission(PERMISSIONS.VOIR_BILANS_GLOBAUX);
+  if (moduleId === "parametres") return hasPermission(PERMISSIONS.MODIFIER_PARAMETRES);
+  if (moduleId === "audit") return hasPermission(PERMISSIONS.VOIR_BILANS_GLOBAUX);
+  return false;
+}
+
+function canAccessRoute(routeId) {
+  if (routeId === "commande-detail" || routeId === "retouche-detail") return canAccessModule("commandes");
+  if (routeId === "vente-detail") return canAccessModule("stockVentes");
+  if (routeId === "facture-detail") return canAccessModule("facturation");
+  if (routeId === "forbidden") return true;
+  return canAccessModule(routeId);
+}
+
 const menuItems = [
   { id: "dashboard", label: "Tableau de Bord", icon: "dashboard" },
   { id: "commandes", label: "Commandes", icon: "clipboard" },
@@ -723,6 +788,8 @@ const menuItems = [
   { id: "parametres", label: "Parametres Atelier", icon: "settings" },
   { id: "audit", label: "Historique & Audit", icon: "history" }
 ];
+
+const visibleMenuItems = computed(() => menuItems.filter((item) => canAccessModule(item.id)));
 
 const auditRoutes = [
   { path: "/audit", title: "Historique & Audit", subtitle: "Hub de navigation audit" },
@@ -768,6 +835,7 @@ const currentTitle = computed(() => {
   if (currentRoute.value === "retouche-detail") return "Detail Retouche";
   if (currentRoute.value === "vente-detail") return "Detail Vente";
   if (currentRoute.value === "facture-detail") return "Detail Facture";
+  if (currentRoute.value === "forbidden") return "Acces refuse";
   if (currentRoute.value === "audit") {
     return auditRoutes.find((item) => item.path === auditSubRoute.value)?.title || "Historique & Audit";
   }
@@ -1301,6 +1369,7 @@ function navigateAudit(path, replace = false) {
 }
 
 async function onBrowserNavigation() {
+  if (!isAuthenticated.value) return;
   const canLeave = await canLeaveSettings();
   if (!canLeave) {
     window.history.pushState({}, "", "/");
@@ -1320,20 +1389,112 @@ function onBeforeUnload(event) {
   event.returnValue = "";
 }
 
+function applyAuthSession(session) {
+  if (!session) {
+    authUser.value = null;
+    authPermissions.value = [];
+    settingsUser.nom = "";
+    settingsUser.role = "MANAGER";
+    return;
+  }
+  authUser.value = {
+    id: session.id || "",
+    nom: session.nom || "",
+    email: session.email || "",
+    roleId: String(session.roleId || session.roles?.[0] || "").toUpperCase()
+  };
+  authPermissions.value = Array.from(new Set((session.permissions || []).map((p) => String(p || "").toUpperCase())));
+  settingsUser.nom = authUser.value.nom || "";
+  settingsUser.role = authUser.value.roleId || "MANAGER";
+}
+
+async function hydrateAuthSession() {
+  try {
+    const session = await atelierApi.restoreSession();
+    applyAuthSession(session);
+    authError.value = "";
+    return Boolean(session);
+  } catch (err) {
+    applyAuthSession(null);
+    authError.value = readableError(err);
+    return false;
+  }
+}
+
+async function submitLogin() {
+  if (authenticating.value) return;
+  authError.value = "";
+  authenticating.value = true;
+  try {
+    const response = await atelierApi.login({
+      email: loginForm.email.trim(),
+      motDePasse: loginForm.motDePasse
+    });
+    const session = normalizeSessionPayload(response?.utilisateur ? { ...response.utilisateur } : await atelierApi.me());
+    applyAuthSession(session);
+    loginForm.motDePasse = "";
+    if (canAccessModule("parametres")) {
+      await loadAtelierSettings();
+    }
+    await reloadAll();
+    if (!canAccessRoute(currentRoute.value)) currentRoute.value = "dashboard";
+  } catch (err) {
+    applyAuthSession(null);
+    authError.value = readableError(err);
+  } finally {
+    authenticating.value = false;
+  }
+}
+
+async function submitLogout() {
+  try {
+    await atelierApi.logout();
+  } catch {
+    // ignore logout transport errors
+  }
+  applyAuthSession(null);
+  authError.value = "";
+  currentRoute.value = "dashboard";
+}
+
 onMounted(async () => {
+  setAuthLostHandler(() => {
+    applyAuthSession(null);
+    authError.value = "Session invalide. Connecte-toi pour continuer.";
+  });
   syncRouteFromLocation();
   loadClientConsultationSectionPreference();
   window.addEventListener("popstate", onBrowserNavigation);
   window.addEventListener("beforeunload", onBeforeUnload);
-  await loadAtelierSettings();
-  await reloadAll();
-  if (currentRoute.value === "audit") loadAuditPage(auditSubRoute.value);
+  await hydrateAuthSession();
+  if (isAuthenticated.value) {
+    if (canAccessModule("parametres")) {
+      await loadAtelierSettings();
+    }
+    await reloadAll();
+    if (currentRoute.value === "audit") loadAuditPage(auditSubRoute.value);
+    if (!canAccessRoute(currentRoute.value)) currentRoute.value = "forbidden";
+  }
+  authReady.value = true;
 });
 
 onUnmounted(() => {
+  setAuthLostHandler(null);
   window.removeEventListener("popstate", onBrowserNavigation);
   window.removeEventListener("beforeunload", onBeforeUnload);
 });
+
+watch(
+  () => [isAuthenticated.value, currentRole.value, authPermissions.value.join("|"), currentRoute.value],
+  () => {
+    if (!authReady.value) return;
+    if (!isAuthenticated.value) return;
+    if (!canAccessRoute(currentRoute.value)) {
+      forbiddenMessage.value = "Acces refuse pour cette section.";
+      currentRoute.value = "forbidden";
+    }
+  }
+);
 
 watch(
   () => [currentRoute.value, selectedVenteId.value],
@@ -1496,6 +1657,15 @@ function resetCommandeFilters() {
 }
 
 async function openRoute(routeId) {
+  if (!isAuthenticated.value) {
+    authError.value = "Connexion requise.";
+    return;
+  }
+  if (!canAccessRoute(routeId)) {
+    forbiddenMessage.value = "Acces refuse pour cette section.";
+    currentRoute.value = "forbidden";
+    return;
+  }
   if (routeId !== currentRoute.value) {
     const canLeave = await canLeaveSettings();
     if (!canLeave) return;
@@ -3057,7 +3227,36 @@ async function loadRetoucheDetail(idRetouche) {
 </script>
 
 <template>
-  <div class="workspace classic">
+  <div v-if="!authReady" class="auth-shell">
+    <article class="auth-card">
+      <header class="auth-card-head">
+        <div class="auth-logo">AT</div>
+        <h2>Chargement de la session...</h2>
+      </header>
+    </article>
+  </div>
+
+  <div v-else-if="!isAuthenticated" class="auth-shell">
+    <article class="auth-card">
+      <header class="auth-card-head">
+        <div class="auth-logo">AT</div>
+        <h2>Connexion Atelier</h2>
+        <p>Connecte-toi pour acceder a l'application.</p>
+      </header>
+      <p v-if="authError" class="auth-error">{{ authError }}</p>
+      <form class="auth-form" @submit.prevent="submitLogin">
+        <label for="login-email">Email</label>
+        <input id="login-email" v-model="loginForm.email" type="email" required autocomplete="username" />
+        <label for="login-password">Mot de passe</label>
+        <input id="login-password" v-model="loginForm.motDePasse" type="password" required autocomplete="current-password" />
+        <button class="action-btn blue auth-submit" type="submit" :disabled="authenticating">
+          {{ authenticating ? "Connexion..." : "Se connecter" }}
+        </button>
+      </form>
+    </article>
+  </div>
+
+  <div v-else class="workspace classic">
     <aside class="sidebar classic-sidebar">
       <div class="brand classic-brand">
         <div class="brand-mark">AT</div>
@@ -3069,7 +3268,7 @@ async function loadRetoucheDetail(idRetouche) {
 
       <nav class="menu">
         <a
-          v-for="item in menuItems"
+          v-for="item in visibleMenuItems"
           :key="item.id"
           href="#"
           class="menu-item"
@@ -3082,6 +3281,13 @@ async function loadRetoucheDetail(idRetouche) {
           <span>{{ item.label }}</span>
         </a>
       </nav>
+      <div class="sidebar-user">
+        <div class="sidebar-user-meta">
+          <strong>{{ authUser?.nom || "Utilisateur" }}</strong>
+          <span>{{ authUser?.roleId || "-" }}</span>
+        </div>
+        <button class="mini-btn" @click="submitLogout">Deconnexion</button>
+      </div>
     </aside>
 
     <main class="main">
@@ -5351,6 +5557,13 @@ async function loadRetoucheDetail(idRetouche) {
           </article>
         </template>
       </section>
+
+        <section v-else-if="currentRoute === 'forbidden'" class="placeholder">
+          <article class="panel error-panel">
+            <h3>Acces refuse (403)</h3>
+            <p>{{ forbiddenMessage }}</p>
+          </article>
+        </section>
 
         <section v-else class="placeholder">
           <article class="panel">

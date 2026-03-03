@@ -166,7 +166,18 @@ router.get("/auth/me", requireAuth, async (req, res) => {
   try {
     const user = await utilisateurRepo.getById(req.auth.utilisateurId);
     if (!user) return res.status(401).json({ error: "Utilisateur introuvable" });
-    res.json(await withPermissions(user));
+    const me = await withPermissions(user);
+    res.json({
+      user: {
+        id: me.id,
+        nom: me.nom,
+        email: me.email,
+        roles: [me.roleId],
+        roleId: me.roleId,
+        actif: me.actif !== false
+      },
+      permissions: me.permissions || []
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

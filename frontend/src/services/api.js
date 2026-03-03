@@ -118,10 +118,10 @@ async function fetchBlobWithAuthRetry(path, options = {}) {
 }
 
 async function request(path, options = {}) {
-  return requestWithRetry(path, options);
+  return requestWithRetry(path, options, false);
 }
 
-async function requestWithRetry(path, options = {}) {
+async function requestWithRetry(path, options = {}, hasRetriedAuth = false) {
   const hasBody = Object.prototype.hasOwnProperty.call(options, "body");
   const isAuthPublicEndpoint =
     path === "/auth/login" ||
@@ -163,6 +163,14 @@ async function requestWithRetry(path, options = {}) {
 
   if (!response.ok) {
     const message = payload?.error || `Erreur API (${response.status}) sur ${path}`;
+    if (!isAuthPublicEndpoint && response.status === 401 && !hasRetriedAuth) {
+      try {
+        await refreshAccessToken();
+        return requestWithRetry(path, options, true);
+      } catch {
+        // fallthrough to auth-lost notification
+      }
+    }
     if (!isAuthPublicEndpoint && response.status === 401) {
       notifyAuthLost({ reason: message, path, status: response.status });
     }
@@ -216,11 +224,38 @@ export const atelierApi = {
     return request("/auth/me", { method: "GET" });
   },
 
+  normalizeSession(payload) {
+    if (!payload || typeof payload !== "object") return null;
+    if (payload.user && Array.isArray(payload.permissions)) {
+      const roleId = payload.user.roleId || payload.user.roles?.[0] || "";
+      return {
+        id: payload.user.id || "",
+        nom: payload.user.nom || "",
+        email: payload.user.email || "",
+        roleId,
+        roles: payload.user.roles || (roleId ? [roleId] : []),
+        actif: payload.user.actif !== false,
+        permissions: payload.permissions || []
+      };
+    }
+    const roleId = payload.roleId || payload.role || "";
+    return {
+      id: payload.id || "",
+      nom: payload.nom || "",
+      email: payload.email || "",
+      roleId,
+      roles: roleId ? [roleId] : [],
+      actif: payload.actif !== false,
+      permissions: payload.permissions || []
+    };
+  },
+
   async restoreSession() {
     const storedToken = getStoredAccessToken();
     if (!storedToken) return null;
     try {
-      return await request("/auth/me", { method: "GET" });
+      const payload = await request("/auth/me", { method: "GET" });
+      return this.normalizeSession(payload);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         return null;
