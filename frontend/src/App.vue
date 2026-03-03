@@ -1331,10 +1331,13 @@ const caisseStatus = computed(() => caisseJour.value?.statutCaisse || "INCONNUE"
 const caisseOuverte = computed(() => caisseStatus.value === "OUVERTE");
 const caisseOperations = computed(() => caisseJour.value?.operations || []);
 const caisseTotals = computed(() => {
+  const totalEntrees = Number(caisseJour.value?.totalEntreesJour ?? 0);
+  const totalSortiesQuotidiennes = Number(caisseJour.value?.totalSortiesQuotidiennesJour ?? 0);
+  const resultatJournalier = Number(caisseJour.value?.resultatJournalier ?? (totalEntrees - totalSortiesQuotidiennes));
+  const soldeJournalierRestant = Number(caisseJour.value?.soldeJournalierRestant ?? resultatJournalier);
   const ops = caisseOperations.value.filter((op) => op.statutOperation !== "ANNULEE");
-  const totalEntrees = ops.filter((op) => op.typeOperation === "ENTREE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
   const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
-  return { totalEntrees, totalSorties };
+  return { totalEntrees, totalSorties, totalSortiesQuotidiennes, resultatJournalier, soldeJournalierRestant };
 });
 
 const alerts = computed(() => {
@@ -2100,8 +2103,13 @@ function operationAuditType(row) {
   if (motif === "PAIEMENT_COMMANDE") return "Paiement commande";
   if (motif === "PAIEMENT_RETOUCHE") return "Paiement retouche";
   if (motif === "VENTE_STOCK") return "Vente stock";
-  if (row?.type_operation === "SORTIE") return "DÃ©pense atelier";
+  if (row?.type_operation === "SORTIE") return "Depense atelier";
   return motif || String(row?.type_operation || "-");
+}
+
+function depenseTypeLabel(value) {
+  const upper = String(value || "QUOTIDIENNE").toUpperCase();
+  return upper === "EXCEPTIONNELLE" ? "Exceptionnelle" : "Quotidienne";
 }
 
 async function loadAudit() {
@@ -2295,13 +2303,24 @@ function normalizeCaisse(raw) {
     statutCaisse: raw.statutCaisse || raw.statut,
     soldeOuverture: Number(raw.soldeOuverture ?? raw.solde_ouverture ?? 0),
     soldeCourant: Number(raw.soldeCourant ?? raw.solde_courant ?? 0),
+    totalEntreesJour: Number(raw.totalEntreesJour ?? raw.total_entrees_jour ?? 0),
+    totalSortiesQuotidiennesJour: Number(raw.totalSortiesQuotidiennesJour ?? raw.total_sorties_quotidiennes_jour ?? 0),
+    resultatJournalier: Number(raw.resultatJournalier ?? raw.resultat_journalier ?? 0),
+    soldeJournalierRestant: Number(raw.soldeJournalierRestant ?? raw.solde_journalier_restant ?? 0),
     operations: (raw.operations || []).map((op) => ({
       idOperation: op.idOperation || op.id_operation,
       typeOperation: op.typeOperation || op.type_operation,
       montant: Number(op.montant || 0),
       motif: op.motif || "",
       dateOperation: op.dateOperation || op.date_operation || "",
-      statutOperation: op.statutOperation || op.statut_operation || "VALIDE"
+      statutOperation: op.statutOperation || op.statut_operation || "VALIDE",
+      typeDepense: op.typeDepense || op.type_depense || "QUOTIDIENNE",
+      justification: op.justification || "",
+      impactJournalier: op.impactJournalier ?? op.impact_journalier ?? null,
+      impactGlobal: op.impactGlobal ?? op.impact_global ?? null,
+      effectuePar: op.effectuePar || op.effectue_par || "",
+      referenceMetier: op.referenceMetier || op.reference_metier || "",
+      modePaiement: op.modePaiement || op.mode_paiement || ""
     }))
   };
 }
@@ -3115,10 +3134,33 @@ async function onDepenseCaisse() {
     return;
   }
 
+  const typeInput = window.prompt("Type de depense (Q=Quotidienne, E=Exceptionnelle)", "Q");
+  if (typeInput === null) return;
+  const typeToken = String(typeInput || "").trim().toUpperCase();
+  const typeDepense = typeToken === "E" || typeToken === "EXCEPTIONNELLE" ? "EXCEPTIONNELLE" : "QUOTIDIENNE";
+  let justification = "";
+  if (typeDepense === "EXCEPTIONNELLE") {
+    const rawJustification = window.prompt("Justification obligatoire pour depense exceptionnelle", "");
+    if (rawJustification === null) return;
+    if (!rawJustification.trim()) {
+      notify("Justification obligatoire pour depense exceptionnelle.");
+      return;
+    }
+    justification = rawJustification.trim();
+  }
+
   try {
-    await atelierApi.enregistrerDepenseCaisse({ idCaisseJour: caisseJour.value.idCaisseJour, montant, motif: motif.trim(), utilisateur: "frontend" });
+    await atelierApi.enregistrerDepenseCaisse({
+      idCaisseJour: caisseJour.value.idCaisseJour,
+      montant,
+      motif: motif.trim(),
+      typeDepense,
+      justification,
+      utilisateur: "frontend",
+      role: currentRole.value
+    });
     await reloadAll();
-    notify("Depense enregistree.");
+    notify(`Depense ${depenseTypeLabel(typeDepense).toLowerCase()} enregistree.`);
   } catch (err) {
     notify(readableError(err));
   }
@@ -5412,6 +5454,12 @@ async function loadRetoucheDetail(idRetouche) {
               <p><strong>Total sorties:</strong> {{ formatCurrency(caisseTotals.totalSorties) }}</p>
               <p><strong>Solde:</strong> {{ formatCurrency(caisseJour.soldeCourant) }}</p>
             </div>
+            <div>
+              <h4>Resultat du jour</h4>
+              <p><strong>Entrees du jour:</strong> {{ formatCurrency(caisseTotals.totalEntrees) }}</p>
+              <p><strong>Depenses quotidiennes:</strong> {{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</p>
+              <p><strong>Resultat journalier:</strong> {{ formatCurrency(caisseTotals.resultatJournalier) }}</p>
+            </div>
           </article>
 
           <article class="panel">
@@ -5425,8 +5473,10 @@ async function loadRetoucheDetail(idRetouche) {
                   <th>Date</th>
                   <th>Type</th>
                   <th>Montant</th>
+                  <th>Type depense</th>
                   <th>Mode</th>
                   <th>Motif</th>
+                  <th>Justification</th>
                   <th>Reference</th>
                   <th>Utilisateur</th>
                   <th>Statut</th>
@@ -5437,14 +5487,21 @@ async function loadRetoucheDetail(idRetouche) {
                   <td>{{ formatDateTime(op.dateOperation) }}</td>
                   <td>{{ op.typeOperation }}</td>
                   <td>{{ formatCurrency(op.montant) }}</td>
+                  <td>
+                    <span v-if="op.typeOperation === 'SORTIE'" class="status-pill" :data-tone="op.typeDepense === 'EXCEPTIONNELLE' ? 'amber' : 'blue'">
+                      {{ depenseTypeLabel(op.typeDepense) }}
+                    </span>
+                    <span v-else>-</span>
+                  </td>
                   <td>{{ op.modePaiement || "-" }}</td>
                   <td>{{ op.motif || "-" }}</td>
+                  <td>{{ op.justification || "-" }}</td>
                   <td>{{ op.referenceMetier || "-" }}</td>
                   <td>{{ op.effectuePar || "-" }}</td>
                   <td>{{ op.statutOperation || "-" }}</td>
                 </tr>
                 <tr v-if="caisseOperations.length === 0">
-                  <td colspan="8">Aucune operation enregistree.</td>
+                  <td colspan="10">Aucune operation enregistree.</td>
                 </tr>
               </tbody>
             </table>
@@ -5550,6 +5607,8 @@ async function loadRetoucheDetail(idRetouche) {
                   <th>Solde ouverture</th>
                   <th>Total entrees</th>
                   <th>Total sorties</th>
+                  <th>Resultat journalier</th>
+                  <th>Solde journalier restant</th>
                   <th>Solde cloture</th>
                   <th>Nb operations</th>
                 </tr>
@@ -5564,11 +5623,13 @@ async function loadRetoucheDetail(idRetouche) {
                   <td>{{ formatCurrency(row.solde_ouverture) }}</td>
                   <td>{{ formatCurrency(row.total_entrees) }}</td>
                   <td>{{ formatCurrency(row.total_sorties) }}</td>
+                  <td>{{ formatCurrency(row.resultat_journalier) }}</td>
+                  <td>{{ formatCurrency(row.solde_journalier_restant) }}</td>
                   <td>{{ formatCurrency(row.solde_cloture) }}</td>
                   <td>{{ row.nombre_operations }}</td>
                 </tr>
                 <tr v-if="auditCaisseJournalier.length === 0">
-                  <td colspan="10">Aucune caisse cloturee.</td>
+                  <td colspan="12">Aucune caisse cloturee.</td>
                 </tr>
               </tbody>
             </table>
@@ -5643,7 +5704,11 @@ async function loadRetoucheDetail(idRetouche) {
                   <th>Date & heure</th>
                   <th>Type d'operation</th>
                   <th>Montant</th>
+                  <th>Type depense</th>
                   <th>Mode de paiement</th>
+                  <th>Justification</th>
+                  <th>Impact journalier</th>
+                  <th>Impact global</th>
                   <th>Utilisateur</th>
                   <th>Reference metier</th>
                   <th>Reference caisse</th>
@@ -5654,13 +5719,22 @@ async function loadRetoucheDetail(idRetouche) {
                   <td>{{ formatDateTime(op.date_operation) }}</td>
                   <td>{{ operationAuditType(op) }}</td>
                   <td>{{ formatCurrency(op.montant) }}</td>
+                  <td>
+                    <span v-if="op.type_operation === 'SORTIE'" class="status-pill" :data-tone="op.type_depense === 'EXCEPTIONNELLE' ? 'amber' : 'blue'">
+                      {{ depenseTypeLabel(op.type_depense) }}
+                    </span>
+                    <span v-else>-</span>
+                  </td>
                   <td>{{ op.mode_paiement || "-" }}</td>
+                  <td>{{ op.justification || "-" }}</td>
+                  <td>{{ op.impact_journalier === true ? "Oui" : "Non" }}</td>
+                  <td>{{ op.impact_global === false ? "Non" : "Oui" }}</td>
                   <td>{{ op.effectue_par || "-" }}</td>
                   <td>{{ op.reference_metier || "-" }}</td>
                   <td>{{ op.id_caisse_jour || "-" }}</td>
                 </tr>
                 <tr v-if="auditOperations.length === 0">
-                  <td colspan="7">Aucune operation.</td>
+                  <td colspan="11">Aucune operation.</td>
                 </tr>
               </tbody>
             </table></article>

@@ -16,6 +16,7 @@ import { z } from "zod";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
 import { requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
+import { PermissionInsuffisante } from "../../domain/errors.js";
 
 const router = express.Router();
 const caisseRepo = new CaisseRepoPg();
@@ -97,6 +98,9 @@ router.get("/caisse", async (req, res) => {
       }))
     );
   } catch (err) {
+    if (err instanceof PermissionInsuffisante) {
+      return res.status(403).json({ error: err.message });
+    }
     res.status(400).json({ error: err.message });
   }
 });
@@ -433,7 +437,10 @@ router.post("/caisse/:id/sorties", async (req, res) => {
         idCaisseJour: req.params.id,
         montant: Number(body.montant || 0),
         motif: body.motif || null,
-        typeDepense: body.typeDepense || null
+        typeDepense: body.typeDepense || null,
+        justification: body.justification || null,
+        impactJournalier: String(body.typeDepense || "").toUpperCase() !== "EXCEPTIONNELLE",
+        impactGlobal: true
       }
     });
     res.json(caisse);
