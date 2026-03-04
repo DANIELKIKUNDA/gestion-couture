@@ -5185,6 +5185,10 @@ async function loadRetoucheDetail(idRetouche) {
             <button class="mini-btn" :disabled="settingsSaving" @click="toggleSettingsEdit">
               {{ settingsCanEdit ? "Verrouiller" : "Activer modifications" }}
             </button>
+            <label v-if="atelierSettings.securite.confirmationAvantSauvegarde" class="helper">
+              <input v-model="settingsConfirmSave" type="checkbox" :disabled="!settingsCanEdit || settingsSaving" />
+              Je confirme la sauvegarde
+            </label>
             <button class="action-btn blue" :disabled="!settingsCanEdit || settingsSaving" @click="saveAtelierSettings">
               {{ settingsSaving ? "Sauvegarde..." : "Sauvegarder" }}
             </button>
@@ -5535,6 +5539,10 @@ async function loadRetoucheDetail(idRetouche) {
             <button class="mini-btn" :disabled="settingsSaving" @click="toggleSettingsEdit">
               {{ settingsCanEdit ? "Verrouiller" : "Activer modifications" }}
             </button>
+            <label v-if="atelierSettings.securite.confirmationAvantSauvegarde" class="helper">
+              <input v-model="settingsConfirmSave" type="checkbox" :disabled="!settingsCanEdit || settingsSaving" />
+              Je confirme la sauvegarde
+            </label>
             <button class="action-btn blue" :disabled="!settingsCanEdit || settingsSaving" @click="saveAtelierSettings">
               {{ settingsSaving ? "Sauvegarde..." : "Sauvegarder" }}
             </button>
