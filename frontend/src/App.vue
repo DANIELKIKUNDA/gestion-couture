@@ -2256,9 +2256,31 @@ function appendAuditError(message) {
 }
 
 function readableError(err) {
-  if (err instanceof ApiError) return err.message;
-  if (err instanceof Error) return err.message;
+  const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : "";
+  if (message) return translateErrorMessage(message);
   return "Erreur API inconnue";
+}
+
+function translateErrorMessage(message) {
+  const value = String(message || "").trim();
+  if (!value) return "Erreur API inconnue";
+
+  return value
+    .split(";")
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (lower.includes("string must contain at least 1 character")) return "Ce champ est obligatoire.";
+      if (lower.includes("invalid email")) return "Adresse email invalide.";
+      if (lower.includes("string must contain at least 8 character")) return "Le mot de passe doit contenir au moins 8 caracteres.";
+      if (lower.startsWith("missing fields:")) {
+        const fields = part.split(":")[1] || "";
+        return `Champs obligatoires manquants: ${fields.trim()}`;
+      }
+      return part;
+    })
+    .join(" ");
 }
 
 function loginErrorMessage(err) {
