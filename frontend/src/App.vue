@@ -154,15 +154,19 @@ const factureEmission = reactive({
 const selectedCommandeId = ref("");
 const detailCommande = ref(null);
 const detailPaiements = ref([]);
+const detailCommandeEvents = ref([]);
 const detailLoading = ref(false);
 const detailPaiementsLoading = ref(false);
+const detailCommandeEventsLoading = ref(false);
 const detailError = ref("");
 
 const selectedRetoucheId = ref("");
 const detailRetouche = ref(null);
 const detailRetouchePaiements = ref([]);
+const detailRetoucheEvents = ref([]);
 const detailRetoucheLoading = ref(false);
 const detailRetouchePaiementsLoading = ref(false);
+const detailRetoucheEventsLoading = ref(false);
 const detailRetoucheError = ref("");
 
 const selectedVenteId = ref("");
@@ -2657,6 +2661,69 @@ function normalizePaiement(raw) {
   };
 }
 
+function splitUserAndRole(value) {
+  const source = String(value || "").trim();
+  if (!source) return { nom: "", role: "" };
+  const match = source.match(/^(.*)\(([^()]+)\)\s*$/);
+  if (!match) return { nom: source, role: "" };
+  return {
+    nom: String(match[1] || "").trim(),
+    role: String(match[2] || "").trim().toUpperCase()
+  };
+}
+
+function formatWorkflowStatus(value) {
+  const status = String(value || "").trim().toUpperCase();
+  if (!status) return "-";
+  if (status === "CREEE") return "Creee";
+  if (status === "DEPOSEE") return "Deposee";
+  if (status === "EN_COURS") return "En cours";
+  if (status === "TERMINEE") return "Terminee";
+  if (status === "LIVREE") return "Livree";
+  if (status === "ANNULEE") return "Annulee";
+  return status;
+}
+
+function formatWorkflowEventType(value) {
+  const type = String(value || "").trim().toUpperCase();
+  const labels = {
+    COMMANDE_CREEE: "Commande creee",
+    RETOUCHE_DEPOSEE: "Retouche deposee",
+    TRAVAIL_DEMARRE: "Travail demarre",
+    TRAVAIL_TERMINE: "Travail termine",
+    PAIEMENT_ENREGISTRE: "Paiement enregistre",
+    PAIEMENT_CAISSE_ENREGISTRE: "Paiement enregistre via caisse",
+    COMMANDE_LIVREE: "Commande livree",
+    RETOUCHE_LIVREE: "Retouche livree",
+    COMMANDE_ANNULEE: "Commande annulee",
+    RETOUCHE_ANNULEE: "Retouche annulee",
+    REMBOURSEMENT_COMMANDE_ANNULEE: "Remboursement commande annulee"
+  };
+  return labels[type] || type || "-";
+}
+
+function normalizeWorkflowEvent(raw) {
+  const payload = raw && typeof raw.payload === "object" && raw.payload ? raw.payload : {};
+  const legacyActor = splitUserAndRole(payload.utilisateur);
+  const utilisateurNom = String(payload.utilisateurNom || "").trim() || legacyActor.nom;
+  const role = String(payload.role || "").trim().toUpperCase() || legacyActor.role;
+  const ancienStatut = String(payload.ancienStatut || "").trim().toUpperCase();
+  const nouveauStatut = String(payload.nouveauStatut || "").trim().toUpperCase();
+  const dateEvent = raw?.dateEvent || raw?.date_event || "";
+  return {
+    idEvent: raw?.idEvent || raw?.id_event || "",
+    dateEvent,
+    typeEvent: String(raw?.typeEvent || raw?.type_event || "").trim().toUpperCase(),
+    typeEventLabel: formatWorkflowEventType(raw?.typeEvent || raw?.type_event),
+    ancienStatut,
+    nouveauStatut,
+    ancienStatutLabel: formatWorkflowStatus(ancienStatut),
+    nouveauStatutLabel: formatWorkflowStatus(nouveauStatut),
+    utilisateurNom: utilisateurNom || "Systeme",
+    role: role || "-"
+  };
+}
+
 function toIsoDate(input) {
   if (!input) return "";
   return String(input).slice(0, 10);
@@ -3808,6 +3875,7 @@ async function loadCommandeDetail(idCommande) {
   } catch (err) {
     detailCommande.value = null;
     detailPaiements.value = [];
+    detailCommandeEvents.value = [];
     detailError.value = readableError(err);
     detailLoading.value = false;
     return;
@@ -3824,6 +3892,19 @@ async function loadCommandeDetail(idCommande) {
   } finally {
     detailPaiementsLoading.value = false;
   }
+
+  detailCommandeEventsLoading.value = true;
+  try {
+    const events = await atelierApi.listCommandeEvents(idCommande);
+    detailCommandeEvents.value = (events || [])
+      .map(normalizeWorkflowEvent)
+      .sort((a, b) => new Date(a.dateEvent).getTime() - new Date(b.dateEvent).getTime());
+  } catch (err) {
+    detailCommandeEvents.value = [];
+    detailError.value = detailError.value ? `${detailError.value} | ${readableError(err)}` : readableError(err);
+  } finally {
+    detailCommandeEventsLoading.value = false;
+  }
 }
 
 async function loadRetoucheDetail(idRetouche) {
@@ -3836,6 +3917,7 @@ async function loadRetoucheDetail(idRetouche) {
   } catch (err) {
     detailRetouche.value = null;
     detailRetouchePaiements.value = [];
+    detailRetoucheEvents.value = [];
     detailRetoucheError.value = readableError(err);
     detailRetoucheLoading.value = false;
     return;
@@ -3851,6 +3933,19 @@ async function loadRetoucheDetail(idRetouche) {
     detailRetoucheError.value = detailRetoucheError.value ? `${detailRetoucheError.value} | ${readableError(err)}` : readableError(err);
   } finally {
     detailRetouchePaiementsLoading.value = false;
+  }
+
+  detailRetoucheEventsLoading.value = true;
+  try {
+    const events = await atelierApi.listRetoucheEvents(idRetouche);
+    detailRetoucheEvents.value = (events || [])
+      .map(normalizeWorkflowEvent)
+      .sort((a, b) => new Date(a.dateEvent).getTime() - new Date(b.dateEvent).getTime());
+  } catch (err) {
+    detailRetoucheEvents.value = [];
+    detailRetoucheError.value = detailRetoucheError.value ? `${detailRetoucheError.value} | ${readableError(err)}` : readableError(err);
+  } finally {
+    detailRetoucheEventsLoading.value = false;
   }
 }
 </script>
@@ -4987,7 +5082,44 @@ async function loadRetoucheDetail(idRetouche) {
                   <td colspan="5">Aucun paiement enregistre.</td>
                 </tr>
               </tbody>
-            </table></article>
+            </table>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header detail-panel-header">
+              <h4>Historique des evenements</h4>
+              <span class="helper" v-if="detailCommandeEventsLoading">Chargement...</span>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Evenement</th>
+                  <th>Etat precedent</th>
+                  <th>Nouvel etat</th>
+                  <th>Utilisateur</th>
+                  <th>Role</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="event in detailCommandeEvents" :key="event.idEvent">
+                  <td>{{ formatDateTime(event.dateEvent) }}</td>
+                  <td>{{ event.typeEventLabel }}</td>
+                  <td>
+                    <span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span>
+                  </td>
+                  <td>
+                    <span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span>
+                  </td>
+                  <td>{{ event.utilisateurNom }}</td>
+                  <td>{{ event.role }}</td>
+                </tr>
+                <tr v-if="!detailCommandeEventsLoading && detailCommandeEvents.length === 0">
+                  <td colspan="6">Aucun evenement enregistre.</td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
         </template>
       </section>
 
@@ -5097,7 +5229,44 @@ async function loadRetoucheDetail(idRetouche) {
                   <td colspan="5">Aucun paiement enregistre.</td>
                 </tr>
               </tbody>
-            </table></article>
+            </table>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header detail-panel-header">
+              <h4>Historique des evenements</h4>
+              <span class="helper" v-if="detailRetoucheEventsLoading">Chargement...</span>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Evenement</th>
+                  <th>Etat precedent</th>
+                  <th>Nouvel etat</th>
+                  <th>Utilisateur</th>
+                  <th>Role</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="event in detailRetoucheEvents" :key="event.idEvent">
+                  <td>{{ formatDateTime(event.dateEvent) }}</td>
+                  <td>{{ event.typeEventLabel }}</td>
+                  <td>
+                    <span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span>
+                  </td>
+                  <td>
+                    <span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span>
+                  </td>
+                  <td>{{ event.utilisateurNom }}</td>
+                  <td>{{ event.role }}</td>
+                </tr>
+                <tr v-if="!detailRetoucheEventsLoading && detailRetoucheEvents.length === 0">
+                  <td colspan="6">Aucun evenement enregistre.</td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
         </template>
       </section>
 
