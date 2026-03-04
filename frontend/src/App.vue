@@ -2355,6 +2355,16 @@ function depenseTypeLabel(value) {
   return upper === "EXCEPTIONNELLE" ? "Exceptionnelle" : "Quotidienne";
 }
 
+function auditEntiteLabel(value) {
+  const key = String(value || "").trim().toLowerCase();
+  if (key === "auth/users") return "Gestion des utilisateurs";
+  if (key === "auth/users/activation") return "Activation des comptes";
+  if (key === "auth/role-permissions") return "Permissions des roles";
+  if (key === "/auth/logout") return "Deconnexion";
+  if (key === "auth") return "Authentification";
+  return "Autre action de securite";
+}
+
 async function loadAudit() {
   auditError.value = "";
   await loadAuditPage(auditSubRoute.value);
@@ -6310,7 +6320,10 @@ async function loadRetoucheDetail(idRetouche) {
                     <small class="helper" v-if="row.utilisateurEmail">{{ row.utilisateurEmail }}</small>
                   </td>
                   <td>{{ row.role || "-" }}</td>
-                  <td>{{ row.entite || "-" }}<span v-if="row.entiteId"> / {{ row.entiteId }}</span></td>
+                  <td>
+                    <div>{{ auditEntiteLabel(row.entite) }}<span v-if="row.entiteId"> / {{ row.entiteId }}</span></div>
+                    <small class="helper" v-if="row.entite">{{ row.entite }}</small>
+                  </td>
                   <td>{{ row.payload?.succes === true ? "Oui" : "Non" }}</td>
                   <td>{{ row.payload?.raison || "-" }}</td>
                   <td>
