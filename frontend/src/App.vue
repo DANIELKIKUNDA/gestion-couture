@@ -5190,10 +5190,6 @@ async function loadRetoucheDetail(idRetouche) {
             </button>
             <button class="mini-btn" :disabled="!settingsCanEdit || settingsSaving" @click="resetAtelierSettings">Reinitialiser</button>
           </div>
-          <label v-if="atelierSettings.securite.confirmationAvantSauvegarde" class="helper helper-inline-checkbox settings-confirm-row">
-            <input v-model="settingsConfirmSave" type="checkbox" :disabled="!settingsCanEdit || settingsSaving" />
-            Je confirme la sauvegarde
-          </label>
         </article>
 
         <article class="panel settings-tabs" role="tablist" aria-label="Sections parametres">
@@ -5209,7 +5205,13 @@ async function loadRetoucheDetail(idRetouche) {
             {{ tab.label }}
             <span v-if="settingsTabIsDirty(tab.id)" class="tab-dirty-dot" aria-hidden="true"></span>
           </button>
-          <span v-if="settingsHasUnsavedChanges" class="status-pill" data-tone="due">Non sauvegarde</span>
+          <div class="settings-tabs-right">
+            <span v-if="settingsHasUnsavedChanges" class="status-pill" data-tone="due">Non sauvegarde</span>
+            <label v-if="atelierSettings.securite.confirmationAvantSauvegarde" class="helper helper-inline-checkbox">
+              <input v-model="settingsConfirmSave" type="checkbox" :disabled="!settingsCanEdit || settingsSaving" />
+              Confirmer la sauvegarde
+            </label>
+          </div>
         </article>
 
         <article v-if="settingsLoading" class="panel">

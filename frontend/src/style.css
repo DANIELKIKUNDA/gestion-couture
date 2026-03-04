@@ -821,6 +821,13 @@ body {
   align-items: center;
 }
 
+.settings-tabs-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .settings-tab-btn {
   border-radius: 999px;
   position: relative;
@@ -1302,10 +1309,6 @@ textarea:focus-visible {
   margin: 0;
   width: 16px;
   height: 16px;
-}
-
-.settings-confirm-row {
-  margin-top: 8px;
 }
 
 .segmented {
