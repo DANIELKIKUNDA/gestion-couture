@@ -5185,15 +5185,15 @@ async function loadRetoucheDetail(idRetouche) {
             <button class="mini-btn" :disabled="settingsSaving" @click="toggleSettingsEdit">
               {{ settingsCanEdit ? "Verrouiller" : "Activer modifications" }}
             </button>
-            <label v-if="atelierSettings.securite.confirmationAvantSauvegarde" class="helper">
-              <input v-model="settingsConfirmSave" type="checkbox" :disabled="!settingsCanEdit || settingsSaving" />
-              Je confirme la sauvegarde
-            </label>
             <button class="action-btn blue" :disabled="!settingsCanEdit || settingsSaving" @click="saveAtelierSettings">
               {{ settingsSaving ? "Sauvegarde..." : "Sauvegarder" }}
             </button>
             <button class="mini-btn" :disabled="!settingsCanEdit || settingsSaving" @click="resetAtelierSettings">Reinitialiser</button>
           </div>
+          <label v-if="atelierSettings.securite.confirmationAvantSauvegarde" class="helper helper-inline-checkbox settings-confirm-row">
+            <input v-model="settingsConfirmSave" type="checkbox" :disabled="!settingsCanEdit || settingsSaving" />
+            Je confirme la sauvegarde
+          </label>
         </article>
 
         <article class="panel settings-tabs" role="tablist" aria-label="Sections parametres">
@@ -5539,10 +5539,6 @@ async function loadRetoucheDetail(idRetouche) {
             <button class="mini-btn" :disabled="settingsSaving" @click="toggleSettingsEdit">
               {{ settingsCanEdit ? "Verrouiller" : "Activer modifications" }}
             </button>
-            <label v-if="atelierSettings.securite.confirmationAvantSauvegarde" class="helper">
-              <input v-model="settingsConfirmSave" type="checkbox" :disabled="!settingsCanEdit || settingsSaving" />
-              Je confirme la sauvegarde
-            </label>
             <button class="action-btn blue" :disabled="!settingsCanEdit || settingsSaving" @click="saveAtelierSettings">
               {{ settingsSaving ? "Sauvegarde..." : "Sauvegarder" }}
             </button>

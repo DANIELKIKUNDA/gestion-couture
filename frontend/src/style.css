@@ -1304,6 +1304,10 @@ textarea:focus-visible {
   height: 16px;
 }
 
+.settings-confirm-row {
+  margin-top: 8px;
+}
+
 .segmented {
   display: flex;
   gap: 8px;
