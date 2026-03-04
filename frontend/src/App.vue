@@ -581,7 +581,7 @@ function persistAtelierSettings() {
 
 const settingsRoleAllowed = computed(() => hasPermission(PERMISSIONS.MODIFIER_PARAMETRES));
 const settingsCanEdit = computed(() => settingsEditMode.value && settingsRoleAllowed.value);
-const canAccessSecurityModule = computed(() => currentRole.value === "PROPRIETAIRE");
+const canAccessSecurityModule = computed(() => hasPermission(PERMISSIONS.GERER_UTILISATEURS));
 const visibleSettingsTabs = computed(() =>
   settingsTabs.filter((tab) => tab.id !== "securite" || canAccessSecurityModule.value)
 );
@@ -878,10 +878,22 @@ function confirmActionModal() {
 async function saveRolePermissions(roleId) {
   if (!canAccessSecurityModule.value) return;
   const role = String(roleId || "").toUpperCase();
+  const nextPermissions = Array.from(new Set((securityRolePermissions.value[role] || []).map((p) => String(p || "").toUpperCase())));
+  if (role === "PROPRIETAIRE" && !nextPermissions.includes(PERMISSIONS.GERER_UTILISATEURS)) {
+    securityError.value = "Le role proprietaire doit garder la permission de gestion des utilisateurs.";
+    return;
+  }
+  const confirmed = await openActionModal({
+    title: "Confirmer permissions",
+    message: `Appliquer les nouvelles permissions pour le role ${role} ?`,
+    confirmLabel: "Confirmer",
+    cancelLabel: "Annuler"
+  });
+  if (!confirmed) return;
   securitySaving.value = true;
   securityError.value = "";
   try {
-    await atelierApi.updateRolePermissions(role, securityRolePermissions.value[role] || []);
+    await atelierApi.updateRolePermissions(role, nextPermissions);
     notify(`Permissions enregistrees pour ${role}.`);
     if (authUser.value?.roleId === role) {
       const me = await atelierApi.me();
@@ -940,10 +952,18 @@ async function saveSecurityUser(user) {
 
 async function toggleSecurityUserActivation(user) {
   if (!canAccessSecurityModule.value || !user?.id) return;
+  const nextActif = !(user.actif !== false);
+  const actionLabel = nextActif ? "activer" : "desactiver";
+  const confirmed = await openActionModal({
+    title: "Confirmer activation",
+    message: `Voulez-vous ${actionLabel} le compte de ${user.nom} ?`,
+    confirmLabel: "Confirmer",
+    cancelLabel: "Annuler"
+  });
+  if (!confirmed) return;
   securitySaving.value = true;
   securityError.value = "";
   try {
-    const nextActif = !(user.actif !== false);
     const updated = await atelierApi.setUserActivation(user.id, nextActif);
     user.actif = updated?.actif !== false;
     user.etatCompte = String(updated?.etatCompte || (user.actif ? "ACTIVE" : "DISABLED")).toUpperCase();
@@ -5422,7 +5442,7 @@ async function loadRetoucheDetail(idRetouche) {
         <article v-show="settingsActiveTab === 'securite'" id="settings-securite" class="panel settings-section" role="tabpanel">
           <h3>Module Securite</h3>
           <p class="helper">Gestion dynamique des utilisateurs, roles et permissions.</p>
-          <p v-if="!canAccessSecurityModule" class="helper">Acces reserve au proprietaire.</p>
+          <p v-if="!canAccessSecurityModule" class="helper">Acces reserve aux comptes avec permission de gestion des utilisateurs.</p>
           <p v-if="securityError" class="auth-error">{{ securityError }}</p>
 
           <template v-if="canAccessSecurityModule">
@@ -5494,7 +5514,7 @@ async function loadRetoucheDetail(idRetouche) {
                     </td>
                     <td>
                       <button class="mini-btn" :disabled="securitySaving" @click="saveSecurityUser(user)">Sauver</button>
-                      <button class="mini-btn" :disabled="securitySaving" @click="toggleSecurityUserActivation(user)">
+                      <button class="mini-btn" :disabled="securitySaving || user.id === authUser?.id" @click="toggleSecurityUserActivation(user)">
                         {{ user.actif ? "Desactiver" : "Activer" }}
                       </button>
                     </td>

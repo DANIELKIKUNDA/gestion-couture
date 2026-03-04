@@ -287,10 +287,14 @@ router.put("/auth/role-permissions/:role", requirePermission(PERMISSIONS.GERER_U
     if (!ALLOWED_ROLES.includes(role)) {
       return res.status(400).json({ error: "Role invalide" });
     }
+    const normalizedPermissions = Array.from(new Set((parsed.data.permissions || []).map((p) => String(p || "").toUpperCase())));
+    if (role === ROLES.PROPRIETAIRE && !normalizedPermissions.includes(PERMISSIONS.GERER_UTILISATEURS)) {
+      return res.status(400).json({ error: "Le role proprietaire doit conserver la permission GERER_UTILISATEURS" });
+    }
     const row = await rolePermissionRepo.save({
       atelierId: "ATELIER",
       role,
-      permissions: parsed.data.permissions,
+      permissions: normalizedPermissions,
       updatedBy: req.auth.utilisateurId
     });
     res.json(row);
@@ -374,6 +378,10 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
     const current = await utilisateurRepo.getById(req.params.id);
     if (!current) return res.status(404).json({ error: "Utilisateur introuvable" });
+    const isSelfUpdate = String(req.auth?.utilisateurId || "") === String(req.params.id || "");
+    if (isSelfUpdate && parsed.data.roleId && String(parsed.data.roleId).toUpperCase() !== ROLES.PROPRIETAIRE) {
+      return res.status(400).json({ error: "Vous ne pouvez pas retirer votre propre role proprietaire" });
+    }
     const currentState = normalizeAccountState(current.etatCompte || (current.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
     const hasExplicitState = parsed.data.etatCompte !== undefined;
     const nextState = normalizeAccountState(
@@ -385,6 +393,16 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
             ? ACCOUNT_STATES.DISABLED
             : ACCOUNT_STATES.ACTIVE
     );
+    const nextRole = String(parsed.data.roleId || current.roleId || "").toUpperCase();
+    const currentRole = String(current.roleId || "").toUpperCase();
+    const wasActiveOwner = currentRole === ROLES.PROPRIETAIRE && currentState === ACCOUNT_STATES.ACTIVE;
+    const remainsActiveOwner = nextRole === ROLES.PROPRIETAIRE && nextState === ACCOUNT_STATES.ACTIVE;
+    if (wasActiveOwner && !remainsActiveOwner) {
+      const activeOwners = await utilisateurRepo.countActiveOwners();
+      if (activeOwners <= 1) {
+        return res.status(400).json({ error: "Operation refusee: dernier proprietaire actif" });
+      }
+    }
     const updated = await gererUtilisateurs({
       utilisateurRepo,
       input: {
@@ -419,6 +437,21 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
     const schema = z.object({ actif: z.boolean() }).passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    const isSelfUpdate = String(req.auth?.utilisateurId || "") === String(req.params.id || "");
+    if (isSelfUpdate && parsed.data.actif === false) {
+      return res.status(400).json({ error: "Vous ne pouvez pas desactiver votre propre compte" });
+    }
+
+    const current = await utilisateurRepo.getById(req.params.id);
+    if (!current) return res.status(404).json({ error: "Utilisateur introuvable" });
+    const currentState = normalizeAccountState(current.etatCompte || (current.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
+    const isActiveOwner = String(current.roleId || "").toUpperCase() === ROLES.PROPRIETAIRE && currentState === ACCOUNT_STATES.ACTIVE;
+    if (isActiveOwner && parsed.data.actif === false) {
+      const activeOwners = await utilisateurRepo.countActiveOwners();
+      if (activeOwners <= 1) {
+        return res.status(400).json({ error: "Operation refusee: dernier proprietaire actif" });
+      }
+    }
 
     const etatCompte = parsed.data.actif ? ACCOUNT_STATES.ACTIVE : ACCOUNT_STATES.DISABLED;
     const user = await changerStatutUtilisateur({

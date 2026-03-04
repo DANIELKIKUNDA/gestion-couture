@@ -168,4 +168,16 @@ export class UtilisateurRepoPg {
     );
     return result.rowCount > 0;
   }
+
+  async countActiveOwners() {
+    await ensureSchema();
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS total
+       FROM utilisateurs
+       WHERE UPPER(role_id) = 'PROPRIETAIRE'
+         AND UPPER(COALESCE(etat_compte, 'ACTIVE')) = 'ACTIVE'
+         AND actif = true`
+    );
+    return Number(result.rows[0]?.total || 0);
+  }
 }
