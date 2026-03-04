@@ -3898,7 +3898,7 @@ async function loadCommandeDetail(idCommande) {
     const events = await atelierApi.listCommandeEvents(idCommande);
     detailCommandeEvents.value = (events || [])
       .map(normalizeWorkflowEvent)
-      .sort((a, b) => new Date(a.dateEvent).getTime() - new Date(b.dateEvent).getTime());
+      .sort((a, b) => new Date(b.dateEvent).getTime() - new Date(a.dateEvent).getTime());
   } catch (err) {
     detailCommandeEvents.value = [];
     detailError.value = detailError.value ? `${detailError.value} | ${readableError(err)}` : readableError(err);
@@ -3940,7 +3940,7 @@ async function loadRetoucheDetail(idRetouche) {
     const events = await atelierApi.listRetoucheEvents(idRetouche);
     detailRetoucheEvents.value = (events || [])
       .map(normalizeWorkflowEvent)
-      .sort((a, b) => new Date(a.dateEvent).getTime() - new Date(b.dateEvent).getTime());
+      .sort((a, b) => new Date(b.dateEvent).getTime() - new Date(a.dateEvent).getTime());
   } catch (err) {
     detailRetoucheEvents.value = [];
     detailRetoucheError.value = detailRetoucheError.value ? `${detailRetoucheError.value} | ${readableError(err)}` : readableError(err);
