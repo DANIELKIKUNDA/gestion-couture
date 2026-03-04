@@ -1,4 +1,4 @@
-import { ACCOUNT_STATES, isWriteMethod, normalizeAccountState } from "../../../domain/account-state.js";
+import { ACCOUNT_STATES, normalizeAccountState } from "../../../domain/account-state.js";
 import { UtilisateurRepoPg } from "../../../infrastructure/repositories/utilisateur-repo-pg.js";
 import { RolePermissionAtelierRepoPg } from "../../../infrastructure/repositories/role-permission-atelier-repo-pg.js";
 import { AccessTokenRevocationRepoPg } from "../../../infrastructure/repositories/access-token-revocation-repo-pg.js";
@@ -49,16 +49,16 @@ export async function securityPolicy(req, res, next) {
   }
 
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
-  if (etatCompte === ACCOUNT_STATES.DISABLED) {
+  if (etatCompte !== ACCOUNT_STATES.ACTIVE) {
     await logSecurityAudit({
       utilisateurId: user.id,
       role: user.roleId,
-      action: "COMPTE_DESACTIVE_REFUS",
+      action: "COMPTE_INACTIF_REFUS",
       entite: req.path,
       succes: false,
-      raison: "compte_desactive"
+      raison: `compte_${etatCompte.toLowerCase()}`
     });
-    return securityError(res);
+    return res.status(401).json({ error: "Compte inactif: connexion refusee" });
   }
 
   const tokenVersion = Number(req.auth.tokenVersion || 1);
@@ -75,19 +75,7 @@ export async function securityPolicy(req, res, next) {
     return securityError(res);
   }
 
-  if (etatCompte === ACCOUNT_STATES.SUSPENDED && isWriteMethod(req.method)) {
-    await logSecurityAudit({
-      utilisateurId: user.id,
-      role: user.roleId,
-      action: "ECRITURE_SUSPENDUE_REFUS",
-      entite: req.path,
-      succes: false,
-      raison: "compte_suspendu"
-    });
-    return securityError(res, "Compte suspendu: modifications interdites");
-  }
-
-  if (etatCompte === ACCOUNT_STATES.SUSPENDED) req.isReadOnly = true;
+  req.isReadOnly = false;
 
   const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
   req.auth = {

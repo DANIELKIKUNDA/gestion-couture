@@ -6,7 +6,7 @@ export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRe
   const user = await utilisateurRepo.findByEmail(email);
   if (!user) throw new Error("Identifiants invalides");
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
-  if (etatCompte === ACCOUNT_STATES.DISABLED) throw new Error("Acces refuse");
+  if (etatCompte !== ACCOUNT_STATES.ACTIVE) throw new Error("Compte inactif: connexion refusee");
   if (!verifyPassword(motDePasse, user.motDePasseHash)) throw new Error("Identifiants invalides");
 
   const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);

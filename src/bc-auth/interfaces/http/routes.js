@@ -22,6 +22,7 @@ import { seConnecterUtilisateur } from "../../application/use-cases/se-connecter
 import { seDeconnecterUtilisateur } from "../../application/use-cases/se-deconnecter-utilisateur.js";
 import { reinitialiserMotDePasse } from "../../application/use-cases/reinitialiser-mot-de-passe.js";
 import { gererUtilisateurs } from "../../application/use-cases/gerer-utilisateurs.js";
+import { changerStatutUtilisateur } from "../../application/use-cases/changer-statut-utilisateur.js";
 import { requireAuth } from "./middlewares/auth-guard.js";
 import { requirePermission } from "./middlewares/require-permission.js";
 import { PERMISSIONS } from "../../domain/permissions.js";
@@ -118,6 +119,15 @@ router.post("/auth/bootstrap-owner", async (req, res) => {
   }
 });
 
+router.get("/auth/bootstrap-owner/status", async (_req, res) => {
+  try {
+    const initialized = await utilisateurRepo.hasAnyOwner();
+    res.json({ initialized });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post("/auth/login", async (req, res) => {
   try {
     const schema = z.object({ email: z.string().email(), motDePasse: z.string().min(1) }).passthrough();
@@ -149,7 +159,8 @@ router.post("/auth/refresh", async (req, res) => {
 
     const user = await utilisateurRepo.getById(session.utilisateurId);
     const etatCompte = normalizeAccountState(user?.etatCompte || (user?.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
-    if (!user || etatCompte === ACCOUNT_STATES.DISABLED) return res.status(401).json({ error: "Session invalide" });
+    if (!user) return res.status(401).json({ error: "Session invalide" });
+    if (etatCompte !== ACCOUNT_STATES.ACTIVE) return res.status(401).json({ error: "Compte inactif: connexion refusee" });
 
     const userWithPerms = await withPermissions(user);
     const token = signAccessToken({
@@ -200,6 +211,9 @@ router.get("/auth/me", requireAuth, async (req, res) => {
     const user = await utilisateurRepo.getById(req.auth.utilisateurId);
     if (!user) return res.status(401).json({ error: "Utilisateur introuvable" });
     const me = await withPermissions(user);
+    if (me.etatCompte !== ACCOUNT_STATES.ACTIVE) {
+      return res.status(401).json({ error: "Compte inactif: connexion refusee" });
+    }
     res.json({
       user: {
         id: me.id,
@@ -386,6 +400,33 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
       actif: nextState !== ACCOUNT_STATES.DISABLED,
       tokenVersion: hasExplicitState && nextState !== currentState ? Number(current.tokenVersion || 1) + 1 : Number(updated.tokenVersion || current.tokenVersion || 1)
     });
+    res.json({
+      id: user.id,
+      nom: user.nom,
+      email: user.email,
+      roleId: user.roleId,
+      actif: user.actif !== false,
+      etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
+      tokenVersion: Number(user.tokenVersion || 1)
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_UTILISATEURS), async (req, res) => {
+  try {
+    const schema = z.object({ actif: z.boolean() }).passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const etatCompte = parsed.data.actif ? ACCOUNT_STATES.ACTIVE : ACCOUNT_STATES.DISABLED;
+    const user = await changerStatutUtilisateur({
+      utilisateurRepo,
+      id: req.params.id,
+      etatCompte
+    });
+
     res.json({
       id: user.id,
       nom: user.nom,

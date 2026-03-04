@@ -780,7 +780,8 @@ async function loadSecurityModule() {
       nom: u.nom,
       email: u.email,
       roleId: String(u.roleId || "COUTURIER").toUpperCase(),
-      actif: u.actif !== false
+      actif: u.actif !== false,
+      etatCompte: String(u.etatCompte || (u.actif === false ? "DISABLED" : "ACTIVE")).toUpperCase()
     }));
     const map = {};
     for (const role of securityRoleOptions) map[role.value] = [];
@@ -927,10 +928,26 @@ async function saveSecurityUser(user) {
   try {
     await atelierApi.updateUser(user.id, {
       nom: user.nom,
-      roleId: user.roleId,
-      actif: user.actif !== false
+      roleId: user.roleId
     });
     notify(`Utilisateur ${user.nom} mis a jour.`);
+  } catch (err) {
+    securityError.value = readableError(err);
+  } finally {
+    securitySaving.value = false;
+  }
+}
+
+async function toggleSecurityUserActivation(user) {
+  if (!canAccessSecurityModule.value || !user?.id) return;
+  securitySaving.value = true;
+  securityError.value = "";
+  try {
+    const nextActif = !(user.actif !== false);
+    const updated = await atelierApi.setUserActivation(user.id, nextActif);
+    user.actif = updated?.actif !== false;
+    user.etatCompte = String(updated?.etatCompte || (user.actif ? "ACTIVE" : "DISABLED")).toUpperCase();
+    notify(`Utilisateur ${user.nom} ${user.actif ? "active" : "desactive"}.`);
   } catch (err) {
     securityError.value = readableError(err);
   } finally {
@@ -5412,7 +5429,7 @@ async function loadRetoucheDetail(idRetouche) {
                     <th>Nom</th>
                     <th>Email</th>
                     <th>Role</th>
-                    <th>Actif</th>
+                    <th>Statut</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -5427,9 +5444,16 @@ async function loadRetoucheDetail(idRetouche) {
                         </option>
                       </select>
                     </td>
-                    <td><input v-model="user.actif" type="checkbox" /></td>
+                    <td>
+                      <span class="status-pill" :data-tone="user.actif ? 'ok' : 'due'">
+                        {{ user.actif ? "ACTIF" : "DESACTIVE" }}
+                      </span>
+                    </td>
                     <td>
                       <button class="mini-btn" :disabled="securitySaving" @click="saveSecurityUser(user)">Sauver</button>
+                      <button class="mini-btn" :disabled="securitySaving" @click="toggleSecurityUserActivation(user)">
+                        {{ user.actif ? "Desactiver" : "Activer" }}
+                      </button>
                     </td>
                   </tr>
                   <tr v-if="securityUsers.length === 0">

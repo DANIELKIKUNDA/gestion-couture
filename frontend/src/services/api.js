@@ -95,6 +95,7 @@ async function requestWithRetry(path, options = {}) {
   const hasBody = Object.prototype.hasOwnProperty.call(options, "body");
   const isAuthPublicEndpoint =
     path === "/auth/login" ||
+    path === "/auth/bootstrap-owner/status" ||
     path === "/auth/bootstrap-owner" ||
     path === "/auth/password/forgot" ||
     path === "/auth/password/reset";
@@ -245,24 +246,8 @@ export const atelierApi = {
   },
 
   async hasOwnerBootstrapDone() {
-    const probeEmail = `probe.${Date.now()}@ksg.local`;
-    try {
-      await request("/auth/bootstrap-owner", {
-        method: "POST",
-        body: JSON.stringify({
-          nom: "probe",
-          email: probeEmail,
-          motDePasse: "aaaaaaaa"
-        })
-      });
-      return false;
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 409) return true;
-        if (err.status === 400) return false;
-      }
-      throw err;
-    }
+    const payload = await request("/auth/bootstrap-owner/status", { method: "GET" });
+    return payload?.initialized === true;
   },
 
   listRolePermissions() {
@@ -291,6 +276,13 @@ export const atelierApi = {
     return request(`/auth/users/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify(input)
+    });
+  },
+
+  setUserActivation(id, actif) {
+    return request(`/auth/users/${encodeURIComponent(id)}/activation`, {
+      method: "PATCH",
+      body: JSON.stringify({ actif: actif !== false })
     });
   },
 
