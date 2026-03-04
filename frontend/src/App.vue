@@ -6305,7 +6305,10 @@ async function loadRetoucheDetail(idRetouche) {
                 <tr v-for="row in auditUtilisateursPaged" :key="row.idEvenement">
                   <td>{{ formatDateTime(row.dateEvenement) }}</td>
                   <td>{{ row.action || "-" }}</td>
-                  <td>{{ row.utilisateurId || "-" }}</td>
+                  <td>
+                    <div>{{ row.utilisateurNom || row.utilisateurId || "-" }}</div>
+                    <small class="helper" v-if="row.utilisateurEmail">{{ row.utilisateurEmail }}</small>
+                  </td>
                   <td>{{ row.role || "-" }}</td>
                   <td>{{ row.entite || "-" }}<span v-if="row.entiteId"> / {{ row.entiteId }}</span></td>
                   <td>{{ row.payload?.succes === true ? "Oui" : "Non" }}</td>

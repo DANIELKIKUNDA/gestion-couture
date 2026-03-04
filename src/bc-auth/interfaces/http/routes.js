@@ -601,10 +601,12 @@ router.get("/audit/utilisateurs", requirePermission(PERMISSIONS.VOIR_BILANS_GLOB
     const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 
     const result = await pool.query(
-      `SELECT id_evenement, utilisateur_id, role, action, entite, entite_id, payload, date_evenement
-       FROM evenement_audit
+      `SELECT ea.id_evenement, ea.utilisateur_id, ea.role, ea.action, ea.entite, ea.entite_id, ea.payload, ea.date_evenement,
+              u.nom AS utilisateur_nom, u.email AS utilisateur_email
+       FROM evenement_audit ea
+       LEFT JOIN utilisateurs u ON u.id_utilisateur = ea.utilisateur_id
        ${whereSql}
-       ORDER BY date_evenement DESC
+       ORDER BY ea.date_evenement DESC
        LIMIT $${params.length}`,
       params
     );
@@ -613,6 +615,8 @@ router.get("/audit/utilisateurs", requirePermission(PERMISSIONS.VOIR_BILANS_GLOB
       result.rows.map((row) => ({
         idEvenement: row.id_evenement,
         utilisateurId: row.utilisateur_id,
+        utilisateurNom: row.utilisateur_nom || null,
+        utilisateurEmail: row.utilisateur_email || null,
         role: row.role,
         action: row.action,
         entite: row.entite,
