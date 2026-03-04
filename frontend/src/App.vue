@@ -2365,6 +2365,37 @@ function auditEntiteLabel(value) {
   return "Autre action de securite";
 }
 
+function auditUserFieldLabel(key) {
+  const map = {
+    id: "ID",
+    email: "Email",
+    roleId: "Role",
+    etatCompte: "Etat du compte",
+    actif: "Actif",
+    tokenVersion: "Version token"
+  };
+  return map[key] || key;
+}
+
+function auditDetailValue(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "boolean") return value ? "Oui" : "Non";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function auditUserDiffRows(details) {
+  const before = details?.before && typeof details.before === "object" ? details.before : {};
+  const after = details?.after && typeof details.after === "object" ? details.after : {};
+  const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
+  return keys.map((key) => ({
+    key,
+    label: auditUserFieldLabel(key),
+    before: auditDetailValue(before[key]),
+    after: auditDetailValue(after[key])
+  }));
+}
+
 async function loadAudit() {
   auditError.value = "";
   await loadAuditPage(auditSubRoute.value);
@@ -6329,7 +6360,29 @@ async function loadRetoucheDetail(idRetouche) {
                   <td>
                     <details>
                       <summary>Voir</summary>
-                      <pre>{{ JSON.stringify(row.payload?.details || {}, null, 2) }}</pre>
+                      <div class="audit-user-details">
+                        <template v-if="auditUserDiffRows(row.payload?.details).length > 0">
+                          <table class="data-table compact">
+                            <thead>
+                              <tr>
+                                <th>Champ</th>
+                                <th>Avant</th>
+                                <th>Apres</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr v-for="item in auditUserDiffRows(row.payload?.details)" :key="`${row.idEvenement}-${item.key}`">
+                                <td>{{ item.label }}</td>
+                                <td>{{ item.before }}</td>
+                                <td>{{ item.after }}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </template>
+                        <template v-else>
+                          <pre>{{ JSON.stringify(row.payload?.details || {}, null, 2) }}</pre>
+                        </template>
+                      </div>
                     </details>
                   </td>
                 </tr>
