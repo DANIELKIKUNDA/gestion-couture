@@ -1024,6 +1024,10 @@ body {
   gap: 6px;
 }
 
+.security-users-filters {
+  margin-bottom: 10px;
+}
+
 .settings-audit {
   margin-top: 12px;
 }

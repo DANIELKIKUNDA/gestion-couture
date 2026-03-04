@@ -280,6 +280,13 @@ const securityRolePermissions = ref({});
 const securityLoading = ref(false);
 const securitySaving = ref(false);
 const securityError = ref("");
+const securityUserQuery = ref("");
+const securityUserRoleFilter = ref("ALL");
+const securityUserStatusFilter = ref("ALL");
+const securityUsersPagination = reactive({
+  page: 1,
+  pageSize: 10
+});
 const securityNewUser = reactive({
   nom: "",
   email: "",
@@ -616,6 +623,25 @@ const habitConfigEntries = computed(() => {
     .filter((key) => atelierSettings.habits && atelierSettings.habits[key])
     .map((key) => ({ key, ...atelierSettings.habits[key] }));
 });
+const securityUsersFiltered = computed(() => {
+  const query = securityUserQuery.value.trim().toLowerCase();
+  return securityUsers.value.filter((user) => {
+    if (securityUserRoleFilter.value !== "ALL" && String(user.roleId || "").toUpperCase() !== securityUserRoleFilter.value) return false;
+    if (securityUserStatusFilter.value !== "ALL") {
+      const expectedActive = securityUserStatusFilter.value === "ACTIVE";
+      if ((user.actif !== false) !== expectedActive) return false;
+    }
+    if (!query) return true;
+    const haystack = `${user.nom || ""} ${user.email || ""} ${user.roleId || ""}`.toLowerCase();
+    return haystack.includes(query);
+  });
+});
+const securityUsersPages = computed(() => Math.max(1, Math.ceil(securityUsersFiltered.value.length / securityUsersPagination.pageSize)));
+const securityUsersPaged = computed(() => {
+  const page = Math.min(Math.max(1, securityUsersPagination.page), securityUsersPages.value);
+  const start = (page - 1) * securityUsersPagination.pageSize;
+  return securityUsersFiltered.value.slice(start, start + securityUsersPagination.pageSize);
+});
 
 function settingsTabIsDirty(tabId) {
   const current = cloneSettings(atelierSettings);
@@ -783,6 +809,7 @@ async function loadSecurityModule() {
       actif: u.actif !== false,
       etatCompte: String(u.etatCompte || (u.actif === false ? "DISABLED" : "ACTIVE")).toUpperCase()
     }));
+    securityUsersPagination.page = 1;
     const map = {};
     for (const role of securityRoleOptions) map[role.value] = [];
     for (const row of roleRows || []) {
@@ -890,6 +917,16 @@ async function saveRolePermissions(roleId) {
     cancelLabel: "Annuler"
   });
   if (!confirmed) return;
+  if (role === "PROPRIETAIRE") {
+    const confirmedOwner = await openActionModal({
+      title: "Confirmation critique",
+      message: "Vous modifiez les permissions du proprietaire. Cette action impacte tout le systeme. Confirmer ?",
+      confirmLabel: "Oui, confirmer",
+      cancelLabel: "Annuler",
+      tone: "red"
+    });
+    if (!confirmedOwner) return;
+  }
   securitySaving.value = true;
   securityError.value = "";
   try {
@@ -1856,6 +1893,20 @@ watch(
   async ([route, tab, canAccess]) => {
     if (route !== "parametres" || tab !== "securite" || !canAccess) return;
     await loadSecurityModule();
+  }
+);
+
+watch(
+  () => [securityUserQuery.value, securityUserRoleFilter.value, securityUserStatusFilter.value, securityUsersPagination.pageSize],
+  () => {
+    securityUsersPagination.page = 1;
+  }
+);
+
+watch(
+  () => securityUsersPages.value,
+  (pages) => {
+    if (securityUsersPagination.page > pages) securityUsersPagination.page = pages;
   }
 );
 
@@ -5486,6 +5537,27 @@ async function loadRetoucheDetail(idRetouche) {
                 <h4>Utilisateurs</h4>
                 <button class="mini-btn" :disabled="securityLoading" @click="loadSecurityModule">Actualiser</button>
               </div>
+              <div class="settings-grid security-users-filters">
+                <div class="stack-form">
+                  <label>Recherche</label>
+                  <input v-model="securityUserQuery" type="text" placeholder="Nom, email, role..." />
+                </div>
+                <div class="stack-form">
+                  <label>Role</label>
+                  <select v-model="securityUserRoleFilter">
+                    <option value="ALL">Tous les roles</option>
+                    <option v-for="role in securityRoleOptions" :key="`filter-role-${role.value}`" :value="role.value">{{ role.label }}</option>
+                  </select>
+                </div>
+                <div class="stack-form">
+                  <label>Statut</label>
+                  <select v-model="securityUserStatusFilter">
+                    <option value="ALL">Tous les statuts</option>
+                    <option value="ACTIVE">Actifs</option>
+                    <option value="DISABLED">Desactives</option>
+                  </select>
+                </div>
+              </div>
               <table class="data-table compact">
                 <thead>
                   <tr>
@@ -5497,7 +5569,7 @@ async function loadRetoucheDetail(idRetouche) {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="user in securityUsers" :key="user.id">
+                  <tr v-for="user in securityUsersPaged" :key="user.id">
                     <td><input v-model="user.nom" type="text" /></td>
                     <td>{{ user.email }}</td>
                     <td>
@@ -5519,11 +5591,22 @@ async function loadRetoucheDetail(idRetouche) {
                       </button>
                     </td>
                   </tr>
-                  <tr v-if="securityUsers.length === 0">
+                  <tr v-if="securityUsersFiltered.length === 0">
                     <td colspan="5">Aucun utilisateur.</td>
                   </tr>
                 </tbody>
               </table>
+              <div class="panel-footer table-pagination">
+                <select v-model.number="securityUsersPagination.pageSize">
+                  <option :value="5">5 / page</option>
+                  <option :value="10">10 / page</option>
+                  <option :value="20">20 / page</option>
+                  <option :value="50">50 / page</option>
+                </select>
+                <button class="mini-btn" :disabled="securityUsersPagination.page <= 1" @click="securityUsersPagination.page -= 1">Precedent</button>
+                <span>Page {{ securityUsersPagination.page }} / {{ securityUsersPages }} · {{ securityUsersFiltered.length }} utilisateur(s)</span>
+                <button class="mini-btn" :disabled="securityUsersPagination.page >= securityUsersPages" @click="securityUsersPagination.page += 1">Suivant</button>
+              </div>
             </article>
 
             <article class="panel nested-panel">

@@ -82,6 +82,18 @@ async function withPermissions(user) {
   };
 }
 
+function summarizeUser(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email || null,
+    roleId: user.roleId || null,
+    etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
+    actif: user.actif !== false,
+    tokenVersion: Number(user.tokenVersion || 1)
+  };
+}
+
 function setRefreshCookie(res, value) {
   res.cookie(REFRESH_COOKIE, value, {
     httpOnly: true,
@@ -124,6 +136,14 @@ router.get("/auth/bootstrap-owner/status", async (_req, res) => {
     const initialized = await utilisateurRepo.hasAnyOwner();
     res.json({ initialized });
   } catch (err) {
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      action: "USER_CREATE_FAILED",
+      entite: "auth/users",
+      succes: false,
+      raison: err.message || "erreur_inconnue"
+    });
     res.status(400).json({ error: err.message });
   }
 });
@@ -297,8 +317,26 @@ router.put("/auth/role-permissions/:role", requirePermission(PERMISSIONS.GERER_U
       permissions: normalizedPermissions,
       updatedBy: req.auth.utilisateurId
     });
+    await logSecurityAudit({
+      utilisateurId: req.auth.utilisateurId,
+      role: req.auth.roleId || req.auth.role,
+      action: "ROLE_PERMISSIONS_UPDATED",
+      entite: "auth/role-permissions",
+      entiteId: role,
+      succes: true,
+      details: { role, permissions: normalizedPermissions }
+    });
     res.json(row);
   } catch (err) {
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      action: "ROLE_PERMISSIONS_UPDATE_FAILED",
+      entite: "auth/role-permissions",
+      entiteId: req.params?.role || null,
+      succes: false,
+      raison: err.message || "erreur_inconnue"
+    });
     res.status(400).json({ error: err.message });
   }
 });
@@ -349,6 +387,15 @@ router.post("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), as
       ...created,
       etatCompte,
       actif: etatCompte !== ACCOUNT_STATES.DISABLED
+    });
+    await logSecurityAudit({
+      utilisateurId: req.auth.utilisateurId,
+      role: req.auth.roleId || req.auth.role,
+      action: "USER_CREATED",
+      entite: "auth/users",
+      entiteId: user.id,
+      succes: true,
+      details: { createdUser: summarizeUser(user) }
     });
     res.status(201).json({
       id: user.id,
@@ -418,6 +465,23 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
       actif: nextState !== ACCOUNT_STATES.DISABLED,
       tokenVersion: hasExplicitState && nextState !== currentState ? Number(current.tokenVersion || 1) + 1 : Number(updated.tokenVersion || current.tokenVersion || 1)
     });
+    await logSecurityAudit({
+      utilisateurId: req.auth.utilisateurId,
+      role: req.auth.roleId || req.auth.role,
+      action: "USER_UPDATED",
+      entite: "auth/users",
+      entiteId: user.id,
+      succes: true,
+      details: {
+        before: summarizeUser(current),
+        after: summarizeUser(user),
+        fields: {
+          nom: parsed.data.nom !== undefined,
+          roleId: parsed.data.roleId !== undefined,
+          etatCompte: parsed.data.etatCompte !== undefined || parsed.data.actif !== undefined
+        }
+      }
+    });
     res.json({
       id: user.id,
       nom: user.nom,
@@ -428,6 +492,15 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
       tokenVersion: Number(user.tokenVersion || 1)
     });
   } catch (err) {
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      action: "USER_UPDATE_FAILED",
+      entite: "auth/users",
+      entiteId: req.params?.id || null,
+      succes: false,
+      raison: err.message || "erreur_inconnue"
+    });
     res.status(400).json({ error: err.message });
   }
 });
@@ -459,6 +532,18 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
       id: req.params.id,
       etatCompte
     });
+    await logSecurityAudit({
+      utilisateurId: req.auth.utilisateurId,
+      role: req.auth.roleId || req.auth.role,
+      action: "USER_ACTIVATION_UPDATED",
+      entite: "auth/users/activation",
+      entiteId: user.id,
+      succes: true,
+      details: {
+        before: summarizeUser(current),
+        after: summarizeUser(user)
+      }
+    });
 
     res.json({
       id: user.id,
@@ -470,6 +555,15 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
       tokenVersion: Number(user.tokenVersion || 1)
     });
   } catch (err) {
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      action: "USER_ACTIVATION_UPDATE_FAILED",
+      entite: "auth/users/activation",
+      entiteId: req.params?.id || null,
+      succes: false,
+      raison: err.message || "erreur_inconnue"
+    });
     res.status(400).json({ error: err.message });
   }
 });

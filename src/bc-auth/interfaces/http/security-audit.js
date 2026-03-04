@@ -7,8 +7,10 @@ export async function logSecurityAudit({
   role = null,
   action,
   entite = null,
+  entiteId = null,
   succes,
-  raison = null
+  raison = null,
+  details = null
 }) {
   try {
     await auditRepo.save({
@@ -17,8 +19,10 @@ export async function logSecurityAudit({
       action: String(action || "SECURITY_ACTION"),
       date: new Date().toISOString(),
       entite,
+      entiteId,
       succes: Boolean(succes),
-      raison: raison || null
+      raison: raison || null,
+      details: details || null
     });
   } catch {
     // Non bloquant par design
