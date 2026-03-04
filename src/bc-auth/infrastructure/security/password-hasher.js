@@ -10,11 +10,21 @@ export function hashPassword(password) {
 }
 
 export function verifyPassword(password, encoded) {
-  const parts = String(encoded || "").split(":");
+  const raw = String(encoded || "").trim();
+  if (!raw) return false;
+
+  let parts = raw.split(":");
+  if (parts.length !== 3 || parts[0] !== "scrypt") {
+    // Backward-compat: legacy stored format was "scrypt$<salt>$<hash>"
+    parts = raw.split("$");
+  }
   if (parts.length !== 3 || parts[0] !== "scrypt") return false;
+
   const salt = parts[1];
   const expected = Buffer.from(parts[2], "hex");
-  const actual = scryptSync(String(password || ""), salt, KEYLEN, { N: SCRYPT_N });
+  if (!salt || !parts[2] || expected.length === 0) return false;
+
+  const actual = scryptSync(String(password || ""), salt, expected.length, { N: SCRYPT_N });
   if (actual.length !== expected.length) return false;
   return timingSafeEqual(actual, expected);
 }

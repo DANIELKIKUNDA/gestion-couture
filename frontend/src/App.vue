@@ -1675,7 +1675,10 @@ async function hydrateAuthSession() {
     return Boolean(session);
   } catch (err) {
     applyAuthSession(null);
-    authError.value = readableError(err);
+    const message = readableError(err);
+    const lowered = message.toLowerCase();
+    const isAuthNoise = lowered.includes("acces non autorise") || lowered.includes("connexion requise");
+    authError.value = isAuthNoise ? "" : message;
     authMode.value = "login";
     return false;
   }
@@ -1715,7 +1718,7 @@ async function submitLogin() {
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = "dashboard";
   } catch (err) {
     applyAuthSession(null);
-    authError.value = readableError(err);
+    authError.value = loginErrorMessage(err);
   } finally {
     authenticating.value = false;
   }
@@ -1787,7 +1790,9 @@ async function submitLogout() {
 
 onMounted(async () => {
   setAuthLostHandler((context) => {
-    authError.value = context?.reason || "Acces refuse. Verifie ton compte et tes permissions.";
+    if (!isAuthenticated.value) return;
+    const reason = String(context?.reason || "").trim();
+    authError.value = reason || "Session expiree. Reconnecte-toi.";
   });
   syncRouteFromLocation();
   loadClientConsultationSectionPreference();
@@ -2254,6 +2259,16 @@ function readableError(err) {
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;
   return "Erreur API inconnue";
+}
+
+function loginErrorMessage(err) {
+  const message = readableError(err);
+  const lowered = message.toLowerCase();
+  if (lowered.includes("utilisateur inexistant")) return "Cet utilisateur n'existe pas.";
+  if (lowered.includes("mot de passe incorrect")) return "Mot de passe incorrect.";
+  if (lowered.includes("identifiants invalides")) return "Adresse email ou mot de passe incorrect.";
+  if (lowered.includes("compte inactif")) return "Compte desactive ou suspendu. Contactez le proprietaire.";
+  return message;
 }
 
 function normalizeClient(raw) {

@@ -4,10 +4,10 @@ import { ACCOUNT_STATES, normalizeAccountState } from "../../domain/account-stat
 
 export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRepo, authSessionRepo, email, motDePasse }) {
   const user = await utilisateurRepo.findByEmail(email);
-  if (!user) throw new Error("Identifiants invalides");
+  if (!user) throw new Error("Utilisateur inexistant");
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
   if (etatCompte !== ACCOUNT_STATES.ACTIVE) throw new Error("Compte inactif: connexion refusee");
-  if (!verifyPassword(motDePasse, user.motDePasseHash)) throw new Error("Identifiants invalides");
+  if (!verifyPassword(motDePasse, user.motDePasseHash)) throw new Error("Mot de passe incorrect");
 
   const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
   const permissions = rolePerm?.permissions || [];
