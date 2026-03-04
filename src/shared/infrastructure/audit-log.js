@@ -1,5 +1,28 @@
-﻿import { pool } from "./db.js";
+import { pool } from "./db.js";
 import { randomUUID } from "node:crypto";
+
+let auditSchemaReady = false;
+
+export async function ensureEvenementAuditSchema() {
+  if (auditSchemaReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS evenement_audit (
+      id_evenement TEXT PRIMARY KEY,
+      utilisateur_id TEXT NULL,
+      role TEXT NULL,
+      atelier_id TEXT NULL,
+      action TEXT NOT NULL,
+      entite TEXT NULL,
+      entite_id TEXT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      date_evenement TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_evenement_audit_date ON evenement_audit (date_evenement DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_evenement_audit_action ON evenement_audit (action)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_evenement_audit_entite ON evenement_audit (entite)`);
+  auditSchemaReady = true;
+}
 
 export async function enregistrerEvenementAudit({
   utilisateurId = null,
@@ -11,6 +34,7 @@ export async function enregistrerEvenementAudit({
   payload = {}
 }) {
   try {
+    await ensureEvenementAuditSchema();
     await pool.query(
       `INSERT INTO evenement_audit (
          id_evenement,

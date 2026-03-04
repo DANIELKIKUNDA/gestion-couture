@@ -24,6 +24,7 @@ import { reinitialiserMotDePasse } from "../../application/use-cases/reinitialis
 import { gererUtilisateurs } from "../../application/use-cases/gerer-utilisateurs.js";
 import { changerStatutUtilisateur } from "../../application/use-cases/changer-statut-utilisateur.js";
 import { pool } from "../../../shared/infrastructure/db.js";
+import { ensureEvenementAuditSchema } from "../../../shared/infrastructure/audit-log.js";
 import { requireAuth } from "./middlewares/auth-guard.js";
 import { requirePermission } from "./middlewares/require-permission.js";
 import { PERMISSIONS } from "../../domain/permissions.js";
@@ -571,6 +572,7 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
 
 router.get("/audit/utilisateurs", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX), async (req, res) => {
   try {
+    await ensureEvenementAuditSchema();
     const q = String(req.query?.q || "").trim().toLowerCase();
     const action = String(req.query?.action || "").trim().toUpperCase();
     const statut = String(req.query?.statut || "ALL").trim().toUpperCase();
