@@ -589,6 +589,15 @@ export const atelierApi = {
     return request("/audit/factures", { method: "GET" });
   },
 
+  listAuditUtilisateurs({ q = "", action = "ALL", statut = "ALL", limit = 200 } = {}) {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (action) params.set("action", action);
+    if (statut) params.set("statut", statut);
+    params.set("limit", String(limit));
+    return request(`/audit/utilisateurs?${params.toString()}`, { method: "GET" });
+  },
+
   getParametresAtelier() {
     return request("/parametres-atelier", { method: "GET" });
   },

@@ -202,6 +202,16 @@ const auditCommandes = ref([]);
 const auditRetouches = ref([]);
 const auditStockVentes = ref([]);
 const auditFactures = ref([]);
+const auditUtilisateurs = ref([]);
+const auditUtilisateursFiltres = reactive({
+  recherche: "",
+  action: "ALL",
+  statut: "ALL"
+});
+const auditUtilisateursPagination = reactive({
+  page: 1,
+  pageSize: 20
+});
 const auditError = ref("");
 const auditLoading = ref(false);
 const auditHubMetrics = ref({
@@ -1111,7 +1121,7 @@ const auditRoutes = [
   { path: "/audit/retouches", title: "Audit des Retouches", subtitle: "Historique retouches, paiements, livraisons" },
   { path: "/audit/stock-ventes", title: "Audit Stock & Ventes", subtitle: "Ventes, sorties stock et lien caisse" },
   { path: "/audit/factures", title: "Audit des Factures", subtitle: "Factures emises en lecture seule" },
-  { path: "/audit/utilisateurs", title: "Audit Utilisateurs", subtitle: "Prevu: actions par utilisateur" },
+  { path: "/audit/utilisateurs", title: "Audit Utilisateurs", subtitle: "Journal des actions de securite et gestion utilisateurs" },
   { path: "/audit/annuel", title: "Audit Annuel", subtitle: "Prevu: consolidation annuelle" }
 ];
 
@@ -1282,6 +1292,28 @@ const facturesKpi = computed(() => ({
   enAttente: facturesFiltered.value.filter((row) => Number(row.solde || 0) > 0).length,
   montantTotal: facturesFiltered.value.reduce((sum, row) => sum + Number(row.montantTotal || 0), 0)
 }));
+const auditUtilisateursActions = computed(() => {
+  const dynamic = Array.from(new Set(auditUtilisateurs.value.map((row) => String(row.action || "").toUpperCase()).filter(Boolean)));
+  return ["ALL", ...dynamic];
+});
+const auditUtilisateursFiltered = computed(() => {
+  const query = auditUtilisateursFiltres.recherche.trim().toLowerCase();
+  return auditUtilisateurs.value.filter((row) => {
+    if (auditUtilisateursFiltres.action !== "ALL" && String(row.action || "").toUpperCase() !== auditUtilisateursFiltres.action) return false;
+    const succes = row.payload?.succes === true;
+    if (auditUtilisateursFiltres.statut === "SUCCES" && !succes) return false;
+    if (auditUtilisateursFiltres.statut === "ECHEC" && succes) return false;
+    if (!query) return true;
+    const haystack = `${row.utilisateurId || ""} ${row.role || ""} ${row.action || ""} ${row.entite || ""} ${row.entiteId || ""} ${JSON.stringify(row.payload || {})}`.toLowerCase();
+    return haystack.includes(query);
+  });
+});
+const auditUtilisateursPages = computed(() => Math.max(1, Math.ceil(auditUtilisateursFiltered.value.length / auditUtilisateursPagination.pageSize)));
+const auditUtilisateursPaged = computed(() => {
+  const page = Math.min(Math.max(1, auditUtilisateursPagination.page), auditUtilisateursPages.value);
+  const start = (page - 1) * auditUtilisateursPagination.pageSize;
+  return auditUtilisateursFiltered.value.slice(start, start + auditUtilisateursPagination.pageSize);
+});
 
 const facturesOriginesSet = computed(() => {
   const set = new Set();
@@ -2008,6 +2040,17 @@ watch(facturesPages, (total) => {
 });
 
 watch(
+  () => [auditUtilisateursFiltres.recherche, auditUtilisateursFiltres.action, auditUtilisateursFiltres.statut, auditUtilisateursPagination.pageSize],
+  () => {
+    auditUtilisateursPagination.page = 1;
+  }
+);
+
+watch(auditUtilisateursPages, (total) => {
+  if (auditUtilisateursPagination.page > total) auditUtilisateursPagination.page = total;
+});
+
+watch(
   () => [filters.statut, filters.client, filters.periode, filters.soldeRestant, filters.recherche, commandesPagination.pageSize],
   () => {
     commandesPagination.page = 1;
@@ -2264,6 +2307,10 @@ async function loadAuditCaisse() {
   else appendAuditError(readableError(mensuelResult.reason));
 }
 
+async function loadAuditUtilisateurs() {
+  auditUtilisateurs.value = await atelierApi.listAuditUtilisateurs({ limit: 500 });
+}
+
 async function loadAuditPage(path = "/audit") {
   auditError.value = "";
   auditLoading.value = true;
@@ -2284,6 +2331,8 @@ async function loadAuditPage(path = "/audit") {
     } else if (path === "/audit/factures") {
       const rows = await atelierApi.listAuditFactures();
       auditFactures.value = (rows || []).map(normalizeFacture);
+    } else if (path === "/audit/utilisateurs") {
+      await loadAuditUtilisateurs();
     }
   } catch (err) {
     auditError.value = readableError(err);
@@ -5896,8 +5945,8 @@ async function loadRetoucheDetail(idRetouche) {
             </article>
 
             <article class="panel audit-hub-card">
-              <h4>Audit Utilisateurs (prevu)</h4>
-              <p class="helper">Actions par utilisateur, encaissements, depenses, clotures de caisse</p>
+              <h4>Audit Utilisateurs</h4>
+              <p class="helper">Actions de securite: comptes, activations, roles et permissions</p>
               <button class="action-btn blue" @click="navigateAudit('/audit/utilisateurs')">Voir</button>
             </article>
 
@@ -6216,8 +6265,74 @@ async function loadRetoucheDetail(idRetouche) {
 
         <template v-else-if="auditSubRoute === '/audit/utilisateurs'">
           <article class="panel">
-            <h3>Audit Utilisateurs (prevu futur)</h3>
-            <p class="helper">Cette route est reservee pour les actions par utilisateur, encaissements, depenses et clotures.</p>
+            <h3>Audit Utilisateurs</h3>
+            <div class="settings-grid">
+              <div class="stack-form">
+                <label>Recherche</label>
+                <input v-model="auditUtilisateursFiltres.recherche" type="text" placeholder="Utilisateur, action, entite..." />
+              </div>
+              <div class="stack-form">
+                <label>Action</label>
+                <select v-model="auditUtilisateursFiltres.action">
+                  <option v-for="action in auditUtilisateursActions" :key="`audit-user-action-${action}`" :value="action">
+                    {{ action === "ALL" ? "Toutes les actions" : action }}
+                  </option>
+                </select>
+              </div>
+              <div class="stack-form">
+                <label>Statut</label>
+                <select v-model="auditUtilisateursFiltres.statut">
+                  <option value="ALL">Tous</option>
+                  <option value="SUCCES">Succes</option>
+                  <option value="ECHEC">Echec</option>
+                </select>
+              </div>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Action</th>
+                  <th>Utilisateur</th>
+                  <th>Role</th>
+                  <th>Entite</th>
+                  <th>Succes</th>
+                  <th>Raison</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in auditUtilisateursPaged" :key="row.idEvenement">
+                  <td>{{ formatDateTime(row.dateEvenement) }}</td>
+                  <td>{{ row.action || "-" }}</td>
+                  <td>{{ row.utilisateurId || "-" }}</td>
+                  <td>{{ row.role || "-" }}</td>
+                  <td>{{ row.entite || "-" }}<span v-if="row.entiteId"> / {{ row.entiteId }}</span></td>
+                  <td>{{ row.payload?.succes === true ? "Oui" : "Non" }}</td>
+                  <td>{{ row.payload?.raison || "-" }}</td>
+                  <td>
+                    <details>
+                      <summary>Voir</summary>
+                      <pre>{{ JSON.stringify(row.payload?.details || {}, null, 2) }}</pre>
+                    </details>
+                  </td>
+                </tr>
+                <tr v-if="auditUtilisateursFiltered.length === 0">
+                  <td colspan="8">Aucun evenement utilisateur.</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="auditUtilisateursPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+                <option :value="100">100 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="auditUtilisateursPagination.page <= 1" @click="auditUtilisateursPagination.page -= 1">Precedent</button>
+              <span>Page {{ auditUtilisateursPagination.page }} / {{ auditUtilisateursPages }} · {{ auditUtilisateursFiltered.length }} evenement(s)</span>
+              <button class="mini-btn" :disabled="auditUtilisateursPagination.page >= auditUtilisateursPages" @click="auditUtilisateursPagination.page += 1">Suivant</button>
+            </div>
           </article>
         </template>
 

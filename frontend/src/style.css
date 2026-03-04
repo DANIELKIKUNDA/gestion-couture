@@ -1019,6 +1019,24 @@ body {
   background: #fff;
 }
 
+.data-table details > summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.data-table details pre {
+  margin-top: 6px;
+  max-width: 420px;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  background: #f7f9fc;
+  font-size: 12px;
+}
+
 .settings-roles {
   display: grid;
   gap: 6px;

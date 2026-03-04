@@ -23,6 +23,7 @@ import { seDeconnecterUtilisateur } from "../../application/use-cases/se-deconne
 import { reinitialiserMotDePasse } from "../../application/use-cases/reinitialiser-mot-de-passe.js";
 import { gererUtilisateurs } from "../../application/use-cases/gerer-utilisateurs.js";
 import { changerStatutUtilisateur } from "../../application/use-cases/changer-statut-utilisateur.js";
+import { pool } from "../../../shared/infrastructure/db.js";
 import { requireAuth } from "./middlewares/auth-guard.js";
 import { requirePermission } from "./middlewares/require-permission.js";
 import { PERMISSIONS } from "../../domain/permissions.js";
@@ -564,6 +565,61 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
       succes: false,
       raison: err.message || "erreur_inconnue"
     });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/audit/utilisateurs", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX), async (req, res) => {
+  try {
+    const q = String(req.query?.q || "").trim().toLowerCase();
+    const action = String(req.query?.action || "").trim().toUpperCase();
+    const statut = String(req.query?.statut || "ALL").trim().toUpperCase();
+    const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 200)));
+
+    const clauses = ["(entite LIKE 'auth/%' OR action LIKE 'USER_%' OR action LIKE 'ROLE_%' OR action LIKE 'COMPTE_%')"];
+    const params = [];
+    if (q) {
+      params.push(`%${q}%`);
+      clauses.push(`(
+        LOWER(COALESCE(utilisateur_id, '')) LIKE $${params.length}
+        OR LOWER(COALESCE(role, '')) LIKE $${params.length}
+        OR LOWER(COALESCE(action, '')) LIKE $${params.length}
+        OR LOWER(COALESCE(entite, '')) LIKE $${params.length}
+        OR LOWER(COALESCE(entite_id, '')) LIKE $${params.length}
+        OR LOWER(COALESCE(payload::text, '')) LIKE $${params.length}
+      )`);
+    }
+    if (action && action !== "ALL") {
+      params.push(action);
+      clauses.push(`UPPER(COALESCE(action, '')) = $${params.length}`);
+    }
+    if (statut === "SUCCES") clauses.push(`COALESCE((payload->>'succes')::boolean, false) = true`);
+    if (statut === "ECHEC") clauses.push(`COALESCE((payload->>'succes')::boolean, false) = false`);
+    params.push(limit);
+    const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+
+    const result = await pool.query(
+      `SELECT id_evenement, utilisateur_id, role, action, entite, entite_id, payload, date_evenement
+       FROM evenement_audit
+       ${whereSql}
+       ORDER BY date_evenement DESC
+       LIMIT $${params.length}`,
+      params
+    );
+
+    res.json(
+      result.rows.map((row) => ({
+        idEvenement: row.id_evenement,
+        utilisateurId: row.utilisateur_id,
+        role: row.role,
+        action: row.action,
+        entite: row.entite,
+        entiteId: row.entite_id,
+        payload: row.payload || {},
+        dateEvenement: row.date_evenement
+      }))
+    );
+  } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
