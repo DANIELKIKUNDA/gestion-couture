@@ -2975,16 +2975,30 @@ function setClientPage(section, next) {
   }
 }
 
-function exportClientConsultationPdf() {
+async function openBlobPdfInNewTab(loadBlobUrl) {
+  const popup = window.open("", "_blank");
+  try {
+    const blobUrl = await loadBlobUrl();
+    if (popup) popup.location.href = blobUrl;
+    else window.open(blobUrl, "_blank");
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+  } catch (err) {
+    if (popup) popup.close();
+    notify(readableError(err));
+  }
+}
+
+async function exportClientConsultationPdf() {
   if (!clientConsultationClient.value?.idClient) return;
-  const url = atelierApi.getClientConsultationPdfUrl(clientConsultationClient.value.idClient, {
-    source: clientHistoryFilters.source,
-    typeHabit: clientHistoryFilters.typeHabit,
-    periode: clientHistoryFilters.periode,
-    size: 200,
-    autoprint: 1
-  });
-  window.open(url, "_blank");
+  await openBlobPdfInNewTab(() =>
+    atelierApi.getClientConsultationPdfBlobUrl(clientConsultationClient.value.idClient, {
+      source: clientHistoryFilters.source,
+      typeHabit: clientHistoryFilters.typeHabit,
+      periode: clientHistoryFilters.periode,
+      size: 200,
+      autoprint: 1
+    })
+  );
 }
 
 function formatDateTime(input) {
@@ -4090,20 +4104,15 @@ async function loadFactureDetail(idFacture) {
   }
 }
 
-function facturePdfUrl(idFacture, autoPrint = false) {
-  const base = atelierApi.getFacturePdfUrl(idFacture);
-  return autoPrint ? `${base}?autoprint=1` : base;
-}
-
-function onGenererPdfFacture(facture) {
+async function onGenererPdfFacture(facture) {
   if (!facture?.idFacture) return;
-  window.open(facturePdfUrl(facture.idFacture, false), "_blank");
+  await openBlobPdfInNewTab(() => atelierApi.getFacturePdfBlobUrl(facture.idFacture, { autoPrint: false }));
   notify(`PDF pret: ${facture.numeroFacture}`);
 }
 
-function onImprimerFacture(facture) {
+async function onImprimerFacture(facture) {
   if (!facture?.idFacture) return;
-  window.open(facturePdfUrl(facture.idFacture, true), "_blank");
+  await openBlobPdfInNewTab(() => atelierApi.getFacturePdfBlobUrl(facture.idFacture, { autoPrint: true }));
 }
 
 function onVoirFactureParOrigine(typeOrigine, idOrigine) {

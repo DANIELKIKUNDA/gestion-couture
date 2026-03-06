@@ -310,6 +310,17 @@ export const atelierApi = {
     return `${API_BASE_URL}/clients/${encodeURIComponent(idClient)}/consultation/pdf${suffix}`;
   },
 
+  async getClientConsultationPdfBlobUrl(idClient, params = {}) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params || {})) {
+      if (value === undefined || value === null || value === "") continue;
+      query.set(key, String(value));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const blob = await fetchBlobWithAuthRetry(`/clients/${encodeURIComponent(idClient)}/consultation/pdf${suffix}`, { method: "GET" });
+    return URL.createObjectURL(blob);
+  },
+
   listCommandes() {
     return request("/commandes", { method: "GET" });
   },
