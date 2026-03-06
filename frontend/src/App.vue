@@ -2671,6 +2671,7 @@ function translateErrorMessage(message) {
       if (lower.includes("string must contain at least 1 character")) return "Ce champ est obligatoire.";
       if (lower.includes("invalid email")) return "Adresse email invalide.";
       if (lower.includes("string must contain at least 8 character")) return "Le mot de passe doit contenir au moins 8 caracteres.";
+      if (lower.includes("caisse is closed")) return "Operation impossible: la caisse est cloturee.";
       if (lower.startsWith("missing fields:")) {
         const fields = part.split(":")[1] || "";
         return `Champs obligatoires manquants: ${fields.trim()}`;
@@ -2854,11 +2855,19 @@ function normalizeCaisse(raw) {
     date: raw.date || raw.date_jour,
     statutCaisse: raw.statutCaisse || raw.statut,
     soldeOuverture: Number(raw.soldeOuverture ?? raw.solde_ouverture ?? 0),
+    soldeCloture: raw.soldeCloture === null || raw.solde_cloture === null ? null : Number(raw.soldeCloture ?? raw.solde_cloture ?? 0),
     soldeCourant: Number(raw.soldeCourant ?? raw.solde_courant ?? 0),
     totalEntreesJour: Number(raw.totalEntreesJour ?? raw.total_entrees_jour ?? 0),
     totalSortiesQuotidiennesJour: Number(raw.totalSortiesQuotidiennesJour ?? raw.total_sorties_quotidiennes_jour ?? 0),
     resultatJournalier: Number(raw.resultatJournalier ?? raw.resultat_journalier ?? 0),
     soldeJournalierRestant: Number(raw.soldeJournalierRestant ?? raw.solde_journalier_restant ?? 0),
+    ouvertePar: raw.ouvertePar || raw.ouverte_par || "",
+    clotureePar: raw.clotureePar || raw.cloturee_par || "",
+    dateOuverture: raw.dateOuverture || raw.date_ouverture || "",
+    dateCloture: raw.dateCloture || raw.date_cloture || "",
+    ouvertureAnticipee: raw.ouvertureAnticipee === true || raw.ouverture_anticipee === true,
+    motifOuvertureAnticipee: raw.motifOuvertureAnticipee || raw.motif_ouverture_anticipee || "",
+    autoriseePar: raw.autoriseePar || raw.autorisee_par || "",
     operations: (raw.operations || []).map((op) => ({
       idOperation: op.idOperation || op.id_operation,
       typeOperation: op.typeOperation || op.type_operation,
@@ -3006,6 +3015,25 @@ function formatDateTime(input) {
   const date = new Date(input);
   if (Number.isNaN(date.getTime())) return String(input);
   return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function isCaisseClosedMessage(message) {
+  const lower = String(message || "").toLowerCase();
+  return lower.includes("caisse is closed") || lower.includes("caisse cloturee");
+}
+
+function formatCaisseOuvertePar(caisse) {
+  const value = String(caisse?.ouvertePar || "").trim();
+  if (!value) return "-";
+  const lower = value.toLowerCase();
+  if (lower.includes("system") || lower.includes("auto")) return "Systeme (ouverture automatique)";
+  return value;
+}
+
+function formatCaisseClotureePar(caisse) {
+  const value = String(caisse?.clotureePar || "").trim();
+  if (!value) return "-";
+  return value;
 }
 
 function formatDateShort(input) {
@@ -3629,8 +3657,8 @@ async function onValiderVente(vente, { emettreFacture = false } = {}) {
       notify("Stock insuffisant pour valider la vente.");
       return;
     }
-    if (message.toLowerCase().includes("caisse is closed") || message.toLowerCase().includes("caisse")) {
-      notify("Caisse cloturee: validation impossible.");
+    if (isCaisseClosedMessage(message)) {
+      notify("Impossible d'effectuer cette vente : la caisse est cloturee.");
       return;
     }
     notify(message);
@@ -3733,7 +3761,12 @@ async function onPaiementCommande(commande) {
     await reloadAll();
     notify(`Paiement enregistre via la caisse pour ${commande.idCommande}`);
   } catch (err) {
-    notify(readableError(err));
+    const message = readableError(err);
+    if (isCaisseClosedMessage(message)) {
+      notify("Impossible d'effectuer ce paiement : la caisse est cloturee.");
+      return;
+    }
+    notify(message);
   }
 }
 
@@ -3754,7 +3787,12 @@ async function onPaiementDetail() {
     await reloadAll();
     notify(`Paiement enregistre via la caisse pour ${detailCommande.value.idCommande}`);
   } catch (err) {
-    notify(readableError(err));
+    const message = readableError(err);
+    if (isCaisseClosedMessage(message)) {
+      notify("Impossible d'effectuer ce paiement : la caisse est cloturee.");
+      return;
+    }
+    notify(message);
   }
 }
 
@@ -3814,7 +3852,12 @@ async function onPaiementRetouche(retouche) {
     await reloadAll();
     notify(`Paiement enregistre via la caisse pour ${retouche.idRetouche}`);
   } catch (err) {
-    notify(readableError(err));
+    const message = readableError(err);
+    if (isCaisseClosedMessage(message)) {
+      notify("Impossible d'effectuer ce paiement : la caisse est cloturee.");
+      return;
+    }
+    notify(message);
   }
 }
 
@@ -3835,7 +3878,12 @@ async function onPaiementRetoucheDetail() {
     await reloadAll();
     notify(`Paiement enregistre via la caisse pour ${detailRetouche.value.idRetouche}`);
   } catch (err) {
-    notify(readableError(err));
+    const message = readableError(err);
+    if (isCaisseClosedMessage(message)) {
+      notify("Impossible d'effectuer ce paiement : la caisse est cloturee.");
+      return;
+    }
+    notify(message);
   }
 }
 
@@ -3948,7 +3996,12 @@ async function onDepenseCaisse() {
     await reloadAll();
     notify(`Depense ${depenseTypeLabel(typeDepense).toLowerCase()} enregistree.`);
   } catch (err) {
-    notify(readableError(err));
+    const message = readableError(err);
+    if (isCaisseClosedMessage(message)) {
+      notify("Impossible d'enregistrer cet achat : la caisse est cloturee.");
+      return;
+    }
+    notify(message);
   }
 }
 
@@ -6389,11 +6442,14 @@ async function loadRetoucheDetail(idRetouche) {
         <template v-else>
           <article class="panel detail-grid">
             <div>
-              <h4>Statut caisse</h4>
+              <h4>Statut de la caisse</h4>
               <p><strong>Etat:</strong> {{ caisseStatus }}</p>
+              <p><strong>Solde d'ouverture:</strong> {{ formatCurrency(caisseJour.soldeOuverture) }}</p>
               <p><strong>Solde courant:</strong> {{ formatCurrency(caisseJour.soldeCourant) }}</p>
-              <p><strong>Solde ouverture:</strong> {{ formatCurrency(caisseJour.soldeOuverture) }}</p>
-              <p><strong>Ouverte par:</strong> {{ caisseJour.ouvertePar || "-" }}</p>
+              <p><strong>Ouverte par:</strong> {{ formatCaisseOuvertePar(caisseJour) }}</p>
+              <p><strong>Date d'ouverture:</strong> {{ formatDateTime(caisseJour.dateOuverture) }}</p>
+              <p><strong>Cloturee par:</strong> {{ formatCaisseClotureePar(caisseJour) }}</p>
+              <p><strong>Date de cloture:</strong> {{ formatDateTime(caisseJour.dateCloture) }}</p>
             </div>
             <div>
               <h4>Resume financier</h4>
