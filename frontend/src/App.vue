@@ -144,12 +144,21 @@ const retoucheWizard = reactive({
   }
 });
 const MAX_CLIENT_SEARCH_RESULTS = 10;
+const CLIENT_INSIGHT_PREVIEW_SIZE = 3;
 const wizardClientSearchQuery = ref("");
 const wizardClientSearchOpen = ref(false);
 const wizardClientSearchIndex = ref(-1);
 const retoucheClientSearchQueryWizard = ref("");
 const retoucheClientSearchOpen = ref(false);
 const retoucheClientSearchIndex = ref(-1);
+const wizardClientInsight = ref(null);
+const wizardClientInsightLoading = ref(false);
+const wizardClientInsightError = ref("");
+const wizardClientInsightRequestId = ref(0);
+const retoucheClientInsight = ref(null);
+const retoucheClientInsightLoading = ref(false);
+const retoucheClientInsightError = ref("");
+const retoucheClientInsightRequestId = ref(0);
 
 const factureEmission = reactive({
   open: false,
@@ -1221,6 +1230,125 @@ function searchClients(rawQuery) {
 const wizardClientSearchResults = computed(() => searchClients(wizardClientSearchQuery.value));
 const retoucheClientSearchResultsWizard = computed(() => searchClients(retoucheClientSearchQueryWizard.value));
 
+function buildClientInsight(consultation) {
+  const synthese = consultation?.synthese || {};
+  const historique = consultation?.historique || {};
+  const commandesRows = (historique.commandes || []).map((row, index) => ({
+    id: `cmd-${row.idCommande || row.date || index}`,
+    date: row.date || "",
+    libelle: row.typeHabit || "Commande",
+    statut: formatWorkflowStatus(row.statut)
+  }));
+  const retouchesRows = (historique.retouches || []).map((row, index) => ({
+    id: `ret-${row.idRetouche || row.date || index}`,
+    date: row.date || "",
+    libelle: row.typeHabit ? `Retouche ${row.typeHabit}` : "Retouche",
+    statut: formatWorkflowStatus(row.statut)
+  }));
+
+  const operations = [...commandesRows, ...retouchesRows]
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+    .slice(0, CLIENT_INSIGHT_PREVIEW_SIZE);
+
+  const mesuresTypes = Array.from(
+    new Set(
+      (historique.mesures || [])
+        .map((row) => String(row.typeHabit || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  return {
+    totalCommandes: Number(synthese.totalCommandes || 0),
+    totalRetouches: Number(synthese.totalRetouches || 0),
+    derniereVisite: synthese.dateDerniereActivite || consultation?.client?.dateDernierPassage || "",
+    operations,
+    mesuresTypes
+  };
+}
+
+function resetWizardClientInsight() {
+  wizardClientInsight.value = null;
+  wizardClientInsightLoading.value = false;
+  wizardClientInsightError.value = "";
+}
+
+function resetRetoucheClientInsight() {
+  retoucheClientInsight.value = null;
+  retoucheClientInsightLoading.value = false;
+  retoucheClientInsightError.value = "";
+}
+
+async function loadWizardClientInsight(idClient) {
+  if (!idClient) {
+    resetWizardClientInsight();
+    return;
+  }
+
+  const requestId = wizardClientInsightRequestId.value + 1;
+  wizardClientInsightRequestId.value = requestId;
+  wizardClientInsightLoading.value = true;
+  wizardClientInsightError.value = "";
+
+  try {
+    const payload = await atelierApi.getClientConsultation(idClient, {
+      source: "ALL",
+      typeHabit: "ALL",
+      periode: "ALL",
+      size: CLIENT_INSIGHT_PREVIEW_SIZE,
+      pageCommandes: 1,
+      pageRetouches: 1,
+      pageMesures: 1
+    });
+    if (wizardClientInsightRequestId.value !== requestId) return;
+    const normalized = normalizeClientConsultation(payload);
+    wizardClientInsight.value = buildClientInsight(normalized);
+  } catch (err) {
+    if (wizardClientInsightRequestId.value !== requestId) return;
+    wizardClientInsight.value = null;
+    wizardClientInsightError.value = readableError(err);
+  } finally {
+    if (wizardClientInsightRequestId.value === requestId) {
+      wizardClientInsightLoading.value = false;
+    }
+  }
+}
+
+async function loadRetoucheClientInsight(idClient) {
+  if (!idClient) {
+    resetRetoucheClientInsight();
+    return;
+  }
+
+  const requestId = retoucheClientInsightRequestId.value + 1;
+  retoucheClientInsightRequestId.value = requestId;
+  retoucheClientInsightLoading.value = true;
+  retoucheClientInsightError.value = "";
+
+  try {
+    const payload = await atelierApi.getClientConsultation(idClient, {
+      source: "ALL",
+      typeHabit: "ALL",
+      periode: "ALL",
+      size: CLIENT_INSIGHT_PREVIEW_SIZE,
+      pageCommandes: 1,
+      pageRetouches: 1,
+      pageMesures: 1
+    });
+    if (retoucheClientInsightRequestId.value !== requestId) return;
+    const normalized = normalizeClientConsultation(payload);
+    retoucheClientInsight.value = buildClientInsight(normalized);
+  } catch (err) {
+    if (retoucheClientInsightRequestId.value !== requestId) return;
+    retoucheClientInsight.value = null;
+    retoucheClientInsightError.value = readableError(err);
+  } finally {
+    if (retoucheClientInsightRequestId.value === requestId) {
+      retoucheClientInsightLoading.value = false;
+    }
+  }
+}
+
 watch(wizardClientSearchResults, (results) => {
   if (results.length === 0) {
     wizardClientSearchIndex.value = -1;
@@ -1240,6 +1368,20 @@ watch(retoucheClientSearchResultsWizard, (results) => {
     retoucheClientSearchIndex.value = 0;
   }
 });
+
+watch(
+  () => wizard.mode,
+  (mode) => {
+    if (mode !== "existing") resetWizardClientInsight();
+  }
+);
+
+watch(
+  () => retoucheWizard.mode,
+  (mode) => {
+    if (mode !== "existing") resetRetoucheClientInsight();
+  }
+);
 
 const stockArticleMap = computed(() => {
   const map = new Map();
@@ -2852,6 +2994,13 @@ function formatDateTime(input) {
   return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+function formatDateShort(input) {
+  if (!input) return "-";
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return String(input);
+  return new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "long", year: "numeric" }).format(date);
+}
+
 function capitalize(value) {
   if (!value) return "";
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -3043,6 +3192,7 @@ function resetWizard() {
   wizardClientSearchQuery.value = "";
   wizardClientSearchOpen.value = false;
   wizardClientSearchIndex.value = -1;
+  resetWizardClientInsight();
 }
 
 function openNouvelleCommande() {
@@ -3076,6 +3226,7 @@ function resetRetoucheWizard() {
   retoucheClientSearchQueryWizard.value = "";
   retoucheClientSearchOpen.value = false;
   retoucheClientSearchIndex.value = -1;
+  resetRetoucheClientInsight();
 }
 
 function openNouvelleRetouche() {
@@ -3093,12 +3244,14 @@ function selectWizardExistingClient(result) {
   wizardClientSearchQuery.value = `${result.nomComplet} — ${result.telephone}`;
   wizardClientSearchOpen.value = false;
   wizardClientSearchIndex.value = -1;
+  void loadWizardClientInsight(result.client.idClient);
 }
 
 function onWizardClientSearchInput(event) {
   wizardClientSearchQuery.value = event.target.value;
   wizard.existingClientId = "";
   wizardClientSearchOpen.value = true;
+  resetWizardClientInsight();
 }
 
 function onWizardClientSearchBlur() {
@@ -3144,12 +3297,14 @@ function selectRetoucheExistingClient(result) {
   retoucheClientSearchQueryWizard.value = `${result.nomComplet} — ${result.telephone}`;
   retoucheClientSearchOpen.value = false;
   retoucheClientSearchIndex.value = -1;
+  void loadRetoucheClientInsight(result.client.idClient);
 }
 
 function onRetoucheClientSearchInput(event) {
   retoucheClientSearchQueryWizard.value = event.target.value;
   retoucheWizard.existingClientId = "";
   retoucheClientSearchOpen.value = true;
+  resetRetoucheClientInsight();
 }
 
 function onRetoucheClientSearchBlur() {
@@ -6889,6 +7044,36 @@ async function loadRetoucheDetail(idRetouche) {
               </ul>
             </div>
             <button class="mini-btn" @click="wizard.mode = 'new'">+ Nouveau client</button>
+
+            <div v-if="wizard.existingClientId" class="client-insight-card">
+              <p class="client-insight-title">Client selectionne</p>
+              <p class="client-insight-selected">{{ wizardClientSearchQuery }}</p>
+              <p v-if="wizardClientInsightLoading" class="helper">Chargement de l'historique client...</p>
+              <p v-else-if="wizardClientInsightError" class="helper">{{ wizardClientInsightError }}</p>
+              <template v-else-if="wizardClientInsight">
+                <h4>Historique client</h4>
+                <p>Commandes : {{ wizardClientInsight.totalCommandes }}</p>
+                <p>Retouches : {{ wizardClientInsight.totalRetouches }}</p>
+                <p>Derniere visite : {{ formatDateShort(wizardClientInsight.derniereVisite) }}</p>
+
+                <div v-if="wizardClientInsight.operations.length > 0" class="client-insight-block">
+                  <p class="client-insight-subtitle">Dernieres operations</p>
+                  <ul class="client-insight-list">
+                    <li v-for="row in wizardClientInsight.operations" :key="row.id">
+                      {{ row.libelle }} - {{ formatDateShort(row.date) }} - {{ row.statut }}
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="client-insight-block">
+                  <p class="client-insight-subtitle">Mesures disponibles</p>
+                  <ul v-if="wizardClientInsight.mesuresTypes.length > 0" class="client-insight-list">
+                    <li v-for="item in wizardClientInsight.mesuresTypes" :key="`cmd-mes-${item}`">{{ item }}</li>
+                  </ul>
+                  <p v-else>Aucune mesure enregistree pour ce client</p>
+                </div>
+              </template>
+            </div>
           </div>
 
           <div v-else class="stack-form">
@@ -7013,6 +7198,36 @@ async function loadRetoucheDetail(idRetouche) {
             </ul>
           </div>
           <button class="mini-btn" @click="retoucheWizard.mode = 'new'">+ Nouveau client</button>
+
+          <div v-if="retoucheWizard.existingClientId" class="client-insight-card">
+            <p class="client-insight-title">Client selectionne</p>
+            <p class="client-insight-selected">{{ retoucheClientSearchQueryWizard }}</p>
+            <p v-if="retoucheClientInsightLoading" class="helper">Chargement de l'historique client...</p>
+            <p v-else-if="retoucheClientInsightError" class="helper">{{ retoucheClientInsightError }}</p>
+            <template v-else-if="retoucheClientInsight">
+              <h4>Historique client</h4>
+              <p>Commandes : {{ retoucheClientInsight.totalCommandes }}</p>
+              <p>Retouches : {{ retoucheClientInsight.totalRetouches }}</p>
+              <p>Derniere visite : {{ formatDateShort(retoucheClientInsight.derniereVisite) }}</p>
+
+              <div v-if="retoucheClientInsight.operations.length > 0" class="client-insight-block">
+                <p class="client-insight-subtitle">Dernieres operations</p>
+                <ul class="client-insight-list">
+                  <li v-for="row in retoucheClientInsight.operations" :key="row.id">
+                    {{ row.libelle }} - {{ formatDateShort(row.date) }} - {{ row.statut }}
+                  </li>
+                </ul>
+              </div>
+
+              <div class="client-insight-block">
+                <p class="client-insight-subtitle">Mesures disponibles</p>
+                <ul v-if="retoucheClientInsight.mesuresTypes.length > 0" class="client-insight-list">
+                  <li v-for="item in retoucheClientInsight.mesuresTypes" :key="`ret-mes-${item}`">{{ item }}</li>
+                </ul>
+                <p v-else>Aucune mesure enregistree pour ce client</p>
+              </div>
+            </template>
+          </div>
         </div>
 
         <div v-else class="stack-form">
