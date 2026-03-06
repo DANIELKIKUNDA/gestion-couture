@@ -6264,23 +6264,8 @@ async function loadRetoucheDetail(idRetouche) {
 
         <article v-show="settingsActiveTab === 'commandes'" id="settings-commandes" class="panel settings-section" role="tabpanel">
           <h3>Regles de commande</h3>
+          <p class="helper">Configuration du workflow de commande, pas de la structure des mesures.</p>
           <div class="settings-grid">
-            <label class="helper">
-              <input v-model="atelierSettings.commandes.mesuresObligatoires" type="checkbox" :disabled="!settingsCanEdit" />
-              Mesures obligatoires pour une commande
-            </label>
-            <label class="helper">
-              <input v-model="atelierSettings.commandes.interdictionSansMesures" type="checkbox" :disabled="!settingsCanEdit" />
-              Interdiction d'enregistrer sans toutes les mesures requises
-            </label>
-            <div class="stack-form">
-              <label>Unite de mesure</label>
-              <input v-model="atelierSettings.commandes.uniteMesure" type="text" disabled />
-            </div>
-            <label class="helper">
-              <input v-model="atelierSettings.commandes.decimalesAutorisees" type="checkbox" :disabled="!settingsCanEdit" />
-              Valeurs decimales autorisees
-            </label>
             <div class="stack-form">
               <label>Delai par defaut (jours)</label>
               <input v-model="atelierSettings.commandes.delaiDefautJours" type="number" min="0" :disabled="!settingsCanEdit" />
@@ -6340,7 +6325,25 @@ async function loadRetoucheDetail(idRetouche) {
 
         <article v-show="settingsActiveTab === 'mesures'" id="settings-mesures" class="panel settings-section" role="tabpanel">
           <h3>Types d'habits & structure des mesures</h3>
-          <p class="helper">Configuration des champs attendus, pas des valeurs.</p>
+          <p class="helper">Configuration des champs attendus, des regles de saisie et des types d'habits.</p>
+          <div class="settings-grid">
+            <label class="helper">
+              <input v-model="atelierSettings.commandes.mesuresObligatoires" type="checkbox" :disabled="!settingsCanEdit" />
+              Mesures obligatoires pour une commande
+            </label>
+            <label class="helper">
+              <input v-model="atelierSettings.commandes.interdictionSansMesures" type="checkbox" :disabled="!settingsCanEdit" />
+              Interdiction d'enregistrer sans toutes les mesures requises
+            </label>
+            <div class="stack-form">
+              <label>Unite de mesure</label>
+              <input v-model="atelierSettings.commandes.uniteMesure" type="text" disabled />
+            </div>
+            <label class="helper">
+              <input v-model="atelierSettings.commandes.decimalesAutorisees" type="checkbox" :disabled="!settingsCanEdit" />
+              Valeurs decimales autorisees
+            </label>
+          </div>
           <div class="measure-config-grid">
             <article v-for="habit in habitConfigEntries" :key="habit.key" class="panel nested-panel">
               <div class="panel-header detail-panel-header">
