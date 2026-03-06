@@ -781,6 +781,47 @@ body {
   gap: 8px;
 }
 
+.client-search {
+  position: relative;
+}
+
+.client-search-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+}
+
+.client-search-option {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.client-search-option:hover,
+.client-search-option.active {
+  background: #edf4ff;
+}
+
+.client-search-empty {
+  padding: 10px;
+  color: var(--muted);
+}
+
 .filters select,
 .filters input,
 .stack-form select,

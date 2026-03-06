@@ -143,6 +143,13 @@ const retoucheWizard = reactive({
     mesuresHabit: {}
   }
 });
+const MAX_CLIENT_SEARCH_RESULTS = 10;
+const wizardClientSearchQuery = ref("");
+const wizardClientSearchOpen = ref(false);
+const wizardClientSearchIndex = ref(-1);
+const retoucheClientSearchQueryWizard = ref("");
+const retoucheClientSearchOpen = ref(false);
+const retoucheClientSearchIndex = ref(-1);
 
 const factureEmission = reactive({
   open: false,
@@ -1146,6 +1153,72 @@ const clientDirectory = computed(() => {
     });
   }
   return map;
+});
+
+function formatClientDisplayName(client) {
+  return `${client?.nom || ""} ${client?.prenom || ""}`.trim() || "Client sans nom";
+}
+
+function scoreClientResult(client, rawQuery) {
+  const query = String(rawQuery || "").trim().toLowerCase();
+  if (!query) return null;
+  const nomComplet = formatClientDisplayName(client).toLowerCase();
+  const telephone = String(client?.telephone || "").toLowerCase();
+  const startsName = nomComplet.startsWith(query);
+  const startsPhone = telephone.startsWith(query);
+  const containsName = nomComplet.includes(query);
+  const containsPhone = telephone.includes(query);
+  const tokenStartsName = nomComplet.split(/\s+/).some((part) => part.startsWith(query));
+
+  if (!(startsName || startsPhone || containsName || containsPhone || tokenStartsName)) return null;
+  if (startsName) return 0;
+  if (startsPhone) return 1;
+  if (containsName) return 2;
+  if (containsPhone) return 3;
+  return 4;
+}
+
+function searchClients(rawQuery) {
+  const query = String(rawQuery || "").trim();
+  if (!query) return [];
+
+  return clients.value
+    .map((client) => {
+      const score = scoreClientResult(client, query);
+      if (score === null) return null;
+      return {
+        client,
+        score,
+        nomComplet: formatClientDisplayName(client),
+        telephone: String(client?.telephone || "")
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.score - b.score || a.nomComplet.localeCompare(b.nomComplet) || a.telephone.localeCompare(b.telephone))
+    .slice(0, MAX_CLIENT_SEARCH_RESULTS);
+}
+
+const wizardClientSearchResults = computed(() => searchClients(wizardClientSearchQuery.value));
+const retoucheClientSearchResultsWizard = computed(() => searchClients(retoucheClientSearchQueryWizard.value));
+
+watch(wizardClientSearchResults, (results) => {
+  if (results.length === 0) {
+    wizardClientSearchIndex.value = -1;
+    return;
+  }
+  if (wizardClientSearchIndex.value < 0 || wizardClientSearchIndex.value >= results.length) {
+    wizardClientSearchIndex.value = 0;
+  }
+});
+
+watch(retoucheClientSearchResultsWizard, (results) => {
+  if (results.length === 0) {
+    retoucheClientSearchIndex.value = -1;
+    return;
+  }
+  if (retoucheClientSearchIndex.value < 0 || retoucheClientSearchIndex.value >= results.length) {
+    retoucheClientSearchIndex.value = 0;
+  }
 });
 
 const stockArticleMap = computed(() => {
@@ -2950,6 +3023,9 @@ function resetWizard() {
   wizard.commande.typeHabit = "";
   wizard.commande.mesuresHabit = {};
   resetMesuresModel(wizard.commande.mesuresHabit);
+  wizardClientSearchQuery.value = "";
+  wizardClientSearchOpen.value = false;
+  wizardClientSearchIndex.value = -1;
 }
 
 function openNouvelleCommande() {
@@ -2980,6 +3056,9 @@ function resetRetoucheWizard() {
   retoucheWizard.retouche.typeHabit = "";
   retoucheWizard.retouche.mesuresHabit = {};
   resetMesuresModel(retoucheWizard.retouche.mesuresHabit);
+  retoucheClientSearchQueryWizard.value = "";
+  retoucheClientSearchOpen.value = false;
+  retoucheClientSearchIndex.value = -1;
 }
 
 function openNouvelleRetouche() {
@@ -2989,6 +3068,108 @@ function openNouvelleRetouche() {
 
 function closeRetoucheWizard() {
   retoucheWizard.open = false;
+}
+
+function selectWizardExistingClient(result) {
+  if (!result?.client?.idClient) return;
+  wizard.existingClientId = result.client.idClient;
+  wizardClientSearchQuery.value = `${result.nomComplet} — ${result.telephone}`;
+  wizardClientSearchOpen.value = false;
+  wizardClientSearchIndex.value = -1;
+}
+
+function onWizardClientSearchInput(event) {
+  wizardClientSearchQuery.value = event.target.value;
+  wizard.existingClientId = "";
+  wizardClientSearchOpen.value = true;
+}
+
+function onWizardClientSearchBlur() {
+  window.setTimeout(() => {
+    wizardClientSearchOpen.value = false;
+    wizardClientSearchIndex.value = -1;
+  }, 120);
+}
+
+function onWizardClientSearchKeydown(event) {
+  const results = wizardClientSearchResults.value;
+  if (event.key === "Escape") {
+    wizardClientSearchOpen.value = false;
+    wizardClientSearchIndex.value = -1;
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    wizardClientSearchOpen.value = true;
+    if (results.length === 0) return;
+    const next = wizardClientSearchIndex.value + 1;
+    wizardClientSearchIndex.value = next >= results.length ? 0 : next;
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    wizardClientSearchOpen.value = true;
+    if (results.length === 0) return;
+    const prev = wizardClientSearchIndex.value - 1;
+    wizardClientSearchIndex.value = prev < 0 ? results.length - 1 : prev;
+    return;
+  }
+  if (event.key === "Enter" && wizardClientSearchOpen.value && results.length > 0) {
+    event.preventDefault();
+    const index = wizardClientSearchIndex.value >= 0 ? wizardClientSearchIndex.value : 0;
+    selectWizardExistingClient(results[index]);
+  }
+}
+
+function selectRetoucheExistingClient(result) {
+  if (!result?.client?.idClient) return;
+  retoucheWizard.existingClientId = result.client.idClient;
+  retoucheClientSearchQueryWizard.value = `${result.nomComplet} — ${result.telephone}`;
+  retoucheClientSearchOpen.value = false;
+  retoucheClientSearchIndex.value = -1;
+}
+
+function onRetoucheClientSearchInput(event) {
+  retoucheClientSearchQueryWizard.value = event.target.value;
+  retoucheWizard.existingClientId = "";
+  retoucheClientSearchOpen.value = true;
+}
+
+function onRetoucheClientSearchBlur() {
+  window.setTimeout(() => {
+    retoucheClientSearchOpen.value = false;
+    retoucheClientSearchIndex.value = -1;
+  }, 120);
+}
+
+function onRetoucheClientSearchKeydown(event) {
+  const results = retoucheClientSearchResultsWizard.value;
+  if (event.key === "Escape") {
+    retoucheClientSearchOpen.value = false;
+    retoucheClientSearchIndex.value = -1;
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    retoucheClientSearchOpen.value = true;
+    if (results.length === 0) return;
+    const next = retoucheClientSearchIndex.value + 1;
+    retoucheClientSearchIndex.value = next >= results.length ? 0 : next;
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    retoucheClientSearchOpen.value = true;
+    if (results.length === 0) return;
+    const prev = retoucheClientSearchIndex.value - 1;
+    retoucheClientSearchIndex.value = prev < 0 ? results.length - 1 : prev;
+    return;
+  }
+  if (event.key === "Enter" && retoucheClientSearchOpen.value && results.length > 0) {
+    event.preventDefault();
+    const index = retoucheClientSearchIndex.value >= 0 ? retoucheClientSearchIndex.value : 0;
+    selectRetoucheExistingClient(results[index]);
+  }
 }
 
 async function onWizardStep1() {
@@ -6654,13 +6835,33 @@ async function loadRetoucheDetail(idRetouche) {
           </div>
 
           <div v-if="wizard.mode === 'existing'" class="stack-form">
-            <label>Client</label>
-            <select v-model="wizard.existingClientId">
-              <option value="">Choisir un client</option>
-              <option v-for="client in clients" :key="client.idClient" :value="client.idClient">
-                {{ `${client.nom} ${client.prenom}`.trim() }} - {{ client.telephone }}
-              </option>
-            </select>
+            <label>🔍 Rechercher un client (nom ou telephone)</label>
+            <div class="client-search">
+              <input
+                :value="wizardClientSearchQuery"
+                type="text"
+                placeholder="Rechercher un client (nom ou telephone)"
+                autocomplete="off"
+                @input="onWizardClientSearchInput"
+                @focus="wizardClientSearchOpen = true"
+                @blur="onWizardClientSearchBlur"
+                @keydown="onWizardClientSearchKeydown"
+              />
+              <ul v-if="wizardClientSearchOpen && wizardClientSearchQuery.trim()" class="client-search-results">
+                <li v-for="(row, index) in wizardClientSearchResults" :key="`cmd-client-${row.client.idClient}`">
+                  <button
+                    type="button"
+                    class="client-search-option"
+                    :class="{ active: index === wizardClientSearchIndex }"
+                    @mousedown.prevent="selectWizardExistingClient(row)"
+                  >
+                    {{ row.nomComplet }} — {{ row.telephone }}
+                  </button>
+                </li>
+                <li v-if="wizardClientSearchResults.length === 0" class="client-search-empty">Aucun client trouvé</li>
+              </ul>
+            </div>
+            <button class="mini-btn" @click="wizard.mode = 'new'">+ Nouveau client</button>
           </div>
 
           <div v-else class="stack-form">
@@ -6758,13 +6959,33 @@ async function loadRetoucheDetail(idRetouche) {
         </div>
 
         <div v-if="retoucheWizard.mode === 'existing'" class="stack-form">
-          <label>Client</label>
-          <select v-model="retoucheWizard.existingClientId">
-            <option value="">Choisir un client</option>
-            <option v-for="client in clients" :key="client.idClient" :value="client.idClient">
-              {{ `${client.nom} ${client.prenom}`.trim() }} - {{ client.telephone }}
-            </option>
-          </select>
+          <label>🔍 Rechercher un client (nom ou telephone)</label>
+          <div class="client-search">
+            <input
+              :value="retoucheClientSearchQueryWizard"
+              type="text"
+              placeholder="Rechercher un client (nom ou telephone)"
+              autocomplete="off"
+              @input="onRetoucheClientSearchInput"
+              @focus="retoucheClientSearchOpen = true"
+              @blur="onRetoucheClientSearchBlur"
+              @keydown="onRetoucheClientSearchKeydown"
+            />
+            <ul v-if="retoucheClientSearchOpen && retoucheClientSearchQueryWizard.trim()" class="client-search-results">
+              <li v-for="(row, index) in retoucheClientSearchResultsWizard" :key="`ret-client-${row.client.idClient}`">
+                <button
+                  type="button"
+                  class="client-search-option"
+                  :class="{ active: index === retoucheClientSearchIndex }"
+                  @mousedown.prevent="selectRetoucheExistingClient(row)"
+                >
+                  {{ row.nomComplet }} — {{ row.telephone }}
+                </button>
+              </li>
+              <li v-if="retoucheClientSearchResultsWizard.length === 0" class="client-search-empty">Aucun client trouvé</li>
+            </ul>
+          </div>
+          <button class="mini-btn" @click="retoucheWizard.mode = 'new'">+ Nouveau client</button>
         </div>
 
         <div v-else class="stack-form">
