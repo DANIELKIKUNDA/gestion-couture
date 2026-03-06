@@ -194,6 +194,8 @@ const selectedFactureId = ref("");
 const detailFacture = ref(null);
 const detailFactureLoading = ref(false);
 const detailFactureError = ref("");
+const detailCommandeActions = ref(null);
+const detailRetoucheActions = ref(null);
 
 const selectedClientConsultationId = ref("");
 const clientConsultationQuery = ref("");
@@ -1410,31 +1412,63 @@ const currentAuditRoute = computed(() => {
 const detailSoldeRestant = computed(() => soldeRestant(detailCommande.value));
 const canPayerDetail = computed(() => {
   if (!detailCommande.value) return false;
+  if (detailCommandeActions.value && typeof detailCommandeActions.value.payer === "boolean") {
+    return detailCommandeActions.value.payer;
+  }
   if (detailCommande.value.statutCommande === "LIVREE" || detailCommande.value.statutCommande === "ANNULEE") return false;
   return detailSoldeRestant.value > 0;
 });
 const canLivrerDetail = computed(() => {
   if (!detailCommande.value) return false;
-  return detailCommande.value.statutCommande === "TERMINEE" && detailSoldeRestant.value === 0;
+  if (detailCommandeActions.value && typeof detailCommandeActions.value.livrer === "boolean") {
+    return detailCommandeActions.value.livrer;
+  }
+  return false;
+});
+const canTerminerDetail = computed(() => {
+  if (!detailCommande.value) return false;
+  if (detailCommandeActions.value && typeof detailCommandeActions.value.terminer === "boolean") {
+    return detailCommandeActions.value.terminer;
+  }
+  return false;
 });
 const canAnnulerDetail = computed(() => {
   if (!detailCommande.value) return false;
-  return detailCommande.value.statutCommande !== "LIVREE" && detailCommande.value.statutCommande !== "ANNULEE";
+  if (detailCommandeActions.value && typeof detailCommandeActions.value.annuler === "boolean") {
+    return detailCommandeActions.value.annuler;
+  }
+  return false;
 });
 
 const detailRetoucheSoldeRestant = computed(() => soldeRestant(detailRetouche.value));
 const canPayerRetoucheDetail = computed(() => {
   if (!detailRetouche.value) return false;
+  if (detailRetoucheActions.value && typeof detailRetoucheActions.value.payer === "boolean") {
+    return detailRetoucheActions.value.payer;
+  }
   if (detailRetouche.value.statutRetouche === "LIVREE" || detailRetouche.value.statutRetouche === "ANNULEE") return false;
   return detailRetoucheSoldeRestant.value > 0;
 });
 const canLivrerRetoucheDetail = computed(() => {
   if (!detailRetouche.value) return false;
-  return detailRetouche.value.statutRetouche === "TERMINEE" && detailRetoucheSoldeRestant.value === 0;
+  if (detailRetoucheActions.value && typeof detailRetoucheActions.value.livrer === "boolean") {
+    return detailRetoucheActions.value.livrer;
+  }
+  return false;
+});
+const canTerminerRetoucheDetail = computed(() => {
+  if (!detailRetouche.value) return false;
+  if (detailRetoucheActions.value && typeof detailRetoucheActions.value.terminer === "boolean") {
+    return detailRetoucheActions.value.terminer;
+  }
+  return false;
 });
 const canAnnulerRetoucheDetail = computed(() => {
   if (!detailRetouche.value) return false;
-  return detailRetouche.value.statutRetouche !== "LIVREE" && detailRetouche.value.statutRetouche !== "ANNULEE";
+  if (detailRetoucheActions.value && typeof detailRetoucheActions.value.annuler === "boolean") {
+    return detailRetoucheActions.value.annuler;
+  }
+  return false;
 });
 
 const detailCommandeFacture = computed(() => {
@@ -1909,6 +1943,8 @@ const retouchesKpi = computed(() => ({
   livrees: retouchesFiltered.value.filter((item) => item.statutRetouche === "LIVREE").length,
   avecSolde: retouchesSoldeRestantCount.value
 }));
+const commandeActionsById = ref({});
+const retoucheActionsById = ref({});
 const retoucheClientOptions = computed(() => {
   const query = retoucheClientQuery.value.trim().toLowerCase();
   if (!query) return clients.value;
@@ -1917,6 +1953,81 @@ const retoucheClientOptions = computed(() => {
     return haystack.includes(query);
   });
 });
+
+function hasActionEntry(store, id) {
+  return Object.prototype.hasOwnProperty.call(store.value || {}, String(id || ""));
+}
+
+function readActionEntry(store, id) {
+  return (store.value || {})[String(id || "")] || null;
+}
+
+function normalizeActionFlags(payload) {
+  const actions = payload?.actions && typeof payload.actions === "object" ? payload.actions : {};
+  return {
+    voir: actions.voir === true,
+    payer: actions.payer === true,
+    terminer: actions.terminer === true,
+    livrer: actions.livrer === true,
+    annuler: actions.annuler === true
+  };
+}
+
+async function loadCommandeActionsForId(idCommande, { force = false, detail = false } = {}) {
+  const id = String(idCommande || "");
+  if (!id) return null;
+  if (!force && hasActionEntry(commandeActionsById, id)) {
+    const cached = readActionEntry(commandeActionsById, id);
+    if (detail) detailCommandeActions.value = cached;
+    return cached;
+  }
+  try {
+    const payload = await atelierApi.getCommandeActions(id);
+    const normalized = normalizeActionFlags(payload);
+    commandeActionsById.value = { ...commandeActionsById.value, [id]: normalized };
+    if (detail) detailCommandeActions.value = normalized;
+    return normalized;
+  } catch {
+    commandeActionsById.value = { ...commandeActionsById.value, [id]: null };
+    if (detail) detailCommandeActions.value = null;
+    return null;
+  }
+}
+
+async function loadRetoucheActionsForId(idRetouche, { force = false, detail = false } = {}) {
+  const id = String(idRetouche || "");
+  if (!id) return null;
+  if (!force && hasActionEntry(retoucheActionsById, id)) {
+    const cached = readActionEntry(retoucheActionsById, id);
+    if (detail) detailRetoucheActions.value = cached;
+    return cached;
+  }
+  try {
+    const payload = await atelierApi.getRetoucheActions(id);
+    const normalized = normalizeActionFlags(payload);
+    retoucheActionsById.value = { ...retoucheActionsById.value, [id]: normalized };
+    if (detail) detailRetoucheActions.value = normalized;
+    return normalized;
+  } catch {
+    retoucheActionsById.value = { ...retoucheActionsById.value, [id]: null };
+    if (detail) detailRetoucheActions.value = null;
+    return null;
+  }
+}
+
+watch(commandesPaged, (rows) => {
+  const ids = (rows || []).map((row) => row?.idCommande).filter(Boolean);
+  for (const id of ids) {
+    void loadCommandeActionsForId(id, { force: false, detail: false });
+  }
+}, { immediate: true });
+
+watch(retouchesPaged, (rows) => {
+  const ids = (rows || []).map((row) => row?.idRetouche).filter(Boolean);
+  for (const id of ids) {
+    void loadRetoucheActionsForId(id, { force: false, detail: false });
+  }
+}, { immediate: true });
 
 const selectedCommande = computed(() =>
   commandesView.value.find((commande) => commande.idCommande === selectedCommandeId.value) || null
@@ -2394,6 +2505,10 @@ async function openRoute(routeId) {
 async function reloadAll() {
   loading.value = true;
   errorMessage.value = "";
+  commandeActionsById.value = {};
+  retoucheActionsById.value = {};
+  detailCommandeActions.value = null;
+  detailRetoucheActions.value = null;
 
   const [clientsResult, commandesResult, retouchesResult, stockResult, ventesResult, facturesResult, caisseDaysResult] =
     await Promise.allSettled([
@@ -3166,34 +3281,68 @@ function soldeRestant(commande) {
 
 function canPayer(commande) {
   if (!commande) return false;
+  const id = String(commande.idCommande || "");
+  const fromApi = readActionEntry(commandeActionsById, id);
+  if (fromApi && typeof fromApi.payer === "boolean") return fromApi.payer;
   if (commande.statutCommande === "LIVREE" || commande.statutCommande === "ANNULEE") return false;
   return soldeRestant(commande) > 0;
 }
 
 function canLivrer(commande) {
   if (!commande) return false;
-  return commande.statutCommande === "TERMINEE" && soldeRestant(commande) === 0;
+  const id = String(commande.idCommande || "");
+  if (!hasActionEntry(commandeActionsById, id)) return false;
+  const fromApi = readActionEntry(commandeActionsById, id);
+  return Boolean(fromApi?.livrer);
+}
+
+function canTerminer(commande) {
+  if (!commande) return false;
+  const id = String(commande.idCommande || "");
+  if (!hasActionEntry(commandeActionsById, id)) return false;
+  const fromApi = readActionEntry(commandeActionsById, id);
+  return Boolean(fromApi?.terminer);
 }
 
 function canAnnuler(commande) {
   if (!commande) return false;
-  return commande.statutCommande !== "LIVREE" && commande.statutCommande !== "ANNULEE";
+  const id = String(commande.idCommande || "");
+  if (!hasActionEntry(commandeActionsById, id)) return false;
+  const fromApi = readActionEntry(commandeActionsById, id);
+  return Boolean(fromApi?.annuler);
 }
 
 function canPayerRetouche(retouche) {
   if (!retouche) return false;
+  const id = String(retouche.idRetouche || "");
+  const fromApi = readActionEntry(retoucheActionsById, id);
+  if (fromApi && typeof fromApi.payer === "boolean") return fromApi.payer;
   if (retouche.statutRetouche === "LIVREE" || retouche.statutRetouche === "ANNULEE") return false;
   return soldeRestant(retouche) > 0;
 }
 
 function canLivrerRetouche(retouche) {
   if (!retouche) return false;
-  return retouche.statutRetouche === "TERMINEE" && soldeRestant(retouche) === 0;
+  const id = String(retouche.idRetouche || "");
+  if (!hasActionEntry(retoucheActionsById, id)) return false;
+  const fromApi = readActionEntry(retoucheActionsById, id);
+  return Boolean(fromApi?.livrer);
+}
+
+function canTerminerRetouche(retouche) {
+  if (!retouche) return false;
+  const id = String(retouche.idRetouche || "");
+  if (!hasActionEntry(retoucheActionsById, id)) return false;
+  const fromApi = readActionEntry(retoucheActionsById, id);
+  return Boolean(fromApi?.terminer);
 }
 
 function canAnnulerRetouche(retouche) {
   if (!retouche) return false;
-  return retouche.statutRetouche !== "LIVREE" && retouche.statutRetouche !== "ANNULEE";
+  const id = String(retouche.idRetouche || "");
+  if (!hasActionEntry(retoucheActionsById, id)) return false;
+  const fromApi = readActionEntry(retoucheActionsById, id);
+  return Boolean(fromApi?.annuler);
 }
 
 async function onAnnulerCommande(commande) {
@@ -3806,6 +3955,17 @@ async function onLivrerCommande(commande) {
   }
 }
 
+async function onTerminerCommande(commande) {
+  if (!commande?.idCommande) return;
+  try {
+    await atelierApi.terminerCommande(commande.idCommande);
+    await reloadAll();
+    notify(`Commande terminee: ${commande.idCommande}`);
+  } catch (err) {
+    notify(readableError(err));
+  }
+}
+
 async function onLivrerDetail() {
   if (!detailCommande.value) return;
   try {
@@ -3813,6 +3973,18 @@ async function onLivrerDetail() {
     await loadCommandeDetail(detailCommande.value.idCommande);
     await reloadAll();
     notify(`Commande livree: ${detailCommande.value.idCommande}`);
+  } catch (err) {
+    notify(readableError(err));
+  }
+}
+
+async function onTerminerDetail() {
+  if (!detailCommande.value) return;
+  try {
+    await atelierApi.terminerCommande(detailCommande.value.idCommande);
+    await loadCommandeDetail(detailCommande.value.idCommande);
+    await reloadAll();
+    notify(`Commande terminee: ${detailCommande.value.idCommande}`);
   } catch (err) {
     notify(readableError(err));
   }
@@ -3897,6 +4069,17 @@ async function onLivrerRetouche(retouche) {
   }
 }
 
+async function onTerminerRetouche(retouche) {
+  if (!retouche?.idRetouche) return;
+  try {
+    await atelierApi.terminerRetouche(retouche.idRetouche);
+    await reloadAll();
+    notify(`Retouche terminee: ${retouche.idRetouche}`);
+  } catch (err) {
+    notify(readableError(err));
+  }
+}
+
 async function onLivrerRetoucheDetail() {
   if (!detailRetouche.value) return;
   try {
@@ -3904,6 +4087,18 @@ async function onLivrerRetoucheDetail() {
     await loadRetoucheDetail(detailRetouche.value.idRetouche);
     await reloadAll();
     notify(`Retouche livree: ${detailRetouche.value.idRetouche}`);
+  } catch (err) {
+    notify(readableError(err));
+  }
+}
+
+async function onTerminerRetoucheDetail() {
+  if (!detailRetouche.value) return;
+  try {
+    await atelierApi.terminerRetouche(detailRetouche.value.idRetouche);
+    await loadRetoucheDetail(detailRetouche.value.idRetouche);
+    await reloadAll();
+    notify(`Retouche terminee: ${detailRetouche.value.idRetouche}`);
   } catch (err) {
     notify(readableError(err));
   }
@@ -4284,11 +4479,14 @@ async function loadCommandeDetail(idCommande) {
   if (!idCommande) return;
   detailLoading.value = true;
   detailError.value = "";
+  detailCommandeActions.value = null;
   try {
     const detail = await atelierApi.getCommande(idCommande);
     detailCommande.value = normalizeCommande(detail);
+    void loadCommandeActionsForId(idCommande, { force: true, detail: true });
   } catch (err) {
     detailCommande.value = null;
+    detailCommandeActions.value = null;
     detailPaiements.value = [];
     detailCommandeEvents.value = [];
     detailError.value = readableError(err);
@@ -4326,11 +4524,14 @@ async function loadRetoucheDetail(idRetouche) {
   if (!idRetouche) return;
   detailRetoucheLoading.value = true;
   detailRetoucheError.value = "";
+  detailRetoucheActions.value = null;
   try {
     const detail = await atelierApi.getRetouche(idRetouche);
     detailRetouche.value = normalizeRetouche(detail);
+    void loadRetoucheActionsForId(idRetouche, { force: true, detail: true });
   } catch (err) {
     detailRetouche.value = null;
+    detailRetoucheActions.value = null;
     detailRetouchePaiements.value = [];
     detailRetoucheEvents.value = [];
     detailRetoucheError.value = readableError(err);
@@ -4736,6 +4937,9 @@ async function loadRetoucheDetail(idRetouche) {
                       </svg>
                       Livrer
                     </button>
+                    <button class="mini-btn" v-if="canTerminer(commande)" @click="onTerminerCommande(commande)">
+                      Terminer
+                    </button>
                     <button class="mini-btn" v-if="canAnnuler(commande)" @click="onAnnulerCommande(commande)">
                       <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M3 3l18 18" />
@@ -4919,6 +5123,9 @@ async function loadRetoucheDetail(idRetouche) {
                         <path v-for="(path, i) in iconPaths.check" :key="`liv-ret-${retouche.idRetouche}-${i}`" :d="path" />
                       </svg>
                       Livrer
+                    </button>
+                    <button class="mini-btn" v-if="canTerminerRetouche(retouche)" @click="onTerminerRetouche(retouche)">
+                      Terminer
                     </button>
                     <button class="mini-btn" v-if="canAnnulerRetouche(retouche)" @click="onAnnulerRetouche(retouche)">
                       <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -5435,6 +5642,9 @@ async function loadRetoucheDetail(idRetouche) {
             <button class="action-btn green" v-if="canLivrerDetail" @click="onLivrerDetail" :disabled="detailLoading">
               Livrer
             </button>
+            <button class="action-btn amber" v-if="canTerminerDetail" @click="onTerminerDetail" :disabled="detailLoading">
+              Terminer
+            </button>
             <button class="action-btn red" v-if="canAnnulerDetail" @click="onAnnulerDetail" :disabled="detailLoading">
               Annuler
             </button>
@@ -5580,6 +5790,9 @@ async function loadRetoucheDetail(idRetouche) {
             </button>
             <button class="action-btn green" v-if="canLivrerRetoucheDetail" @click="onLivrerRetoucheDetail" :disabled="detailRetoucheLoading">
               Livrer
+            </button>
+            <button class="action-btn amber" v-if="canTerminerRetoucheDetail" @click="onTerminerRetoucheDetail" :disabled="detailRetoucheLoading">
+              Terminer
             </button>
             <button class="action-btn red" v-if="canAnnulerRetoucheDetail" @click="onAnnulerRetoucheDetail" :disabled="detailRetoucheLoading">
               Annuler
