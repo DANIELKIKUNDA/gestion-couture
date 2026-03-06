@@ -485,7 +485,11 @@ const atelierSettingsDefault = {
     interdictionSansMesures: true,
     uniteMesure: "cm",
     decimalesAutorisees: true,
-    delaiDefautJours: 7
+    delaiDefautJours: 7,
+    passageAutomatiqueEnCoursApresPremierPaiement: true,
+    livraisonAutoriseeSeulementSiPaiementTotal: true,
+    autoriserModificationMesuresApresCreation: true,
+    autoriserAnnulationApresPaiement: false
   },
   retouches: {
     mesuresOptionnelles: true,
@@ -3242,7 +3246,7 @@ function parseMesureValue(raw, label) {
   return n;
 }
 
-function collectMesuresSnapshot({ typeHabit, mesuresModel, requireComplete }) {
+function collectMesuresSnapshot({ typeHabit, mesuresModel, requireComplete, requireAtLeastOne = !requireComplete }) {
   const def = habitMesureDefinitions[typeHabit];
   if (!def) throw new Error("Type d'habit requis.");
   const out = {};
@@ -3281,7 +3285,7 @@ function collectMesuresSnapshot({ typeHabit, mesuresModel, requireComplete }) {
     }
   }
 
-  if (!requireComplete && Object.keys(out).length === 0) {
+  if (requireAtLeastOne && Object.keys(out).length === 0) {
     throw new Error("Saisir au moins une mesure pour la retouche.");
   }
 
@@ -3599,10 +3603,15 @@ async function onWizardStep2() {
     }
     if (!wizard.commande.typeHabit) throw new Error("Type d'habit obligatoire.");
 
+    const commandesConfig = atelierSettings.commandes || {};
+    const mesuresObligatoires = commandesConfig.mesuresObligatoires !== false;
+    const interdictionSansMesures = commandesConfig.interdictionSansMesures !== false;
+
     const mesuresSnapshot = collectMesuresSnapshot({
       typeHabit: wizard.commande.typeHabit,
       mesuresModel: wizard.commande.mesuresHabit,
-      requireComplete: true
+      requireComplete: mesuresObligatoires && interdictionSansMesures,
+      requireAtLeastOne: mesuresObligatoires
     });
 
     const payload = {
@@ -6276,6 +6285,38 @@ async function loadRetoucheDetail(idRetouche) {
               <label>Delai par defaut (jours)</label>
               <input v-model="atelierSettings.commandes.delaiDefautJours" type="number" min="0" :disabled="!settingsCanEdit" />
             </div>
+            <label class="helper">
+              <input
+                v-model="atelierSettings.commandes.passageAutomatiqueEnCoursApresPremierPaiement"
+                type="checkbox"
+                :disabled="!settingsCanEdit"
+              />
+              Passer automatiquement une commande en cours apres le premier paiement
+            </label>
+            <label class="helper">
+              <input
+                v-model="atelierSettings.commandes.livraisonAutoriseeSeulementSiPaiementTotal"
+                type="checkbox"
+                :disabled="!settingsCanEdit"
+              />
+              Autoriser la livraison seulement si le paiement est total
+            </label>
+            <label class="helper">
+              <input
+                v-model="atelierSettings.commandes.autoriserModificationMesuresApresCreation"
+                type="checkbox"
+                :disabled="!settingsCanEdit"
+              />
+              Autoriser la modification des mesures apres creation
+            </label>
+            <label class="helper">
+              <input
+                v-model="atelierSettings.commandes.autoriserAnnulationApresPaiement"
+                type="checkbox"
+                :disabled="!settingsCanEdit"
+              />
+              Autoriser l'annulation d'une commande apres paiement
+            </label>
           </div>
         </article>
 
