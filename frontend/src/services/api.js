@@ -603,9 +603,11 @@ export const atelierApi = {
   },
 
   saveParametresAtelier(payload, updatedBy = "", expectedVersion = null) {
+    const resolvedExpectedVersion =
+      expectedVersion ?? (payload?.meta?.version !== undefined && payload?.meta?.version !== null ? Number(payload.meta.version) : null);
     return request("/parametres-atelier", {
       method: "PUT",
-      body: JSON.stringify({ payload, updatedBy, expectedVersion })
+      body: JSON.stringify({ payload, updatedBy, expectedVersion: resolvedExpectedVersion })
     });
   },
 

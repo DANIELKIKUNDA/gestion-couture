@@ -591,10 +591,14 @@ async function loadAtelierSettings() {
     const response = await atelierApi.getParametresAtelier();
     if (response?.payload) {
       applySettings(atelierSettings, response.payload);
+      if (response.version !== undefined && response.version !== null) {
+        atelierSettings.meta.version = Number(response.version || 1);
+      }
       persistAtelierSettings();
       captureSettingsSnapshot();
     }
   } catch (err) {
+    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
     settingsError.value = err instanceof ApiError ? err.message : "Erreur chargement parametres.";
     console.warn("Failed to load atelier settings (api)", err);
   } finally {
@@ -614,6 +618,15 @@ const visibleSettingsTabs = computed(() =>
   settingsTabs.filter((tab) => tab.id !== "securite" || canAccessSecurityModule.value)
 );
 const settingsLogoPreview = computed(() => (atelierSettings.identite.logoUrl || "").trim());
+const atelierLogoUrl = computed(() => settingsLogoPreview.value);
+const atelierNomAffichage = computed(() => {
+  const value = String(atelierSettings.identite?.nomAtelier || "").trim();
+  return value || "Atelier de Couture";
+});
+const atelierDevise = computed(() => {
+  const value = String(atelierSettings.identite?.devise || "").trim().toUpperCase();
+  return value || "FC";
+});
 const settingsSnapshotParsed = computed(() => {
   if (!settingsSnapshot.value) return cloneSettings(atelierSettingsDefault);
   try {
@@ -762,7 +775,15 @@ async function saveAtelierSettings() {
   try {
     settingsSaving.value = true;
     settingsError.value = "";
-    await atelierApi.saveParametresAtelier(cloneSettings(atelierSettings), settingsUser.nom || "");
+    const payload = cloneSettings(atelierSettings);
+    const expectedVersion = Number(payload?.meta?.version || 1);
+    const saved = await atelierApi.saveParametresAtelier(payload, settingsUser.nom || "", expectedVersion);
+    if (saved?.payload) {
+      applySettings(atelierSettings, saved.payload);
+    }
+    if (saved?.version !== undefined && saved?.version !== null) {
+      atelierSettings.meta.version = Number(saved.version || atelierSettings.meta.version || 1);
+    }
     persistAtelierSettings();
     captureSettingsSnapshot();
     settingsConfirmSave.value = false;
@@ -1068,8 +1089,7 @@ function normalizeSessionPayload(payload) {
 const isAuthenticated = computed(() => Boolean(authUser.value));
 const currentRole = computed(() => String(authUser.value?.roleId || "").toUpperCase());
 const atelierNomConnexion = computed(() => {
-  const value = String(atelierSettings.identite?.nomAtelier || "").trim();
-  return value ? value.toUpperCase() : "KSG COUTURE";
+  return atelierNomAffichage.value;
 });
 
 function hasPermission(permission) {
@@ -1877,9 +1897,7 @@ async function submitLogin() {
     applyAuthSession(session);
     authMode.value = "login";
     loginForm.motDePasse = "";
-    if (canAccessModule("parametres")) {
-      await loadAtelierSettings();
-    }
+    await loadAtelierSettings();
     await reloadAll();
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = "dashboard";
   } catch (err) {
@@ -1955,6 +1973,7 @@ async function submitLogout() {
 }
 
 onMounted(async () => {
+  loadAtelierSettingsLocal();
   setAuthLostHandler((context) => {
     if (!isAuthenticated.value) return;
     const reason = String(context?.reason || "").trim();
@@ -1969,9 +1988,7 @@ onMounted(async () => {
     await detectAuthMode();
   }
   if (isAuthenticated.value) {
-    if (canAccessModule("parametres")) {
-      await loadAtelierSettings();
-    }
+    await loadAtelierSettings();
     await reloadAll();
     if (currentRoute.value === "audit") loadAuditPage(auditSubRoute.value);
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = "forbidden";
@@ -2861,7 +2878,7 @@ function addDays(isoDate, days) {
 }
 
 function formatCurrency(value) {
-  return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} FC`;
+  return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} ${atelierDevise.value}`;
 }
 
 function findFactureByOrigine(typeOrigine, idOrigine) {
@@ -4135,7 +4152,10 @@ async function loadRetoucheDetail(idRetouche) {
   <div v-if="!authReady" class="auth-shell">
     <article class="auth-card">
       <header class="auth-card-head">
-        <div class="auth-logo">AT</div>
+        <div class="auth-logo">
+          <img v-if="atelierLogoUrl" :src="atelierLogoUrl" alt="Logo atelier" />
+          <span v-else>AT</span>
+        </div>
         <h2>Chargement de la session...</h2>
       </header>
     </article>
@@ -4144,7 +4164,10 @@ async function loadRetoucheDetail(idRetouche) {
   <div v-else-if="!isAuthenticated" class="auth-shell">
     <article class="auth-card">
       <header class="auth-card-head">
-        <div class="auth-logo">AT</div>
+        <div class="auth-logo">
+          <img v-if="atelierLogoUrl" :src="atelierLogoUrl" alt="Logo atelier" />
+          <span v-else>AT</span>
+        </div>
         <h2>{{ atelierNomConnexion }}</h2>
         <p>Connexion securisee</p>
       </header>
@@ -4183,9 +4206,12 @@ async function loadRetoucheDetail(idRetouche) {
   <div v-else class="workspace classic">
     <aside class="sidebar classic-sidebar">
       <div class="brand classic-brand">
-        <div class="brand-mark">AT</div>
+        <div class="brand-mark">
+          <img v-if="atelierLogoUrl" :src="atelierLogoUrl" alt="Logo atelier" />
+          <span v-else>AT</span>
+        </div>
         <div>
-          <h1>Atelier de Couture</h1>
+          <h1>{{ atelierNomAffichage }}</h1>
           <p>Gestion metier</p>
         </div>
       </div>
@@ -4219,6 +4245,7 @@ async function loadRetoucheDetail(idRetouche) {
         <div>
           <p class="date-label">{{ todayLabel() }}</p>
           <h2>{{ currentTitle }}</h2>
+          <p class="date-label">{{ atelierNomAffichage }}</p>
         </div>
         <div class="topbar-actions">
           <button class="mini-btn" @click="reloadAll" :disabled="loading">Actualiser</button>

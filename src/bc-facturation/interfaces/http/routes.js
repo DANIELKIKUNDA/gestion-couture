@@ -17,18 +17,29 @@ const atelierConfigFallback = {
   nom: process.env.ATELIER_NOM || "Atelier de Couture",
   adresse: process.env.ATELIER_ADRESSE || "Adresse atelier",
   telephone: process.env.ATELIER_TELEPHONE || "Telephone atelier",
-  email: process.env.ATELIER_EMAIL || "contact@atelier.local"
+  email: process.env.ATELIER_EMAIL || "contact@atelier.local",
+  logoUrl: "",
+  devise: "FC",
+  prefixeNumero: "FAC",
+  mentions: "",
+  afficherLogo: true
 };
 
 async function resolveAtelierConfig() {
   try {
     const current = await parametresRepo.getCurrent();
     const identite = current?.payload?.identite || {};
+    const facturation = current?.payload?.facturation || {};
     return {
       nom: String(identite.nomAtelier || atelierConfigFallback.nom),
       adresse: String(identite.adresse || atelierConfigFallback.adresse),
       telephone: String(identite.telephone || atelierConfigFallback.telephone),
-      email: atelierConfigFallback.email
+      email: atelierConfigFallback.email,
+      logoUrl: String(identite.logoUrl || atelierConfigFallback.logoUrl),
+      devise: String(identite.devise || atelierConfigFallback.devise).toUpperCase(),
+      prefixeNumero: String(facturation.prefixeNumero || atelierConfigFallback.prefixeNumero).toUpperCase(),
+      mentions: String(facturation.mentions || atelierConfigFallback.mentions),
+      afficherLogo: facturation.afficherLogo !== false
     };
   } catch {
     return atelierConfigFallback;
@@ -44,19 +55,21 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-function formatCurrency(value) {
-  return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} FC`;
+function formatCurrency(value, devise = "FC") {
+  return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} ${escapeHtml(devise)}`;
 }
 
 function facturePdfHtml(facture, autoPrint = false, atelierConfig = atelierConfigFallback) {
+  const shouldShowLogo = atelierConfig.afficherLogo === true && String(atelierConfig.logoUrl || "").trim() !== "";
+  const mentions = String(atelierConfig.mentions || "").trim();
   const lignes = facture.lignes
     .map(
       (ligne) => `
       <tr>
         <td>${escapeHtml(ligne.description)}</td>
         <td style="text-align:right">${escapeHtml(ligne.quantite)}</td>
-        <td style="text-align:right">${formatCurrency(ligne.prix)}</td>
-        <td style="text-align:right">${formatCurrency(ligne.montant)}</td>
+        <td style="text-align:right">${formatCurrency(ligne.prix, atelierConfig.devise)}</td>
+        <td style="text-align:right">${formatCurrency(ligne.montant, atelierConfig.devise)}</td>
       </tr>`
     )
     .join("");
@@ -71,6 +84,7 @@ function facturePdfHtml(facture, autoPrint = false, atelierConfig = atelierConfi
         .head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
         .brand h1 { margin: 0 0 8px; font-size: 24px; letter-spacing: 0.5px; }
         .brand p { margin: 0; line-height: 1.45; font-size: 13px; color: #444; }
+        .logo { width: 84px; height: 84px; object-fit: contain; border: 1px solid #ddd; border-radius: 8px; padding: 4px; background: #fff; }
         .meta { text-align: right; font-size: 13px; line-height: 1.5; }
         .client { margin: 18px 0; padding: 10px 12px; border: 1px solid #e6e6e6; background: #fafafa; }
         .client h3 { margin: 0 0 6px; font-size: 13px; }
@@ -89,6 +103,7 @@ function facturePdfHtml(facture, autoPrint = false, atelierConfig = atelierConfi
     <body>
       <div class="head">
         <div class="brand">
+          ${shouldShowLogo ? `<p><img class="logo" src="${escapeHtml(atelierConfig.logoUrl)}" alt="Logo atelier" /></p>` : ""}
           <h1>FACTURE ${escapeHtml(facture.numeroFacture)}</h1>
           <p><strong>${escapeHtml(atelierConfig.nom)}</strong></p>
           <p>${escapeHtml(atelierConfig.adresse)}</p>
@@ -120,12 +135,13 @@ function facturePdfHtml(facture, autoPrint = false, atelierConfig = atelierConfi
       </table>
       <table class="totaux">
         <tbody>
-          <tr><td class="label">Total</td><td class="val">${formatCurrency(facture.montantTotal)}</td></tr>
-          <tr><td class="label">Paye</td><td class="val">${formatCurrency(facture.montantPaye)}</td></tr>
-          <tr><td class="label">Solde</td><td class="val">${formatCurrency(facture.solde)}</td></tr>
+          <tr><td class="label">Total</td><td class="val">${formatCurrency(facture.montantTotal, atelierConfig.devise)}</td></tr>
+          <tr><td class="label">Paye</td><td class="val">${formatCurrency(facture.montantPaye, atelierConfig.devise)}</td></tr>
+          <tr><td class="label">Solde</td><td class="val">${formatCurrency(facture.solde, atelierConfig.devise)}</td></tr>
           <tr><td class="label">Statut</td><td class="val"><span class="badge">${escapeHtml(facture.statut)}</span></td></tr>
         </tbody>
       </table>
+      ${mentions ? `<p class="foot"><strong>Mentions:</strong> ${escapeHtml(mentions)}</p>` : ""}
       <p class="foot">Facture generee automatiquement</p>
       ${autoPrint ? "<script>window.addEventListener('load', () => window.print());</script>" : ""}
     </body>
@@ -163,8 +179,12 @@ router.post("/factures/emettre", async (req, res) => {
   const required = requireFields(body, ["typeOrigine", "idOrigine"]);
   if (!required.ok) return res.status(400).json({ error: required.error });
   try {
+    const atelierConfig = await resolveAtelierConfig();
     const facture = await emettreFacture({
-      input: body,
+      input: {
+        ...body,
+        prefixeNumero: atelierConfig.prefixeNumero
+      },
       factureRepo,
       origineReader
     });

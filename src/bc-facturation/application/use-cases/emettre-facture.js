@@ -19,7 +19,7 @@ export async function emettreFacture({ input, factureRepo, origineReader, now = 
 
   const facture = new Facture({
     idFacture: await factureRepo.nextFactureId(),
-    numeroFacture: await factureRepo.nextNumeroFacture(now),
+    numeroFacture: await factureRepo.nextNumeroFacture(now, input.prefixeNumero),
     typeOrigine,
     idOrigine,
     client: origine.client,

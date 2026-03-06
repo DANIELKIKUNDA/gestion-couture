@@ -37,7 +37,8 @@ router.put("/parametres-atelier", requirePermission(PERMISSIONS.MODIFIER_PARAMET
   try {
     const payload = req.body?.payload;
     const updatedBy = req.body?.updatedBy || null;
-    const saved = await saveParametresAtelier({ repo, payload, updatedBy });
+    const expectedVersion = req.body?.expectedVersion ?? payload?.meta?.version ?? null;
+    const saved = await saveParametresAtelier({ repo, payload, updatedBy, expectedVersion });
     res.json(saved);
   } catch (err) {
     res.status(400).json({ error: err.message });

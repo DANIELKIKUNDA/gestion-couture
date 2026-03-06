@@ -32,7 +32,8 @@ const atelierConfigFallback = {
   nom: process.env.ATELIER_NOM || "Atelier de Couture",
   adresse: process.env.ATELIER_ADRESSE || "Adresse atelier",
   telephone: process.env.ATELIER_TELEPHONE || "Telephone atelier",
-  email: process.env.ATELIER_EMAIL || "contact@atelier.local"
+  email: process.env.ATELIER_EMAIL || "contact@atelier.local",
+  devise: "FC"
 };
 
 async function resolveAtelierConfig() {
@@ -43,7 +44,8 @@ async function resolveAtelierConfig() {
       nom: String(identite.nomAtelier || atelierConfigFallback.nom),
       adresse: String(identite.adresse || atelierConfigFallback.adresse),
       telephone: String(identite.telephone || atelierConfigFallback.telephone),
-      email: atelierConfigFallback.email
+      email: atelierConfigFallback.email,
+      devise: String(identite.devise || atelierConfigFallback.devise).toUpperCase()
     };
   } catch {
     return atelierConfigFallback;
@@ -59,8 +61,8 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-function formatCurrency(value) {
-  return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} FC`;
+function formatCurrency(value, devise = "FC") {
+  return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} ${escapeHtml(devise)}`;
 }
 
 function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelierConfigFallback) {
@@ -74,7 +76,7 @@ function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelier
         <td>${escapeHtml(toIsoDate(row.date) || "-")}</td>
         <td>${escapeHtml(row.typeHabit || "-")}</td>
         <td>${escapeHtml(row.statut || "-")}</td>
-        <td style="text-align:right">${formatCurrency(row.montant)}</td>
+        <td style="text-align:right">${formatCurrency(row.montant, atelierConfig.devise)}</td>
       </tr>`
     )
     .join("");
@@ -86,7 +88,7 @@ function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelier
         <td>${escapeHtml(row.typeHabit || "-")}</td>
         <td>${escapeHtml(row.typeRetouche || "-")}</td>
         <td>${escapeHtml(row.statut || "-")}</td>
-        <td style="text-align:right">${formatCurrency(row.montant)}</td>
+        <td style="text-align:right">${formatCurrency(row.montant, atelierConfig.devise)}</td>
       </tr>`
     )
     .join("");
@@ -140,7 +142,7 @@ function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelier
           <div><strong>Premier passage:</strong> ${escapeHtml(toIsoDate(client.datePremierPassage) || "-")}</div>
           <div><strong>Dernier passage:</strong> ${escapeHtml(toIsoDate(client.dateDernierPassage) || "-")}</div>
           <div><strong>Statut:</strong> ${escapeHtml(client.statutVisuel || "-")}</div>
-          <div><strong>Total depense:</strong> ${formatCurrency(synthese.montantTotalDepense)}</div>
+          <div><strong>Total depense:</strong> ${formatCurrency(synthese.montantTotalDepense, atelierConfig.devise)}</div>
         </div>
       </div>
 

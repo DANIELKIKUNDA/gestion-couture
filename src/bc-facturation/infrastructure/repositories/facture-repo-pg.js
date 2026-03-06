@@ -48,14 +48,18 @@ export class FactureRepoPg {
     return generateFactureId();
   }
 
-  async nextNumeroFacture(date = new Date()) {
+  async nextNumeroFacture(date = new Date(), prefixe = "FAC") {
     await this.ensureNumeroSequence();
     const res = await pool.query(
       "SELECT to_char($1::timestamp, 'YYYY') AS year, lpad(nextval('facture_numero_seq')::text, 6, '0') AS seq",
       [date.toISOString()]
     );
     const row = res.rows[0];
-    return `FAC-${row.year}-${row.seq}`;
+    const cleanPrefix = String(prefixe || "FAC")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_-]/g, "") || "FAC";
+    return `${cleanPrefix}-${row.year}-${row.seq}`;
   }
 
   async getByOrigine(typeOrigine, idOrigine) {
