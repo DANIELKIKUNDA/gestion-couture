@@ -87,6 +87,10 @@ const facturesPagination = reactive({
   page: 1,
   pageSize: 10
 });
+const caisseOperationsPagination = reactive({
+  page: 1,
+  pageSize: 10
+});
 
 const dashboardPeriod = ref("LAST_7");
 const dashboardPeriodOptions = [
@@ -1803,6 +1807,12 @@ const recentCaisseActivity = computed(() => {
 const caisseStatus = computed(() => caisseJour.value?.statutCaisse || "INCONNUE");
 const caisseOuverte = computed(() => caisseStatus.value === "OUVERTE");
 const caisseOperations = computed(() => caisseJour.value?.operations || []);
+const caisseOperationsPages = computed(() => Math.max(1, Math.ceil(caisseOperations.value.length / caisseOperationsPagination.pageSize)));
+const caisseOperationsPaged = computed(() => {
+  const page = Math.min(Math.max(1, caisseOperationsPagination.page), caisseOperationsPages.value);
+  const start = (page - 1) * caisseOperationsPagination.pageSize;
+  return caisseOperations.value.slice(start, start + caisseOperationsPagination.pageSize);
+});
 const caisseTotals = computed(() => {
   const totalEntrees = Number(caisseJour.value?.totalEntreesJour ?? 0);
   const totalSortiesQuotidiennes = Number(caisseJour.value?.totalSortiesQuotidiennesJour ?? 0);
@@ -2409,6 +2419,17 @@ watch(
 watch(commandesPages, (total) => {
   if (commandesPagination.page > total) commandesPagination.page = total;
 });
+
+watch(caisseOperationsPages, (total) => {
+  if (caisseOperationsPagination.page > total) caisseOperationsPagination.page = total;
+});
+
+watch(
+  () => caisseOperationsPagination.pageSize,
+  () => {
+    caisseOperationsPagination.page = 1;
+  }
+);
 
 watch(clientCommandesPages, (total) => {
   if (clientPagination.commandesPage > total) clientPagination.commandesPage = total;
@@ -6657,28 +6678,28 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <template v-else>
-          <article class="panel detail-grid">
-            <div>
+          <article class="panel caisse-summary-grid">
+            <div class="caisse-summary-col">
               <h4>Statut de la caisse</h4>
-              <p><strong>Etat:</strong> {{ caisseStatus }}</p>
-              <p><strong>Solde d'ouverture:</strong> {{ formatCurrency(caisseJour.soldeOuverture) }}</p>
-              <p><strong>Solde courant:</strong> {{ formatCurrency(caisseJour.soldeCourant) }}</p>
-              <p><strong>Ouverte par:</strong> {{ formatCaisseOuvertePar(caisseJour) }}</p>
-              <p><strong>Date d'ouverture:</strong> {{ formatDateTime(caisseJour.dateOuverture) }}</p>
-              <p><strong>Cloturee par:</strong> {{ formatCaisseClotureePar(caisseJour) }}</p>
-              <p><strong>Date de cloture:</strong> {{ formatDateTime(caisseJour.dateCloture) }}</p>
+              <p class="caisse-row"><strong>Etat:</strong> <span class="caisse-value">{{ caisseStatus }}</span></p>
+              <p class="caisse-row"><strong>Solde d'ouverture:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeOuverture) }}</span></p>
+              <p class="caisse-row"><strong>Solde courant:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
+              <p class="caisse-row"><strong>Ouverte par:</strong> <span class="caisse-value">{{ formatCaisseOuvertePar(caisseJour) }}</span></p>
+              <p class="caisse-row"><strong>Date d'ouverture:</strong> <span class="caisse-value">{{ formatDateTime(caisseJour.dateOuverture) }}</span></p>
+              <p class="caisse-row"><strong>Cloturee par:</strong> <span class="caisse-value">{{ formatCaisseClotureePar(caisseJour) }}</span></p>
+              <p class="caisse-row"><strong>Date de cloture:</strong> <span class="caisse-value">{{ formatDateTime(caisseJour.dateCloture) }}</span></p>
             </div>
-            <div>
+            <div class="caisse-summary-col">
               <h4>Resume financier</h4>
-              <p><strong>Total entrees:</strong> {{ formatCurrency(caisseTotals.totalEntrees) }}</p>
-              <p><strong>Total sorties:</strong> {{ formatCurrency(caisseTotals.totalSorties) }}</p>
-              <p><strong>Solde:</strong> {{ formatCurrency(caisseJour.soldeCourant) }}</p>
+              <p class="caisse-row"><strong>Total entrees:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
+              <p class="caisse-row"><strong>Total sorties:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSorties) }}</span></p>
+              <p class="caisse-row"><strong>Solde:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
             </div>
-            <div>
+            <div class="caisse-summary-col">
               <h4>Resultat du jour</h4>
-              <p><strong>Entrees du jour:</strong> {{ formatCurrency(caisseTotals.totalEntrees) }}</p>
-              <p><strong>Depenses quotidiennes:</strong> {{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</p>
-              <p><strong>Resultat journalier:</strong> {{ formatCurrency(caisseTotals.resultatJournalier) }}</p>
+              <p class="caisse-row"><strong>Entrees du jour:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
+              <p class="caisse-row"><strong>Depenses quotidiennes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</span></p>
+              <p class="caisse-row"><strong>Resultat journalier:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.resultatJournalier) }}</span></p>
             </div>
           </article>
 
@@ -6703,7 +6724,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="op in caisseOperations" :key="op.idOperation">
+                <tr v-for="op in caisseOperationsPaged" :key="op.idOperation">
                   <td>{{ formatDateTime(op.dateOperation) }}</td>
                   <td>{{ op.typeOperation }}</td>
                   <td>{{ formatCurrency(op.montant) }}</td>
@@ -6725,6 +6746,16 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </tbody>
             </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="caisseOperationsPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="caisseOperationsPagination.page <= 1" @click="caisseOperationsPagination.page -= 1">Precedent</button>
+              <span>Page {{ caisseOperationsPagination.page }} / {{ caisseOperationsPages }}</span>
+              <button class="mini-btn" :disabled="caisseOperationsPagination.page >= caisseOperationsPages" @click="caisseOperationsPagination.page += 1">Suivant</button>
+            </div>
           </article>
 
         </template>
