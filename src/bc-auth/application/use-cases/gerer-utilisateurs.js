@@ -16,9 +16,11 @@ export async function gererUtilisateurs({ utilisateurRepo, input }) {
       nom: input.nom,
       email,
       roleId: input.roleId,
-      actif: input.actif !== false,
+      actif: true,
       motDePasseHash: hashPassword(input.motDePasse)
     });
+    if (input.actif === false) user.desactiver();
+    else user.activer();
     return utilisateurRepo.save(user);
   }
 
@@ -28,9 +30,11 @@ export async function gererUtilisateurs({ utilisateurRepo, input }) {
     const next = {
       ...current,
       nom: input.nom ?? current.nom,
-      roleId: input.roleId ?? current.roleId,
-      actif: input.actif ?? current.actif
+      roleId: input.roleId ?? current.roleId
     };
+    Object.setPrototypeOf(next, Utilisateur.prototype);
+    if (input.actif === true) next.activer();
+    if (input.actif === false) next.desactiver();
     return utilisateurRepo.save(next);
   }
 

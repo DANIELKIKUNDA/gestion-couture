@@ -4,5 +4,8 @@ export function validatePasswordPolicy(password) {
   if (!/[A-Z]/.test(value)) throw new Error("Mot de passe: au moins une majuscule requise");
   if (!/[a-z]/.test(value)) throw new Error("Mot de passe: au moins une minuscule requise");
   if (!/[0-9]/.test(value)) throw new Error("Mot de passe: au moins un chiffre requis");
+  if (!/[!@#$%^&*(),.?":{}|<>]/.test(value)) {
+    throw new Error("Mot de passe doit contenir au moins un caractère spécial");
+  }
   return true;
 }
