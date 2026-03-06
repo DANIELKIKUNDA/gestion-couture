@@ -1434,6 +1434,7 @@ const canTerminerDetail = computed(() => {
 });
 const canAnnulerDetail = computed(() => {
   if (!detailCommande.value) return false;
+  if (detailCommande.value.statutCommande === "TERMINEE") return false;
   if (detailCommandeActions.value && typeof detailCommandeActions.value.annuler === "boolean") {
     return detailCommandeActions.value.annuler;
   }
@@ -1465,6 +1466,7 @@ const canTerminerRetoucheDetail = computed(() => {
 });
 const canAnnulerRetoucheDetail = computed(() => {
   if (!detailRetouche.value) return false;
+  if (detailRetouche.value.statutRetouche === "TERMINEE") return false;
   if (detailRetoucheActions.value && typeof detailRetoucheActions.value.annuler === "boolean") {
     return detailRetoucheActions.value.annuler;
   }
@@ -3306,6 +3308,7 @@ function canTerminer(commande) {
 
 function canAnnuler(commande) {
   if (!commande) return false;
+  if (commande.statutCommande === "TERMINEE") return false;
   const id = String(commande.idCommande || "");
   if (!hasActionEntry(commandeActionsById, id)) return false;
   const fromApi = readActionEntry(commandeActionsById, id);
@@ -3339,6 +3342,7 @@ function canTerminerRetouche(retouche) {
 
 function canAnnulerRetouche(retouche) {
   if (!retouche) return false;
+  if (retouche.statutRetouche === "TERMINEE") return false;
   const id = String(retouche.idRetouche || "");
   if (!hasActionEntry(retoucheActionsById, id)) return false;
   const fromApi = readActionEntry(retoucheActionsById, id);
