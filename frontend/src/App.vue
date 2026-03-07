@@ -259,7 +259,13 @@ const settingsError = ref("");
 const settingsActiveTab = ref("identite");
 const settingsSnapshot = ref("");
 const settingsUserSnapshot = ref("");
-const settingsHabitExpanded = reactive({});
+const settingsMeasureQuery = ref("");
+const settingsMeasureStatusFilter = ref("ALL");
+const selectedSettingsHabitKey = ref("");
+const settingsMeasurePagination = reactive({
+  page: 1,
+  pageSize: 12
+});
 const settingsConfirmModal = reactive({
   open: false,
   title: "",
@@ -743,6 +749,48 @@ const habitConfigEntries = computed(() => {
       });
     });
 });
+const filteredHabitConfigEntries = computed(() => {
+  const query = settingsMeasureQuery.value.trim().toLowerCase();
+  return habitConfigEntries.value.filter(({ key, config }) => {
+    if (settingsMeasureStatusFilter.value === "ACTIVE" && config?.actif === false) return false;
+    if (settingsMeasureStatusFilter.value === "INACTIVE" && config?.actif !== false) return false;
+    if (!query) return true;
+    const mesures = Array.isArray(config?.mesures) ? config.mesures : [];
+    const haystack = [
+      key,
+      config?.label || "",
+      ...mesures.flatMap((mesure) => [mesure?.code || "", mesure?.label || ""])
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+});
+const settingsUsedHabitTypes = computed(() => {
+  const used = new Set();
+  for (const row of commandes.value || []) {
+    const typeHabit = String(row?.typeHabit || row?.type_habit || "").trim().toUpperCase();
+    if (typeHabit) used.add(typeHabit);
+  }
+  for (const row of retouches.value || []) {
+    const typeHabit = String(row?.typeHabit || row?.type_habit || "").trim().toUpperCase();
+    if (typeHabit) used.add(typeHabit);
+  }
+  return used;
+});
+const settingsMeasurePages = computed(() =>
+  Math.max(1, Math.ceil(filteredHabitConfigEntries.value.length / settingsMeasurePagination.pageSize))
+);
+const pagedHabitConfigEntries = computed(() => {
+  const page = Math.min(Math.max(1, settingsMeasurePagination.page), settingsMeasurePages.value);
+  const start = (page - 1) * settingsMeasurePagination.pageSize;
+  return filteredHabitConfigEntries.value.slice(start, start + settingsMeasurePagination.pageSize);
+});
+const selectedHabitConfigEntry = computed(() => {
+  const selected = filteredHabitConfigEntries.value.find((entry) => entry.key === selectedSettingsHabitKey.value);
+  if (selected) return selected;
+  return filteredHabitConfigEntries.value[0] || habitConfigEntries.value[0] || null;
+});
 const securityUsersFiltered = computed(() => {
   const query = securityUserQuery.value.trim().toLowerCase();
   return securityUsers.value.filter((user) => {
@@ -802,14 +850,6 @@ async function toggleSettingsEdit() {
   settingsConfirmSave.value = false;
 }
 
-function toggleHabitExpanded(habitKey) {
-  settingsHabitExpanded[habitKey] = !settingsHabitExpanded[habitKey];
-}
-
-function isHabitExpanded(habitKey) {
-  return settingsHabitExpanded[habitKey] !== false;
-}
-
 function habitMesuresForEditor(habitConfig) {
   const mesures = Array.isArray(habitConfig?.mesures) ? habitConfig.mesures : [];
   return [...mesures].sort((left, right) => {
@@ -819,6 +859,75 @@ function habitMesuresForEditor(habitConfig) {
       sensitivity: "base"
     });
   });
+}
+
+function habitMeasureSummary(habitConfig) {
+  const mesures = habitMesuresForEditor(habitConfig);
+  const active = mesures.filter((mesure) => mesure?.actif !== false);
+  const required = active.filter((mesure) => mesure?.obligatoire === true);
+  return {
+    total: mesures.length,
+    active: active.length,
+    required: required.length
+  };
+}
+
+function selectSettingsHabit(habitKey) {
+  selectedSettingsHabitKey.value = habitKey;
+}
+
+function isHabitTypeUsed(habitKey) {
+  return settingsUsedHabitTypes.value.has(String(habitKey || "").trim().toUpperCase());
+}
+
+function onHabitActiveToggle(habitKey, nextValue) {
+  if (nextValue !== false) return;
+  if (!isHabitTypeUsed(habitKey)) return;
+  const habit = atelierSettings.habits[habitKey];
+  if (habit) habit.actif = true;
+  notify("Archivage bloque: ce type d'habit est deja utilise par des commandes ou des retouches.");
+}
+
+async function duplicateHabitType(sourceKey) {
+  if (!settingsCanEdit.value) return;
+  const source = atelierSettings.habits[sourceKey];
+  if (!source) return;
+  const payload = await openActionModal({
+    title: "Dupliquer un type d'habit",
+    message: `Creer une copie du type ${sourceKey}.`,
+    confirmLabel: "Dupliquer",
+    cancelLabel: "Annuler",
+    fields: [
+      { key: "code", label: "Nouveau code", type: "text", required: true, defaultValue: `${sourceKey}_COPIE` },
+      { key: "label", label: "Nouveau libelle", type: "text", required: true, defaultValue: `${source.label || sourceKey} copie` },
+      { key: "ordre", label: "Ordre", type: "number", required: true, min: 0, defaultValue: Number(source.ordre || 0) + 1 }
+    ]
+  });
+  if (!payload) return;
+  const newKey = normalizeHabitTypeKeyInput(payload.code);
+  if (!newKey) {
+    notify("Code de type d'habit invalide.");
+    return;
+  }
+  if (atelierSettings.habits[newKey]) {
+    notify(`Le type d'habit ${newKey} existe deja.`);
+    return;
+  }
+  atelierSettings.habits[newKey] = {
+    label: String(payload.label || "").trim(),
+    actif: true,
+    ordre: Number(payload.ordre),
+    mesures: habitMesuresForEditor(source).map((mesure) => ({
+      code: mesure.code,
+      label: mesure.label,
+      obligatoire: mesure.obligatoire === true,
+      actif: mesure.actif !== false,
+      ordre: Number(mesure.ordre || 0),
+      typeChamp: normalizeMesureFieldType(mesure.typeChamp)
+    }))
+  };
+  selectedSettingsHabitKey.value = newKey;
+  notify(`Type d'habit duplique: ${newKey}.`);
 }
 
 function normalizeHabitTypeKeyInput(value) {
@@ -841,6 +950,9 @@ function prepareHabitSettingsForSave(habitsRaw) {
     if (!habit || typeof habit !== "object") throw new Error(`Configuration invalide pour le type d'habit ${key}.`);
     const label = String(habit.label || "").trim();
     if (!label) throw new Error(`Le libelle du type d'habit ${key} est obligatoire.`);
+    if (habit.actif === false && isHabitTypeUsed(key)) {
+      throw new Error(`Impossible d'archiver ${label}: ce type d'habit est deja utilise par des commandes ou des retouches.`);
+    }
     const ordre = normalizeSortOrder(habit.ordre, NaN);
     if (!Number.isFinite(ordre)) throw new Error(`L'ordre du type d'habit ${label} est obligatoire.`);
     if (habitOrders.has(ordre)) throw new Error(`Ordre de type d'habit duplique: ${ordre}.`);
@@ -957,7 +1069,7 @@ async function addHabitType() {
     ordre: order,
     mesures: []
   };
-  settingsHabitExpanded[key] = true;
+  selectedSettingsHabitKey.value = key;
   notify(`Type d'habit cree: ${key}.`);
 }
 
@@ -2543,6 +2655,31 @@ watch(
   async ([route, tab, canAccess]) => {
     if (route !== "parametres" || tab !== "securite" || !canAccess) return;
     await loadSecurityModule();
+  }
+);
+
+watch(
+  () => [settingsActiveTab.value, filteredHabitConfigEntries.value.map((entry) => entry.key).join("|")],
+  ([tab]) => {
+    if (tab !== "mesures") return;
+    if (!filteredHabitConfigEntries.value.some((entry) => entry.key === selectedSettingsHabitKey.value)) {
+      selectedSettingsHabitKey.value = filteredHabitConfigEntries.value[0]?.key || "";
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => [settingsMeasureQuery.value, settingsMeasureStatusFilter.value, settingsMeasurePagination.pageSize],
+  () => {
+    settingsMeasurePagination.page = 1;
+  }
+);
+
+watch(
+  () => settingsMeasurePages.value,
+  (pages) => {
+    if (settingsMeasurePagination.page > pages) settingsMeasurePagination.page = pages;
   }
 );
 
@@ -6616,32 +6753,97 @@ async function loadRetoucheDetail(idRetouche) {
               Valeurs decimales autorisees
             </label>
           </div>
-          <div class="measure-config-grid">
-            <article v-for="habit in habitConfigEntries" :key="habit.key" class="panel nested-panel">
+          <div class="measure-layout">
+            <article class="panel measure-sidebar">
+              <div class="stack-form">
+                <label>Rechercher un type ou une mesure</label>
+                <input v-model="settingsMeasureQuery" type="text" placeholder="Code, type d'habit ou mesure" />
+              </div>
+              <div class="stack-form">
+                <label>Filtrer</label>
+                <select v-model="settingsMeasureStatusFilter">
+                  <option value="ALL">Tous les types</option>
+                  <option value="ACTIVE">Types actifs</option>
+                  <option value="INACTIVE">Types inactifs</option>
+                </select>
+              </div>
+              <div class="measure-preview">
+                <strong>{{ filteredHabitConfigEntries.length }} type(s) d'habit</strong>
+                <span class="helper">Selectionne un type pour modifier sa structure de mesures.</span>
+              </div>
+              <div class="measure-habit-list">
+                <button
+                  v-for="habit in pagedHabitConfigEntries"
+                  :key="`habit-picker-${habit.key}`"
+                  type="button"
+                  class="measure-habit-item"
+                  :class="{ active: selectedHabitConfigEntry?.key === habit.key }"
+                  @click="selectSettingsHabit(habit.key)"
+                >
+                  <strong>{{ habit.config.label }}</strong>
+                  <span class="helper">{{ habit.key }}</span>
+                  <span class="measure-habit-meta" :data-state="habit.config.actif === false ? 'ARCHIVE' : 'ACTIF'">
+                    {{ habit.config.actif === false ? "Inactif" : "Actif" }} · {{ habitMeasureSummary(habit.config).active }} mesure(s) active(s) · {{ habitMeasureSummary(habit.config).required }} obligatoire(s)
+                  </span>
+                </button>
+                <p v-if="filteredHabitConfigEntries.length === 0" class="helper">Aucun type d'habit ne correspond au filtre actuel.</p>
+              </div>
+              <div class="panel-footer table-pagination">
+                <select v-model.number="settingsMeasurePagination.pageSize">
+                  <option :value="8">8 / page</option>
+                  <option :value="12">12 / page</option>
+                  <option :value="20">20 / page</option>
+                </select>
+                <button class="mini-btn" :disabled="settingsMeasurePagination.page <= 1" @click="settingsMeasurePagination.page -= 1">Precedent</button>
+                <span>Page {{ settingsMeasurePagination.page }} / {{ settingsMeasurePages }}</span>
+                <button class="mini-btn" :disabled="settingsMeasurePagination.page >= settingsMeasurePages" @click="settingsMeasurePagination.page += 1">Suivant</button>
+              </div>
+            </article>
+
+            <article v-if="selectedHabitConfigEntry" class="panel measure-editor">
               <div class="panel-header detail-panel-header">
                 <div class="stack-form measure-habit-meta">
                   <label>Type d'habit</label>
-                  <input v-model="habit.config.label" type="text" :disabled="!settingsCanEdit" />
+                  <input v-model="selectedHabitConfigEntry.config.label" type="text" :disabled="!settingsCanEdit" />
+                  <span class="helper">Code: {{ selectedHabitConfigEntry.key }}</span>
+                  <span v-if="isHabitTypeUsed(selectedHabitConfigEntry.key)" class="helper">
+                    Ce type est deja utilise par des commandes ou retouches. Archivage bloque.
+                  </span>
                 </div>
                 <div class="row-actions">
                   <div class="measure-inline-fields">
                     <label class="helper">
-                      <input v-model="habit.config.actif" type="checkbox" :disabled="!settingsCanEdit" />
+                      <input
+                        v-model="selectedHabitConfigEntry.config.actif"
+                        type="checkbox"
+                        :disabled="!settingsCanEdit"
+                        @change="onHabitActiveToggle(selectedHabitConfigEntry.key, selectedHabitConfigEntry.config.actif)"
+                      />
                       Actif
                     </label>
                     <div class="stack-form measure-order-field">
                       <label>Ordre</label>
-                      <input v-model.number="habit.config.ordre" type="number" min="0" :disabled="!settingsCanEdit" />
+                      <input v-model.number="selectedHabitConfigEntry.config.ordre" type="number" min="0" :disabled="!settingsCanEdit" />
                     </div>
                   </div>
-                  <button class="mini-btn measure-mobile-toggle" @click="toggleHabitExpanded(habit.key)">
-                    {{ isHabitExpanded(habit.key) ? "Masquer mesures" : "Afficher mesures" }}
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="duplicateHabitType(selectedHabitConfigEntry.key)">
+                    Dupliquer
                   </button>
-                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="addMesureToHabit(habit.key)">
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="addMesureToHabit(selectedHabitConfigEntry.key)">
                     Ajouter mesure
                   </button>
                 </div>
               </div>
+
+              <div class="measure-preview">
+                <strong>{{ selectedHabitConfigEntry.config.label }}</strong>
+                <span class="helper">
+                  {{ habitMeasureSummary(selectedHabitConfigEntry.config).total }} mesure(s) configuree(s),
+                  {{ habitMeasureSummary(selectedHabitConfigEntry.config).active }} active(s),
+                  {{ habitMeasureSummary(selectedHabitConfigEntry.config).required }} obligatoire(s)
+                </span>
+              </div>
+
               <div class="table-scroll-x">
                 <table class="data-table compact measure-table">
                   <thead>
@@ -6656,7 +6858,10 @@ async function loadRetoucheDetail(idRetouche) {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(mesure, index) in habitMesuresForEditor(habit.config)" :key="`${habit.key}-${mesure.code}-${index}`">
+                    <tr
+                      v-for="(mesure, index) in habitMesuresForEditor(selectedHabitConfigEntry.config)"
+                      :key="`${selectedHabitConfigEntry.key}-${mesure.code}-${index}`"
+                    >
                       <td>
                         <input v-model.number="mesure.ordre" type="number" min="0" :disabled="!settingsCanEdit" />
                       </td>
@@ -6666,7 +6871,11 @@ async function loadRetoucheDetail(idRetouche) {
                       <td>{{ mesure.code }}</td>
                       <td>
                         <select v-model="mesure.typeChamp" :disabled="!settingsCanEdit">
-                          <option v-for="option in mesureTypeOptions" :key="`${habit.key}-${mesure.code}-${option.value}`" :value="option.value">
+                          <option
+                            v-for="option in mesureTypeOptions"
+                            :key="`${selectedHabitConfigEntry.key}-${mesure.code}-${option.value}`"
+                            :value="option.value"
+                          >
                             {{ option.label }}
                           </option>
                         </select>
@@ -6678,17 +6887,24 @@ async function loadRetoucheDetail(idRetouche) {
                         <input v-model="mesure.actif" type="checkbox" :disabled="!settingsCanEdit" />
                       </td>
                       <td>
-                        <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(habit.key, mesure.code)">Retirer</button>
+                        <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(selectedHabitConfigEntry.key, mesure.code)">
+                          Retirer
+                        </button>
                       </td>
                     </tr>
-                    <tr v-if="habit.config.mesures.length === 0">
+                    <tr v-if="selectedHabitConfigEntry.config.mesures.length === 0">
                       <td colspan="7">Aucune mesure configuree.</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <div v-if="isHabitExpanded(habit.key)" class="measure-cards">
-                <article v-for="(mesure, index) in habitMesuresForEditor(habit.config)" :key="`card-${habit.key}-${mesure.code}-${index}`" class="measure-card">
+
+              <div class="measure-cards">
+                <article
+                  v-for="(mesure, index) in habitMesuresForEditor(selectedHabitConfigEntry.config)"
+                  :key="`card-${selectedHabitConfigEntry.key}-${mesure.code}-${index}`"
+                  class="measure-card"
+                >
                   <div class="measure-card-head">
                     <strong>{{ mesure.label }}</strong>
                     <span class="helper">{{ mesure.code }}</span>
@@ -6708,7 +6924,11 @@ async function loadRetoucheDetail(idRetouche) {
                   <div class="stack-form">
                     <label>Type de champ</label>
                     <select v-model="mesure.typeChamp" :disabled="!settingsCanEdit">
-                      <option v-for="option in mesureTypeOptions" :key="`card-${habit.key}-${mesure.code}-${option.value}`" :value="option.value">
+                      <option
+                        v-for="option in mesureTypeOptions"
+                        :key="`card-${selectedHabitConfigEntry.key}-${mesure.code}-${option.value}`"
+                        :value="option.value"
+                      >
                         {{ option.label }}
                       </option>
                     </select>
@@ -6717,9 +6937,18 @@ async function loadRetoucheDetail(idRetouche) {
                     <label>Ordre</label>
                     <input v-model.number="mesure.ordre" type="number" min="0" :disabled="!settingsCanEdit" />
                   </div>
-                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(habit.key, mesure.code)">Retirer</button>
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(selectedHabitConfigEntry.key, mesure.code)">
+                    Retirer
+                  </button>
                 </article>
-                <p v-if="habit.config.mesures.length === 0" class="helper">Aucune mesure configuree.</p>
+                <p v-if="selectedHabitConfigEntry.config.mesures.length === 0" class="helper">Aucune mesure configuree.</p>
+              </div>
+            </article>
+
+            <article v-else class="panel measure-editor">
+              <div class="measure-preview">
+                <strong>Aucun type selectionne</strong>
+                <span class="helper">Ajuste le filtre ou cree un nouveau type d'habit pour commencer.</span>
               </div>
             </article>
           </div>
