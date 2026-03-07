@@ -7486,15 +7486,11 @@ async function loadRetoucheDetail(idRetouche) {
               <label>Heure cloture automatique</label>
               <input v-model="atelierSettings.caisse.heureClotureAuto" type="time" :disabled="!settingsCanEdit || !atelierSettings.caisse.clotureAutoActive" />
             </div>
-            <label class="helper">
-              <input v-model="atelierSettings.caisse.paiementAvantLivraison" type="checkbox" :disabled="!settingsCanEdit" />
-              Paiement obligatoire avant livraison
-            </label>
-            <label class="helper">
-              <input v-model="atelierSettings.caisse.livraisonExpress" type="checkbox" :disabled="!settingsCanEdit" />
-              Autoriser livraison express
-            </label>
           </div>
+          <p class="helper">
+            Les horaires d'ouverture et de cloture automatique sont geres ici. Les regles de livraison restent pilotees dans les modules metier
+            Commandes et Retouches.
+          </p>
         </article>
 
         <article v-show="settingsActiveTab === 'facturation'" id="settings-facturation" class="panel settings-section" role="tabpanel">

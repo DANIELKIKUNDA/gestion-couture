@@ -129,6 +129,7 @@ router.get("/caisse/ouverture-info", async (req, res) => {
     const info = await preparerOuvertureCaisseDuJour({
       soldeInitial,
       caisseRepo,
+      parametresRepo,
       overrideHeureOuverture,
       role,
       motifOverride
@@ -267,7 +268,8 @@ router.post("/caisse", async (req, res) => {
       overrideHeureOuverture: body.overrideHeureOuverture === true,
       role: body.role || "",
       motifOverride: body.motifOverride || "",
-      caisseRepo
+      caisseRepo,
+      parametresRepo
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
@@ -314,7 +316,8 @@ router.post("/caisse/ouvrir", async (req, res) => {
       overrideHeureOuverture: body.overrideHeureOuverture === true,
       role: body.role || "",
       motifOverride: body.motifOverride || "",
-      caisseRepo
+      caisseRepo,
+      parametresRepo
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,

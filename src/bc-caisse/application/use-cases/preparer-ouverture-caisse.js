@@ -6,18 +6,21 @@ import { CaisseDejaCreeeJour, CaissePrecedenteNonCloturee } from "../../domain/e
 export async function preparerOuvertureCaisseDuJour({
   soldeInitial = 0,
   caisseRepo,
+  parametresRepo = null,
   now = new Date(),
   timeZone,
   overrideHeureOuverture = false,
   role = "",
   motifOverride = ""
 }) {
+  const parametres = parametresRepo && typeof parametresRepo.getCurrent === "function" ? await parametresRepo.getCurrent() : null;
   const parts = assertHeureOuvertureAutorisee({
     now,
     timeZone,
     override: overrideHeureOuverture,
     role,
-    motif: motifOverride
+    motif: motifOverride,
+    parametres
   });
   const dateJour = buildDateJour(parts);
 
