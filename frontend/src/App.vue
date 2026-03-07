@@ -885,14 +885,8 @@ const availableRetoucheTypeDefinitions = computed(() => {
   ];
 });
 const retoucheTypeOptions = computed(() => {
-  const selectedHabit = String(retoucheWizard.retouche.typeHabit || "").trim().toUpperCase();
   return availableRetoucheTypeDefinitions.value
     .filter((row) => row?.actif !== false)
-    .filter((row) => {
-      if (!selectedHabit) return true;
-      const compatibles = Array.isArray(row?.habitsCompatibles) ? row.habitsCompatibles : ["*"];
-      return compatibles.includes("*") || compatibles.includes(selectedHabit);
-    })
     .map((row) => ({
       value: row.code,
       label: row.libelle,
@@ -901,7 +895,15 @@ const retoucheTypeOptions = computed(() => {
 });
 const selectedRetoucheTypeDefinition = computed(() => {
   const code = String(retoucheWizard.retouche.typeRetouche || "").trim().toUpperCase();
-  return retoucheTypeOptions.value.find((row) => row.value === code)?.definition || null;
+  return availableRetoucheTypeDefinitions.value.find((row) => row.code === code) || null;
+});
+const compatibleRetoucheHabitOptions = computed(() => {
+  const compatibles = Array.isArray(selectedRetoucheTypeDefinition.value?.habitsCompatibles)
+    ? selectedRetoucheTypeDefinition.value.habitsCompatibles
+    : ["*"];
+  if (compatibles.includes("*")) return availableHabitTypeOptions.value;
+  const allowed = new Set(compatibles.map((item) => String(item || "").trim().toUpperCase()).filter(Boolean));
+  return availableHabitTypeOptions.value.filter((option) => allowed.has(String(option.value || "").trim().toUpperCase()));
 });
 const retoucheDescriptionRequired = computed(
   () => Boolean(selectedRetoucheTypeDefinition.value?.descriptionObligatoire || atelierSettings.retouches?.descriptionObligatoire)
@@ -3175,11 +3177,6 @@ watch(
   () => {
     retoucheWizard.retouche.mesuresHabit = {};
     resetMesuresModel(retoucheWizard.retouche.mesuresHabit);
-    const currentType = String(retoucheWizard.retouche.typeRetouche || "").trim().toUpperCase();
-    const stillAllowed = retoucheTypeOptions.value.some((option) => option.value === currentType);
-    if (!stillAllowed) {
-      retoucheWizard.retouche.typeRetouche = retoucheTypeOptions.value[0]?.value || "";
-    }
   }
 );
 
@@ -3192,6 +3189,19 @@ watch(
     }
   },
   { immediate: true }
+);
+
+watch(
+  () => retoucheWizard.retouche.typeRetouche,
+  () => {
+    const currentHabit = String(retoucheWizard.retouche.typeHabit || "").trim().toUpperCase();
+    const stillAllowed = compatibleRetoucheHabitOptions.value.some((option) => String(option.value || "").trim().toUpperCase() === currentHabit);
+    if (!stillAllowed) {
+      retoucheWizard.retouche.typeHabit = "";
+    }
+    retoucheWizard.retouche.mesuresHabit = {};
+    resetMesuresModel(retoucheWizard.retouche.mesuresHabit);
+  }
 );
 
 function notify(message) {
@@ -8636,10 +8646,22 @@ async function loadRetoucheDetail(idRetouche) {
 
       <section v-else-if="retoucheWizard.step === 2" class="modal-body stack-form">
         <p class="helper">Creation de la retouche liee au client selectionne.</p>
+        <label>Type de retouche</label>
+        <select v-model="retoucheWizard.retouche.typeRetouche">
+          <option value="">Choisir un type de retouche</option>
+          <option v-for="option in retoucheTypeOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+        <p v-if="selectedRetoucheTypeDefinition" class="helper">
+          Habits compatibles: {{ (selectedRetoucheTypeDefinition.habitsCompatibles || []).join(", ") }}
+          · Description {{ retoucheDescriptionRequired ? "obligatoire" : "optionnelle" }}
+          · Mesures {{ retoucheMeasuresRequired ? "requises" : atelierSettings.retouches?.mesuresOptionnelles === false ? "non autorisees" : "optionnelles" }}
+        </p>
         <label>Type d'habit</label>
-        <select v-model="retoucheWizard.retouche.typeHabit">
-          <option value="">Choisir un type d'habit</option>
-          <option v-for="option in availableHabitTypeOptions" :key="`ret-habit-${option.value}`" :value="option.value">
+        <select v-model="retoucheWizard.retouche.typeHabit" :disabled="!retoucheWizard.retouche.typeRetouche">
+          <option value="">{{ retoucheWizard.retouche.typeRetouche ? "Choisir un type d'habit" : "Choisir d'abord un type de retouche" }}</option>
+          <option v-for="option in compatibleRetoucheHabitOptions" :key="`ret-habit-${option.value}`" :value="option.value">
             {{ option.label }}
           </option>
         </select>
@@ -8673,25 +8695,13 @@ async function loadRetoucheDetail(idRetouche) {
             </div>
           </div>
         </template>
-        <label>Type de retouche</label>
-        <select v-model="retoucheWizard.retouche.typeRetouche">
-          <option value="">Choisir un type de retouche</option>
-          <option v-for="option in retoucheTypeOptions" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-        <p v-if="selectedRetoucheTypeDefinition" class="helper">
-          Habits compatibles: {{ (selectedRetoucheTypeDefinition.habitsCompatibles || []).join(", ") }}
-          · Description {{ retoucheDescriptionRequired ? "obligatoire" : "optionnelle" }}
-          · Mesures {{ retoucheMeasuresRequired ? "requises" : atelierSettings.retouches?.mesuresOptionnelles === false ? "non autorisees" : "optionnelles" }}
-        </p>
         <label>Description retouche</label>
         <input v-model="retoucheWizard.retouche.descriptionRetouche" type="text" />
         <label>Montant total (FC)</label>
         <input v-model="retoucheWizard.retouche.montantTotal" type="number" min="1" />
         <label>Date prevue</label>
         <input v-model="retoucheWizard.retouche.datePrevue" type="date" />
-        <label class="helper">
+        <label class="helper helper-inline-checkbox">
           <input v-model="retoucheWizard.retouche.emettreFacture" type="checkbox" />
           Emettre facture apres creation (recommande)
         </label>
