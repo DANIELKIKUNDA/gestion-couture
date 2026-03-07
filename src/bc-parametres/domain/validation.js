@@ -48,6 +48,38 @@ export function validateParametresPayload(payload) {
   assertBoolean(retouches.mesuresOptionnelles, "Retouches.mesuresOptionnelles");
   assertBoolean(retouches.saisiePartielle, "Retouches.saisiePartielle");
   assertBoolean(retouches.descriptionObligatoire, "Retouches.descriptionObligatoire");
+  if (retouches.typesRetouche !== undefined) {
+    assertArray(retouches.typesRetouche, "Retouches.typesRetouche");
+    const typeCodes = new Set();
+    const typeOrders = new Set();
+    for (const row of retouches.typesRetouche) {
+      if (!row || typeof row !== "object") throw new Error("Retouches.typesRetouche contient un element invalide");
+      assertString(row.code, "Retouches.typesRetouche.code");
+      assertString(row.libelle, "Retouches.typesRetouche.libelle");
+      assertBoolean(row.actif, "Retouches.typesRetouche.actif");
+      assertNumber(row.ordreAffichage, "Retouches.typesRetouche.ordreAffichage", { min: 1 });
+      assertBoolean(row.necessiteMesures, "Retouches.typesRetouche.necessiteMesures");
+      assertBoolean(row.descriptionObligatoire, "Retouches.typesRetouche.descriptionObligatoire");
+      assertArray(row.mesuresCibles, "Retouches.typesRetouche.mesuresCibles");
+      assertArray(row.habitsCompatibles, "Retouches.typesRetouche.habitsCompatibles");
+      if (typeCodes.has(row.code)) throw new Error(`Retouches.typesRetouche.code duplique: ${row.code}`);
+      if (typeOrders.has(row.ordreAffichage)) throw new Error(`Retouches.typesRetouche.ordreAffichage duplique: ${row.ordreAffichage}`);
+      typeCodes.add(row.code);
+      typeOrders.add(row.ordreAffichage);
+      const mesuresCibles = new Set();
+      for (const mesure of row.mesuresCibles) {
+        assertString(mesure, `Retouches.typesRetouche.${row.code}.mesuresCibles`);
+        if (mesuresCibles.has(mesure)) throw new Error(`Retouches.typesRetouche.${row.code}.mesuresCibles duplique: ${mesure}`);
+        mesuresCibles.add(mesure);
+      }
+      const habitsCompatibles = new Set();
+      for (const habit of row.habitsCompatibles) {
+        assertString(habit, `Retouches.typesRetouche.${row.code}.habitsCompatibles`);
+        if (habitsCompatibles.has(habit)) throw new Error(`Retouches.typesRetouche.${row.code}.habitsCompatibles duplique: ${habit}`);
+        habitsCompatibles.add(habit);
+      }
+    }
+  }
 
   const habits = payload.habits || {};
   if (typeof habits !== "object") throw new Error("Habits doit etre un objet");

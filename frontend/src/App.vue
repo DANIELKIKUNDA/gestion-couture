@@ -266,6 +266,13 @@ const settingsMeasurePagination = reactive({
   page: 1,
   pageSize: 12
 });
+const settingsRetoucheQuery = ref("");
+const settingsRetoucheStatusFilter = ref("ALL");
+const selectedSettingsRetoucheTypeCode = ref("");
+const settingsRetouchePagination = reactive({
+  page: 1,
+  pageSize: 10
+});
 const settingsConfirmModal = reactive({
   open: false,
   title: "",
@@ -442,6 +449,52 @@ const mesureTypeOptions = [
   { value: "text", label: "Texte" },
   { value: "select", label: "Liste" }
 ];
+const wildcardHabitOption = { value: "*", label: "Tous les habits" };
+
+function buildDefaultRetoucheTypes() {
+  return [
+    {
+      code: "OURLET_PANTALON",
+      libelle: "Ourlet pantalon",
+      actif: true,
+      ordreAffichage: 1,
+      necessiteMesures: true,
+      mesuresCibles: ["longueur", "largeurBas"],
+      descriptionObligatoire: false,
+      habitsCompatibles: ["PANTALON"]
+    },
+    {
+      code: "REPARATION_DECHIRURE",
+      libelle: "Reparation dechirure",
+      actif: true,
+      ordreAffichage: 2,
+      necessiteMesures: false,
+      mesuresCibles: [],
+      descriptionObligatoire: true,
+      habitsCompatibles: ["*"]
+    },
+    {
+      code: "REPARATION",
+      libelle: "Reparation",
+      actif: true,
+      ordreAffichage: 3,
+      necessiteMesures: false,
+      mesuresCibles: [],
+      descriptionObligatoire: false,
+      habitsCompatibles: ["*"]
+    },
+    {
+      code: "OURLET",
+      libelle: "Ourlet",
+      actif: true,
+      ordreAffichage: 4,
+      necessiteMesures: true,
+      mesuresCibles: [],
+      descriptionObligatoire: false,
+      habitsCompatibles: ["*"]
+    }
+  ];
+}
 
 function mesureLabelFromKey(key) {
   return mesureLabels[key] || key;
@@ -531,7 +584,8 @@ const atelierSettingsDefault = {
   retouches: {
     mesuresOptionnelles: true,
     saisiePartielle: true,
-    descriptionObligatoire: true
+    descriptionObligatoire: true,
+    typesRetouche: buildDefaultRetoucheTypes()
   },
   habits: buildDefaultHabitConfig(),
   caisse: {
@@ -853,6 +907,55 @@ const retoucheDescriptionRequired = computed(
   () => Boolean(selectedRetoucheTypeDefinition.value?.descriptionObligatoire || atelierSettings.retouches?.descriptionObligatoire)
 );
 const retoucheMeasuresRequired = computed(() => selectedRetoucheTypeDefinition.value?.necessiteMesures === true);
+const settingsRetoucheTypeEntries = computed(() => {
+  const source = atelierSettings.retouches?.typesRetouche || atelierSettings.retouches?.typesRetouches || [];
+  if (!Array.isArray(source)) return [];
+  let fallbackOrder = 1;
+  for (const row of source) {
+    const normalized = ensureRetoucheTypeDraft(row, fallbackOrder);
+    if (normalized) fallbackOrder += 1;
+  }
+  return [...source]
+    .filter(Boolean)
+    .sort((left, right) => {
+      if (Number(left.ordreAffichage || 0) !== Number(right.ordreAffichage || 0)) {
+        return Number(left.ordreAffichage || 0) - Number(right.ordreAffichage || 0);
+      }
+      return String(left.libelle || left.code).localeCompare(String(right.libelle || right.code), "fr", {
+        sensitivity: "base"
+      });
+    });
+});
+const filteredSettingsRetoucheTypeEntries = computed(() => {
+  const query = settingsRetoucheQuery.value.trim().toLowerCase();
+  return settingsRetoucheTypeEntries.value.filter((row) => {
+    if (settingsRetoucheStatusFilter.value === "ACTIVE" && row.actif === false) return false;
+    if (settingsRetoucheStatusFilter.value === "INACTIVE" && row.actif !== false) return false;
+    if (!query) return true;
+    const haystack = [
+      row.code,
+      row.libelle,
+      ...(row.habitsCompatibles || []),
+      ...(row.mesuresCibles || [])
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+});
+const settingsRetouchePages = computed(() =>
+  Math.max(1, Math.ceil(filteredSettingsRetoucheTypeEntries.value.length / settingsRetouchePagination.pageSize))
+);
+const pagedSettingsRetoucheTypeEntries = computed(() => {
+  const page = Math.min(Math.max(1, settingsRetouchePagination.page), settingsRetouchePages.value);
+  const start = (page - 1) * settingsRetouchePagination.pageSize;
+  return filteredSettingsRetoucheTypeEntries.value.slice(start, start + settingsRetouchePagination.pageSize);
+});
+const selectedSettingsRetoucheType = computed(() => {
+  const selected = filteredSettingsRetoucheTypeEntries.value.find((row) => row.code === selectedSettingsRetoucheTypeCode.value);
+  if (selected) return selected;
+  return filteredSettingsRetoucheTypeEntries.value[0] || settingsRetoucheTypeEntries.value[0] || null;
+});
 const securityUsersFiltered = computed(() => {
   const query = securityUserQuery.value.trim().toLowerCase();
   return securityUsers.value.filter((user) => {
@@ -1023,6 +1126,25 @@ function normalizeRetoucheTypeDefinition(raw) {
   };
 }
 
+function ensureRetoucheTypeDraft(row, fallbackOrder = 1) {
+  if (!row || typeof row !== "object") return null;
+  row.code = String(row.code || "").trim().toUpperCase();
+  if (!row.code) return null;
+  row.libelle = String(row.libelle || row.code).trim() || row.code;
+  row.actif = row.actif !== false;
+  row.ordreAffichage = Number.isFinite(Number(row.ordreAffichage)) ? Number(row.ordreAffichage) : fallbackOrder;
+  row.necessiteMesures = row.necessiteMesures === true;
+  row.descriptionObligatoire = row.descriptionObligatoire === true;
+  row.mesuresCibles = Array.isArray(row.mesuresCibles)
+    ? row.mesuresCibles.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  row.habitsCompatibles = Array.isArray(row.habitsCompatibles)
+    ? row.habitsCompatibles.map((item) => String(item || "").trim().toUpperCase()).filter(Boolean)
+    : ["*"];
+  if (row.habitsCompatibles.length === 0) row.habitsCompatibles = ["*"];
+  return row;
+}
+
 function prepareHabitSettingsForSave(habitsRaw) {
   if (!habitsRaw || typeof habitsRaw !== "object") throw new Error("Configuration des habits invalide.");
   const prepared = {};
@@ -1075,6 +1197,95 @@ function prepareHabitSettingsForSave(habitsRaw) {
     };
   }
   return prepared;
+}
+
+function prepareRetoucheSettingsForSave(retouchesRaw) {
+  const retouches = retouchesRaw && typeof retouchesRaw === "object" ? retouchesRaw : {};
+  const sourceTypes = Array.isArray(retouches.typesRetouche) ? retouches.typesRetouche : Array.isArray(retouches.typesRetouches) ? retouches.typesRetouches : [];
+  const codes = new Set();
+  const orders = new Set();
+  const typesRetouche = sourceTypes.map((row, index) => {
+    const draft = ensureRetoucheTypeDraft({ ...row }, index + 1);
+    if (!draft) throw new Error("Un type de retouche a un code invalide.");
+    if (codes.has(draft.code)) throw new Error(`Code de type de retouche duplique: ${draft.code}.`);
+    codes.add(draft.code);
+    if (orders.has(draft.ordreAffichage)) throw new Error(`Ordre de type de retouche duplique: ${draft.ordreAffichage}.`);
+    orders.add(draft.ordreAffichage);
+    const uniqueCibles = Array.from(new Set(draft.mesuresCibles));
+    const uniqueHabits = Array.from(new Set(draft.habitsCompatibles));
+    if (uniqueHabits.length === 0) uniqueHabits.push("*");
+    return {
+      code: draft.code,
+      libelle: draft.libelle,
+      actif: draft.actif !== false,
+      ordreAffichage: Number(draft.ordreAffichage),
+      necessiteMesures: draft.necessiteMesures === true,
+      mesuresCibles: uniqueCibles,
+      descriptionObligatoire: draft.descriptionObligatoire === true,
+      habitsCompatibles: uniqueHabits
+    };
+  });
+  return {
+    ...retouches,
+    typesRetouche
+  };
+}
+
+function selectSettingsRetoucheType(code) {
+  selectedSettingsRetoucheTypeCode.value = String(code || "").trim().toUpperCase();
+}
+
+async function addRetoucheType() {
+  if (!settingsCanEdit.value) return;
+  const payload = await openActionModal({
+    title: "Nouveau type de retouche",
+    message: "Creer un nouveau type de retouche parametrable.",
+    confirmLabel: "Creer",
+    cancelLabel: "Annuler",
+    fields: [
+      { key: "code", label: "Code", type: "text", required: true, defaultValue: "" },
+      { key: "libelle", label: "Libelle", type: "text", required: true, defaultValue: "" },
+      {
+        key: "ordreAffichage",
+        label: "Ordre",
+        type: "number",
+        required: true,
+        min: 1,
+        defaultValue: settingsRetoucheTypeEntries.value.length + 1
+      }
+    ]
+  });
+  if (!payload) return;
+  const code = normalizeHabitTypeKeyInput(payload.code);
+  if (!code) return notify("Code de type de retouche invalide.");
+  const list = atelierSettings.retouches.typesRetouche;
+  if (list.some((row) => String(row?.code || "").trim().toUpperCase() === code)) {
+    return notify(`Le type de retouche ${code} existe deja.`);
+  }
+  list.push(
+    ensureRetoucheTypeDraft(
+      {
+        code,
+        libelle: String(payload.libelle || "").trim(),
+        actif: true,
+        ordreAffichage: Number(payload.ordreAffichage),
+        necessiteMesures: false,
+        mesuresCibles: [],
+        descriptionObligatoire: false,
+        habitsCompatibles: ["*"]
+      },
+      list.length + 1
+    )
+  );
+  selectedSettingsRetoucheTypeCode.value = code;
+}
+
+function removeRetoucheType(code) {
+  if (!settingsCanEdit.value) return;
+  const list = atelierSettings.retouches.typesRetouche;
+  const index = list.findIndex((row) => String(row?.code || "").trim().toUpperCase() === String(code || "").trim().toUpperCase());
+  if (index === -1) return;
+  list.splice(index, 1);
 }
 
 async function canLeaveSettings() {
@@ -1179,6 +1390,7 @@ async function saveAtelierSettings() {
     settingsSaving.value = true;
     settingsError.value = "";
     const payload = cloneSettings(atelierSettings);
+    payload.retouches = prepareRetoucheSettingsForSave(payload.retouches);
     payload.habits = prepareHabitSettingsForSave(payload.habits);
     const expectedVersion = Number(payload?.meta?.version || 1);
     const saved = await atelierApi.saveParametresAtelier(payload, settingsUser.nom || "", expectedVersion);
@@ -2769,6 +2981,31 @@ watch(
   (pages) => {
     if (settingsMeasurePagination.page > pages) settingsMeasurePagination.page = pages;
   }
+);
+
+watch(
+  () => [settingsRetoucheQuery.value, settingsRetoucheStatusFilter.value, settingsRetouchePagination.pageSize],
+  () => {
+    settingsRetouchePagination.page = 1;
+  }
+);
+
+watch(
+  () => settingsRetouchePages.value,
+  (pages) => {
+    if (settingsRetouchePagination.page > pages) settingsRetouchePagination.page = pages;
+  }
+);
+
+watch(
+  () => [settingsActiveTab.value, filteredSettingsRetoucheTypeEntries.value.map((row) => row.code).join("|")],
+  ([tab]) => {
+    if (tab !== "retouches") return;
+    if (!filteredSettingsRetoucheTypeEntries.value.some((row) => row.code === selectedSettingsRetoucheTypeCode.value)) {
+      selectedSettingsRetoucheTypeCode.value = filteredSettingsRetoucheTypeEntries.value[0]?.code || "";
+    }
+  },
+  { immediate: true }
 );
 
 watch(
@@ -6852,6 +7089,129 @@ async function loadRetoucheDetail(idRetouche) {
               <input v-model="atelierSettings.retouches.descriptionObligatoire" type="checkbox" :disabled="!settingsCanEdit" />
               Description de la retouche obligatoire
             </label>
+          </div>
+          <div class="row-actions">
+            <button class="mini-btn" :disabled="!settingsCanEdit" @click="addRetoucheType">+ Nouveau type de retouche</button>
+          </div>
+          <div class="measure-layout">
+            <article class="panel measure-sidebar">
+              <div class="stack-form">
+                <label>Rechercher un type de retouche</label>
+                <input v-model="settingsRetoucheQuery" type="text" placeholder="Code, libelle, habit ou mesure cible" />
+              </div>
+              <div class="stack-form">
+                <label>Filtrer</label>
+                <select v-model="settingsRetoucheStatusFilter">
+                  <option value="ALL">Tous les types</option>
+                  <option value="ACTIVE">Types actifs</option>
+                  <option value="INACTIVE">Types inactifs</option>
+                </select>
+              </div>
+              <div class="measure-preview">
+                <strong>{{ filteredSettingsRetoucheTypeEntries.length }} type(s) de retouche</strong>
+                <span class="helper">Selectionne un type pour modifier sa logique de creation.</span>
+              </div>
+              <div class="measure-habit-list">
+                <button
+                  v-for="row in pagedSettingsRetoucheTypeEntries"
+                  :key="`retouche-type-${row.code}`"
+                  type="button"
+                  class="measure-habit-item"
+                  :class="{ active: selectedSettingsRetoucheType?.code === row.code }"
+                  @click="selectSettingsRetoucheType(row.code)"
+                >
+                  <strong>{{ row.libelle }}</strong>
+                  <span class="helper">{{ row.code }}</span>
+                  <span class="measure-habit-meta" :data-state="row.actif === false ? 'ARCHIVE' : 'ACTIF'">
+                    {{ row.actif === false ? "Inactif" : "Actif" }} ·
+                    {{ row.necessiteMesures ? "Mesures requises" : atelierSettings.retouches.mesuresOptionnelles === false ? "Sans mesures" : "Mesures optionnelles" }}
+                  </span>
+                </button>
+                <p v-if="filteredSettingsRetoucheTypeEntries.length === 0" class="helper">Aucun type de retouche ne correspond au filtre actuel.</p>
+              </div>
+              <div class="panel-footer table-pagination">
+                <select v-model.number="settingsRetouchePagination.pageSize">
+                  <option :value="6">6 / page</option>
+                  <option :value="10">10 / page</option>
+                  <option :value="20">20 / page</option>
+                </select>
+                <button class="mini-btn" :disabled="settingsRetouchePagination.page <= 1" @click="settingsRetouchePagination.page -= 1">Precedent</button>
+                <span>Page {{ settingsRetouchePagination.page }} / {{ settingsRetouchePages }}</span>
+                <button class="mini-btn" :disabled="settingsRetouchePagination.page >= settingsRetouchePages" @click="settingsRetouchePagination.page += 1">Suivant</button>
+              </div>
+            </article>
+
+            <article v-if="selectedSettingsRetoucheType" class="panel measure-editor">
+              <div class="panel-header detail-panel-header">
+                <div class="stack-form measure-habit-meta">
+                  <label>Libelle du type</label>
+                  <input v-model="selectedSettingsRetoucheType.libelle" type="text" :disabled="!settingsCanEdit" />
+                  <span class="helper">Code: {{ selectedSettingsRetoucheType.code }}</span>
+                </div>
+                <div class="row-actions">
+                  <label class="helper">
+                    <input v-model="selectedSettingsRetoucheType.actif" type="checkbox" :disabled="!settingsCanEdit" />
+                    Actif
+                  </label>
+                  <div class="stack-form measure-order-field">
+                    <label>Ordre</label>
+                    <input v-model.number="selectedSettingsRetoucheType.ordreAffichage" type="number" min="1" :disabled="!settingsCanEdit" />
+                  </div>
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeRetoucheType(selectedSettingsRetoucheType.code)">Retirer</button>
+                </div>
+              </div>
+
+              <div class="settings-grid">
+                <label class="helper">
+                  <input v-model="selectedSettingsRetoucheType.necessiteMesures" type="checkbox" :disabled="!settingsCanEdit" />
+                  Cette retouche necessite des mesures
+                </label>
+                <label class="helper">
+                  <input v-model="selectedSettingsRetoucheType.descriptionObligatoire" type="checkbox" :disabled="!settingsCanEdit" />
+                  Description obligatoire pour ce type
+                </label>
+              </div>
+
+              <div class="stack-form">
+                <label>Habits compatibles</label>
+                <select v-model="selectedSettingsRetoucheType.habitsCompatibles" multiple size="6" :disabled="!settingsCanEdit">
+                  <option :value="wildcardHabitOption.value">{{ wildcardHabitOption.label }}</option>
+                  <option v-for="option in availableHabitTypeOptions" :key="`rt-habit-${option.value}`" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <span class="helper">Choisis un ou plusieurs habits. `*` signifie tous les habits.</span>
+              </div>
+
+              <div class="stack-form">
+                <label>Mesures cibles</label>
+                <select v-model="selectedSettingsRetoucheType.mesuresCibles" multiple size="8" :disabled="!settingsCanEdit || !selectedSettingsRetoucheType.necessiteMesures">
+                  <option
+                    v-for="field in selectedSettingsRetoucheType.habitsCompatibles?.includes('*')
+                      ? []
+                      : Array.from(new Set(
+                          selectedSettingsRetoucheType.habitsCompatibles.flatMap((habitKey) =>
+                            resolveHabitUiDefinition(habitKey)
+                              ? [...resolveHabitUiDefinition(habitKey).required, ...resolveHabitUiDefinition(habitKey).optional]
+                              : []
+                          )
+                        ))"
+                    :key="`rt-mesure-${field}`"
+                    :value="field"
+                  >
+                    {{ mesureLabelFromKey(field) }}
+                  </option>
+                </select>
+                <span class="helper">Si aucun habit unique n'est selectionne, laisse vide pour autoriser toutes les mesures du type choisi.</span>
+              </div>
+            </article>
+
+            <article v-else class="panel measure-editor">
+              <div class="measure-preview">
+                <strong>Aucun type selectionne</strong>
+                <span class="helper">Cree ou selectionne un type de retouche pour commencer.</span>
+              </div>
+            </article>
           </div>
         </article>
 
