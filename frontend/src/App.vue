@@ -438,26 +438,64 @@ const mesureLabels = {
 };
 
 const habitConfigOrder = ["PANTALON", "CHEMISE", "ROBE", "JUPE", "VESTE", "BOUBOU", "GILET", "LIBAYA", "AUTRES"];
+const mesureTypeOptions = [
+  { value: "number", label: "Nombre" },
+  { value: "text", label: "Texte" },
+  { value: "select", label: "Liste" }
+];
 
 function mesureLabelFromKey(key) {
   return mesureLabels[key] || key;
 }
 
+function normalizeSortOrder(value, fallback = Number.MAX_SAFE_INTEGER) {
+  const order = Number(value);
+  return Number.isFinite(order) && order >= 0 ? order : fallback;
+}
+
+function normalizeBoolean(value, fallback = true) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizeMesureFieldType(value) {
+  const type = String(value || "").trim().toLowerCase();
+  if (type === "text" || type === "select") return type;
+  return "number";
+}
+
 function buildDefaultHabitConfig() {
   const config = {};
-  for (const option of habitTypeOptions) {
+  for (const [index, option] of habitTypeOptions.entries()) {
     const def = habitMesureDefinitions[option.value] || { required: [], optional: [] };
     config[option.value] = {
       label: option.label,
+      ordre: index + 1,
+      actif: true,
       mesures: [
-        ...def.required.map((key) => ({ code: key, label: mesureLabelFromKey(key), obligatoire: true })),
-        ...def.optional.map((key) => ({ code: key, label: mesureLabelFromKey(key), obligatoire: false }))
+        ...def.required.map((key, measureIndex) => ({
+          code: key,
+          label: mesureLabelFromKey(key),
+          obligatoire: true,
+          actif: true,
+          ordre: measureIndex + 1,
+          typeChamp: key === "typeManches" ? "select" : "number"
+        })),
+        ...def.optional.map((key, measureIndex) => ({
+          code: key,
+          label: mesureLabelFromKey(key),
+          obligatoire: false,
+          actif: true,
+          ordre: def.required.length + measureIndex + 1,
+          typeChamp: key === "typeManches" ? "select" : "number"
+        }))
       ]
     };
   }
   if (!config.AUTRES) {
     config.AUTRES = {
       label: "Autres",
+      ordre: habitTypeOptions.length + 1,
+      actif: true,
       mesures: []
     };
   }
@@ -667,6 +705,28 @@ const settingsHasUnsavedChanges = computed(() => {
   const userDirty = serializeSettingsUser() !== settingsUserSnapshot.value;
   return serializeSettings() !== settingsSnapshot.value || userDirty || noteDirty;
 });
+const availableHabitTypeOptions = computed(() => {
+  const configuredEntries = Object.entries(atelierSettings.habits || {})
+    .map(([value, config]) => ({
+      value,
+      label: String(config?.label || "").trim() || value,
+      ordre: normalizeSortOrder(config?.ordre, Number.MAX_SAFE_INTEGER),
+      actif: config?.actif !== false
+    }))
+    .filter((item) => item.value && item.actif);
+  if (configuredEntries.length === 0) return habitTypeOptions;
+  return configuredEntries.sort((left, right) => {
+    if (left.ordre !== right.ordre) return left.ordre - right.ordre;
+    const leftIndex = habitConfigOrder.indexOf(left.value);
+    const rightIndex = habitConfigOrder.indexOf(right.value);
+    if (leftIndex !== -1 || rightIndex !== -1) {
+      if (leftIndex === -1) return 1;
+      if (rightIndex === -1) return -1;
+      return leftIndex - rightIndex;
+    }
+    return left.label.localeCompare(right.label, "fr", { sensitivity: "base" });
+  });
+});
 const habitConfigEntries = computed(() => {
   const keys = [
     ...habitConfigOrder,
@@ -674,7 +734,14 @@ const habitConfigEntries = computed(() => {
   ];
   return keys
     .filter((key) => atelierSettings.habits && atelierSettings.habits[key])
-    .map((key) => ({ key, ...atelierSettings.habits[key] }));
+    .map((key) => ({ key, config: atelierSettings.habits[key] }))
+    .sort((left, right) => {
+      const orderDiff = normalizeSortOrder(left.config?.ordre) - normalizeSortOrder(right.config?.ordre);
+      if (orderDiff !== 0) return orderDiff;
+      return String(left.config?.label || left.key).localeCompare(String(right.config?.label || right.key), "fr", {
+        sensitivity: "base"
+      });
+    });
 });
 const securityUsersFiltered = computed(() => {
   const query = securityUserQuery.value.trim().toLowerCase();
@@ -743,6 +810,78 @@ function isHabitExpanded(habitKey) {
   return settingsHabitExpanded[habitKey] !== false;
 }
 
+function habitMesuresForEditor(habitConfig) {
+  const mesures = Array.isArray(habitConfig?.mesures) ? habitConfig.mesures : [];
+  return [...mesures].sort((left, right) => {
+    const orderDiff = normalizeSortOrder(left?.ordre) - normalizeSortOrder(right?.ordre);
+    if (orderDiff !== 0) return orderDiff;
+    return String(left?.label || left?.code || "").localeCompare(String(right?.label || right?.code || ""), "fr", {
+      sensitivity: "base"
+    });
+  });
+}
+
+function normalizeHabitTypeKeyInput(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function prepareHabitSettingsForSave(habitsRaw) {
+  if (!habitsRaw || typeof habitsRaw !== "object") throw new Error("Configuration des habits invalide.");
+  const prepared = {};
+  const habitOrders = new Set();
+  for (const [rawKey, habit] of Object.entries(habitsRaw)) {
+    const key = normalizeHabitTypeKeyInput(rawKey);
+    if (!key) throw new Error("Chaque type d'habit doit avoir un code valide.");
+    if (!habit || typeof habit !== "object") throw new Error(`Configuration invalide pour le type d'habit ${key}.`);
+    const label = String(habit.label || "").trim();
+    if (!label) throw new Error(`Le libelle du type d'habit ${key} est obligatoire.`);
+    const ordre = normalizeSortOrder(habit.ordre, NaN);
+    if (!Number.isFinite(ordre)) throw new Error(`L'ordre du type d'habit ${label} est obligatoire.`);
+    if (habitOrders.has(ordre)) throw new Error(`Ordre de type d'habit duplique: ${ordre}.`);
+    habitOrders.add(ordre);
+    const mesuresRaw = Array.isArray(habit.mesures) ? habit.mesures : [];
+    const measureCodes = new Set();
+    const measureOrders = new Set();
+    const mesures = mesuresRaw.map((mesure, index) => {
+      const code = String(mesure?.code || "").trim();
+      if (!code) throw new Error(`Une mesure du type ${label} n'a pas de code.`);
+      if (measureCodes.has(code)) throw new Error(`Code de mesure duplique pour ${label}: ${code}.`);
+      measureCodes.add(code);
+      const mesureLabel = String(mesure?.label || "").trim();
+      if (!mesureLabel) throw new Error(`Le libelle de la mesure ${code} est obligatoire.`);
+      const mesureOrdre = normalizeSortOrder(mesure?.ordre, NaN);
+      if (!Number.isFinite(mesureOrdre)) throw new Error(`L'ordre de la mesure ${code} est obligatoire.`);
+      if (measureOrders.has(mesureOrdre)) throw new Error(`Ordre de mesure duplique pour ${label}: ${mesureOrdre}.`);
+      measureOrders.add(mesureOrdre);
+      const typeChamp = normalizeMesureFieldType(mesure?.typeChamp);
+      if (String(mesure?.typeChamp || "").trim() && typeChamp !== String(mesure?.typeChamp || "").trim().toLowerCase()) {
+        throw new Error(`typeChamp invalide pour ${label} / ${code}. Valeurs autorisees: number, text, select.`);
+      }
+      return {
+        code,
+        label: mesureLabel,
+        obligatoire: normalizeBoolean(mesure?.obligatoire, false),
+        actif: normalizeBoolean(mesure?.actif, true),
+        ordre: mesureOrdre,
+        typeChamp
+      };
+    });
+    prepared[key] = {
+      label,
+      actif: normalizeBoolean(habit.actif, true),
+      ordre,
+      mesures
+    };
+  }
+  return prepared;
+}
+
 async function canLeaveSettings() {
   if (currentRoute.value !== "parametres") return true;
   if (!settingsHasUnsavedChanges.value) return true;
@@ -761,15 +900,65 @@ function addMesureToHabit(habitKey) {
   habit.mesures.push({
     code,
     label: "Nouvelle mesure",
-    obligatoire: false
+    obligatoire: false,
+    actif: true,
+    ordre: habit.mesures.length + 1,
+    typeChamp: "number"
   });
 }
 
-function removeMesureFromHabit(habitKey, index) {
+function removeMesureFromHabit(habitKey, mesureCode) {
   if (!settingsCanEdit.value) return;
   const habit = atelierSettings.habits[habitKey];
   if (!habit) return;
+  const index = habit.mesures.findIndex((mesure) => String(mesure?.code || "") === String(mesureCode || ""));
+  if (index === -1) return;
   habit.mesures.splice(index, 1);
+}
+
+async function addHabitType() {
+  if (!settingsCanEdit.value) return;
+  const payload = await openActionModal({
+    title: "Nouveau type d'habit",
+    message: "Creer un nouveau type d'habit pour la saisie des mesures.",
+    confirmLabel: "Creer",
+    cancelLabel: "Annuler",
+    fields: [
+      { key: "code", label: "Code", type: "text", required: true, defaultValue: "" },
+      { key: "label", label: "Libelle", type: "text", required: true, defaultValue: "" },
+      {
+        key: "ordre",
+        label: "Ordre",
+        type: "number",
+        required: true,
+        min: 0,
+        defaultValue: Object.keys(atelierSettings.habits || {}).length + 1
+      }
+    ]
+  });
+  if (!payload) return;
+  const key = normalizeHabitTypeKeyInput(payload.code);
+  if (!key) {
+    notify("Code de type d'habit invalide.");
+    return;
+  }
+  if (atelierSettings.habits[key]) {
+    notify(`Le type d'habit ${key} existe deja.`);
+    return;
+  }
+  const order = Number(payload.ordre);
+  if (!Number.isFinite(order) || order < 0) {
+    notify("Ordre invalide pour le type d'habit.");
+    return;
+  }
+  atelierSettings.habits[key] = {
+    label: String(payload.label || "").trim(),
+    actif: true,
+    ordre: order,
+    mesures: []
+  };
+  settingsHabitExpanded[key] = true;
+  notify(`Type d'habit cree: ${key}.`);
 }
 
 async function saveAtelierSettings() {
@@ -795,6 +984,7 @@ async function saveAtelierSettings() {
     settingsSaving.value = true;
     settingsError.value = "";
     const payload = cloneSettings(atelierSettings);
+    payload.habits = prepareHabitSettingsForSave(payload.habits);
     const expectedVersion = Number(payload?.meta?.version || 1);
     const saved = await atelierApi.saveParametresAtelier(payload, settingsUser.nom || "", expectedVersion);
     if (saved?.payload) {
@@ -1651,7 +1841,7 @@ const clientConsultationResultats = computed(
 );
 
 const clientTypeHabitOptions = computed(() => {
-  const set = new Set(habitTypeOptions.map((item) => item.value));
+  const set = new Set(availableHabitTypeOptions.value.map((item) => item.value));
   for (const row of clientConsultationCommandes.value) if (row.typeHabit) set.add(row.typeHabit);
   for (const row of clientConsultationRetouches.value) if (row.typeHabit) set.add(row.typeHabit);
   for (const row of clientConsultationMesures.value) if (row.typeHabit) set.add(row.typeHabit);
@@ -1692,23 +1882,88 @@ const clientCommandesPaged = computed(() => clientFilteredCommandes.value);
 const clientRetouchesPaged = computed(() => clientFilteredRetouches.value);
 const clientMesuresPaged = computed(() => clientFilteredMesures.value);
 
+function resolveHabitUiDefinition(typeHabit) {
+  const type = String(typeHabit || "").trim().toUpperCase();
+  if (!type) return null;
+  const configured = atelierSettings.habits?.[type];
+  if (configured && configured.actif !== false && Array.isArray(configured.mesures)) {
+    const required = [];
+    const optional = [];
+    const fieldTypes = {};
+    const labels = {};
+    const mesures = [...configured.mesures].sort(
+      (left, right) => normalizeSortOrder(left?.ordre) - normalizeSortOrder(right?.ordre)
+    );
+    for (const row of mesures) {
+      if (row?.actif === false) continue;
+      const code = String(row?.code || "").trim();
+      if (!code) continue;
+      if (row?.obligatoire === true) required.push(code);
+      else optional.push(code);
+      const configuredType = String(row?.typeChamp || "").trim().toLowerCase();
+      fieldTypes[code] = configuredType === "text" || configuredType === "select" ? configuredType : code === "typeManches" ? "select" : "number";
+      labels[code] = String(row?.label || "").trim() || mesureLabelFromKey(code);
+    }
+    return {
+      required: Array.from(new Set(required)),
+      optional: Array.from(new Set(optional)),
+      fieldTypes,
+      labels
+    };
+  }
+  const fallback = habitMesureDefinitions[type];
+  if (!fallback) return null;
+  const fieldTypes = {};
+  const labels = {};
+  for (const field of [...fallback.required, ...fallback.optional]) {
+    fieldTypes[field] = field === "typeManches" ? "select" : "number";
+    labels[field] = mesureLabelFromKey(field);
+  }
+  return {
+    required: [...fallback.required],
+    optional: [...fallback.optional],
+    fieldTypes,
+    labels
+  };
+}
+
 const commandeMesureFields = computed(() => {
   const type = wizard.commande.typeHabit;
-  const def = habitMesureDefinitions[type];
+  const def = resolveHabitUiDefinition(type);
   if (!def) return [];
   return [
-    ...def.required.map((key) => ({ key, required: true })),
-    ...def.optional.map((key) => ({ key, required: false }))
+    ...def.required.map((key) => ({
+      key,
+      label: def.labels?.[key] || mesureLabelFromKey(key),
+      required: true,
+      inputType: def.fieldTypes?.[key] || "number"
+    })),
+    ...def.optional.map((key) => ({
+      key,
+      label: def.labels?.[key] || mesureLabelFromKey(key),
+      required: false,
+      inputType: def.fieldTypes?.[key] || "number"
+    }))
   ];
 });
 
 const retoucheMesureFields = computed(() => {
   const type = retoucheWizard.retouche.typeHabit;
-  const def = habitMesureDefinitions[type];
+  const def = resolveHabitUiDefinition(type);
   if (!def) return [];
   return [
-    ...def.required.map((key) => ({ key, required: false })),
-    ...def.optional.map((key) => ({ key, required: false }))
+    ...def.required.map((key) => ({
+      key,
+      label: def.labels?.[key] || mesureLabelFromKey(key),
+      required: false,
+      inputType: def.fieldTypes?.[key] || "number"
+    })),
+    ...def.optional.map((key) => ({
+      key,
+      label: def.labels?.[key] || mesureLabelFromKey(key),
+      required: false,
+      inputType: def.fieldTypes?.[key] || "number"
+    }))
   ];
 });
 
@@ -3226,17 +3481,23 @@ function resetMesuresModel(model) {
   model.typeManches = "";
 }
 
-function mesureInputType(fieldKey) {
-  return fieldKey === "typeManches" ? "select" : "number";
+function mesureInputType(field) {
+  if (field && typeof field === "object") {
+    return field.inputType || (field.key === "typeManches" ? "select" : "number");
+  }
+  return field === "typeManches" ? "select" : "number";
 }
 
-function mesurePlaceholder(fieldKey) {
-  if (fieldKey === "typeManches") return "courtes | longues";
+function mesurePlaceholder(field) {
+  const inputType = mesureInputType(field);
+  if (inputType === "select") return "Choisir";
+  if (inputType === "text") return "Saisir une valeur";
   return "cm";
 }
 
-function mesureDisplayLabel(fieldKey) {
-  return mesureLabels[fieldKey] || fieldKey;
+function mesureDisplayLabel(field) {
+  if (field && typeof field === "object") return field.label || mesureLabels[field.key] || field.key;
+  return mesureLabels[field] || field;
 }
 
 function parseMesureValue(raw, label) {
@@ -3246,12 +3507,19 @@ function parseMesureValue(raw, label) {
   return n;
 }
 
+function parseMesureTextValue(raw, label) {
+  const value = String(raw || "").trim();
+  if (!value) throw new Error(`Mesure invalide: ${label}`);
+  return value;
+}
+
 function collectMesuresSnapshot({ typeHabit, mesuresModel, requireComplete, requireAtLeastOne = !requireComplete }) {
-  const def = habitMesureDefinitions[typeHabit];
+  const def = resolveHabitUiDefinition(typeHabit);
   if (!def) throw new Error("Type d'habit requis.");
   const out = {};
 
   for (const field of def.required) {
+    const fieldType = def.fieldTypes?.[field] || (field === "typeManches" ? "select" : "number");
     if (field === "typeManches") {
       const manches = String(mesuresModel.typeManches || "").trim().toLowerCase();
       if (requireComplete && !manches) throw new Error("Type manches requis.");
@@ -3266,14 +3534,15 @@ function collectMesuresSnapshot({ typeHabit, mesuresModel, requireComplete, requ
       if (requireComplete) throw new Error(`Mesure obligatoire: ${mesureDisplayLabel(field)}`);
       continue;
     }
-    out[field] = parseMesureValue(raw, mesureDisplayLabel(field));
+    out[field] = fieldType === "number" ? parseMesureValue(raw, mesureDisplayLabel(field)) : parseMesureTextValue(raw, mesureDisplayLabel(field));
   }
 
   for (const field of def.optional) {
+    const fieldType = def.fieldTypes?.[field] || (field === "typeManches" ? "select" : "number");
     if (field === "typeManches") continue;
     const raw = mesuresModel[field];
     if (raw === undefined || raw === null || raw === "") continue;
-    out[field] = parseMesureValue(raw, mesureDisplayLabel(field));
+    out[field] = fieldType === "number" ? parseMesureValue(raw, mesureDisplayLabel(field)) : parseMesureTextValue(raw, mesureDisplayLabel(field));
   }
 
   if (out.typeManches === "longues") {
@@ -6326,6 +6595,9 @@ async function loadRetoucheDetail(idRetouche) {
         <article v-show="settingsActiveTab === 'mesures'" id="settings-mesures" class="panel settings-section" role="tabpanel">
           <h3>Types d'habits & structure des mesures</h3>
           <p class="helper">Configuration des champs attendus, des regles de saisie et des types d'habits.</p>
+          <div class="row-actions">
+            <button class="mini-btn" :disabled="!settingsCanEdit" @click="addHabitType">+ Nouveau type d'habit</button>
+          </div>
           <div class="settings-grid">
             <label class="helper">
               <input v-model="atelierSettings.commandes.mesuresObligatoires" type="checkbox" :disabled="!settingsCanEdit" />
@@ -6347,8 +6619,21 @@ async function loadRetoucheDetail(idRetouche) {
           <div class="measure-config-grid">
             <article v-for="habit in habitConfigEntries" :key="habit.key" class="panel nested-panel">
               <div class="panel-header detail-panel-header">
-                <h4>{{ habit.label }}</h4>
+                <div class="stack-form measure-habit-meta">
+                  <label>Type d'habit</label>
+                  <input v-model="habit.config.label" type="text" :disabled="!settingsCanEdit" />
+                </div>
                 <div class="row-actions">
+                  <div class="measure-inline-fields">
+                    <label class="helper">
+                      <input v-model="habit.config.actif" type="checkbox" :disabled="!settingsCanEdit" />
+                      Actif
+                    </label>
+                    <div class="stack-form measure-order-field">
+                      <label>Ordre</label>
+                      <input v-model.number="habit.config.ordre" type="number" min="0" :disabled="!settingsCanEdit" />
+                    </div>
+                  </div>
                   <button class="mini-btn measure-mobile-toggle" @click="toggleHabitExpanded(habit.key)">
                     {{ isHabitExpanded(habit.key) ? "Masquer mesures" : "Afficher mesures" }}
                   </button>
@@ -6361,33 +6646,49 @@ async function loadRetoucheDetail(idRetouche) {
                 <table class="data-table compact measure-table">
                   <thead>
                     <tr>
+                      <th>Ordre</th>
                       <th>Mesure</th>
                       <th>Code</th>
+                      <th>Type</th>
                       <th>Obligatoire</th>
+                      <th>Active</th>
                       <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(mesure, index) in habit.mesures" :key="`${habit.key}-${mesure.code}-${index}`">
+                    <tr v-for="(mesure, index) in habitMesuresForEditor(habit.config)" :key="`${habit.key}-${mesure.code}-${index}`">
+                      <td>
+                        <input v-model.number="mesure.ordre" type="number" min="0" :disabled="!settingsCanEdit" />
+                      </td>
                       <td>
                         <input v-model="mesure.label" type="text" :disabled="!settingsCanEdit" />
                       </td>
                       <td>{{ mesure.code }}</td>
                       <td>
+                        <select v-model="mesure.typeChamp" :disabled="!settingsCanEdit">
+                          <option v-for="option in mesureTypeOptions" :key="`${habit.key}-${mesure.code}-${option.value}`" :value="option.value">
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </td>
+                      <td>
                         <input v-model="mesure.obligatoire" type="checkbox" :disabled="!settingsCanEdit" />
                       </td>
                       <td>
-                        <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(habit.key, index)">Retirer</button>
+                        <input v-model="mesure.actif" type="checkbox" :disabled="!settingsCanEdit" />
+                      </td>
+                      <td>
+                        <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(habit.key, mesure.code)">Retirer</button>
                       </td>
                     </tr>
-                    <tr v-if="habit.mesures.length === 0">
-                      <td colspan="4">Aucune mesure configuree.</td>
+                    <tr v-if="habit.config.mesures.length === 0">
+                      <td colspan="7">Aucune mesure configuree.</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
               <div v-if="isHabitExpanded(habit.key)" class="measure-cards">
-                <article v-for="(mesure, index) in habit.mesures" :key="`card-${habit.key}-${mesure.code}-${index}`" class="measure-card">
+                <article v-for="(mesure, index) in habitMesuresForEditor(habit.config)" :key="`card-${habit.key}-${mesure.code}-${index}`" class="measure-card">
                   <div class="measure-card-head">
                     <strong>{{ mesure.label }}</strong>
                     <span class="helper">{{ mesure.code }}</span>
@@ -6400,9 +6701,25 @@ async function loadRetoucheDetail(idRetouche) {
                     <input v-model="mesure.obligatoire" type="checkbox" :disabled="!settingsCanEdit" />
                     Mesure obligatoire
                   </label>
-                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(habit.key, index)">Retirer</button>
+                  <label class="helper">
+                    <input v-model="mesure.actif" type="checkbox" :disabled="!settingsCanEdit" />
+                    Mesure active
+                  </label>
+                  <div class="stack-form">
+                    <label>Type de champ</label>
+                    <select v-model="mesure.typeChamp" :disabled="!settingsCanEdit">
+                      <option v-for="option in mesureTypeOptions" :key="`card-${habit.key}-${mesure.code}-${option.value}`" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </div>
+                  <div class="stack-form">
+                    <label>Ordre</label>
+                    <input v-model.number="mesure.ordre" type="number" min="0" :disabled="!settingsCanEdit" />
+                  </div>
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromHabit(habit.key, mesure.code)">Retirer</button>
                 </article>
-                <p v-if="habit.mesures.length === 0" class="helper">Aucune mesure configuree.</p>
+                <p v-if="habit.config.mesures.length === 0" class="helper">Aucune mesure configuree.</p>
               </div>
             </article>
           </div>
@@ -7453,7 +7770,7 @@ async function loadRetoucheDetail(idRetouche) {
           <label>Type d'habit</label>
           <select v-model="wizard.commande.typeHabit">
             <option value="">Choisir un type d'habit</option>
-            <option v-for="option in habitTypeOptions" :key="`cmd-habit-${option.value}`" :value="option.value">
+            <option v-for="option in availableHabitTypeOptions" :key="`cmd-habit-${option.value}`" :value="option.value">
               {{ option.label }}
             </option>
           </select>
@@ -7462,9 +7779,9 @@ async function loadRetoucheDetail(idRetouche) {
             <label>Mesures (cm)</label>
             <div class="form-grid">
               <div v-for="field in commandeMesureFields" :key="`cmd-mes-${field.key}`" class="form-row">
-                <label>{{ mesureDisplayLabel(field.key) }} <span v-if="field.required">*</span></label>
+                <label>{{ mesureDisplayLabel(field) }} <span v-if="field.required">*</span></label>
                 <select
-                  v-if="mesureInputType(field.key) === 'select'"
+                  v-if="mesureInputType(field) === 'select'"
                   v-model="wizard.commande.mesuresHabit[field.key]"
                 >
                   <option value="">Choisir</option>
@@ -7474,10 +7791,10 @@ async function loadRetoucheDetail(idRetouche) {
                 <input
                   v-else
                   v-model="wizard.commande.mesuresHabit[field.key]"
-                  type="number"
+                  :type="mesureInputType(field) === 'number' ? 'number' : 'text'"
                   min="0"
-                  step="0.1"
-                  :placeholder="mesurePlaceholder(field.key)"
+                  :step="mesureInputType(field) === 'number' ? '0.1' : undefined"
+                  :placeholder="mesurePlaceholder(field)"
                 />
               </div>
             </div>
@@ -7607,7 +7924,7 @@ async function loadRetoucheDetail(idRetouche) {
         <label>Type d'habit</label>
         <select v-model="retoucheWizard.retouche.typeHabit">
           <option value="">Choisir un type d'habit</option>
-          <option v-for="option in habitTypeOptions" :key="`ret-habit-${option.value}`" :value="option.value">
+          <option v-for="option in availableHabitTypeOptions" :key="`ret-habit-${option.value}`" :value="option.value">
             {{ option.label }}
           </option>
         </select>
@@ -7616,9 +7933,9 @@ async function loadRetoucheDetail(idRetouche) {
           <label>Mesures (cm) - saisie partielle autorisee</label>
           <div class="form-grid">
             <div v-for="field in retoucheMesureFields" :key="`ret-mes-${field.key}`" class="form-row">
-              <label>{{ mesureDisplayLabel(field.key) }}</label>
+              <label>{{ mesureDisplayLabel(field) }}</label>
               <select
-                v-if="mesureInputType(field.key) === 'select'"
+                v-if="mesureInputType(field) === 'select'"
                 v-model="retoucheWizard.retouche.mesuresHabit[field.key]"
               >
                 <option value="">Choisir</option>
@@ -7628,10 +7945,10 @@ async function loadRetoucheDetail(idRetouche) {
               <input
                 v-else
                 v-model="retoucheWizard.retouche.mesuresHabit[field.key]"
-                type="number"
+                :type="mesureInputType(field) === 'number' ? 'number' : 'text'"
                 min="0"
-                step="0.1"
-                :placeholder="mesurePlaceholder(field.key)"
+                :step="mesureInputType(field) === 'number' ? '0.1' : undefined"
+                :placeholder="mesurePlaceholder(field)"
               />
             </div>
           </div>

@@ -1120,6 +1120,27 @@ body {
   gap: 8px;
 }
 
+.measure-inline-fields {
+  display: inline-flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.measure-order-field {
+  min-width: 90px;
+}
+
+.measure-table input,
+.measure-table select {
+  width: 100%;
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: inherit;
+  background: #fff;
+}
+
 .measure-mobile-toggle {
   display: none;
 }

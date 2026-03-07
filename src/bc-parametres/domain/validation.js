@@ -51,14 +51,38 @@ export function validateParametresPayload(payload) {
 
   const habits = payload.habits || {};
   if (typeof habits !== "object") throw new Error("Habits doit etre un objet");
+  const habitOrders = new Set();
   for (const [key, habit] of Object.entries(habits)) {
     if (!habit || typeof habit !== "object") throw new Error(`Habit ${key} invalide`);
     assertString(habit.label, `Habit.${key}.label`);
+    if (habit.actif !== undefined) assertBoolean(habit.actif, `Habit.${key}.actif`);
+    if (habit.ordre !== undefined) {
+      assertNumber(habit.ordre, `Habit.${key}.ordre`, { min: 0 });
+      if (habitOrders.has(habit.ordre)) throw new Error(`Habit.${key}.ordre duplique`);
+      habitOrders.add(habit.ordre);
+    }
     assertArray(habit.mesures, `Habit.${key}.mesures`);
+    const mesureCodes = new Set();
+    const mesureOrdres = new Set();
     for (const mesure of habit.mesures) {
       assertString(mesure.code, `Habit.${key}.mesure.code`);
+      if (mesureCodes.has(mesure.code)) throw new Error(`Habit.${key}.mesure.code duplique: ${mesure.code}`);
+      mesureCodes.add(mesure.code);
       assertString(mesure.label, `Habit.${key}.mesure.label`);
       assertBoolean(mesure.obligatoire, `Habit.${key}.mesure.obligatoire`);
+      if (mesure.actif !== undefined) assertBoolean(mesure.actif, `Habit.${key}.mesure.actif`);
+      if (mesure.ordre !== undefined) {
+        assertNumber(mesure.ordre, `Habit.${key}.mesure.ordre`, { min: 0 });
+        if (mesureOrdres.has(mesure.ordre)) throw new Error(`Habit.${key}.mesure.ordre duplique: ${mesure.ordre}`);
+        mesureOrdres.add(mesure.ordre);
+      }
+      if (mesure.typeChamp !== undefined) {
+        assertString(mesure.typeChamp, `Habit.${key}.mesure.typeChamp`);
+        const type = String(mesure.typeChamp || "").trim().toLowerCase();
+        if (type !== "number" && type !== "text" && type !== "select") {
+          throw new Error(`Habit.${key}.mesure.typeChamp invalide`);
+        }
+      }
     }
   }
 
