@@ -2,6 +2,13 @@
 import { Commande } from "../../domain/commande.js";
 
 export class CommandeRepoPg {
+  async existsByTypeHabit(typeHabit) {
+    const normalized = String(typeHabit || "").trim().toUpperCase();
+    if (!normalized) return false;
+    const res = await pool.query("SELECT 1 FROM commandes WHERE UPPER(type_habit) = $1 LIMIT 1", [normalized]);
+    return res.rowCount > 0;
+  }
+
   // Fetch a Commande by ID and rehydrate the aggregate
   async getById(idCommande) {
     const res = await pool.query(
