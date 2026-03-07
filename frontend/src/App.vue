@@ -139,7 +139,7 @@ const retoucheWizard = reactive({
   },
   retouche: {
     descriptionRetouche: "",
-    typeRetouche: "AUTRE",
+    typeRetouche: "",
     montantTotal: "",
     datePrevue: "",
     emettreFacture: true,
@@ -349,14 +349,7 @@ const soldeOptions = [
   { value: "DUE", label: "Solde restant" },
   { value: "PAID", label: "Solde a 0" }
 ];
-const retoucheTypeOptions = [
-  { value: "OURLET", label: "Ourlet" },
-  { value: "RESSERRAGE", label: "Resserrage" },
-  { value: "AGRANDISSEMENT", label: "Agrandissement" },
-  { value: "REPARATION", label: "Reparation" },
-  { value: "FERMETURE", label: "Fermeture" },
-  { value: "AUTRE", label: "Autre" }
-];
+const retoucheTypeDefinitions = ref([]);
 
 const habitTypeOptions = [
   { value: "PANTALON", label: "Pantalon" },
@@ -791,6 +784,75 @@ const selectedHabitConfigEntry = computed(() => {
   if (selected) return selected;
   return filteredHabitConfigEntries.value[0] || habitConfigEntries.value[0] || null;
 });
+const availableRetoucheTypeDefinitions = computed(() => {
+  const configured = Array.isArray(retoucheTypeDefinitions.value) ? retoucheTypeDefinitions.value : [];
+  if (configured.length > 0) return configured;
+  return [
+    {
+      code: "OURLET_PANTALON",
+      libelle: "Ourlet pantalon",
+      actif: true,
+      ordreAffichage: 1,
+      necessiteMesures: true,
+      mesuresCibles: ["longueur", "largeurBas"],
+      descriptionObligatoire: false,
+      habitsCompatibles: ["PANTALON"]
+    },
+    {
+      code: "REPARATION_DECHIRURE",
+      libelle: "Reparation dechirure",
+      actif: true,
+      ordreAffichage: 2,
+      necessiteMesures: false,
+      mesuresCibles: [],
+      descriptionObligatoire: true,
+      habitsCompatibles: ["*"]
+    },
+    {
+      code: "REPARATION",
+      libelle: "Reparation",
+      actif: true,
+      ordreAffichage: 3,
+      necessiteMesures: false,
+      mesuresCibles: [],
+      descriptionObligatoire: false,
+      habitsCompatibles: ["*"]
+    },
+    {
+      code: "OURLET",
+      libelle: "Ourlet",
+      actif: true,
+      ordreAffichage: 4,
+      necessiteMesures: true,
+      mesuresCibles: [],
+      descriptionObligatoire: false,
+      habitsCompatibles: ["*"]
+    }
+  ];
+});
+const retoucheTypeOptions = computed(() => {
+  const selectedHabit = String(retoucheWizard.retouche.typeHabit || "").trim().toUpperCase();
+  return availableRetoucheTypeDefinitions.value
+    .filter((row) => row?.actif !== false)
+    .filter((row) => {
+      if (!selectedHabit) return true;
+      const compatibles = Array.isArray(row?.habitsCompatibles) ? row.habitsCompatibles : ["*"];
+      return compatibles.includes("*") || compatibles.includes(selectedHabit);
+    })
+    .map((row) => ({
+      value: row.code,
+      label: row.libelle,
+      definition: row
+    }));
+});
+const selectedRetoucheTypeDefinition = computed(() => {
+  const code = String(retoucheWizard.retouche.typeRetouche || "").trim().toUpperCase();
+  return retoucheTypeOptions.value.find((row) => row.value === code)?.definition || null;
+});
+const retoucheDescriptionRequired = computed(
+  () => Boolean(selectedRetoucheTypeDefinition.value?.descriptionObligatoire || atelierSettings.retouches?.descriptionObligatoire)
+);
+const retoucheMeasuresRequired = computed(() => selectedRetoucheTypeDefinition.value?.necessiteMesures === true);
 const securityUsersFiltered = computed(() => {
   const query = securityUserQuery.value.trim().toLowerCase();
   return securityUsers.value.filter((user) => {
@@ -938,6 +1000,27 @@ function normalizeHabitTypeKeyInput(value) {
     .replace(/[^A-Z0-9_]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+function normalizeRetoucheTypeDefinition(raw) {
+  const code = String(raw?.code || "").trim().toUpperCase();
+  if (!code) return null;
+  const habitsCompatibles = Array.isArray(raw?.habitsCompatibles)
+    ? raw.habitsCompatibles.map((item) => String(item || "").trim().toUpperCase()).filter(Boolean)
+    : ["*"];
+  const mesuresCibles = Array.isArray(raw?.mesuresCibles)
+    ? raw.mesuresCibles.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  return {
+    code,
+    libelle: String(raw?.libelle || code).trim() || code,
+    actif: raw?.actif !== false,
+    ordreAffichage: Number.isFinite(Number(raw?.ordreAffichage)) ? Number(raw.ordreAffichage) : Number.MAX_SAFE_INTEGER,
+    necessiteMesures: raw?.necessiteMesures === true,
+    mesuresCibles,
+    descriptionObligatoire: raw?.descriptionObligatoire === true,
+    habitsCompatibles: habitsCompatibles.length > 0 ? habitsCompatibles : ["*"]
+  };
 }
 
 function prepareHabitSettingsForSave(habitsRaw) {
@@ -2063,14 +2146,19 @@ const retoucheMesureFields = computed(() => {
   const type = retoucheWizard.retouche.typeHabit;
   const def = resolveHabitUiDefinition(type);
   if (!def) return [];
+  const cibles = Array.isArray(selectedRetoucheTypeDefinition.value?.mesuresCibles)
+    ? selectedRetoucheTypeDefinition.value.mesuresCibles.filter(Boolean)
+    : [];
+  const filteredRequired = cibles.length > 0 ? def.required.filter((key) => cibles.includes(key)) : def.required;
+  const filteredOptional = cibles.length > 0 ? def.optional.filter((key) => cibles.includes(key)) : def.optional;
   return [
-    ...def.required.map((key) => ({
+    ...filteredRequired.map((key) => ({
       key,
       label: def.labels?.[key] || mesureLabelFromKey(key),
       required: false,
       inputType: def.fieldTypes?.[key] || "number"
     })),
-    ...def.optional.map((key) => ({
+    ...filteredOptional.map((key) => ({
       key,
       label: def.labels?.[key] || mesureLabelFromKey(key),
       required: false,
@@ -2850,7 +2938,23 @@ watch(
   () => {
     retoucheWizard.retouche.mesuresHabit = {};
     resetMesuresModel(retoucheWizard.retouche.mesuresHabit);
+    const currentType = String(retoucheWizard.retouche.typeRetouche || "").trim().toUpperCase();
+    const stillAllowed = retoucheTypeOptions.value.some((option) => option.value === currentType);
+    if (!stillAllowed) {
+      retoucheWizard.retouche.typeRetouche = retoucheTypeOptions.value[0]?.value || "";
+    }
   }
+);
+
+watch(
+  () => retoucheTypeOptions.value.map((row) => row.value).join("|"),
+  () => {
+    const currentType = String(retoucheWizard.retouche.typeRetouche || "").trim().toUpperCase();
+    if (!retoucheTypeOptions.value.some((option) => option.value === currentType)) {
+      retoucheWizard.retouche.typeRetouche = retoucheTypeOptions.value[0]?.value || "";
+    }
+  },
+  { immediate: true }
 );
 
 function notify(message) {
@@ -2929,11 +3033,12 @@ async function reloadAll() {
   detailCommandeActions.value = null;
   detailRetoucheActions.value = null;
 
-  const [clientsResult, commandesResult, retouchesResult, stockResult, ventesResult, facturesResult, caisseDaysResult] =
+  const [clientsResult, commandesResult, retouchesResult, retoucheTypesResult, stockResult, ventesResult, facturesResult, caisseDaysResult] =
     await Promise.allSettled([
     atelierApi.listClients(),
     atelierApi.listCommandes(),
     atelierApi.listRetouches(),
+    atelierApi.listRetoucheTypes(),
     atelierApi.listStockArticles(),
     atelierApi.listVentes(),
     atelierApi.listFactures(),
@@ -2956,6 +3061,18 @@ async function reloadAll() {
 
   if (retouchesResult.status === "fulfilled") retouches.value = retouchesResult.value.map(normalizeRetouche);
   else appendError(retouchesResult.reason);
+
+  if (retoucheTypesResult.status === "fulfilled") {
+    retoucheTypeDefinitions.value = (retoucheTypesResult.value || [])
+      .map(normalizeRetoucheTypeDefinition)
+      .filter(Boolean)
+      .sort((left, right) => {
+        if (left.ordreAffichage !== right.ordreAffichage) return left.ordreAffichage - right.ordreAffichage;
+        return String(left.libelle || left.code).localeCompare(String(right.libelle || right.code), "fr", {
+          sensitivity: "base"
+        });
+      });
+  } else appendError(retoucheTypesResult.reason);
 
   if (stockResult.status === "fulfilled") stockArticles.value = stockResult.value.map(normalizeStockArticle);
   else appendError(stockResult.reason);
@@ -3842,7 +3959,7 @@ function resetRetoucheWizard() {
   retoucheWizard.newClient.prenom = "";
   retoucheWizard.newClient.telephone = "";
   retoucheWizard.retouche.descriptionRetouche = "";
-  retoucheWizard.retouche.typeRetouche = "AUTRE";
+  retoucheWizard.retouche.typeRetouche = "";
   retoucheWizard.retouche.montantTotal = "";
   retoucheWizard.retouche.datePrevue = "";
   retoucheWizard.retouche.emettreFacture = true;
@@ -4081,21 +4198,30 @@ async function onRetoucheWizardStep2() {
     if (!retoucheWizard.resolvedClientId) throw new Error("Client non resolu.");
 
     const montant = Number(retoucheWizard.retouche.montantTotal);
-    if (!retoucheWizard.retouche.descriptionRetouche || Number.isNaN(montant) || montant <= 0) {
-      throw new Error("Description et montant valide sont obligatoires.");
-    }
+    if (Number.isNaN(montant) || montant <= 0) throw new Error("Montant total invalide.");
     if (!retoucheWizard.retouche.typeHabit) throw new Error("Type d'habit obligatoire.");
+    if (!retoucheWizard.retouche.typeRetouche) throw new Error("Type de retouche obligatoire.");
+    if (retoucheDescriptionRequired.value && !String(retoucheWizard.retouche.descriptionRetouche || "").trim()) {
+      throw new Error("Description retouche obligatoire.");
+    }
 
+    const measuresAllowed = retoucheMeasuresRequired.value || atelierSettings.retouches?.mesuresOptionnelles !== false;
     const mesuresSnapshot = collectMesuresSnapshot({
       typeHabit: retoucheWizard.retouche.typeHabit,
       mesuresModel: retoucheWizard.retouche.mesuresHabit,
-      requireComplete: false
+      requireComplete: false,
+      requireAtLeastOne: retoucheMeasuresRequired.value
     });
+
+    const hasMeasures = Object.keys(mesuresSnapshot || {}).length > 0;
+    if (!measuresAllowed && hasMeasures) {
+      throw new Error("Mesures non autorisees pour ce type de retouche.");
+    }
 
     const payload = {
       idClient: retoucheWizard.resolvedClientId,
-      descriptionRetouche: retoucheWizard.retouche.descriptionRetouche,
-      typeRetouche: retoucheWizard.retouche.typeRetouche || "AUTRE",
+      descriptionRetouche: String(retoucheWizard.retouche.descriptionRetouche || "").trim(),
+      typeRetouche: retoucheWizard.retouche.typeRetouche,
       montantTotal: montant,
       typeHabit: retoucheWizard.retouche.typeHabit,
       mesuresHabit: mesuresSnapshot
@@ -8159,7 +8285,12 @@ async function loadRetoucheDetail(idRetouche) {
         </select>
 
         <template v-if="retoucheWizard.retouche.typeHabit">
-          <label>Mesures (cm) - saisie partielle autorisee</label>
+          <label>
+            Mesures (cm)
+            <span v-if="retoucheMeasuresRequired">- au moins une mesure cible est requise</span>
+            <span v-else-if="atelierSettings.retouches?.mesuresOptionnelles === false">- non requises pour ce type</span>
+            <span v-else>- saisie optionnelle</span>
+          </label>
           <div class="form-grid">
             <div v-for="field in retoucheMesureFields" :key="`ret-mes-${field.key}`" class="form-row">
               <label>{{ mesureDisplayLabel(field) }}</label>
@@ -8184,10 +8315,16 @@ async function loadRetoucheDetail(idRetouche) {
         </template>
         <label>Type de retouche</label>
         <select v-model="retoucheWizard.retouche.typeRetouche">
+          <option value="">Choisir un type de retouche</option>
           <option v-for="option in retoucheTypeOptions" :key="option.value" :value="option.value">
             {{ option.label }}
           </option>
         </select>
+        <p v-if="selectedRetoucheTypeDefinition" class="helper">
+          Habits compatibles: {{ (selectedRetoucheTypeDefinition.habitsCompatibles || []).join(", ") }}
+          · Description {{ retoucheDescriptionRequired ? "obligatoire" : "optionnelle" }}
+          · Mesures {{ retoucheMeasuresRequired ? "requises" : atelierSettings.retouches?.mesuresOptionnelles === false ? "non autorisees" : "optionnelles" }}
+        </p>
         <label>Description retouche</label>
         <input v-model="retoucheWizard.retouche.descriptionRetouche" type="text" />
         <label>Montant total (FC)</label>
