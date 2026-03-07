@@ -121,7 +121,9 @@ export function validateParametresPayload(payload) {
   const caisse = payload.caisse || {};
   assertTime(caisse.ouvertureAuto, "Caisse.ouvertureAuto");
   assertTime(caisse.ouvertureDimanche, "Caisse.ouvertureDimanche");
-  assertBoolean(caisse.clotureAutoMinuit, "Caisse.clotureAutoMinuit");
+  if (caisse.clotureAutoMinuit !== undefined) assertBoolean(caisse.clotureAutoMinuit, "Caisse.clotureAutoMinuit");
+  assertBoolean(caisse.clotureAutoActive, "Caisse.clotureAutoActive");
+  assertTime(caisse.heureClotureAuto, "Caisse.heureClotureAuto");
   assertBoolean(caisse.paiementAvantLivraison, "Caisse.paiementAvantLivraison");
   assertBoolean(caisse.livraisonExpress, "Caisse.livraisonExpress");
 

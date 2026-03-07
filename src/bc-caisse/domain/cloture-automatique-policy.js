@@ -17,12 +17,13 @@ function parseHoraire(value) {
 
 export function resolveClotureAutoConfig(payload = null) {
   const caisse = payload?.caisse || {};
-  const active = typeof caisse.clotureAutoActive === "boolean" ? caisse.clotureAutoActive : true;
+  const legacyMidnight = typeof caisse.clotureAutoMinuit === "boolean" ? caisse.clotureAutoMinuit : null;
+  const active = typeof caisse.clotureAutoActive === "boolean" ? caisse.clotureAutoActive : legacyMidnight !== null ? legacyMidnight : true;
   const configured = parseHoraire(caisse.heureClotureAuto);
   return {
     active,
-    hour: configured?.hour ?? HEURE_CLOTURE_AUTOMATIQUE,
-    minute: configured?.minute ?? MINUTE_CLOTURE_AUTOMATIQUE
+    hour: configured?.hour ?? (legacyMidnight === true ? 0 : HEURE_CLOTURE_AUTOMATIQUE),
+    minute: configured?.minute ?? (legacyMidnight === true ? 0 : MINUTE_CLOTURE_AUTOMATIQUE)
   };
 }
 

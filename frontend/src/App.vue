@@ -591,6 +591,8 @@ const atelierSettingsDefault = {
   caisse: {
     ouvertureAuto: "07:30",
     ouvertureDimanche: "08:00",
+    clotureAutoActive: true,
+    heureClotureAuto: "00:00",
     clotureAutoMinuit: true,
     paiementAvantLivraison: true,
     livraisonExpress: true
@@ -626,12 +628,24 @@ function applySettings(target, source) {
   }
 }
 
+function normalizeCaisseSettings(caisse) {
+  if (!caisse || typeof caisse !== "object") return;
+  if (typeof caisse.clotureAutoActive !== "boolean") {
+    caisse.clotureAutoActive = typeof caisse.clotureAutoMinuit === "boolean" ? caisse.clotureAutoMinuit : true;
+  }
+  if (typeof caisse.heureClotureAuto !== "string" || !/^\d{2}:\d{2}$/.test(caisse.heureClotureAuto)) {
+    caisse.heureClotureAuto = "00:00";
+  }
+  caisse.clotureAutoMinuit = caisse.clotureAutoActive === true && caisse.heureClotureAuto === "00:00";
+}
+
 function loadAtelierSettingsLocal() {
   try {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw);
     applySettings(atelierSettings, parsed);
+    normalizeCaisseSettings(atelierSettings.caisse);
   } catch (err) {
     console.warn("Failed to load atelier settings (local)", err);
   }
@@ -657,6 +671,7 @@ function restoreSettingsFromSnapshot() {
   if (!settingsSnapshot.value) return;
   try {
     applySettings(atelierSettings, JSON.parse(settingsSnapshot.value));
+    normalizeCaisseSettings(atelierSettings.caisse);
     if (settingsUserSnapshot.value) {
       const parsedUser = JSON.parse(settingsUserSnapshot.value);
       settingsUser.nom = parsedUser.nom || "";
@@ -701,6 +716,7 @@ async function loadAtelierSettings() {
     const response = await atelierApi.getParametresAtelier();
     if (response?.payload) {
       applySettings(atelierSettings, response.payload);
+      normalizeCaisseSettings(atelierSettings.caisse);
       if (response.version !== undefined && response.version !== null) {
         atelierSettings.meta.version = Number(response.version || 1);
       }
@@ -1392,6 +1408,7 @@ async function saveAtelierSettings() {
     settingsSaving.value = true;
     settingsError.value = "";
     const payload = cloneSettings(atelierSettings);
+    normalizeCaisseSettings(payload.caisse);
     payload.retouches = prepareRetoucheSettingsForSave(payload.retouches);
     payload.habits = prepareHabitSettingsForSave(payload.habits);
     const expectedVersion = Number(payload?.meta?.version || 1);
@@ -7462,9 +7479,13 @@ async function loadRetoucheDetail(idRetouche) {
               <input v-model="atelierSettings.caisse.ouvertureDimanche" type="time" :disabled="!settingsCanEdit" />
             </div>
             <label class="helper">
-              <input v-model="atelierSettings.caisse.clotureAutoMinuit" type="checkbox" :disabled="!settingsCanEdit" />
-              Cloture automatique a minuit
+              <input v-model="atelierSettings.caisse.clotureAutoActive" type="checkbox" :disabled="!settingsCanEdit" />
+              Activer la cloture automatique
             </label>
+            <div class="stack-form">
+              <label>Heure cloture automatique</label>
+              <input v-model="atelierSettings.caisse.heureClotureAuto" type="time" :disabled="!settingsCanEdit || !atelierSettings.caisse.clotureAutoActive" />
+            </div>
             <label class="helper">
               <input v-model="atelierSettings.caisse.paiementAvantLivraison" type="checkbox" :disabled="!settingsCanEdit" />
               Paiement obligatoire avant livraison
