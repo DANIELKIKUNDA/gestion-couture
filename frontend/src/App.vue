@@ -2,6 +2,32 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { atelierApi, ApiError, setAuthLostHandler } from "./services/api.js";
 
+function createPagination(pageSize = 10) {
+  return reactive({
+    page: 1,
+    pageSize
+  });
+}
+
+function createClientSidePager(rowsComputed, pagination) {
+  const pages = computed(() => Math.max(1, Math.ceil(rowsComputed.value.length / pagination.pageSize)));
+  const paged = computed(() => {
+    const page = Math.min(Math.max(1, pagination.page), pages.value);
+    const start = (page - 1) * pagination.pageSize;
+    return rowsComputed.value.slice(start, start + pagination.pageSize);
+  });
+  watch(pages, (total) => {
+    if (pagination.page > total) pagination.page = total;
+  });
+  watch(
+    () => pagination.pageSize,
+    () => {
+      pagination.page = 1;
+    }
+  );
+  return { pages, paged };
+}
+
 const currentRoute = ref("dashboard");
 const toast = ref("");
 const loading = ref(false);
@@ -181,6 +207,8 @@ const selectedCommandeId = ref("");
 const detailCommande = ref(null);
 const detailPaiements = ref([]);
 const detailCommandeEvents = ref([]);
+const detailPaiementsPagination = createPagination(10);
+const detailCommandeEventsPagination = createPagination(10);
 const detailLoading = ref(false);
 const detailPaiementsLoading = ref(false);
 const detailCommandeEventsLoading = ref(false);
@@ -190,6 +218,8 @@ const selectedRetoucheId = ref("");
 const detailRetouche = ref(null);
 const detailRetouchePaiements = ref([]);
 const detailRetoucheEvents = ref([]);
+const detailRetouchePaiementsPagination = createPagination(10);
+const detailRetoucheEventsPagination = createPagination(10);
 const detailRetoucheLoading = ref(false);
 const detailRetouchePaiementsLoading = ref(false);
 const detailRetoucheEventsLoading = ref(false);
@@ -206,6 +236,10 @@ const detailFactureLoading = ref(false);
 const detailFactureError = ref("");
 const detailCommandeActions = ref(null);
 const detailRetoucheActions = ref(null);
+const { pages: detailPaiementsPages, paged: detailPaiementsPaged } = createClientSidePager(detailPaiements, detailPaiementsPagination);
+const { pages: detailCommandeEventsPages, paged: detailCommandeEventsPaged } = createClientSidePager(detailCommandeEvents, detailCommandeEventsPagination);
+const { pages: detailRetouchePaiementsPages, paged: detailRetouchePaiementsPaged } = createClientSidePager(detailRetouchePaiements, detailRetouchePaiementsPagination);
+const { pages: detailRetoucheEventsPages, paged: detailRetoucheEventsPaged } = createClientSidePager(detailRetoucheEvents, detailRetoucheEventsPagination);
 
 const selectedClientConsultationId = ref("");
 const clientConsultationQuery = ref("");
@@ -234,6 +268,14 @@ const auditCommandes = ref([]);
 const auditRetouches = ref([]);
 const auditStockVentes = ref([]);
 const auditFactures = ref([]);
+const auditCaisseJournalierPagination = createPagination(10);
+const bilanHebdoPagination = createPagination(10);
+const bilanMensuelPagination = createPagination(10);
+const auditOperationsPagination = createPagination(20);
+const auditCommandesPagination = createPagination(10);
+const auditRetouchesPagination = createPagination(10);
+const auditStockVentesPagination = createPagination(10);
+const auditFacturesPagination = createPagination(10);
 const auditUtilisateurs = ref([]);
 const auditUtilisateursFiltres = reactive({
   recherche: "",
@@ -254,6 +296,14 @@ const auditHubMetrics = ref({
   montantCumule: 0
 });
 const auditSubRoute = ref("/audit");
+const { pages: auditCaisseJournalierPages, paged: auditCaisseJournalierPaged } = createClientSidePager(auditCaisseJournalier, auditCaisseJournalierPagination);
+const { pages: bilanHebdoPages, paged: bilanHebdoPaged } = createClientSidePager(bilanHebdo, bilanHebdoPagination);
+const { pages: bilanMensuelPages, paged: bilanMensuelPaged } = createClientSidePager(bilanMensuel, bilanMensuelPagination);
+const { pages: auditOperationsPages, paged: auditOperationsPaged } = createClientSidePager(auditOperations, auditOperationsPagination);
+const { pages: auditCommandesPages, paged: auditCommandesPaged } = createClientSidePager(auditCommandes, auditCommandesPagination);
+const { pages: auditRetouchesPages, paged: auditRetouchesPaged } = createClientSidePager(auditRetouches, auditRetouchesPagination);
+const { pages: auditStockVentesPages, paged: auditStockVentesPaged } = createClientSidePager(auditStockVentes, auditStockVentesPagination);
+const { pages: auditFacturesPages, paged: auditFacturesPaged } = createClientSidePager(auditFactures, auditFacturesPagination);
 
 const SETTINGS_STORAGE_KEY = "atelier.settings.v1";
 const settingsEditMode = ref(false);
@@ -4223,6 +4273,19 @@ function formatWorkflowStatus(value) {
   return status;
 }
 
+function formatWeekdayFr(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "-";
+  if (normalized.startsWith("monday")) return "Lundi";
+  if (normalized.startsWith("tuesday")) return "Mardi";
+  if (normalized.startsWith("wednesday")) return "Mercredi";
+  if (normalized.startsWith("thursday")) return "Jeudi";
+  if (normalized.startsWith("friday")) return "Vendredi";
+  if (normalized.startsWith("saturday")) return "Samedi";
+  if (normalized.startsWith("sunday")) return "Dimanche";
+  return String(value || "").trim() || "-";
+}
+
 function formatWorkflowEventType(value) {
   const type = String(value || "").trim().toUpperCase();
   const labels = {
@@ -7128,7 +7191,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="paiement in detailPaiements" :key="paiement.idOperation">
+                <tr v-for="paiement in detailPaiementsPaged" :key="paiement.idOperation">
                   <td>{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
                   <td>{{ formatCurrency(paiement.montant) }}</td>
                   <td>{{ paiement.modePaiement || "-" }}</td>
@@ -7140,6 +7203,16 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </tbody>
             </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="detailPaiementsPagination.pageSize">
+                <option :value="5">5 / page</option>
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="detailPaiementsPagination.page <= 1" @click="detailPaiementsPagination.page -= 1">Precedent</button>
+              <span>Page {{ detailPaiementsPagination.page }} / {{ detailPaiementsPages }}</span>
+              <button class="mini-btn" :disabled="detailPaiementsPagination.page >= detailPaiementsPages" @click="detailPaiementsPagination.page += 1">Suivant</button>
+            </div>
           </article>
 
           <article class="panel">
@@ -7159,7 +7232,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="event in detailCommandeEvents" :key="event.idEvent">
+                <tr v-for="event in detailCommandeEventsPaged" :key="event.idEvent">
                   <td>{{ formatDateTime(event.dateEvent) }}</td>
                   <td>{{ event.typeEventLabel }}</td>
                   <td>
@@ -7176,6 +7249,16 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </tbody>
             </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="detailCommandeEventsPagination.pageSize">
+                <option :value="5">5 / page</option>
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="detailCommandeEventsPagination.page <= 1" @click="detailCommandeEventsPagination.page -= 1">Precedent</button>
+              <span>Page {{ detailCommandeEventsPagination.page }} / {{ detailCommandeEventsPages }}</span>
+              <button class="mini-btn" :disabled="detailCommandeEventsPagination.page >= detailCommandeEventsPages" @click="detailCommandeEventsPagination.page += 1">Suivant</button>
+            </div>
           </article>
         </template>
       </section>
@@ -7278,7 +7361,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="paiement in detailRetouchePaiements" :key="paiement.idOperation">
+                <tr v-for="paiement in detailRetouchePaiementsPaged" :key="paiement.idOperation">
                   <td>{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
                   <td>{{ formatCurrency(paiement.montant) }}</td>
                   <td>{{ paiement.modePaiement || "-" }}</td>
@@ -7290,6 +7373,16 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </tbody>
             </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="detailRetouchePaiementsPagination.pageSize">
+                <option :value="5">5 / page</option>
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="detailRetouchePaiementsPagination.page <= 1" @click="detailRetouchePaiementsPagination.page -= 1">Precedent</button>
+              <span>Page {{ detailRetouchePaiementsPagination.page }} / {{ detailRetouchePaiementsPages }}</span>
+              <button class="mini-btn" :disabled="detailRetouchePaiementsPagination.page >= detailRetouchePaiementsPages" @click="detailRetouchePaiementsPagination.page += 1">Suivant</button>
+            </div>
           </article>
 
           <article class="panel">
@@ -7309,7 +7402,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="event in detailRetoucheEvents" :key="event.idEvent">
+                <tr v-for="event in detailRetoucheEventsPaged" :key="event.idEvent">
                   <td>{{ formatDateTime(event.dateEvent) }}</td>
                   <td>{{ event.typeEventLabel }}</td>
                   <td>
@@ -7326,6 +7419,16 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </tbody>
             </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="detailRetoucheEventsPagination.pageSize">
+                <option :value="5">5 / page</option>
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="detailRetoucheEventsPagination.page <= 1" @click="detailRetoucheEventsPagination.page -= 1">Precedent</button>
+              <span>Page {{ detailRetoucheEventsPagination.page }} / {{ detailRetoucheEventsPages }}</span>
+              <button class="mini-btn" :disabled="detailRetoucheEventsPagination.page >= detailRetoucheEventsPages" @click="detailRetoucheEventsPagination.page += 1">Suivant</button>
+            </div>
           </article>
         </template>
       </section>
@@ -8598,12 +8701,12 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in auditCaisseJournalier" :key="row.id_caisse_jour">
+                <tr v-for="row in auditCaisseJournalierPaged" :key="row.id_caisse_jour">
                   <td>{{ row.date_ouverture ? row.date_ouverture.slice(0, 10) : "-" }}</td>
                   <td>{{ row.heure_ouverture || "-" }}</td>
                   <td>{{ row.date_cloture ? row.date_cloture.slice(0, 10) : "-" }}</td>
                   <td>{{ row.heure_cloture || "-" }}</td>
-                  <td>{{ row.jour_semaine || "-" }}</td>
+                  <td>{{ formatWeekdayFr(row.jour_semaine) }}</td>
                   <td>{{ formatCurrency(row.solde_ouverture) }}</td>
                   <td>{{ formatCurrency(row.total_entrees) }}</td>
                   <td>{{ formatCurrency(row.total_sorties) }}</td>
@@ -8617,6 +8720,16 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </tbody>
             </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="auditCaisseJournalierPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="auditCaisseJournalierPagination.page <= 1" @click="auditCaisseJournalierPagination.page -= 1">Precedent</button>
+              <span>Page {{ auditCaisseJournalierPagination.page }} / {{ auditCaisseJournalierPages }}</span>
+              <button class="mini-btn" :disabled="auditCaisseJournalierPagination.page >= auditCaisseJournalierPages" @click="auditCaisseJournalierPagination.page += 1">Suivant</button>
+            </div>
           </article>
 
           <article class="panel">
@@ -8632,7 +8745,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in bilanHebdo" :key="row.id_bilan">
+                <tr v-for="row in bilanHebdoPaged" :key="row.id_bilan">
                   <td>{{ row.date_debut }} -> {{ row.date_fin }}</td>
                   <td>{{ formatCurrency(row.solde_ouverture) }}</td>
                   <td>{{ formatCurrency(row.total_entrees) }}</td>
@@ -8644,6 +8757,16 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </tbody>
             </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="bilanHebdoPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="bilanHebdoPagination.page <= 1" @click="bilanHebdoPagination.page -= 1">Precedent</button>
+              <span>Page {{ bilanHebdoPagination.page }} / {{ bilanHebdoPages }}</span>
+              <button class="mini-btn" :disabled="bilanHebdoPagination.page >= bilanHebdoPages" @click="bilanHebdoPagination.page += 1">Suivant</button>
+            </div>
           </article>
 
           <article class="panel">
@@ -8659,7 +8782,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in bilanMensuel" :key="row.id_bilan">
+                <tr v-for="row in bilanMensuelPaged" :key="row.id_bilan">
                   <td>{{ row.date_debut }} -> {{ row.date_fin }}</td>
                   <td>{{ formatCurrency(row.solde_ouverture) }}</td>
                   <td>{{ formatCurrency(row.total_entrees) }}</td>
@@ -8671,6 +8794,16 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </tbody>
             </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="bilanMensuelPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="bilanMensuelPagination.page <= 1" @click="bilanMensuelPagination.page -= 1">Precedent</button>
+              <span>Page {{ bilanMensuelPagination.page }} / {{ bilanMensuelPages }}</span>
+              <button class="mini-btn" :disabled="bilanMensuelPagination.page >= bilanMensuelPages" @click="bilanMensuelPagination.page += 1">Suivant</button>
+            </div>
           </article>
 
           <article class="panel">
@@ -8699,7 +8832,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="op in auditOperations" :key="op.id_operation">
+                <tr v-for="op in auditOperationsPaged" :key="op.id_operation">
                   <td>{{ formatDateTime(op.date_operation) }}</td>
                   <td>{{ operationAuditType(op) }}</td>
                   <td>{{ formatCurrency(op.montant) }}</td>
@@ -8721,7 +8854,18 @@ async function loadRetoucheDetail(idRetouche) {
                   <td colspan="11">Aucune operation.</td>
                 </tr>
               </tbody>
-            </table></article>
+            </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="auditOperationsPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="auditOperationsPagination.page <= 1" @click="auditOperationsPagination.page -= 1">Precedent</button>
+              <span>Page {{ auditOperationsPagination.page }} / {{ auditOperationsPages }}</span>
+              <button class="mini-btn" :disabled="auditOperationsPagination.page >= auditOperationsPages" @click="auditOperationsPagination.page += 1">Suivant</button>
+            </div>
+          </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/commandes'">
@@ -8742,7 +8886,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in auditCommandes" :key="row.idCommande">
+                <tr v-for="row in auditCommandesPaged" :key="row.idCommande">
                   <td>{{ row.idCommande }}</td>
                   <td>{{ row.clientNom || row.idClient }}</td>
                   <td>{{ row.descriptionCommande }}</td>
@@ -8757,7 +8901,18 @@ async function loadRetoucheDetail(idRetouche) {
                   <td colspan="9">Aucune commande.</td>
                 </tr>
               </tbody>
-            </table></article>
+            </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="auditCommandesPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="auditCommandesPagination.page <= 1" @click="auditCommandesPagination.page -= 1">Precedent</button>
+              <span>Page {{ auditCommandesPagination.page }} / {{ auditCommandesPages }}</span>
+              <button class="mini-btn" :disabled="auditCommandesPagination.page >= auditCommandesPages" @click="auditCommandesPagination.page += 1">Suivant</button>
+            </div>
+          </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/retouches'">
@@ -8779,7 +8934,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in auditRetouches" :key="row.idRetouche">
+                <tr v-for="row in auditRetouchesPaged" :key="row.idRetouche">
                   <td>{{ row.idRetouche }}</td>
                   <td>{{ row.clientNom || row.idClient }}</td>
                   <td>{{ row.typeRetouche || "-" }}</td>
@@ -8795,7 +8950,18 @@ async function loadRetoucheDetail(idRetouche) {
                   <td colspan="10">Aucune retouche.</td>
                 </tr>
               </tbody>
-            </table></article>
+            </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="auditRetouchesPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="auditRetouchesPagination.page <= 1" @click="auditRetouchesPagination.page -= 1">Precedent</button>
+              <span>Page {{ auditRetouchesPagination.page }} / {{ auditRetouchesPages }}</span>
+              <button class="mini-btn" :disabled="auditRetouchesPagination.page >= auditRetouchesPages" @click="auditRetouchesPagination.page += 1">Suivant</button>
+            </div>
+          </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/stock-ventes'">
@@ -8815,7 +8981,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in auditStockVentes" :key="row.idMouvement">
+                <tr v-for="row in auditStockVentesPaged" :key="row.idMouvement">
                   <td>{{ formatDateTime(row.dateMouvement) }}</td>
                   <td>{{ row.nomArticle || row.idArticle }}</td>
                   <td>{{ row.quantite }}</td>
@@ -8844,7 +9010,18 @@ async function loadRetoucheDetail(idRetouche) {
                   <td colspan="8">Aucune vente/sortie stock.</td>
                 </tr>
               </tbody>
-            </table></article>
+            </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="auditStockVentesPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="auditStockVentesPagination.page <= 1" @click="auditStockVentesPagination.page -= 1">Precedent</button>
+              <span>Page {{ auditStockVentesPagination.page }} / {{ auditStockVentesPages }}</span>
+              <button class="mini-btn" :disabled="auditStockVentesPagination.page >= auditStockVentesPages" @click="auditStockVentesPagination.page += 1">Suivant</button>
+            </div>
+          </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/factures'">
@@ -8865,7 +9042,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in auditFactures" :key="row.idFacture">
+                <tr v-for="row in auditFacturesPaged" :key="row.idFacture">
                   <td>{{ row.numeroFacture }}</td>
                   <td>{{ row.client?.nom || "-" }}</td>
                   <td>{{ row.typeOrigine }} / {{ row.idOrigine }}</td>
@@ -8879,7 +9056,18 @@ async function loadRetoucheDetail(idRetouche) {
                   <td colspan="8">Aucune facture.</td>
                 </tr>
               </tbody>
-            </table></article>
+            </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="auditFacturesPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="auditFacturesPagination.page <= 1" @click="auditFacturesPagination.page -= 1">Precedent</button>
+              <span>Page {{ auditFacturesPagination.page }} / {{ auditFacturesPages }}</span>
+              <button class="mini-btn" :disabled="auditFacturesPagination.page >= auditFacturesPages" @click="auditFacturesPagination.page += 1">Suivant</button>
+            </div>
+          </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/utilisateurs'">
