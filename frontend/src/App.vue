@@ -567,6 +567,7 @@ const atelierSettingsDefault = {
     nomAtelier: "Atelier",
     adresse: "",
     telephone: "",
+    email: "",
     devise: "FC",
     logoUrl: ""
   },
@@ -599,7 +600,6 @@ const atelierSettingsDefault = {
   },
   facturation: {
     prefixeNumero: "FAC",
-    prochainNumero: 1,
     mentions: "Merci pour votre confiance.",
     afficherLogo: true
   },
@@ -7042,6 +7042,10 @@ async function loadRetoucheDetail(idRetouche) {
               <input v-model="atelierSettings.identite.adresse" type="text" :disabled="!settingsCanEdit" />
             </div>
             <div class="stack-form">
+              <label>Email (optionnel)</label>
+              <input v-model="atelierSettings.identite.email" type="email" :disabled="!settingsCanEdit" />
+            </div>
+            <div class="stack-form">
               <label>Devise</label>
               <select v-model="atelierSettings.identite.devise" :disabled="!settingsCanEdit">
                 <option v-for="devise in deviseOptions" :key="devise" :value="devise">{{ devise }}</option>
@@ -7499,10 +7503,6 @@ async function loadRetoucheDetail(idRetouche) {
             <div class="stack-form">
               <label>Prefixe numerotation</label>
               <input v-model="atelierSettings.facturation.prefixeNumero" type="text" :disabled="!settingsCanEdit" />
-            </div>
-            <div class="stack-form">
-              <label>Prochain numero</label>
-              <input v-model="atelierSettings.facturation.prochainNumero" type="number" min="1" :disabled="!settingsCanEdit" />
             </div>
             <div class="stack-form">
               <label>Mentions standards</label>

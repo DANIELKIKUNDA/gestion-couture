@@ -34,7 +34,7 @@ async function resolveAtelierConfig() {
       nom: String(identite.nomAtelier || atelierConfigFallback.nom),
       adresse: String(identite.adresse || atelierConfigFallback.adresse),
       telephone: String(identite.telephone || atelierConfigFallback.telephone),
-      email: atelierConfigFallback.email,
+      email: String(identite.email || atelierConfigFallback.email),
       logoUrl: String(identite.logoUrl || atelierConfigFallback.logoUrl),
       devise: String(identite.devise || atelierConfigFallback.devise).toUpperCase(),
       prefixeNumero: String(facturation.prefixeNumero || atelierConfigFallback.prefixeNumero).toUpperCase(),

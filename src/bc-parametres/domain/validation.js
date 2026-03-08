@@ -33,6 +33,7 @@ export function validateParametresPayload(payload) {
   assertString(identite.nomAtelier, "Identite.nomAtelier");
   assertString(identite.adresse, "Identite.adresse", { optional: true });
   assertString(identite.telephone, "Identite.telephone", { optional: true });
+  assertString(identite.email, "Identite.email", { optional: true });
   assertString(identite.devise, "Identite.devise");
   assertString(identite.logoUrl, "Identite.logoUrl", { optional: true });
 
@@ -129,7 +130,6 @@ export function validateParametresPayload(payload) {
 
   const facturation = payload.facturation || {};
   assertString(facturation.prefixeNumero, "Facturation.prefixeNumero");
-  assertNumber(facturation.prochainNumero, "Facturation.prochainNumero", { min: 1 });
   assertString(facturation.mentions, "Facturation.mentions", { optional: true });
   assertBoolean(facturation.afficherLogo, "Facturation.afficherLogo");
 

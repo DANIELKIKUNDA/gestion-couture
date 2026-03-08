@@ -17,6 +17,7 @@ async function run() {
       nomAtelier: "Atelier",
       adresse: "",
       telephone: "",
+      email: "",
       devise: "FC",
       logoUrl: ""
     },
@@ -256,7 +257,6 @@ async function run() {
     },
     facturation: {
       prefixeNumero: "FAC",
-      prochainNumero: 1,
       mentions: "Merci pour votre confiance.",
       afficherLogo: true
     },
