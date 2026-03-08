@@ -15,11 +15,38 @@ import caisseRoutes from "../../bc-caisse/interfaces/http/routes.js";
 import facturationRoutes from "../../bc-facturation/interfaces/http/routes.js";
 import parametresRoutes from "../../bc-parametres/interfaces/http/routes.js";
 
+const IS_PROD = String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+
+function resolveCorsOptions() {
+  if (!IS_PROD) {
+    return { origin: true, credentials: true };
+  }
+
+  const configuredOrigins = String(process.env.CORS_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (configuredOrigins.length === 0) {
+    throw new Error("CORS_ALLOWED_ORIGINS requis en production");
+  }
+
+  const allowedOrigins = new Set(configuredOrigins);
+  return {
+    credentials: true,
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.has(origin)) return callback(null, true);
+      return callback(new Error("CORS origin not allowed"));
+    }
+  };
+}
+
 export function createApp() {
   const app = express();
 
   app.use(helmet());
-  app.use(cors({ origin: true, credentials: true }));
+  app.use(cors(resolveCorsOptions()));
   app.use(express.json({ limit: "2mb" }));
   app.use(morgan("dev"));
   app.use(authGuard);

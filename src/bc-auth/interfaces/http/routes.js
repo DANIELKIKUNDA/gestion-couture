@@ -38,13 +38,24 @@ const resetTokenRepo = new PasswordResetTokenRepoPg();
 const revocationRepo = new AccessTokenRevocationRepoPg();
 
 const REFRESH_COOKIE = process.env.AUTH_REFRESH_COOKIE_NAME || "atelier_refresh_token";
-const COOKIE_SAMESITE = process.env.AUTH_COOKIE_SAMESITE || "lax";
+const IS_PROD = String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+const COOKIE_SAMESITE = String(process.env.AUTH_COOKIE_SAMESITE || "lax").trim().toLowerCase();
 const COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || "false").toLowerCase() === "true";
 const REFRESH_COOKIE_MAX_AGE_MS = Math.max(
   60_000,
   Number(process.env.AUTH_REFRESH_COOKIE_MAX_AGE_MS || 1000 * 60 * 60 * 24 * 400)
 );
 const ALLOWED_ROLES = [ROLES.PROPRIETAIRE, ROLES.COUTURIER, ROLES.CAISSIER];
+
+if (!["lax", "strict", "none"].includes(COOKIE_SAMESITE)) {
+  throw new Error("AUTH_COOKIE_SAMESITE invalide");
+}
+if (IS_PROD && !COOKIE_SECURE) {
+  throw new Error("AUTH_COOKIE_SECURE doit etre active en production");
+}
+if (COOKIE_SAMESITE === "none" && !COOKIE_SECURE) {
+  throw new Error("AUTH_COOKIE_SECURE doit etre active lorsque SameSite=None");
+}
 
 function refreshCookieOptions() {
   return {

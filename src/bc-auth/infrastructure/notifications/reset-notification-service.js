@@ -1,3 +1,3 @@
-﻿export async function sendPasswordResetNotification({ email, token }) {
-  console.log(`[AUTH] reset token for ${email}: ${token}`);
+export async function sendPasswordResetNotification({ email }) {
+  console.log(`[AUTH] password reset requested for ${email}`);
 }

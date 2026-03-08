@@ -1,9 +1,13 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { pool } from "../../../shared/infrastructure/db.js";
 import { getAuthStore } from "./_store.js";
 
 let schemaReady = false;
 let useMemory = false;
+
+function hashResetToken(token) {
+  return createHash("sha256").update(String(token || "")).digest("hex");
+}
 
 async function ensureSchema() {
   if (schemaReady) return;
@@ -29,6 +33,7 @@ export class PasswordResetTokenRepoPg {
   async save({ token, utilisateurId, expiresAt }) {
     const payload = {
       token: String(token || ""),
+      tokenHash: hashResetToken(token),
       utilisateurId: String(utilisateurId || ""),
       expiresAt: String(expiresAt || new Date().toISOString())
     };
@@ -38,15 +43,15 @@ export class PasswordResetTokenRepoPg {
         await pool.query(
           `INSERT INTO password_reset_token (id_token, id_utilisateur, token_hash, expire_at, utilise)
            VALUES ($1, $2, $3, $4::timestamp, false)`,
-          [randomUUID(), payload.utilisateurId, payload.token, payload.expiresAt]
+          [randomUUID(), payload.utilisateurId, payload.tokenHash, payload.expiresAt]
         );
         return;
       } catch {
         useMemory = true;
       }
     }
-    this.store.resetTokens.set(payload.token, {
-      token: payload.token,
+    this.store.resetTokens.set(payload.tokenHash, {
+      tokenHash: payload.tokenHash,
       utilisateurId: payload.utilisateurId,
       expiresAt: payload.expiresAt,
       usedAt: null
@@ -55,6 +60,7 @@ export class PasswordResetTokenRepoPg {
 
   async findValid(token) {
     const value = String(token || "");
+    const tokenHash = hashResetToken(value);
     if (!useMemory) {
       try {
         await ensureSchema();
@@ -64,14 +70,14 @@ export class PasswordResetTokenRepoPg {
            WHERE token_hash = $1
            ORDER BY date_creation DESC
            LIMIT 1`,
-          [value]
+          [tokenHash]
         );
         const row = result.rows[0];
         if (!row) return null;
         if (row.utilise) return null;
         if (new Date(row.expire_at).getTime() < Date.now()) return null;
         return {
-          token: value,
+          tokenHash,
           utilisateurId: row.id_utilisateur,
           expiresAt: new Date(row.expire_at).toISOString(),
           usedAt: row.utilise ? new Date().toISOString() : null
@@ -80,7 +86,7 @@ export class PasswordResetTokenRepoPg {
         useMemory = true;
       }
     }
-    const row = this.store.resetTokens.get(value);
+    const row = this.store.resetTokens.get(tokenHash);
     if (!row) return null;
     if (row.usedAt) return null;
     if (new Date(row.expiresAt).getTime() < Date.now()) return null;
@@ -88,7 +94,7 @@ export class PasswordResetTokenRepoPg {
   }
 
   async markUsed(token) {
-    const value = String(token || "");
+    const tokenHash = hashResetToken(token);
     if (!useMemory) {
       try {
         await ensureSchema();
@@ -96,14 +102,14 @@ export class PasswordResetTokenRepoPg {
           `UPDATE password_reset_token
            SET utilise = true
            WHERE token_hash = $1`,
-          [value]
+          [tokenHash]
         );
         return;
       } catch {
         useMemory = true;
       }
     }
-    const row = this.store.resetTokens.get(value);
+    const row = this.store.resetTokens.get(tokenHash);
     if (!row) return;
     row.usedAt = new Date().toISOString();
   }
