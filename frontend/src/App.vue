@@ -30,6 +30,7 @@ const caisseJour = ref(null);
 
 const stockVentesTab = ref("stock");
 const venteSubmitting = ref(false);
+const SIMPLE_STOCK_ENTRY_DEFAULT_MOTIF = "ENTREE";
 const venteDraft = reactive({
   lignes: [],
   current: {
@@ -4720,7 +4721,7 @@ async function loadVenteDetail(idVente) {
 
 function ensureStockInput(idArticle) {
   if (!stockInputs[idArticle]) {
-    stockInputs[idArticle] = { quantite: "", motif: "ACHAT" };
+    stockInputs[idArticle] = { quantite: "", motif: SIMPLE_STOCK_ENTRY_DEFAULT_MOTIF };
   }
   return stockInputs[idArticle];
 }
@@ -4739,10 +4740,56 @@ async function onApprovisionnerStock(article) {
   try {
     await atelierApi.entrerStockArticle(article.idArticle, { quantite, motif: input.motif });
     input.quantite = "";
+    input.motif = SIMPLE_STOCK_ENTRY_DEFAULT_MOTIF;
     await reloadAll();
     notify(`Stock approvisionne: ${article.nomArticle}`);
   } catch (err) {
     notify(readableError(err));
+  }
+}
+
+async function onAcheterStock(article) {
+  const payload = await openActionModal({
+    title: "Acheter du stock",
+    message: `Cet achat augmentera le stock de ${article.nomArticle} et enregistrera une sortie de caisse.`,
+    confirmLabel: "Confirmer l'achat",
+    fields: [
+      { key: "quantite", label: "Quantite", type: "number", required: true, min: 1, defaultValue: 1 },
+      { key: "prixAchatUnitaire", label: "Prix d'achat unitaire", type: "number", required: true, min: 0, defaultValue: 0 },
+      { key: "fournisseur", label: "Fournisseur (optionnel)", type: "text", defaultValue: "" },
+      { key: "referenceAchat", label: "Reference achat (optionnel)", type: "text", defaultValue: "" }
+    ]
+  });
+  if (!payload) return;
+
+  const quantite = Number(payload.quantite);
+  const prixAchatUnitaire = Number(payload.prixAchatUnitaire);
+  if (Number.isNaN(quantite) || quantite <= 0) {
+    notify("Quantite invalide.");
+    return;
+  }
+  if (Number.isNaN(prixAchatUnitaire) || prixAchatUnitaire < 0) {
+    notify("Prix d'achat invalide.");
+    return;
+  }
+
+  try {
+    await atelierApi.entrerStockArticle(article.idArticle, {
+      quantite,
+      motif: "ACHAT",
+      prixAchatUnitaire,
+      fournisseur: String(payload.fournisseur || "").trim() || null,
+      referenceAchat: String(payload.referenceAchat || "").trim() || null
+    });
+    await reloadAll();
+    notify(`Achat enregistre: ${article.nomArticle}`);
+  } catch (err) {
+    const message = readableError(err);
+    if (isCaisseClosedMessage(message)) {
+      notify("Impossible d'enregistrer cet achat : la caisse est cloturee.");
+      return;
+    }
+    notify(message);
   }
 }
 
@@ -6344,8 +6391,14 @@ async function loadRetoucheDetail(idRetouche) {
                       placeholder="Quantite"
                       v-model="ensureStockInput(article.idArticle).quantite"
                     />
-                    <input class="inline-input" type="text" placeholder="Motif" v-model="ensureStockInput(article.idArticle).motif" />
+                    <input
+                      class="inline-input"
+                      type="text"
+                      placeholder="Motif entree simple"
+                      v-model="ensureStockInput(article.idArticle).motif"
+                    />
                     <button class="mini-btn" @click="onApprovisionnerStock(article)">Entrer</button>
+                    <button class="mini-btn" @click="onAcheterStock(article)">Acheter</button>
                   </td>
                 </tr>
                 <tr v-if="stockArticles.length === 0">
