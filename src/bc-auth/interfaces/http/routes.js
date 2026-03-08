@@ -1,5 +1,6 @@
 ﻿import express from "express";
 import { randomUUID } from "node:crypto";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 
 import { validateSchema } from "../../../shared/interfaces/validation.js";
@@ -129,6 +130,55 @@ function clearRefreshCookie(res) {
   res.clearCookie(REFRESH_COOKIE, refreshCookieOptions());
 }
 
+function createAuthRateLimiter({ windowMs, max, action, message }) {
+  return rateLimit({
+    windowMs,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => String(req.ip || req.headers["x-forwarded-for"] || "unknown"),
+    handler: async (req, res) => {
+      await logSecurityAudit({
+        utilisateurId: req.auth?.utilisateurId || null,
+        role: req.auth?.roleId || req.auth?.role || null,
+        action,
+        entite: req.path,
+        succes: false,
+        raison: "rate_limit_depasse"
+      });
+      res.status(429).json({ error: message });
+    }
+  });
+}
+
+const loginRateLimit = createAuthRateLimiter({
+  windowMs: 60_000,
+  max: 5,
+  action: "AUTH_RATE_LIMIT_LOGIN",
+  message: "Trop de tentatives de connexion. Reessayez dans une minute."
+});
+
+const forgotPasswordRateLimit = createAuthRateLimiter({
+  windowMs: 60_000,
+  max: 5,
+  action: "AUTH_RATE_LIMIT_FORGOT_PASSWORD",
+  message: "Trop de demandes de reinitialisation. Reessayez dans une minute."
+});
+
+const resetPasswordRateLimit = createAuthRateLimiter({
+  windowMs: 60_000,
+  max: 5,
+  action: "AUTH_RATE_LIMIT_RESET_PASSWORD",
+  message: "Trop de tentatives de reinitialisation. Reessayez dans une minute."
+});
+
+const refreshRateLimit = createAuthRateLimiter({
+  windowMs: 60_000,
+  max: 20,
+  action: "AUTH_RATE_LIMIT_REFRESH",
+  message: "Trop de rafraichissements de session. Reessayez dans une minute."
+});
+
 router.post("/auth/bootstrap-owner", async (req, res) => {
   try {
     const schema = z.object({ nom: z.string().min(1), email: z.string().email(), motDePasse: z.string().min(8) }).passthrough();
@@ -174,7 +224,7 @@ router.get("/auth/bootstrap-owner/status", async (_req, res) => {
   }
 });
 
-router.post("/auth/login", async (req, res) => {
+router.post("/auth/login", loginRateLimit, async (req, res) => {
   try {
     const schema = z.object({ email: z.string().email(), motDePasse: z.string().min(1) }).passthrough();
     const parsed = validateSchema(schema, req.body || {});
@@ -196,7 +246,7 @@ router.post("/auth/login", async (req, res) => {
   }
 });
 
-router.post("/auth/refresh", async (req, res) => {
+router.post("/auth/refresh", refreshRateLimit, async (req, res) => {
   try {
     const refreshToken = getCookie(req, REFRESH_COOKIE);
     if (!refreshToken) return res.status(401).json({ error: "Session invalide" });
@@ -279,7 +329,7 @@ router.get("/auth/me", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/auth/password/forgot", async (req, res) => {
+router.post("/auth/password/forgot", forgotPasswordRateLimit, async (req, res) => {
   try {
     const schema = z.object({ email: z.string().email() }).passthrough();
     const parsed = validateSchema(schema, req.body || {});
@@ -298,7 +348,7 @@ router.post("/auth/password/forgot", async (req, res) => {
   }
 });
 
-router.post("/auth/password/reset", async (req, res) => {
+router.post("/auth/password/reset", resetPasswordRateLimit, async (req, res) => {
   try {
     const schema = z.object({ token: z.string().min(1), nouveauMotDePasse: z.string().min(8) }).passthrough();
     const parsed = validateSchema(schema, req.body || {});
