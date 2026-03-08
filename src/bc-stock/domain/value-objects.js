@@ -35,12 +35,12 @@ export const StatutVente = Object.freeze({
 
 export function assertPositive(value, label) {
   if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
-    throw new Error(`${label} must be > 0`);
+    throw new Error(`${label} doit etre > 0`);
   }
 }
 
 export function assertNonEmpty(value, label) {
   if (value === undefined || value === null || value === "") {
-    throw new Error(`${label} required`);
+    throw new Error(`${label} est requis`);
   }
 }

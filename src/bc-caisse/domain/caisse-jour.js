@@ -52,7 +52,7 @@ export class CaisseJour {
   // Guard: no operations if closed
   assertOuverte() {
     if (this.statutCaisse === StatutCaisse.CLOTUREE) {
-      throw new CaisseCloturee("Caisse is closed");
+      throw new CaisseCloturee("La caisse est cloturee");
     }
   }
 
@@ -101,7 +101,7 @@ export class CaisseJour {
 
   ouvrirCaisse({ soldeOuverture, utilisateur, dateOuverture, ouvertureAnticipee, motifOuvertureAnticipee, autoriseePar }) {
     if (this.statutCaisse === StatutCaisse.OUVERTE) return;
-    if (soldeOuverture < 0) throw new MontantInvalide("soldeOuverture must be >= 0");
+    if (soldeOuverture < 0) throw new MontantInvalide("soldeOuverture doit etre >= 0");
     this.statutCaisse = StatutCaisse.OUVERTE;
     this.soldeOuverture = soldeOuverture;
     this.ouvertePar = utilisateur;
@@ -146,7 +146,7 @@ export class CaisseJour {
       throw new TypeDepenseInvalide("typeDepense invalide");
     }
     const soldeGlobal = this.soldeCourant();
-    if (soldeGlobal < montant) throw new SoldeInsuffisant("Insufficient balance");
+    if (soldeGlobal < montant) throw new SoldeInsuffisant("Solde insuffisant");
 
     if (normalizedType === TypeDepense.QUOTIDIENNE) {
       const soldeJournalier = this.soldeJournalierCourant();
@@ -188,9 +188,9 @@ export class CaisseJour {
   annulerOperation({ idOperation, motifAnnulation, utilisateur }) {
     this.assertOuverte();
     const op = this.operations.find((o) => o.idOperation === idOperation);
-    if (!op) throw new OperationInexistante("Operation not found");
+    if (!op) throw new OperationInexistante("Operation introuvable");
     if (op.statutOperation === StatutOperation.ANNULEE) {
-      throw new OperationDejaAnnulee("Operation already cancelled");
+      throw new OperationDejaAnnulee("Operation deja annulee");
     }
     op.statutOperation = StatutOperation.ANNULEE;
     op.motifAnnulation = motifAnnulation || null;

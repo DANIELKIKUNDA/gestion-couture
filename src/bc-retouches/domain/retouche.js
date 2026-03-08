@@ -38,8 +38,8 @@ export class Retouche {
     assertNonEmpty(idRetouche, "idRetouche");
     assertNonEmpty(idClient, "idClient");
     assertNonEmpty(descriptionRetouche, "descriptionRetouche");
-    if (montantTotal < 0) throw new Error("montantTotal must be >= 0");
-    if (montantPaye < 0) throw new Error("montantPaye must be >= 0");
+    if (montantTotal < 0) throw new Error("montantTotal doit etre >= 0");
+    if (montantPaye < 0) throw new Error("montantPaye doit etre >= 0");
     if (montantPaye > montantTotal) throw new PaiementExcedentaire("montantPaye > montantTotal");
     if (
       statutRetouche !== StatutRetouche.DEPOSEE &&
@@ -143,7 +143,7 @@ export class Retouche {
     if (parametresAtelier?.avanceObligatoireRetouche) {
       const min = parametresAtelier.avanceMinimum ?? 0;
       if (this.montantPaye < min) {
-        throw new AvanceInsuffisante("Advance is insufficient to start work");
+        throw new AvanceInsuffisante("L'avance est insuffisante pour demarrer le travail");
       }
     }
 
@@ -162,11 +162,11 @@ export class Retouche {
   appliquerPaiement(montant) {
     this.assertNotLivree();
     this.assertNotAnnulee();
-    if (montant <= 0) throw new Error("montant must be > 0");
+    if (montant <= 0) throw new Error("montant doit etre > 0");
 
     const nouveau = this.montantPaye + montant;
     if (nouveau > this.montantTotal) {
-      throw new PaiementExcedentaire("Payment exceeds total");
+      throw new PaiementExcedentaire("Le paiement depasse le montant total");
     }
     this.montantPaye = nouveau;
 

@@ -42,6 +42,6 @@ export const TypeBilan = Object.freeze({
 
 export function assertPositive(value, label) {
   if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
-    throw new Error(`${label} must be > 0`);
+    throw new Error(`${label} doit etre > 0`);
   }
 }

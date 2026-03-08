@@ -61,7 +61,7 @@ export function determinerSoldeOuverture({ soldeCloturePrecedent, soldeInitial }
   const base = soldeInitial ?? 0;
   const value = Number(base);
   if (Number.isNaN(value) || value < 0) {
-    throw new MontantInvalide("soldeOuverture must be >= 0");
+    throw new MontantInvalide("soldeOuverture doit etre >= 0");
   }
   return value;
 }

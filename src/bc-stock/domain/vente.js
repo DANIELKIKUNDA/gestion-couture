@@ -11,7 +11,7 @@ function calculerTotalPrixAchat(lignesVente = []) {
 
 function normalizeLignes(lignesVente = []) {
   if (!Array.isArray(lignesVente) || lignesVente.length === 0) {
-    throw new VenteInvalide("lignesVente must contain at least one line");
+    throw new VenteInvalide("lignesVente doit contenir au moins une ligne");
   }
 
   return lignesVente.map((ligne) => {
@@ -21,11 +21,11 @@ function normalizeLignes(lignesVente = []) {
     assertPositive(Number(ligne.quantite), "quantite");
     const prix = Number(ligne.prixUnitaire);
     if (Number.isNaN(prix) || prix < 0) {
-      throw new VenteInvalide("prixUnitaire must be >= 0");
+      throw new VenteInvalide("prixUnitaire doit etre >= 0");
     }
     const prixAchat = Number(ligne.prixAchatUnitaire ?? 0);
     if (Number.isNaN(prixAchat) || prixAchat < 0) {
-      throw new VenteInvalide("prixAchatUnitaire must be >= 0");
+      throw new VenteInvalide("prixAchatUnitaire doit etre >= 0");
     }
     const beneficeUnitaire = Number(ligne.beneficeUnitaire ?? prix - prixAchat);
     const beneficeTotal = Number(ligne.beneficeTotal ?? beneficeUnitaire * Number(ligne.quantite));
@@ -70,10 +70,10 @@ export class Vente {
     this.beneficeTotal =
       beneficeTotal === null || beneficeTotal === undefined ? this.total - this.totalPrixAchat : Number(beneficeTotal);
     if (Number.isNaN(this.total) || this.total < 0) {
-      throw new VenteInvalide("total must be >= 0");
+      throw new VenteInvalide("total doit etre >= 0");
     }
     if (Number.isNaN(this.totalPrixAchat) || this.totalPrixAchat < 0) {
-      throw new VenteInvalide("totalPrixAchat must be >= 0");
+      throw new VenteInvalide("totalPrixAchat doit etre >= 0");
     }
     if (Number.isNaN(this.beneficeTotal)) {
       throw new VenteInvalide("beneficeTotal invalide");

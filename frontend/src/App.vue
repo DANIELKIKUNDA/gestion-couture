@@ -1384,7 +1384,7 @@ function prepareHabitSettingsForSave(habitsRaw) {
       if (!mesureLabel) throw new Error(`Le libelle de la mesure ${code} est obligatoire.`);
       const typeChamp = normalizeMesureFieldType(mesure?.typeChamp);
       if (String(mesure?.typeChamp || "").trim() && typeChamp !== String(mesure?.typeChamp || "").trim().toLowerCase()) {
-        throw new Error(`typeChamp invalide pour ${label} / ${code}. Valeurs autorisees: number, text, select.`);
+        throw new Error(`typeChamp invalide pour ${label} / ${code}. Valeurs autorisees: nombre, texte, liste.`);
       }
       return {
         code,
@@ -4017,6 +4017,19 @@ function translateErrorMessage(message) {
       if (lower.includes("invalid email")) return "Adresse email invalide.";
       if (lower.includes("string must contain at least 8 character")) return "Le mot de passe doit contenir au moins 8 caracteres.";
       if (lower.includes("caisse is closed")) return "Operation impossible: la caisse est cloturee.";
+      if (lower.includes("la caisse est cloturee")) return "Operation impossible: la caisse est cloturee.";
+      if (lower.includes("must be non-empty")) return "Ce champ ne doit pas etre vide.";
+      if (lower.includes("must be a number")) return "Ce champ doit etre un nombre.";
+      if (lower.includes("must be > 0")) return "Cette valeur doit etre superieure a 0.";
+      if (lower.includes("must be >= 0")) return "Cette valeur doit etre superieure ou egale a 0.";
+      if (lower.includes("required")) return "Ce champ est requis.";
+      if (lower.includes("invalid")) return "Valeur invalide.";
+      if (lower.includes("not allowed")) return "Action non autorisee.";
+      if (lower.includes("exceeds total")) return "Le paiement depasse le montant total.";
+      if (lower.includes("insufficient balance")) return "Solde insuffisant.";
+      if (lower.includes("operation not found")) return "Operation introuvable.";
+      if (lower.includes("operation already cancelled")) return "Operation deja annulee.";
+      if (lower.includes("advance is insufficient")) return "L'avance est insuffisante pour demarrer le travail.";
       if (lower.startsWith("missing fields:")) {
         const fields = part.split(":")[1] || "";
         return `Champs obligatoires manquants: ${fields.trim()}`;

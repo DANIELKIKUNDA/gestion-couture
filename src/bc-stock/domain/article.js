@@ -14,8 +14,8 @@ export class Article {
     actif = true,
     mouvements = []
   }) {
-    if (!idArticle) throw new Error("idArticle required");
-    if (!nomArticle) throw new Error("nomArticle required");
+    if (!idArticle) throw new Error("idArticle est requis");
+    if (!nomArticle) throw new Error("nomArticle est requis");
     this.idArticle = idArticle;
     this.nomArticle = nomArticle;
     this.categorieArticle = categorieArticle;

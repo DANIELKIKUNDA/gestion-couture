@@ -37,7 +37,7 @@ function resolveCorsOptions() {
     origin(origin, callback) {
       if (!origin) return callback(null, true);
       if (allowedOrigins.has(origin)) return callback(null, true);
-      return callback(new Error("CORS origin not allowed"));
+      return callback(new Error("Origine CORS non autorisee"));
     }
   };
 }

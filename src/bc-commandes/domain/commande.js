@@ -30,8 +30,8 @@ export class Commande {
     assertNonEmpty(idCommande, "idCommande");
     assertNonEmpty(idClient, "idClient");
     assertNonEmpty(descriptionCommande, "descriptionCommande");
-    if (montantTotal < 0) throw new Error("montantTotal must be >= 0");
-    if (montantPaye < 0) throw new Error("montantPaye must be >= 0");
+    if (montantTotal < 0) throw new Error("montantTotal doit etre >= 0");
+    if (montantPaye < 0) throw new Error("montantPaye doit etre >= 0");
     if (montantPaye > montantTotal) throw new PaiementExcedentaire("montantPaye > montantTotal");
     if (
       statutCommande !== StatutCommande.CREEE &&
@@ -115,11 +115,11 @@ export class Commande {
   appliquerPaiement(montant, { policy = null } = {}) {
     this.assertNotLivree();
     this.assertNotAnnulee();
-    if (montant <= 0) throw new Error("montant must be > 0");
+    if (montant <= 0) throw new Error("montant doit etre > 0");
 
     const nouveau = this.montantPaye + montant;
     if (nouveau > this.montantTotal) {
-      throw new PaiementExcedentaire("Payment exceeds total");
+      throw new PaiementExcedentaire("Le paiement depasse le montant total");
     }
     this.montantPaye = nouveau;
 

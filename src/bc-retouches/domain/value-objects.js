@@ -37,6 +37,6 @@ export const TypeRetouche = Object.freeze({
 
 export function assertNonEmpty(value, label) {
   if (!value || String(value).trim().length === 0) {
-    throw new Error(`${label} must be non-empty`);
+    throw new Error(`${label} ne doit pas etre vide`);
   }
 }
