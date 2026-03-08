@@ -6345,7 +6345,7 @@ async function loadRetoucheDetail(idRetouche) {
 
         <article v-show="commandeSection === 'liste'" class="panel">
           <div class="panel-header">
-            <h3>Tableau des commandes API</h3>
+            <h3>Tableau des commandes</h3>
             <span class="status-pill" data-tone="due">
               {{ commandesSoldeRestantCount }} avec solde restant
             </span>
@@ -6528,7 +6528,7 @@ async function loadRetoucheDetail(idRetouche) {
 
         <article v-show="retoucheSection === 'liste'" class="panel">
           <div class="panel-header">
-            <h3>Tableau des retouches API</h3>
+            <h3>Tableau des retouches</h3>
             <span class="status-pill" data-tone="due">
               {{ retouchesSoldeRestantCount }} avec solde restant
             </span>
