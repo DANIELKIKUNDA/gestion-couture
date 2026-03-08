@@ -44,6 +44,7 @@ const newArticle = reactive({
   categorieArticle: "TISSU",
   uniteStock: "METRE",
   quantiteDisponible: "",
+  prixAchatInitial: "",
   prixVenteUnitaire: "",
   seuilAlerte: ""
 });
@@ -3872,6 +3873,7 @@ function normalizeStockArticle(raw) {
     idArticle: raw.idArticle || raw.id_article,
     nomArticle: raw.nomArticle || raw.nom_article,
     quantiteDisponible: Number(raw.quantiteDisponible ?? raw.quantite_disponible ?? 0),
+    prixAchatMoyen: Number(raw.prixAchatMoyen ?? raw.prix_achat_moyen ?? 0),
     prixVenteUnitaire: Number(raw.prixVenteUnitaire ?? raw.prix_vente_unitaire ?? 0),
     seuilAlerte: Number(raw.seuilAlerte ?? raw.seuil_alerte ?? 0),
     actif: raw.actif !== false
@@ -4673,6 +4675,7 @@ function resetNewArticle() {
   newArticle.categorieArticle = "TISSU";
   newArticle.uniteStock = "METRE";
   newArticle.quantiteDisponible = "";
+  newArticle.prixAchatInitial = "";
   newArticle.prixVenteUnitaire = "";
   newArticle.seuilAlerte = "";
 }
@@ -4692,6 +4695,7 @@ async function onCreateArticle() {
     return;
   }
   const quantite = Number(newArticle.quantiteDisponible || 0);
+  const prixAchatInitial = Number(newArticle.prixAchatInitial || 0);
   const prix = Number(newArticle.prixVenteUnitaire || 0);
   const seuil = Number(newArticle.seuilAlerte || 0);
 
@@ -4707,6 +4711,10 @@ async function onCreateArticle() {
     notify("Prix unitaire invalide.");
     return;
   }
+  if (Number.isNaN(prixAchatInitial) || prixAchatInitial < 0) {
+    notify("Prix d'achat initial invalide.");
+    return;
+  }
   if (Number.isNaN(seuil) || seuil < 0) {
     notify("Seuil invalide.");
     return;
@@ -4718,6 +4726,7 @@ async function onCreateArticle() {
       categorieArticle: newArticle.categorieArticle,
       uniteStock: newArticle.uniteStock,
       quantiteDisponible: quantite,
+      prixAchatInitial,
       prixVenteUnitaire: prix,
       seuilAlerte: seuil
     };
@@ -5815,8 +5824,8 @@ async function loadRetoucheDetail(idRetouche) {
             <strong>{{ formatCurrency(dashboardSalesMetrics.beneficeBrut) }}</strong>
           </div>
           <div class="money-item teal">
-            <p>Rentabilite</p>
-            <strong>{{ formatPercent(dashboardSalesMetrics.rentabilite) }}</strong>
+            <p>Taux de marge</p>
+            <strong>{{ formatPercent(dashboardSalesMetrics.margeMoyenne) }}</strong>
           </div>
         </article>
 
@@ -6541,7 +6550,11 @@ async function loadRetoucheDetail(idRetouche) {
                   <input v-model="newArticle.quantiteDisponible" type="number" min="0" />
                 </div>
                 <div class="form-row">
-                  <label>Prix unitaire</label>
+                  <label>Prix d'achat initial</label>
+                  <input v-model="newArticle.prixAchatInitial" type="number" min="0" step="0.01" />
+                </div>
+                <div class="form-row">
+                  <label>Prix de vente unitaire</label>
                   <input v-model="newArticle.prixVenteUnitaire" type="number" min="0" />
                 </div>
                 <div class="form-row">
@@ -6562,7 +6575,8 @@ async function loadRetoucheDetail(idRetouche) {
                 <tr>
                   <th>Article</th>
                   <th>Quantite</th>
-                  <th>Prix unitaire</th>
+                  <th>Prix achat moyen</th>
+                  <th>Prix vente</th>
                   <th>Seuil</th>
                   <th>Etat</th>
                   <th>Approvisionnement</th>
@@ -6572,6 +6586,7 @@ async function loadRetoucheDetail(idRetouche) {
                 <tr v-for="article in stockArticles" :key="article.idArticle">
                   <td>{{ article.nomArticle }}</td>
                   <td>{{ article.quantiteDisponible }}</td>
+                  <td>{{ formatCurrency(article.prixAchatMoyen) }}</td>
                   <td>{{ formatCurrency(article.prixVenteUnitaire) }}</td>
                   <td>{{ article.seuilAlerte }}</td>
                   <td>
