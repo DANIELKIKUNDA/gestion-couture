@@ -9083,7 +9083,7 @@ async function loadRetoucheDetail(idRetouche) {
           <input v-model="wizard.commande.montantTotal" type="number" min="1" />
           <label>Date prevue</label>
           <input v-model="wizard.commande.datePrevue" type="date" />
-          <label class="helper">
+          <label class="helper helper-inline-checkbox">
             <input v-model="wizard.commande.emettreFacture" type="checkbox" />
             Emettre facture apres creation (recommande)
           </label>
