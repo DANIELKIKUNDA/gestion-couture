@@ -1,7 +1,9 @@
 import express from "express";
 import { pool } from "../../../shared/infrastructure/db.js";
 import { ArticleRepoPg } from "../../infrastructure/repositories/article-repo-pg.js";
+import { StockReadRepoPg } from "../../infrastructure/repositories/stock-read-repo-pg.js";
 import { VenteRepoPg } from "../../infrastructure/repositories/vente-repo-pg.js";
+import { VenteReadRepoPg } from "../../infrastructure/repositories/vente-read-repo-pg.js";
 import { creerArticle } from "../../application/use-cases/creer-article.js";
 import { entrerStock } from "../../application/use-cases/entrer-stock.js";
 import { sortirStock } from "../../application/use-cases/sortir-stock.js";
@@ -12,17 +14,49 @@ import { creerVente } from "../../application/use-cases/creer-vente.js";
 import { mettreAJourVente } from "../../application/use-cases/mettre-a-jour-vente.js";
 import { validerVente } from "../../application/use-cases/valider-vente.js";
 import { annulerVente } from "../../application/use-cases/annuler-vente.js";
+import { emettreFacture } from "../../../bc-facturation/application/use-cases/emettre-facture.js";
+import { obtenirFacture } from "../../../bc-facturation/application/use-cases/lister-factures.js";
+import { FactureRepoPg } from "../../../bc-facturation/infrastructure/repositories/facture-repo-pg.js";
+import { OrigineFactureReaderPg } from "../../../bc-facturation/infrastructure/repositories/origine-facture-reader-pg.js";
+import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
 import { requireFields, requireNumber, validateSchema } from "../../../shared/interfaces/validation.js";
-import { generateArticleId, generateMouvementId } from "../../../shared/domain/id-generator.js";
+import { generateArticleId } from "../../../shared/domain/id-generator.js";
 import { CaisseRepoPg } from "../../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
+import { FournisseurRepoPg } from "../../infrastructure/repositories/fournisseur-repo-pg.js";
 import { z } from "zod";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
-import { requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
+import { requireAnyPermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 
 const router = express.Router();
 const articleRepo = new ArticleRepoPg();
+const stockReadRepo = new StockReadRepoPg();
 const venteRepo = new VenteRepoPg();
+const venteReadRepo = new VenteReadRepoPg();
 const caisseRepo = new CaisseRepoPg();
+const fournisseurRepo = new FournisseurRepoPg();
+const factureRepo = new FactureRepoPg();
+const origineFactureReader = new OrigineFactureReaderPg();
+const parametresRepo = new AtelierParametresRepoPg();
+
+async function resolveFacturationPrefix() {
+  try {
+    const current = await parametresRepo.getCurrent();
+    return String(current?.payload?.facturation?.prefixeNumero || "FAC").toUpperCase();
+  } catch {
+    return "FAC";
+  }
+}
+const requireStockAccess = requireAnyPermission([PERMISSIONS.GERER_STOCK, PERMISSIONS.VOIR_BILANS_GLOBAUX]);
+const requireVenteAccess = requireAnyPermission([PERMISSIONS.GERER_VENTES, PERMISSIONS.VOIR_BILANS_GLOBAUX]);
+const requireStockAuditAccess = requireAnyPermission([PERMISSIONS.VOIR_AUDIT_STOCK, PERMISSIONS.VOIR_BILANS_GLOBAUX]);
+
+function resolveActeur(req, fallback = null) {
+  const utilisateurId = req.auth?.utilisateurId || null;
+  const utilisateurNom = req.auth?.nom || String(fallback || "").trim() || null;
+  const role = req.auth?.role || null;
+  const utilisateur = utilisateurNom ? `${utilisateurNom}${role ? ` (${role})` : ""}` : null;
+  return { utilisateurId, utilisateurNom, role, utilisateur };
+}
 
 function generateSupplierId() {
   return `FOU-${Math.random().toString(16).slice(2, 12).toUpperCase()}`;
@@ -33,7 +67,7 @@ function generatePriceHistoryId() {
 }
 
 // List articles
-router.get("/stock/articles", async (req, res) => {
+router.get("/stock/articles", requireStockAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id_article,
@@ -68,7 +102,7 @@ router.get("/stock/articles", async (req, res) => {
 });
 
 // List suppliers
-router.get("/stock/fournisseurs", async (req, res) => {
+router.get("/stock/fournisseurs", requireStockAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id_fournisseur, nom_fournisseur, telephone, actif, date_creation
@@ -90,7 +124,7 @@ router.get("/stock/fournisseurs", async (req, res) => {
 });
 
 // Create supplier
-router.post("/stock/fournisseurs", async (req, res) => {
+router.post("/stock/fournisseurs", requireStockAccess, async (req, res) => {
   const schema = z
     .object({
       nomFournisseur: z.string().min(1),
@@ -123,7 +157,7 @@ router.post("/stock/fournisseurs", async (req, res) => {
 });
 
 // Update supplier
-router.put("/stock/fournisseurs/:id", async (req, res) => {
+router.put("/stock/fournisseurs/:id", requireStockAccess, async (req, res) => {
   const schema = z
     .object({
       nomFournisseur: z.string().min(1).optional(),
@@ -169,7 +203,7 @@ router.put("/stock/fournisseurs/:id", async (req, res) => {
 });
 
 // List article price history
-router.get("/stock/articles/:id/prix-historique", async (req, res) => {
+router.get("/stock/articles/:id/prix-historique", requireStockAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id_historique, id_article, ancien_prix, nouveau_prix, date_modification, modifie_par
@@ -194,153 +228,27 @@ router.get("/stock/articles/:id/prix-historique", async (req, res) => {
 });
 
 // Audit stock & ventes (read-only)
-router.get("/audit/stock-ventes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX), async (req, res) => {
+router.get("/audit/stock-ventes", requireStockAuditAccess, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT
-        m.id_mouvement,
-        m.id_article,
-        m.type_mouvement,
-        m.quantite,
-        m.motif,
-        m.date_mouvement,
-        m.effectue_par,
-        m.reference_metier,
-        m.fournisseur_id,
-        m.fournisseur,
-        m.reference_achat,
-        m.prix_achat_unitaire,
-        m.montant_achat_total,
-        a.nom_article,
-        a.prix_vente_unitaire,
-        f.nom_fournisseur,
-        op.id_caisse_jour,
-        op.montant AS montant_encaisse
-      FROM mouvements_stock m
-      INNER JOIN articles a ON a.id_article = m.id_article
-      LEFT JOIN fournisseurs f ON f.id_fournisseur = m.fournisseur_id
-      LEFT JOIN LATERAL (
-        SELECT id_caisse_jour, montant
-        FROM caisse_operation
-        WHERE statut_operation <> 'ANNULEE'
-          AND (
-            reference_metier = m.reference_metier
-            OR reference_metier = m.id_mouvement
-          )
-          AND motif IN ('VENTE_STOCK', 'PAIEMENT_STOCK')
-        ORDER BY date_operation DESC
-        LIMIT 1
-      ) op ON TRUE
-      ORDER BY m.date_mouvement DESC`
-    );
-
-    res.json(
-      result.rows.map((row) => {
-        const quantite = Number(row.quantite || 0);
-        const prixUnitaire = Number(row.prix_vente_unitaire || 0);
-        return {
-          idMouvement: row.id_mouvement,
-          idArticle: row.id_article,
-          nomArticle: row.nom_article,
-          typeMouvement: row.type_mouvement,
-          quantite,
-          motif: row.motif,
-          dateMouvement: row.date_mouvement,
-          utilisateur: row.effectue_par,
-          referenceMetier: row.reference_metier,
-          fournisseurId: row.fournisseur_id || null,
-          fournisseur: row.nom_fournisseur || row.fournisseur || null,
-          referenceAchat: row.reference_achat || null,
-          prixAchatUnitaire: row.prix_achat_unitaire === null ? null : Number(row.prix_achat_unitaire),
-          montantAchatTotal: row.montant_achat_total === null ? null : Number(row.montant_achat_total),
-          montantUnitaire: prixUnitaire,
-          montantEstime:
-            row.montant_achat_total === null ? quantite * prixUnitaire : Number(row.montant_achat_total),
-          montantEncaisse: row.montant_encaisse === null ? null : Number(row.montant_encaisse),
-          idCaisseJour: row.id_caisse_jour || null
-        };
-      })
-    );
+    res.json(await stockReadRepo.listAuditStockVentes());
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
 // Get stock movement detail
-router.get("/stock/mouvements/:id", async (req, res) => {
+router.get("/stock/mouvements/:id", requireStockAccess, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT
-        m.id_mouvement,
-        m.id_article,
-        m.type_mouvement,
-        m.quantite,
-        m.motif,
-        m.date_mouvement,
-        m.effectue_par,
-        m.reference_metier,
-        m.fournisseur_id,
-        m.fournisseur,
-        m.reference_achat,
-        m.prix_achat_unitaire,
-        m.montant_achat_total,
-        a.nom_article,
-        a.prix_vente_unitaire,
-        f.nom_fournisseur,
-        op.id_caisse_jour,
-        op.montant AS montant_encaisse
-      FROM mouvements_stock m
-      INNER JOIN articles a ON a.id_article = m.id_article
-      LEFT JOIN fournisseurs f ON f.id_fournisseur = m.fournisseur_id
-      LEFT JOIN LATERAL (
-        SELECT id_caisse_jour, montant
-        FROM caisse_operation
-        WHERE statut_operation <> 'ANNULEE'
-          AND (
-            reference_metier = m.reference_metier
-            OR reference_metier = m.id_mouvement
-          )
-          AND motif IN ('VENTE_STOCK', 'PAIEMENT_STOCK')
-        ORDER BY date_operation DESC
-        LIMIT 1
-      ) op ON TRUE
-      WHERE m.id_mouvement = $1
-      LIMIT 1`,
-      [req.params.id]
-    );
-
-    if (result.rowCount === 0) return res.status(404).json({ error: "Mouvement introuvable" });
-    const row = result.rows[0];
-    const quantite = Number(row.quantite || 0);
-    const prixUnitaire = Number(row.prix_vente_unitaire || 0);
-
-    res.json({
-      idMouvement: row.id_mouvement,
-      idArticle: row.id_article,
-      nomArticle: row.nom_article,
-      typeMouvement: row.type_mouvement,
-      quantite,
-      motif: row.motif,
-      dateMouvement: row.date_mouvement,
-      utilisateur: row.effectue_par,
-      referenceMetier: row.reference_metier,
-      fournisseurId: row.fournisseur_id || null,
-      fournisseur: row.nom_fournisseur || row.fournisseur || null,
-      referenceAchat: row.reference_achat || null,
-      prixAchatUnitaire: row.prix_achat_unitaire === null ? null : Number(row.prix_achat_unitaire),
-      montantAchatTotal: row.montant_achat_total === null ? null : Number(row.montant_achat_total),
-      montantUnitaire: prixUnitaire,
-      montantEstime: row.montant_achat_total === null ? quantite * prixUnitaire : Number(row.montant_achat_total),
-      montantEncaisse: row.montant_encaisse === null ? null : Number(row.montant_encaisse),
-      idCaisseJour: row.id_caisse_jour || null
-    });
+    const mouvement = await stockReadRepo.getStockMouvementById(req.params.id);
+    if (!mouvement) return res.status(404).json({ error: "Mouvement introuvable" });
+    res.json(mouvement);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
 // Create article
-router.post("/stock/articles", async (req, res) => {
+router.post("/stock/articles", requireStockAccess, async (req, res) => {
   const schema = z
     .object({
       nomArticle: z.string().min(1),
@@ -375,7 +283,7 @@ router.post("/stock/articles", async (req, res) => {
 });
 
 // Update article metadata (price, seuil, etc.)
-router.put("/stock/articles/:id", async (req, res) => {
+router.put("/stock/articles/:id", requireStockAccess, async (req, res) => {
   const schema = z
     .object({
       nomArticle: z.string().min(1).optional(),
@@ -430,12 +338,12 @@ router.put("/stock/articles/:id", async (req, res) => {
 });
 
 // Entrer stock
-router.post("/stock/articles/:id/entrees", async (req, res) => {
+router.post("/stock/articles/:id/entrees", requireStockAccess, async (req, res) => {
   const schema = z
     .object({
       quantite: z.coerce.number(),
       motif: z.string().min(1),
-      utilisateur: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
       idCaisseJour: z.string().optional(),
       referenceMetier: z.string().optional(),
       fournisseurId: z.string().optional(),
@@ -447,7 +355,7 @@ router.post("/stock/articles/:id/entrees", async (req, res) => {
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["quantite", "motif", "utilisateur"]);
+  const r1 = requireFields(body, ["quantite", "motif"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   const r2 = requireNumber(body, "quantite");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
@@ -459,31 +367,23 @@ router.post("/stock/articles/:id/entrees", async (req, res) => {
   }
 
   try {
-    let fournisseurNom = body.fournisseur || null;
-    if (body.fournisseurId) {
-      const supplierRes = await pool.query(
-        "SELECT id_fournisseur, nom_fournisseur FROM fournisseurs WHERE id_fournisseur = $1 AND actif = true",
-        [body.fournisseurId]
-      );
-      if (supplierRes.rowCount === 0) return res.status(400).json({ error: "Fournisseur introuvable" });
-      fournisseurNom = supplierRes.rows[0].nom_fournisseur;
-    }
+    const acteur = resolveActeur(req, body.utilisateur);
     const article = await entrerStock({
       idArticle: req.params.id,
       input: {
-        idMouvement: generateMouvementId(),
         quantite: body.quantite,
         motif: body.motif,
-        utilisateur: body.utilisateur,
-        referenceMetier: body.referenceMetier || body.referenceAchat || null,
+        utilisateur: acteur.utilisateur || body.utilisateur,
+        referenceMetier: body.referenceMetier || null,
         fournisseurId: body.fournisseurId || null,
-        fournisseur: fournisseurNom,
+        fournisseur: body.fournisseur || null,
         referenceAchat: body.referenceAchat || null,
         prixAchatUnitaire: body.prixAchatUnitaire === undefined ? null : body.prixAchatUnitaire
       },
       articleRepo,
       caisseRepo,
-      idCaisseJour: body.idCaisseJour || null
+      idCaisseJour: body.idCaisseJour || null,
+      fournisseurRepo
     });
     res.json(article);
   } catch (err) {
@@ -492,31 +392,31 @@ router.post("/stock/articles/:id/entrees", async (req, res) => {
 });
 
 // Sortir stock
-router.post("/stock/articles/:id/sorties", async (req, res) => {
+router.post("/stock/articles/:id/sorties", requireStockAccess, async (req, res) => {
   const schema = z
     .object({
       quantite: z.coerce.number(),
       motif: z.string().min(1),
-      utilisateur: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
       referenceMetier: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["quantite", "motif", "utilisateur"]);
+  const r1 = requireFields(body, ["quantite", "motif"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   const r2 = requireNumber(body, "quantite");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
 
   try {
+    const acteur = resolveActeur(req, body.utilisateur);
     const article = await sortirStock({
       idArticle: req.params.id,
       input: {
-        idMouvement: generateMouvementId(),
         quantite: body.quantite,
         motif: body.motif,
-        utilisateur: body.utilisateur,
+        utilisateur: acteur.utilisateur || body.utilisateur,
         referenceMetier: body.referenceMetier || null
       },
       articleRepo
@@ -528,31 +428,31 @@ router.post("/stock/articles/:id/sorties", async (req, res) => {
 });
 
 // Ajuster stock
-router.post("/stock/articles/:id/ajuster", async (req, res) => {
+router.post("/stock/articles/:id/ajuster", requireStockAccess, async (req, res) => {
   const schema = z
     .object({
       quantite: z.coerce.number(),
       motif: z.string().min(1),
-      utilisateur: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
       referenceMetier: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["quantite", "motif", "utilisateur"]);
+  const r1 = requireFields(body, ["quantite", "motif"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   const r2 = requireNumber(body, "quantite");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
 
   try {
+    const acteur = resolveActeur(req, body.utilisateur);
     const article = await ajusterStock({
       idArticle: req.params.id,
       input: {
-        idMouvement: generateMouvementId(),
         quantite: body.quantite,
         motif: body.motif,
-        utilisateur: body.utilisateur,
+        utilisateur: acteur.utilisateur || body.utilisateur,
         referenceMetier: body.referenceMetier || null
       },
       articleRepo
@@ -564,7 +464,7 @@ router.post("/stock/articles/:id/ajuster", async (req, res) => {
 });
 
 // Activer article
-router.post("/stock/articles/:id/activer", async (req, res) => {
+router.post("/stock/articles/:id/activer", requireStockAccess, async (req, res) => {
   try {
     const article = await activerArticle({ idArticle: req.params.id, articleRepo });
     res.json(article);
@@ -574,7 +474,7 @@ router.post("/stock/articles/:id/activer", async (req, res) => {
 });
 
 // Desactiver article
-router.post("/stock/articles/:id/desactiver", async (req, res) => {
+router.post("/stock/articles/:id/desactiver", requireStockAccess, async (req, res) => {
   try {
     const article = await desactiverArticle({ idArticle: req.params.id, articleRepo });
     res.json(article);
@@ -584,34 +484,16 @@ router.post("/stock/articles/:id/desactiver", async (req, res) => {
 });
 
 // List ventes
-router.get("/ventes", async (req, res) => {
+router.get("/ventes", requireVenteAccess, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT id_vente, date_vente, total, statut, reference_caisse, motif_annulation
-              , total_prix_achat, benefice_total
-       FROM ventes
-       ORDER BY date_vente DESC`
-    );
-
-    res.json(
-      result.rows.map((row) => ({
-        idVente: row.id_vente,
-        date: row.date_vente,
-        total: Number(row.total),
-        totalPrixAchat: Number(row.total_prix_achat || 0),
-        beneficeTotal: Number(row.benefice_total || 0),
-        statut: row.statut,
-        referenceCaisse: row.reference_caisse,
-        motifAnnulation: row.motif_annulation || null
-      }))
-    );
+    res.json(await venteReadRepo.listVentes());
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
 // Get vente detail
-router.get("/ventes/:id", async (req, res) => {
+router.get("/ventes/:id", requireVenteAccess, async (req, res) => {
   try {
     const vente = await venteRepo.getById(req.params.id);
     if (!vente) return res.status(404).json({ error: "Vente introuvable" });
@@ -638,7 +520,7 @@ router.get("/ventes/:id", async (req, res) => {
 });
 
 // Creer vente (brouillon)
-router.post("/ventes", async (req, res) => {
+router.post("/ventes", requireVenteAccess, async (req, res) => {
   const schema = z
     .object({
       lignesVente: z.array(z.any())
@@ -663,7 +545,7 @@ router.post("/ventes", async (req, res) => {
 });
 
 // Modifier lignes vente (brouillon uniquement)
-router.post("/ventes/:id/lignes", async (req, res) => {
+router.post("/ventes/:id/lignes", requireVenteAccess, async (req, res) => {
   const schema = z
     .object({
       lignesVente: z.array(z.any())
@@ -689,26 +571,27 @@ router.post("/ventes/:id/lignes", async (req, res) => {
 });
 
 // Valider vente
-router.post("/ventes/:id/valider", async (req, res) => {
+router.post("/ventes/:id/valider", requireVenteAccess, async (req, res) => {
   const schema = z
     .object({
       idCaisseJour: z.string().min(1),
-      utilisateur: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
       modePaiement: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["idCaisseJour", "utilisateur"]);
+  const r1 = requireFields(body, ["idCaisseJour"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
 
   try {
+    const acteur = resolveActeur(req, body.utilisateur);
     const vente = await validerVente({
       idVente: req.params.id,
       idCaisseJour: body.idCaisseJour,
       modePaiement: body.modePaiement || "CASH",
-      utilisateur: body.utilisateur,
+      utilisateur: acteur.utilisateur || body.utilisateur,
       venteRepo,
       articleRepo,
       caisseRepo
@@ -719,8 +602,49 @@ router.post("/ventes/:id/valider", async (req, res) => {
   }
 });
 
+router.post("/ventes/:id/valider-et-facturer", requireVenteAccess, async (req, res) => {
+  const schema = z
+    .object({
+      idCaisseJour: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
+      modePaiement: z.string().optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+  const body = parsed.data;
+  const r1 = requireFields(body, ["idCaisseJour"]);
+  if (!r1.ok) return res.status(400).json({ error: r1.error });
+
+  try {
+    const acteur = resolveActeur(req, body.utilisateur);
+    const vente = await validerVente({
+      idVente: req.params.id,
+      idCaisseJour: body.idCaisseJour,
+      modePaiement: body.modePaiement || "CASH",
+      utilisateur: acteur.utilisateur || body.utilisateur,
+      venteRepo,
+      articleRepo,
+      caisseRepo
+    });
+    const facture = await emettreFacture({
+      input: {
+        typeOrigine: "VENTE",
+        idOrigine: vente.idVente,
+        prefixeNumero: await resolveFacturationPrefix()
+      },
+      factureRepo,
+      origineReader: origineFactureReader
+    });
+    const detailFacture = await obtenirFacture({ idFacture: facture.idFacture, factureRepo });
+    res.json({ vente, facture: detailFacture });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Annuler vente (brouillon uniquement)
-router.post("/ventes/:id/annuler", async (req, res) => {
+router.post("/ventes/:id/annuler", requireVenteAccess, async (req, res) => {
   try {
     const schema = z
       .object({

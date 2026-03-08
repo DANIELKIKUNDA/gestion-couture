@@ -3,6 +3,12 @@ const CAISSE_JOUR_ID = import.meta.env.VITE_CAISSE_JOUR_ID || "";
 const CAISSE_USER = import.meta.env.VITE_CAISSE_USER || "frontend";
 const CAISSE_MODE_PAIEMENT = import.meta.env.VITE_CAISSE_MODE_PAIEMENT || "CASH";
 
+function assignIfPresent(target, key, value) {
+  if (value !== null && value !== undefined && value !== "") {
+    target[key] = value;
+  }
+}
+
 export class ApiError extends Error {
   constructor(message, status, payload) {
     super(message);
@@ -484,7 +490,7 @@ export const atelierApi = {
     {
       quantite,
       motif,
-      utilisateur = CAISSE_USER,
+      utilisateur = null,
       idCaisseJour = null,
       referenceMetier = null,
       fournisseurId = null,
@@ -493,47 +499,34 @@ export const atelierApi = {
       prixAchatUnitaire = null
     } = {}
   ) {
-    const payload = { quantite, motif, utilisateur };
-    if (idCaisseJour !== null && idCaisseJour !== undefined && idCaisseJour !== "") {
-      payload.idCaisseJour = idCaisseJour;
-    }
-    if (referenceMetier !== null && referenceMetier !== undefined && referenceMetier !== "") {
-      payload.referenceMetier = referenceMetier;
-    }
-    if (fournisseur !== null && fournisseur !== undefined && fournisseur !== "") {
-      payload.fournisseur = fournisseur;
-    }
-    if (fournisseurId !== null && fournisseurId !== undefined && fournisseurId !== "") {
-      payload.fournisseurId = fournisseurId;
-    }
-    if (referenceAchat !== null && referenceAchat !== undefined && referenceAchat !== "") {
-      payload.referenceAchat = referenceAchat;
-    }
-    if (prixAchatUnitaire !== null && prixAchatUnitaire !== undefined && prixAchatUnitaire !== "") {
-      payload.prixAchatUnitaire = prixAchatUnitaire;
-    }
+    const payload = { quantite, motif };
+    assignIfPresent(payload, "utilisateur", utilisateur);
+    assignIfPresent(payload, "idCaisseJour", idCaisseJour);
+    assignIfPresent(payload, "referenceMetier", referenceMetier);
+    assignIfPresent(payload, "fournisseur", fournisseur);
+    assignIfPresent(payload, "fournisseurId", fournisseurId);
+    assignIfPresent(payload, "referenceAchat", referenceAchat);
+    assignIfPresent(payload, "prixAchatUnitaire", prixAchatUnitaire);
     return request(`/stock/articles/${idArticle}/entrees`, {
       method: "POST",
       body: JSON.stringify(payload)
     });
   },
 
-  sortirStockArticle(idArticle, { quantite, motif, utilisateur = CAISSE_USER, referenceMetier = null } = {}) {
-    const payload = { quantite, motif, utilisateur };
-    if (referenceMetier !== null && referenceMetier !== undefined && referenceMetier !== "") {
-      payload.referenceMetier = referenceMetier;
-    }
+  sortirStockArticle(idArticle, { quantite, motif, utilisateur = null, referenceMetier = null } = {}) {
+    const payload = { quantite, motif };
+    assignIfPresent(payload, "utilisateur", utilisateur);
+    assignIfPresent(payload, "referenceMetier", referenceMetier);
     return request(`/stock/articles/${idArticle}/sorties`, {
       method: "POST",
       body: JSON.stringify(payload)
     });
   },
 
-  ajusterStockArticle(idArticle, { quantite, motif, utilisateur = CAISSE_USER, referenceMetier = null } = {}) {
-    const payload = { quantite, motif, utilisateur };
-    if (referenceMetier !== null && referenceMetier !== undefined && referenceMetier !== "") {
-      payload.referenceMetier = referenceMetier;
-    }
+  ajusterStockArticle(idArticle, { quantite, motif, utilisateur = null, referenceMetier = null } = {}) {
+    const payload = { quantite, motif };
+    assignIfPresent(payload, "utilisateur", utilisateur);
+    assignIfPresent(payload, "referenceMetier", referenceMetier);
     return request(`/stock/articles/${idArticle}/ajuster`, {
       method: "POST",
       body: JSON.stringify(payload)
@@ -562,11 +555,23 @@ export const atelierApi = {
     });
   },
 
-  async validerVente({ idVente, utilisateur = CAISSE_USER, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT }) {
+  async validerVente({ idVente, utilisateur = null, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT }) {
     const caisseJourId = await resolveCaisseJourId(idCaisseJour);
+    const payload = { idCaisseJour: caisseJourId, modePaiement };
+    assignIfPresent(payload, "utilisateur", utilisateur);
     return request(`/ventes/${idVente}/valider`, {
       method: "POST",
-      body: JSON.stringify({ idCaisseJour: caisseJourId, utilisateur, modePaiement })
+      body: JSON.stringify(payload)
+    });
+  },
+
+  async validerVenteEtFacturer({ idVente, utilisateur = null, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT }) {
+    const caisseJourId = await resolveCaisseJourId(idCaisseJour);
+    const payload = { idCaisseJour: caisseJourId, modePaiement };
+    assignIfPresent(payload, "utilisateur", utilisateur);
+    return request(`/ventes/${idVente}/valider-et-facturer`, {
+      method: "POST",
+      body: JSON.stringify(payload)
     });
   },
 
@@ -585,24 +590,30 @@ export const atelierApi = {
     return request(`/caisse/${idCaisseJour}`, { method: "GET" });
   },
 
-  enregistrerDepenseCaisse({ idCaisseJour, montant, motif, typeDepense, justification = "", utilisateur = CAISSE_USER, role = "" }) {
+  enregistrerDepenseCaisse({ idCaisseJour, montant, motif, typeDepense, justification = "", utilisateur = null, role = "" }) {
+    const payload = { montant, motif, typeDepense, justification, role };
+    assignIfPresent(payload, "utilisateur", utilisateur);
     return request(`/caisse/${idCaisseJour}/sorties`, {
       method: "POST",
-      body: JSON.stringify({ montant, motif, utilisateur, typeDepense, justification, role })
+      body: JSON.stringify(payload)
     });
   },
 
-  cloturerCaisse(idCaisseJour, utilisateur = CAISSE_USER) {
+  cloturerCaisse(idCaisseJour, utilisateur = null) {
+    const payload = {};
+    assignIfPresent(payload, "utilisateur", utilisateur);
     return request(`/caisse/${idCaisseJour}/cloturer`, {
       method: "POST",
-      body: JSON.stringify({ utilisateur })
+      body: JSON.stringify(payload)
     });
   },
 
-  ouvrirCaisseDuJour({ soldeOuverture, utilisateur = CAISSE_USER, overrideHeureOuverture = false, role = "", motifOverride = "" }) {
+  ouvrirCaisseDuJour({ soldeOuverture, utilisateur = null, overrideHeureOuverture = false, role = "", motifOverride = "" }) {
+    const payload = { soldeOuverture, overrideHeureOuverture, role, motifOverride };
+    assignIfPresent(payload, "utilisateur", utilisateur);
     return request("/caisse/ouvrir", {
       method: "POST",
-      body: JSON.stringify({ soldeOuverture, utilisateur, overrideHeureOuverture, role, motifOverride })
+      body: JSON.stringify(payload)
     });
   },
 

@@ -1,15 +1,36 @@
-import { generateOperationId } from "../../../shared/domain/id-generator.js";
+import { generateMouvementId, generateOperationId } from "../../../shared/domain/id-generator.js";
 
-export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, idCaisseJour }) {
+export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, idCaisseJour, fournisseurRepo }) {
   const article = await articleRepo.getById(idArticle);
   if (!article) throw new Error("Article introuvable");
 
   const motif = String(input?.motif || "").toUpperCase();
   const isAchat = motif === "ACHAT";
+  let fournisseurNom = String(input?.fournisseur || "").trim() || null;
+  if (input?.fournisseurId) {
+    if (!fournisseurRepo || typeof fournisseurRepo.getActiveById !== "function") {
+      throw new Error("Configuration fournisseur manquante");
+    }
+    const fournisseur = await fournisseurRepo.getActiveById(input.fournisseurId);
+    if (!fournisseur) throw new Error("Fournisseur introuvable");
+    fournisseurNom = fournisseur.nomFournisseur;
+  }
+
+  const mouvementInput = {
+    idMouvement: input?.idMouvement || generateMouvementId(),
+    quantite: input?.quantite,
+    motif,
+    utilisateur: input?.utilisateur,
+    referenceMetier: input?.referenceMetier || input?.referenceAchat || null,
+    fournisseurId: input?.fournisseurId || null,
+    fournisseur: fournisseurNom,
+    referenceAchat: input?.referenceAchat || null,
+    prixAchatUnitaire: input?.prixAchatUnitaire === undefined ? null : input.prixAchatUnitaire
+  };
 
   let caisse = null;
   if (isAchat) {
-    const prixAchatUnitaire = Number(input?.prixAchatUnitaire);
+    const prixAchatUnitaire = Number(mouvementInput.prixAchatUnitaire);
     if (!Number.isFinite(prixAchatUnitaire) || prixAchatUnitaire < 0) {
       throw new Error("prixAchatUnitaire requis pour motif ACHAT");
     }
@@ -45,10 +66,10 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
     }
     caisse.enregistrerSortie({
       idOperation: generateOperationId(),
-      montant: Number(input.quantite || 0) * prixAchatUnitaire,
+      montant: Number(mouvementInput.quantite || 0) * prixAchatUnitaire,
       motif: "ACHAT_STOCK",
-      referenceMetier: input.idMouvement || null,
-      utilisateur: input.utilisateur,
+      referenceMetier: mouvementInput.idMouvement || null,
+      utilisateur: mouvementInput.utilisateur,
       // Achat stock is operational spend that should not be blocked by daily result.
       typeDepense: "EXCEPTIONNELLE",
       justification: "Achat stock",
@@ -56,7 +77,7 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
     });
   }
 
-  article.entrerStock(input);
+  article.entrerStock(mouvementInput);
   await articleRepo.save(article);
 
   if (isAchat) {

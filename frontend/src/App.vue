@@ -317,6 +317,9 @@ const securityRoleOptions = [...settingsRoleOptions];
 const securityPermissionLabels = {
   ANNULER_COMMANDE: "Annuler commande/retouche",
   VOIR_BILANS_GLOBAUX: "Voir bilans & audit",
+  GERER_STOCK: "Gerer stock",
+  GERER_VENTES: "Gerer ventes",
+  VOIR_AUDIT_STOCK: "Voir audit stock & ventes",
   CLOTURER_CAISSE: "Cloturer caisse",
   LIVRER_COMMANDE: "Livrer commande/retouche",
   TERMINER_COMMANDE: "Terminer commande/retouche",
@@ -1710,6 +1713,9 @@ const iconPaths = {
 const PERMISSIONS = {
   ANNULER_COMMANDE: "ANNULER_COMMANDE",
   VOIR_BILANS_GLOBAUX: "VOIR_BILANS_GLOBAUX",
+  GERER_STOCK: "GERER_STOCK",
+  GERER_VENTES: "GERER_VENTES",
+  VOIR_AUDIT_STOCK: "VOIR_AUDIT_STOCK",
   CLOTURER_CAISSE: "CLOTURER_CAISSE",
   LIVRER_COMMANDE: "LIVRER_COMMANDE",
   TERMINER_COMMANDE: "TERMINER_COMMANDE",
@@ -1739,6 +1745,15 @@ function hasAnyPermission(list = []) {
   return list.some((permission) => hasPermission(permission));
 }
 
+function canAccessAuditPath(path = "/audit") {
+  if (!isAuthenticated.value) return false;
+  if (currentRole.value === "PROPRIETAIRE") return true;
+  if (path === "/audit" || path === "/audit/stock-ventes") {
+    return hasAnyPermission([PERMISSIONS.VOIR_BILANS_GLOBAUX, PERMISSIONS.VOIR_AUDIT_STOCK]);
+  }
+  return hasPermission(PERMISSIONS.VOIR_BILANS_GLOBAUX);
+}
+
 function canAccessModule(moduleId) {
   if (!isAuthenticated.value) return false;
   if (currentRole.value === "PROPRIETAIRE") return true;
@@ -1751,9 +1766,11 @@ function canAccessModule(moduleId) {
   if (moduleId === "clientsMesures") return currentRole.value === "CAISSIER" || currentRole.value === "COUTURIER" || canAccessModule("commandes");
   if (moduleId === "caisse") return currentRole.value === "CAISSIER" || hasPermission(PERMISSIONS.CLOTURER_CAISSE);
   if (moduleId === "facturation") return currentRole.value === "CAISSIER" || canAccessModule("commandes");
-  if (moduleId === "stockVentes") return hasPermission(PERMISSIONS.VOIR_BILANS_GLOBAUX);
+  if (moduleId === "stockVentes") {
+    return hasAnyPermission([PERMISSIONS.GERER_STOCK, PERMISSIONS.GERER_VENTES, PERMISSIONS.VOIR_BILANS_GLOBAUX]);
+  }
   if (moduleId === "parametres") return hasPermission(PERMISSIONS.MODIFIER_PARAMETRES);
-  if (moduleId === "audit") return hasPermission(PERMISSIONS.VOIR_BILANS_GLOBAUX);
+  if (moduleId === "audit") return canAccessAuditPath("/audit");
   return false;
 }
 
@@ -3467,6 +3484,10 @@ async function loadAuditPage(path = "/audit") {
   auditLoading.value = true;
 
   try {
+    if (!canAccessAuditPath(path)) {
+      auditError.value = "Acces refuse: permissions insuffisantes.";
+      return;
+    }
     if (path === "/audit") {
       await loadAuditHub();
     } else if (path === "/audit/caisse") {
@@ -4616,15 +4637,19 @@ async function onCreerVente() {
 async function onValiderVente(vente, { emettreFacture = false } = {}) {
   if (!vente || vente.statut === "VALIDEE") return;
   try {
-    await atelierApi.validerVente({ idVente: vente.idVente, utilisateur: "frontend" });
     if (emettreFacture) {
-      await emettreFactureDepuisOrigine("VENTE", vente.idVente, { ouvrirDetail: false });
-      notify(`Vente validee + facture emise: ${vente.idVente}`);
+      const result = await atelierApi.validerVenteEtFacturer({ idVente: vente.idVente });
+      if (result?.facture) {
+        upsertFacture(normalizeFacture(result.facture));
+      }
+      await reloadAll();
       if (currentRoute.value === "vente-detail" && detailVente.value?.idVente === vente.idVente) {
         await loadVenteDetail(vente.idVente);
       }
+      notify(`Vente validee + facture emise: ${vente.idVente}`);
       return;
     }
+    await atelierApi.validerVente({ idVente: vente.idVente });
     await reloadAll();
     if (currentRoute.value === "vente-detail" && detailVente.value?.idVente === vente.idVente) {
       await loadVenteDetail(vente.idVente);
@@ -4712,11 +4737,7 @@ async function onApprovisionnerStock(article) {
     return;
   }
   try {
-    await atelierApi.entrerStockArticle(article.idArticle, {
-      quantite,
-      motif: input.motif,
-      utilisateur: "frontend"
-    });
+    await atelierApi.entrerStockArticle(article.idArticle, { quantite, motif: input.motif });
     input.quantite = "";
     await reloadAll();
     notify(`Stock approvisionne: ${article.nomArticle}`);
@@ -5015,7 +5036,6 @@ async function onDepenseCaisse() {
       motif: String(payload.motif || "").trim(),
       typeDepense,
       justification,
-      utilisateur: "frontend",
       role: currentRole.value
     });
     await reloadAll();
@@ -5046,7 +5066,7 @@ async function onCloturerCaisse() {
   if (!confirmed) return;
 
   try {
-    await atelierApi.cloturerCaisse(caisseJour.value.idCaisseJour, "frontend");
+    await atelierApi.cloturerCaisse(caisseJour.value.idCaisseJour);
     await reloadAll();
     notify("Caisse cloturee.");
   } catch (err) {
@@ -5069,7 +5089,7 @@ async function onOuvrirCaisseDuJour() {
       soldeOuverture = Number(payload.soldeOuverture);
     }
 
-    await atelierApi.ouvrirCaisseDuJour({ soldeOuverture, utilisateur: "frontend" });
+    await atelierApi.ouvrirCaisseDuJour({ soldeOuverture });
     await reloadAll();
     notify("Caisse du jour ouverte.");
   } catch (err) {
@@ -5107,7 +5127,6 @@ async function onOuvrirCaisseAnticipee() {
 
     await atelierApi.ouvrirCaisseDuJour({
       soldeOuverture,
-      utilisateur: "manager",
       overrideHeureOuverture: true,
       role: "manager",
       motifOverride: motif
@@ -7888,7 +7907,7 @@ async function loadRetoucheDetail(idRetouche) {
 
         <template v-else-if="auditSubRoute === '/audit'">
           <div class="audit-hub-grid">
-            <article class="panel audit-hub-card">
+            <article v-if="canAccessAuditPath('/audit/caisse')" class="panel audit-hub-card">
               <h4>Audit de la Caisse</h4>
               <p class="helper">Bilans financiers - Journaliers - Hebdomadaires - Mensuels</p>
               <div class="audit-metrics">
@@ -7899,7 +7918,7 @@ async function loadRetoucheDetail(idRetouche) {
               <button class="action-btn blue" @click="navigateAudit('/audit/caisse')">Voir</button>
             </article>
 
-            <article class="panel audit-hub-card">
+            <article v-if="canAccessAuditPath('/audit/operations')" class="panel audit-hub-card">
               <h4>Audit des Operations</h4>
               <p class="helper">Journal global de toutes les operations financieres</p>
               <div class="audit-metrics">
@@ -7909,37 +7928,37 @@ async function loadRetoucheDetail(idRetouche) {
               <button class="action-btn blue" @click="navigateAudit('/audit/operations')">Voir</button>
             </article>
 
-            <article class="panel audit-hub-card">
+            <article v-if="canAccessAuditPath('/audit/commandes')" class="panel audit-hub-card">
               <h4>Audit des Commandes</h4>
               <p class="helper">Historique des commandes, paiements, livraisons et annulations</p>
               <button class="action-btn blue" @click="navigateAudit('/audit/commandes')">Voir</button>
             </article>
 
-            <article class="panel audit-hub-card">
+            <article v-if="canAccessAuditPath('/audit/retouches')" class="panel audit-hub-card">
               <h4>Audit des Retouches</h4>
               <p class="helper">Historique des retouches, paiements et livraisons</p>
               <button class="action-btn blue" @click="navigateAudit('/audit/retouches')">Voir</button>
             </article>
 
-            <article class="panel audit-hub-card">
+            <article v-if="canAccessAuditPath('/audit/stock-ventes')" class="panel audit-hub-card">
               <h4>Audit Stock & Ventes</h4>
               <p class="helper">Ventes, sorties stock et liens avec la caisse</p>
               <button class="action-btn blue" @click="navigateAudit('/audit/stock-ventes')">Voir</button>
             </article>
 
-            <article class="panel audit-hub-card">
+            <article v-if="canAccessAuditPath('/audit/factures')" class="panel audit-hub-card">
               <h4>Audit Factures</h4>
               <p class="helper">Factures emises, lecture seule et statut derive des paiements caisse</p>
               <button class="action-btn blue" @click="navigateAudit('/audit/factures')">Voir</button>
             </article>
 
-            <article class="panel audit-hub-card">
+            <article v-if="canAccessAuditPath('/audit/utilisateurs')" class="panel audit-hub-card">
               <h4>Audit Utilisateurs</h4>
               <p class="helper">Actions de securite: comptes, activations, roles et permissions</p>
               <button class="action-btn blue" @click="navigateAudit('/audit/utilisateurs')">Voir</button>
             </article>
 
-            <article class="panel audit-hub-card">
+            <article v-if="canAccessAuditPath('/audit/annuel')" class="panel audit-hub-card">
               <h4>Audit Annuel (prevu)</h4>
               <p class="helper">Consolidation annuelle et comparaison des bilans</p>
               <button class="action-btn blue" @click="navigateAudit('/audit/annuel')">Voir</button>

@@ -246,7 +246,7 @@ router.post("/caisse", async (req, res) => {
   const schema = z
     .object({
       soldeOuverture: z.coerce.number(),
-      utilisateur: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
       overrideHeureOuverture: z.boolean().optional(),
       role: z.string().optional(),
       motifOverride: z.string().optional()
@@ -255,7 +255,7 @@ router.post("/caisse", async (req, res) => {
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["soldeOuverture", "utilisateur"]);
+  const r1 = requireFields(body, ["soldeOuverture"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   const r2 = requireNumber(body, "soldeOuverture");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
@@ -294,7 +294,7 @@ router.post("/caisse/ouvrir", async (req, res) => {
   const schema = z
     .object({
       soldeOuverture: z.coerce.number(),
-      utilisateur: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
       overrideHeureOuverture: z.boolean().optional(),
       role: z.string().optional(),
       motifOverride: z.string().optional()
@@ -303,7 +303,7 @@ router.post("/caisse/ouvrir", async (req, res) => {
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["soldeOuverture", "utilisateur"]);
+  const r1 = requireFields(body, ["soldeOuverture"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   const r2 = requireNumber(body, "soldeOuverture");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
@@ -344,14 +344,14 @@ router.post("/caisse/:id/entrees", async (req, res) => {
       montant: z.coerce.number(),
       modePaiement: z.string().min(1),
       motif: z.string().min(1),
-      utilisateur: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
       referenceMetier: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["montant", "modePaiement", "motif", "utilisateur"]);
+  const r1 = requireFields(body, ["montant", "modePaiement", "motif"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   const r2 = requireNumber(body, "montant");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
@@ -396,7 +396,7 @@ router.post("/caisse/:id/sorties", async (req, res) => {
     .object({
       montant: z.coerce.number(),
       motif: z.string().min(1),
-      utilisateur: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
       referenceMetier: z.string().optional(),
       typeDepense: z.string().min(1),
       justification: z.string().optional(),
@@ -406,7 +406,7 @@ router.post("/caisse/:id/sorties", async (req, res) => {
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["montant", "motif", "utilisateur", "typeDepense"]);
+  const r1 = requireFields(body, ["montant", "motif", "typeDepense"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   const r2 = requireNumber(body, "montant");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
@@ -457,13 +457,13 @@ router.post("/caisse/:id/operations/:opId/annuler", async (req, res) => {
   const schema = z
     .object({
       motifAnnulation: z.string().min(1),
-      utilisateur: z.string().min(1)
+      utilisateur: z.string().min(1).optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["motifAnnulation", "utilisateur"]);
+  const r1 = requireFields(body, ["motifAnnulation"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
 
   try {
@@ -500,14 +500,12 @@ router.post("/caisse/:id/operations/:opId/annuler", async (req, res) => {
 router.post("/caisse/:id/cloturer", requirePermission(PERMISSIONS.CLOTURER_CAISSE), async (req, res) => {
   const schema = z
     .object({
-      utilisateur: z.string().min(1)
+      utilisateur: z.string().min(1).optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["utilisateur"]);
-  if (!r1.ok) return res.status(400).json({ error: r1.error });
 
   try {
     const acteur = resolveActeur(req, body.utilisateur);
