@@ -35,11 +35,10 @@ export function normalizeMesuresSnapshot(snapshot, fallbackTypeHabit = "") {
     if (typeof value === "string") {
       const clean = value.trim();
       if (!clean) continue;
-      if (key === "typeManches") {
-        valeurs[key] = clean.toLowerCase();
-      } else {
+      if (key === "typeManches") valeurs[key] = clean.toLowerCase();
+      else {
         const num = Number(clean);
-        if (Number.isFinite(num) && num > 0) valeurs[key] = num;
+        valeurs[key] = Number.isFinite(num) && num > 0 ? num : clean;
       }
     }
   }

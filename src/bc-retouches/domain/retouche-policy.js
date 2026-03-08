@@ -1,11 +1,14 @@
-﻿const DEFAULT_RETOUCHE_TYPES = [
+const DEFAULT_RETOUCHE_TYPES = [
   {
     code: "OURLET_PANTALON",
     libelle: "Ourlet pantalon",
     actif: true,
     ordreAffichage: 1,
     necessiteMesures: true,
-    mesuresCibles: ["longueur", "largeurBas"],
+    mesures: [
+      { code: "longueur", label: "Longueur", unite: "cm", typeChamp: "number", obligatoire: true, actif: true, ordre: 1 },
+      { code: "largeurBas", label: "Largeur bas", unite: "cm", typeChamp: "number", obligatoire: false, actif: true, ordre: 2 }
+    ],
     descriptionObligatoire: false,
     habitsCompatibles: ["PANTALON"]
   },
@@ -15,7 +18,7 @@
     actif: true,
     ordreAffichage: 2,
     necessiteMesures: false,
-    mesuresCibles: [],
+    mesures: [],
     descriptionObligatoire: true,
     habitsCompatibles: ["*"]
   },
@@ -25,7 +28,7 @@
     actif: true,
     ordreAffichage: 3,
     necessiteMesures: false,
-    mesuresCibles: [],
+    mesures: [],
     descriptionObligatoire: false,
     habitsCompatibles: ["*"]
   },
@@ -35,30 +38,62 @@
     actif: true,
     ordreAffichage: 4,
     necessiteMesures: true,
-    mesuresCibles: [],
+    mesures: [
+      { code: "longueur", label: "Longueur", unite: "cm", typeChamp: "number", obligatoire: true, actif: true, ordre: 1 }
+    ],
     descriptionObligatoire: false,
     habitsCompatibles: ["*"]
   }
 ];
+
+function normalizeMeasureRow(row, fallbackOrder = 1) {
+  if (!row || typeof row !== "object") return null;
+  const code = String(row.code || "").trim();
+  if (!code) return null;
+  const typeChamp = String(row.typeChamp || "").trim().toLowerCase();
+  return {
+    code,
+    label: String(row.label || code).trim() || code,
+    unite: String(row.unite || (typeChamp === "text" || typeChamp === "select" ? "" : "cm")).trim(),
+    typeChamp: typeChamp === "text" || typeChamp === "select" ? typeChamp : "number",
+    obligatoire: row.obligatoire === true,
+    actif: row.actif !== false,
+    ordre: Number.isFinite(Number(row.ordre)) ? Number(row.ordre) : fallbackOrder
+  };
+}
 
 function normalizeTypeRetoucheRow(row) {
   if (!row || typeof row !== "object") return null;
   const code = String(row.code || "").trim().toUpperCase();
   if (!code) return null;
   const libelle = String(row.libelle || code).trim() || code;
-  const mesuresCibles = Array.isArray(row.mesuresCibles)
-    ? row.mesuresCibles.map((item) => String(item || "").trim()).filter(Boolean)
-    : [];
   const habitsCompatibles = Array.isArray(row.habitsCompatibles)
     ? row.habitsCompatibles.map((item) => String(item || "").trim().toUpperCase()).filter(Boolean)
     : ["*"];
+  const mesuresSource = Array.isArray(row.mesures)
+    ? row.mesures
+    : Array.isArray(row.mesuresCibles)
+      ? row.mesuresCibles.map((item, index) => ({
+          code: String(item || "").trim(),
+          label: String(item || "").trim(),
+          unite: "cm",
+          typeChamp: "number",
+          obligatoire: true,
+          actif: true,
+          ordre: index + 1
+        }))
+      : [];
+  const mesures = mesuresSource
+    .map((item, index) => normalizeMeasureRow(item, index + 1))
+    .filter(Boolean)
+    .sort((left, right) => Number(left.ordre || 0) - Number(right.ordre || 0));
   return {
     code,
     libelle,
     actif: row.actif !== false,
     ordreAffichage: Number.isFinite(Number(row.ordreAffichage)) ? Number(row.ordreAffichage) : null,
     necessiteMesures: row.necessiteMesures === true,
-    mesuresCibles,
+    mesures,
     descriptionObligatoire: row.descriptionObligatoire === true,
     habitsCompatibles: habitsCompatibles.length > 0 ? habitsCompatibles : ["*"]
   };
@@ -112,5 +147,9 @@ export function isRetoucheHabitCompatible(typeDefinition, typeHabit) {
 }
 
 export function resolveMesureTargetsForHabit({ typeDefinition }) {
-  return Array.isArray(typeDefinition?.mesuresCibles) ? typeDefinition.mesuresCibles : [];
+  return Array.isArray(typeDefinition?.mesures) ? typeDefinition.mesures.map((row) => row.code).filter(Boolean) : [];
+}
+
+export function resolveRetoucheMeasureDefinitions({ typeDefinition }) {
+  return Array.isArray(typeDefinition?.mesures) ? typeDefinition.mesures.filter((row) => row.actif !== false) : [];
 }

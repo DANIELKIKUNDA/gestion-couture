@@ -61,17 +61,34 @@ export function validateParametresPayload(payload) {
       assertNumber(row.ordreAffichage, "Retouches.typesRetouche.ordreAffichage", { min: 1 });
       assertBoolean(row.necessiteMesures, "Retouches.typesRetouche.necessiteMesures");
       assertBoolean(row.descriptionObligatoire, "Retouches.typesRetouche.descriptionObligatoire");
-      assertArray(row.mesuresCibles, "Retouches.typesRetouche.mesuresCibles");
       assertArray(row.habitsCompatibles, "Retouches.typesRetouche.habitsCompatibles");
       if (typeCodes.has(row.code)) throw new Error(`Retouches.typesRetouche.code duplique: ${row.code}`);
       if (typeOrders.has(row.ordreAffichage)) throw new Error(`Retouches.typesRetouche.ordreAffichage duplique: ${row.ordreAffichage}`);
       typeCodes.add(row.code);
       typeOrders.add(row.ordreAffichage);
-      const mesuresCibles = new Set();
-      for (const mesure of row.mesuresCibles) {
-        assertString(mesure, `Retouches.typesRetouche.${row.code}.mesuresCibles`);
-        if (mesuresCibles.has(mesure)) throw new Error(`Retouches.typesRetouche.${row.code}.mesuresCibles duplique: ${mesure}`);
-        mesuresCibles.add(mesure);
+      const mesures = row.mesures !== undefined ? row.mesures : row.mesuresCibles;
+      assertArray(mesures, `Retouches.typesRetouche.${row.code}.mesures`);
+      const mesureCodes = new Set();
+      const mesureOrdres = new Set();
+      for (const mesure of mesures) {
+        if (typeof mesure === "string") {
+          assertString(mesure, `Retouches.typesRetouche.${row.code}.mesures`);
+          if (mesureCodes.has(mesure)) throw new Error(`Retouches.typesRetouche.${row.code}.mesures duplique: ${mesure}`);
+          mesureCodes.add(mesure);
+          continue;
+        }
+        if (!mesure || typeof mesure !== "object") throw new Error(`Retouches.typesRetouche.${row.code}.mesures contient un element invalide`);
+        assertString(mesure.code, `Retouches.typesRetouche.${row.code}.mesures.code`);
+        assertString(mesure.label, `Retouches.typesRetouche.${row.code}.mesures.label`);
+        assertString(mesure.unite, `Retouches.typesRetouche.${row.code}.mesures.unite`);
+        assertString(mesure.typeChamp, `Retouches.typesRetouche.${row.code}.mesures.typeChamp`);
+        assertBoolean(mesure.obligatoire, `Retouches.typesRetouche.${row.code}.mesures.obligatoire`);
+        assertBoolean(mesure.actif, `Retouches.typesRetouche.${row.code}.mesures.actif`);
+        assertNumber(mesure.ordre, `Retouches.typesRetouche.${row.code}.mesures.ordre`, { min: 1 });
+        if (mesureCodes.has(mesure.code)) throw new Error(`Retouches.typesRetouche.${row.code}.mesures.code duplique: ${mesure.code}`);
+        if (mesureOrdres.has(mesure.ordre)) throw new Error(`Retouches.typesRetouche.${row.code}.mesures.ordre duplique: ${mesure.ordre}`);
+        mesureCodes.add(mesure.code);
+        mesureOrdres.add(mesure.ordre);
       }
       const habitsCompatibles = new Set();
       for (const habit of row.habitsCompatibles) {

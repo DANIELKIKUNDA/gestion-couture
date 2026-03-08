@@ -9,13 +9,14 @@ import {
   AvanceInsuffisante,
   TransitionStatutRetoucheInvalide
 } from "./errors.js";
-import { createMesuresRetouche } from "../../shared/domain/mesures-habit.js";
 import {
   getTypeRetoucheDefinition,
   isRetoucheHabitCompatible,
   resolveMesureTargetsForHabit,
+  resolveRetoucheMeasureDefinitions,
   resolveRetouchePolicy
 } from "./retouche-policy.js";
+import { createRetoucheMesuresSnapshot } from "./mesures-retouche.js";
 
 export class Retouche {
   constructor({
@@ -70,22 +71,26 @@ export class Retouche {
     }
 
     const shouldRequireMeasures = typeDef.necessiteMesures === true;
-    const mesureTargets = resolveMesureTargetsForHabit({
-      typeDefinition: typeDef,
-      typeHabit
-    });
+    const mesureTargets = resolveMesureTargetsForHabit({ typeDefinition: typeDef, typeHabit });
+    const mesureDefinitions = resolveRetoucheMeasureDefinitions({ typeDefinition: typeDef });
 
     if (typeHabit || mesuresHabit) {
       try {
-        const snapshot = createMesuresRetouche(typeHabit, mesuresHabit, {
-          requireAtLeastOne: shouldRequireMeasures,
-          allowDecimals: true,
-          unit: "cm"
-        });
-        const values = snapshot?.valeurs || {};
-        if (!shouldRequireMeasures && resolvedPolicy.mesuresOptionnelles === false && Object.keys(values).length > 0) {
+        const rawValues = mesuresHabit?.valeurs && typeof mesuresHabit.valeurs === "object" ? mesuresHabit.valeurs : mesuresHabit;
+        if (!shouldRequireMeasures && rawValues && Object.keys(rawValues).length > 0) {
           throw new Error("Mesures non autorisees pour ce type de retouche");
         }
+        if (shouldRequireMeasures && mesureDefinitions.length === 0) {
+          throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche");
+        }
+        const snapshot = shouldRequireMeasures
+          ? createRetoucheMesuresSnapshot(rawValues, {
+              definitions: mesureDefinitions,
+              requireAtLeastOne: true,
+              requireComplete: resolvedPolicy.saisiePartielle !== true
+            })
+          : null;
+        const values = snapshot?.valeurs || {};
         if (shouldRequireMeasures) {
           if (resolvedPolicy.saisiePartielle) {
             const hasAnyTarget = mesureTargets.some((key) => values[key] !== undefined && values[key] !== null && values[key] !== "");
@@ -98,8 +103,8 @@ export class Retouche {
             }
           }
         }
-        this.typeHabit = snapshot.typeHabit;
-        this.mesuresHabit = snapshot;
+        this.typeHabit = String(typeHabit || mesuresHabit?.typeHabit || "").trim().toUpperCase() || null;
+        this.mesuresHabit = snapshot ? { ...snapshot, typeHabit: this.typeHabit, typeRetouche: this.typeRetouche } : null;
       } catch (err) {
         if (!rehydrate) throw err;
         // Compatibility for historical rows with incomplete measures.

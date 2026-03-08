@@ -21,6 +21,7 @@ import {
   getTypeRetoucheDefinition,
   isRetoucheHabitCompatible,
   resolveMesureTargetsForHabit,
+  resolveRetoucheMeasureDefinitions,
   resolveRetouchePolicy
 } from "../../domain/retouche-policy.js";
 
@@ -163,7 +164,7 @@ router.get("/retouches/types", async (req, res) => {
         actif: row.actif !== false,
         ordreAffichage: Number(row.ordreAffichage || 1),
         necessiteMesures: row.necessiteMesures,
-        mesuresCibles: row.mesuresCibles || [],
+        mesures: row.mesures || [],
         descriptionObligatoire: row.descriptionObligatoire,
         habitsCompatibles: row.habitsCompatibles || ["*"]
       }))
@@ -375,7 +376,11 @@ router.post("/retouches", async (req, res) => {
       typeDefinition,
       typeHabit: body.typeHabit
     });
+    const measureDefinitions = resolveRetoucheMeasureDefinitions({ typeDefinition });
     const measuresRequired = typeDefinition.necessiteMesures === true;
+    if (measuresRequired && measureDefinitions.length === 0) {
+      throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche.");
+    }
     const retouche = deposerRetouche({
       ...body,
       idRetouche: generateRetoucheId()
@@ -395,7 +400,7 @@ router.post("/retouches", async (req, res) => {
         montantTotal: Number(retouche.montantTotal || 0),
         typeRetouche: retouche.typeRetouche,
         necessiteMesures: measuresRequired,
-        mesuresCibles: mesureTargets
+        mesures: mesureTargets
       }
     });
     await enregistrerEvenementAudit({
@@ -459,8 +464,9 @@ router.post("/retouches/wizard", async (req, res) => {
       typeDefinition,
       typeHabit: body.typeHabit
     });
-    if (typeDefinition.necessiteMesures === true && Array.isArray(typeDefinition.mesuresCibles) && typeDefinition.mesuresCibles.length > 0 && mesureTargets.length === 0) {
-      throw new Error("Configuration invalide: aucune mesure cible disponible pour ce type d'habit.");
+    const measureDefinitions = resolveRetoucheMeasureDefinitions({ typeDefinition });
+    if (typeDefinition.necessiteMesures === true && measureDefinitions.length === 0) {
+      throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche.");
     }
 
     await dbClient.query("BEGIN");
@@ -533,7 +539,7 @@ router.post("/retouches/wizard", async (req, res) => {
           montantTotal: Number(retouche.montantTotal || 0),
           typeRetouche: retouche.typeRetouche,
           necessiteMesures: measuresRequired,
-          mesuresCibles: mesureTargets
+          mesures: mesureTargets
         })
       ]
     );

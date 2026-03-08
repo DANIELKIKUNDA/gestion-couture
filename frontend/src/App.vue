@@ -470,7 +470,10 @@ function buildDefaultRetoucheTypes() {
       actif: true,
       ordreAffichage: 1,
       necessiteMesures: true,
-      mesuresCibles: ["longueur", "largeurBas"],
+      mesures: [
+        { code: "longueur", label: "Longueur", unite: "cm", typeChamp: "number", obligatoire: true, actif: true, ordre: 1 },
+        { code: "largeurBas", label: "Largeur bas", unite: "cm", typeChamp: "number", obligatoire: false, actif: true, ordre: 2 }
+      ],
       descriptionObligatoire: false,
       habitsCompatibles: ["PANTALON"]
     },
@@ -480,7 +483,7 @@ function buildDefaultRetoucheTypes() {
       actif: true,
       ordreAffichage: 2,
       necessiteMesures: false,
-      mesuresCibles: [],
+      mesures: [],
       descriptionObligatoire: true,
       habitsCompatibles: ["*"]
     },
@@ -490,7 +493,7 @@ function buildDefaultRetoucheTypes() {
       actif: true,
       ordreAffichage: 3,
       necessiteMesures: false,
-      mesuresCibles: [],
+      mesures: [],
       descriptionObligatoire: false,
       habitsCompatibles: ["*"]
     },
@@ -500,7 +503,9 @@ function buildDefaultRetoucheTypes() {
       actif: true,
       ordreAffichage: 4,
       necessiteMesures: true,
-      mesuresCibles: [],
+      mesures: [
+        { code: "longueur", label: "Longueur", unite: "cm", typeChamp: "number", obligatoire: true, actif: true, ordre: 1 }
+      ],
       descriptionObligatoire: false,
       habitsCompatibles: ["*"]
     }
@@ -979,7 +984,7 @@ const filteredSettingsRetoucheTypeEntries = computed(() => {
       row.code,
       row.libelle,
       ...(row.habitsCompatibles || []),
-      ...(row.mesuresCibles || [])
+      ...(row.mesures || []).flatMap((mesure) => [mesure.code, mesure.label])
     ]
       .join(" ")
       .toLowerCase();
@@ -1080,6 +1085,28 @@ function habitMeasureSummary(habitConfig) {
   };
 }
 
+function retoucheMeasuresForEditor(typeConfig) {
+  const mesures = Array.isArray(typeConfig?.mesures) ? typeConfig.mesures : [];
+  return [...mesures].sort((left, right) => {
+    const orderDiff = normalizeSortOrder(left?.ordre) - normalizeSortOrder(right?.ordre);
+    if (orderDiff !== 0) return orderDiff;
+    return String(left?.label || left?.code || "").localeCompare(String(right?.label || right?.code || ""), "fr", {
+      sensitivity: "base"
+    });
+  });
+}
+
+function retoucheMeasureSummary(typeConfig) {
+  const mesures = retoucheMeasuresForEditor(typeConfig);
+  const active = mesures.filter((mesure) => mesure?.actif !== false);
+  const required = active.filter((mesure) => mesure?.obligatoire === true);
+  return {
+    total: mesures.length,
+    active: active.length,
+    required: required.length
+  };
+}
+
 function selectSettingsHabit(habitKey) {
   selectedSettingsHabitKey.value = habitKey;
 }
@@ -1154,16 +1181,38 @@ function normalizeRetoucheTypeDefinition(raw) {
   const habitsCompatibles = Array.isArray(raw?.habitsCompatibles)
     ? raw.habitsCompatibles.map((item) => String(item || "").trim().toUpperCase()).filter(Boolean)
     : ["*"];
-  const mesuresCibles = Array.isArray(raw?.mesuresCibles)
-    ? raw.mesuresCibles.map((item) => String(item || "").trim()).filter(Boolean)
-    : [];
+  const mesuresSource = Array.isArray(raw?.mesures)
+    ? raw.mesures
+    : Array.isArray(raw?.mesuresCibles)
+      ? raw.mesuresCibles.map((item, index) => ({
+          code: String(item || "").trim(),
+          label: mesureLabelFromKey(item),
+          unite: "cm",
+          typeChamp: "number",
+          obligatoire: true,
+          actif: true,
+          ordre: index + 1
+        }))
+      : [];
+  const mesures = mesuresSource
+    .map((mesure, index) => ({
+      code: String(mesure?.code || "").trim(),
+      label: String(mesure?.label || mesure?.code || "").trim() || String(mesure?.code || "").trim(),
+      unite: String(mesure?.unite || (normalizeMesureFieldType(mesure?.typeChamp) === "number" ? "cm" : "")).trim(),
+      typeChamp: normalizeMesureFieldType(mesure?.typeChamp),
+      obligatoire: mesure?.obligatoire === true,
+      actif: mesure?.actif !== false,
+      ordre: Number.isFinite(Number(mesure?.ordre)) ? Number(mesure.ordre) : index + 1
+    }))
+    .filter((mesure) => mesure.code)
+    .sort((left, right) => normalizeSortOrder(left?.ordre) - normalizeSortOrder(right?.ordre));
   return {
     code,
     libelle: String(raw?.libelle || code).trim() || code,
     actif: raw?.actif !== false,
     ordreAffichage: Number.isFinite(Number(raw?.ordreAffichage)) ? Number(raw.ordreAffichage) : Number.MAX_SAFE_INTEGER,
     necessiteMesures: raw?.necessiteMesures === true,
-    mesuresCibles,
+    mesures,
     descriptionObligatoire: raw?.descriptionObligatoire === true,
     habitsCompatibles: habitsCompatibles.length > 0 ? habitsCompatibles : ["*"]
   };
@@ -1178,9 +1227,30 @@ function ensureRetoucheTypeDraft(row, fallbackOrder = 1) {
   row.ordreAffichage = Number.isFinite(Number(row.ordreAffichage)) ? Number(row.ordreAffichage) : fallbackOrder;
   row.necessiteMesures = row.necessiteMesures === true;
   row.descriptionObligatoire = row.descriptionObligatoire === true;
-  row.mesuresCibles = Array.isArray(row.mesuresCibles)
-    ? row.mesuresCibles.map((item) => String(item || "").trim()).filter(Boolean)
-    : [];
+  const mesuresSource = Array.isArray(row.mesures)
+    ? row.mesures
+    : Array.isArray(row.mesuresCibles)
+      ? row.mesuresCibles.map((item, index) => ({
+          code: String(item || "").trim(),
+          label: mesureLabelFromKey(item),
+          unite: "cm",
+          typeChamp: "number",
+          obligatoire: true,
+          actif: true,
+          ordre: index + 1
+        }))
+      : [];
+  row.mesures = mesuresSource
+    .map((mesure, index) => ({
+      code: String(mesure?.code || "").trim(),
+      label: String(mesure?.label || mesure?.code || "").trim() || String(mesure?.code || "").trim(),
+      unite: String(mesure?.unite || (normalizeMesureFieldType(mesure?.typeChamp) === "number" ? "cm" : "")).trim(),
+      typeChamp: normalizeMesureFieldType(mesure?.typeChamp),
+      obligatoire: mesure?.obligatoire === true,
+      actif: mesure?.actif !== false,
+      ordre: Number.isFinite(Number(mesure?.ordre)) ? Number(mesure.ordre) : index + 1
+    }))
+    .filter((mesure) => mesure.code);
   row.habitsCompatibles = Array.isArray(row.habitsCompatibles)
     ? row.habitsCompatibles.map((item) => String(item || "").trim().toUpperCase()).filter(Boolean)
     : ["*"];
@@ -1254,7 +1324,24 @@ function prepareRetoucheSettingsForSave(retouchesRaw) {
     codes.add(draft.code);
     if (orders.has(draft.ordreAffichage)) throw new Error(`Ordre de type de retouche duplique: ${draft.ordreAffichage}.`);
     orders.add(draft.ordreAffichage);
-    const uniqueCibles = Array.from(new Set(draft.mesuresCibles));
+    const uniqueMesures = [];
+    const mesureCodes = new Set();
+    const mesureOrdres = new Set();
+    for (const mesure of draft.mesures || []) {
+      if (mesureCodes.has(mesure.code)) throw new Error(`Mesure dupliquee pour ${draft.code}: ${mesure.code}.`);
+      if (mesureOrdres.has(mesure.ordre)) throw new Error(`Ordre de mesure duplique pour ${draft.code}: ${mesure.ordre}.`);
+      mesureCodes.add(mesure.code);
+      mesureOrdres.add(mesure.ordre);
+      uniqueMesures.push({
+        code: mesure.code,
+        label: mesure.label,
+        unite: mesure.unite || (mesure.typeChamp === "number" ? "cm" : ""),
+        typeChamp: normalizeMesureFieldType(mesure.typeChamp),
+        obligatoire: mesure.obligatoire === true,
+        actif: mesure.actif !== false,
+        ordre: Number(mesure.ordre)
+      });
+    }
     const uniqueHabits = Array.from(new Set(draft.habitsCompatibles));
     if (uniqueHabits.length === 0) uniqueHabits.push("*");
     return {
@@ -1263,7 +1350,7 @@ function prepareRetoucheSettingsForSave(retouchesRaw) {
       actif: draft.actif !== false,
       ordreAffichage: Number(draft.ordreAffichage),
       necessiteMesures: draft.necessiteMesures === true,
-      mesuresCibles: uniqueCibles,
+      mesures: uniqueMesures,
       descriptionObligatoire: draft.descriptionObligatoire === true,
       habitsCompatibles: uniqueHabits
     };
@@ -1313,7 +1400,7 @@ async function addRetoucheType() {
         actif: true,
         ordreAffichage: Number(payload.ordreAffichage),
         necessiteMesures: false,
-        mesuresCibles: [],
+        mesures: [],
         descriptionObligatoire: false,
         habitsCompatibles: ["*"]
       },
@@ -1329,6 +1416,32 @@ function removeRetoucheType(code) {
   const index = list.findIndex((row) => String(row?.code || "").trim().toUpperCase() === String(code || "").trim().toUpperCase());
   if (index === -1) return;
   list.splice(index, 1);
+}
+
+function addMesureToRetoucheType(code) {
+  if (!settingsCanEdit.value) return;
+  const type = atelierSettings.retouches.typesRetouche.find((row) => String(row?.code || "").trim().toUpperCase() === String(code || "").trim().toUpperCase());
+  if (!type) return;
+  if (!Array.isArray(type.mesures)) type.mesures = [];
+  const mesureCode = `mesure_${Date.now().toString(36)}`;
+  type.mesures.push({
+    code: mesureCode,
+    label: "Nouvelle mesure retouche",
+    unite: "cm",
+    typeChamp: "number",
+    obligatoire: true,
+    actif: true,
+    ordre: type.mesures.length + 1
+  });
+}
+
+function removeMesureFromRetoucheType(typeCode, mesureCode) {
+  if (!settingsCanEdit.value) return;
+  const type = atelierSettings.retouches.typesRetouche.find((row) => String(row?.code || "").trim().toUpperCase() === String(typeCode || "").trim().toUpperCase());
+  if (!type || !Array.isArray(type.mesures)) return;
+  const index = type.mesures.findIndex((mesure) => String(mesure?.code || "") === String(mesureCode || ""));
+  if (index === -1) return;
+  type.mesures.splice(index, 1);
 }
 
 async function canLeaveSettings() {
@@ -2427,34 +2540,23 @@ const commandeMesureFields = computed(() => {
 });
 
 const retoucheMesureFields = computed(() => {
-  const type = retoucheWizard.retouche.typeHabit;
-  const def = resolveHabitUiDefinition(type);
-  if (!def) return [];
-  const cibles = Array.isArray(selectedRetoucheTypeDefinition.value?.mesuresCibles)
-    ? selectedRetoucheTypeDefinition.value.mesuresCibles.filter(Boolean)
-    : [];
-  const filteredRequired = cibles.length > 0 ? def.required.filter((key) => cibles.includes(key)) : def.required;
-  const filteredOptional = cibles.length > 0 ? def.optional.filter((key) => cibles.includes(key)) : def.optional;
-  return [
-    ...filteredRequired.map((key) => ({
-      key,
-      label: def.labels?.[key] || mesureLabelFromKey(key),
-      required: false,
-      inputType: def.fieldTypes?.[key] || "number"
-    })),
-    ...filteredOptional.map((key) => ({
-      key,
-      label: def.labels?.[key] || mesureLabelFromKey(key),
-      required: false,
-      inputType: def.fieldTypes?.[key] || "number"
-    }))
-  ];
+  if (!retoucheMeasuresRequired.value) return [];
+  return (selectedRetoucheTypeDefinition.value?.mesures || [])
+    .filter((mesure) => mesure?.actif !== false)
+    .sort((left, right) => normalizeSortOrder(left?.ordre) - normalizeSortOrder(right?.ordre))
+    .map((mesure) => ({
+      key: mesure.code,
+      label: mesure.label || mesureLabelFromKey(mesure.code),
+      required: mesure.obligatoire === true,
+      inputType: normalizeMesureFieldType(mesure.typeChamp),
+      unite: mesure.unite || "cm"
+    }));
 });
 const retoucheMeasuresConfigError = computed(() => {
   if (!retoucheWizard.retouche.typeHabit) return "";
   if (!retoucheMeasuresRequired.value) return "";
   if (retoucheMesureFields.value.length > 0) return "";
-  return "Configuration invalide: aucune mesure exploitable n'est disponible pour ce type de retouche et cet habit.";
+  return "Configuration invalide: aucune mesure n'est definie pour ce type de retouche.";
 });
 
 const lowStockArticles = computed(() =>
@@ -4273,12 +4375,45 @@ function collectMesuresSnapshot({ typeHabit, mesuresModel, requireComplete, requ
   return out;
 }
 
+function collectRetoucheMesuresSnapshot({ mesuresModel, fields, requireAtLeastOne = true, requireComplete = false }) {
+  const out = {};
+  for (const field of fields) {
+    const raw = mesuresModel[field.key];
+    if (raw === undefined || raw === null || raw === "") {
+      if (requireComplete && field.required) throw new Error(`Mesure obligatoire: ${mesureDisplayLabel(field)}`);
+      continue;
+    }
+    out[field.key] =
+      mesureInputType(field) === "number" ? parseMesureValue(raw, mesureDisplayLabel(field)) : parseMesureTextValue(raw, mesureDisplayLabel(field));
+  }
+  if (requireAtLeastOne && Object.keys(out).length === 0) {
+    throw new Error("Saisir au moins une mesure pour la retouche.");
+  }
+  return {
+    unite: fields.find((field) => field.unite)?.unite || "cm",
+    valeurs: out,
+    definitions: fields.map((field, index) => ({
+      code: field.key,
+      label: field.label,
+      unite: field.unite || (mesureInputType(field) === "number" ? "cm" : ""),
+      typeChamp: mesureInputType(field),
+      obligatoire: field.required === true,
+      ordre: index + 1
+    }))
+  };
+}
+
 function formatMesuresLines(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return [];
   const valeurs = snapshot.valeurs && typeof snapshot.valeurs === "object" ? snapshot.valeurs : snapshot;
+  const definitions = Array.isArray(snapshot.definitions) ? snapshot.definitions : [];
+  const byCode = new Map(definitions.map((row) => [row.code, row]));
   return Object.entries(valeurs).map(([key, value]) => {
-    if (key === "typeManches") return `${mesureDisplayLabel(key)}: ${String(value)}`;
-    return `${mesureDisplayLabel(key)}: ${Number(value)} cm`;
+    const definition = byCode.get(key);
+    const label = definition?.label || mesureDisplayLabel(key);
+    const unit = definition?.unite || "cm";
+    if (typeof value === "string" && !Number.isFinite(Number(value))) return `${label}: ${String(value)}`;
+    return `${label}: ${Number(value)}${unit ? ` ${unit}` : ""}`;
   });
 }
 
@@ -4660,16 +4795,17 @@ async function onRetoucheWizardStep2() {
       throw new Error(retoucheMeasuresConfigError.value);
     }
 
-    const measuresAllowed = retoucheMeasuresRequired.value || atelierSettings.retouches?.mesuresOptionnelles !== false;
-    const mesuresSnapshot = collectMesuresSnapshot({
-      typeHabit: retoucheWizard.retouche.typeHabit,
-      mesuresModel: retoucheWizard.retouche.mesuresHabit,
-      requireComplete: false,
-      requireAtLeastOne: retoucheMeasuresRequired.value
-    });
+    const mesuresSnapshot = retoucheMeasuresRequired.value
+      ? collectRetoucheMesuresSnapshot({
+          mesuresModel: retoucheWizard.retouche.mesuresHabit,
+          fields: retoucheMesureFields.value,
+          requireComplete: atelierSettings.retouches?.saisiePartielle !== true,
+          requireAtLeastOne: true
+        })
+      : {};
 
-    const hasMeasures = Object.keys(mesuresSnapshot || {}).length > 0;
-    if (!measuresAllowed && hasMeasures) {
+    const hasMeasures = Object.keys(mesuresSnapshot?.valeurs || mesuresSnapshot || {}).length > 0;
+    if (!retoucheMeasuresRequired.value && hasMeasures) {
       throw new Error("Mesures non autorisees pour ce type de retouche.");
     }
 
@@ -7517,7 +7653,7 @@ async function loadRetoucheDetail(idRetouche) {
                   <span class="helper">{{ row.code }}</span>
                   <span class="measure-habit-meta" :data-state="row.actif === false ? 'ARCHIVE' : 'ACTIF'">
                     {{ row.actif === false ? "Inactif" : "Actif" }} ·
-                    {{ row.necessiteMesures ? "Mesures requises" : atelierSettings.retouches.mesuresOptionnelles === false ? "Sans mesures" : "Mesures optionnelles" }}
+                    {{ row.necessiteMesures ? "Mesures dediees" : "Sans mesures" }}
                   </span>
                 </button>
                 <p v-if="filteredSettingsRetoucheTypeEntries.length === 0" class="helper">Aucun type de retouche ne correspond au filtre actuel.</p>
@@ -7576,27 +7712,65 @@ async function loadRetoucheDetail(idRetouche) {
                 <span class="helper">Choisis un ou plusieurs habits. `*` signifie tous les habits.</span>
               </div>
 
-              <div class="stack-form">
-                <label>Mesures cibles</label>
-                <select v-model="selectedSettingsRetoucheType.mesuresCibles" multiple size="8" :disabled="!settingsCanEdit || !selectedSettingsRetoucheType.necessiteMesures">
-                  <option
-                    v-for="field in selectedSettingsRetoucheType.habitsCompatibles?.includes('*')
-                      ? []
-                      : Array.from(new Set(
-                          selectedSettingsRetoucheType.habitsCompatibles.flatMap((habitKey) =>
-                            resolveHabitUiDefinition(habitKey)
-                              ? [...resolveHabitUiDefinition(habitKey).required, ...resolveHabitUiDefinition(habitKey).optional]
-                              : []
-                          )
-                        ))"
-                    :key="`rt-mesure-${field}`"
-                    :value="field"
-                  >
-                    {{ mesureLabelFromKey(field) }}
-                  </option>
-                </select>
-                <span class="helper">Si aucun habit unique n'est selectionne, laisse vide pour autoriser toutes les mesures du type choisi.</span>
+              <div class="panel-header detail-panel-header">
+                <div class="measure-preview">
+                  <strong>Mesures de retouche</strong>
+                  <span class="helper">
+                    {{ retoucheMeasureSummary(selectedSettingsRetoucheType).total }} mesure(s) configuree(s),
+                    {{ retoucheMeasureSummary(selectedSettingsRetoucheType).active }} active(s),
+                    {{ retoucheMeasureSummary(selectedSettingsRetoucheType).required }} obligatoire(s)
+                  </span>
+                </div>
+                <button class="mini-btn" :disabled="!settingsCanEdit || !selectedSettingsRetoucheType.necessiteMesures" @click="addMesureToRetoucheType(selectedSettingsRetoucheType.code)">
+                  Ajouter mesure
+                </button>
               </div>
+
+              <div v-if="selectedSettingsRetoucheType.necessiteMesures" class="table-scroll-x">
+                <table class="data-table compact measure-table">
+                  <thead>
+                    <tr>
+                      <th>Ordre</th>
+                      <th>Mesure</th>
+                      <th>Code</th>
+                      <th>Unite</th>
+                      <th>Type</th>
+                      <th>Obligatoire</th>
+                      <th>Active</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="(mesure, index) in retoucheMeasuresForEditor(selectedSettingsRetoucheType)"
+                      :key="`${selectedSettingsRetoucheType.code}-${mesure.code}-${index}`"
+                    >
+                      <td><input v-model.number="mesure.ordre" type="number" min="1" :disabled="!settingsCanEdit" /></td>
+                      <td><input v-model="mesure.label" type="text" :disabled="!settingsCanEdit" /></td>
+                      <td>{{ mesure.code }}</td>
+                      <td><input v-model="mesure.unite" type="text" :disabled="!settingsCanEdit" /></td>
+                      <td>
+                        <select v-model="mesure.typeChamp" :disabled="!settingsCanEdit">
+                          <option v-for="option in mesureTypeOptions" :key="`${selectedSettingsRetoucheType.code}-${mesure.code}-${option.value}`" :value="option.value">
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </td>
+                      <td><input v-model="mesure.obligatoire" type="checkbox" :disabled="!settingsCanEdit" /></td>
+                      <td><input v-model="mesure.actif" type="checkbox" :disabled="!settingsCanEdit" /></td>
+                      <td>
+                        <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromRetoucheType(selectedSettingsRetoucheType.code, mesure.code)">
+                          Retirer
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="retoucheMeasuresForEditor(selectedSettingsRetoucheType).length === 0">
+                      <td colspan="8">Aucune mesure configuree.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p v-else class="helper">Aucune mesure ne sera demandee pour ce type de retouche.</p>
             </article>
 
             <article v-else class="panel measure-editor">
@@ -9035,7 +9209,7 @@ async function loadRetoucheDetail(idRetouche) {
         <p v-if="selectedRetoucheTypeDefinition" class="helper">
           Habits compatibles: {{ (selectedRetoucheTypeDefinition.habitsCompatibles || []).join(", ") }}
           · Description {{ retoucheDescriptionRequired ? "obligatoire" : "optionnelle" }}
-          · Mesures {{ retoucheMeasuresRequired ? "requises" : atelierSettings.retouches?.mesuresOptionnelles === false ? "non autorisees" : "optionnelles" }}
+          · Mesures {{ retoucheMeasuresRequired ? "requises" : "non requises" }}
         </p>
         <label>Type d'habit</label>
         <select v-model="retoucheWizard.retouche.typeHabit" :disabled="!retoucheWizard.retouche.typeRetouche">
@@ -9047,10 +9221,9 @@ async function loadRetoucheDetail(idRetouche) {
 
         <template v-if="retoucheWizard.retouche.typeHabit">
           <label>
-            Mesures (cm)
+            Mesures
             <span v-if="retoucheMeasuresRequired">- au moins une mesure cible est requise</span>
-            <span v-else-if="atelierSettings.retouches?.mesuresOptionnelles === false">- non requises pour ce type</span>
-            <span v-else>- saisie optionnelle</span>
+            <span v-else>- non requises pour ce type</span>
           </label>
           <p v-if="retoucheMeasuresConfigError" class="helper" style="color: #b42318;">
             {{ retoucheMeasuresConfigError }}
