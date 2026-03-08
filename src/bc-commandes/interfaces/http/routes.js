@@ -12,7 +12,7 @@ import { generateCommandeId } from "../../../shared/domain/id-generator.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
-import { hasPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
+import { hasPermission, requireAnyPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
 import { resolveCommandePolicy } from "../../domain/commande-policy.js";
@@ -20,6 +20,19 @@ import { resolveCommandePolicy } from "../../domain/commande-policy.js";
 const router = express.Router();
 const commandeRepo = new CommandeRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
+const requireCommandeReadAccess = requireAnyPermission([
+  PERMISSIONS.VOIR_COMMANDES,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX,
+  PERMISSIONS.CLOTURER_CAISSE,
+  PERMISSIONS.TERMINER_COMMANDE,
+  PERMISSIONS.LIVRER_COMMANDE,
+  PERMISSIONS.ANNULER_COMMANDE
+]);
+const requireCommandeCreateAccess = requireAnyPermission([
+  PERMISSIONS.CREER_COMMANDE,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX,
+  PERMISSIONS.CLOTURER_CAISSE
+]);
 
 function resolveActeur(req, fallback = null) {
   const utilisateurId = req.auth?.utilisateurId || null;
@@ -137,7 +150,7 @@ async function enregistrerEvenementCommande({
 }
 
 // List commandes
-router.get("/commandes", async (req, res) => {
+router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT c.id_commande,
@@ -226,7 +239,7 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
 });
 
 // Get commande by id
-router.get("/commandes/:id", async (req, res) => {
+router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT c.id_commande,
@@ -269,7 +282,7 @@ router.get("/commandes/:id", async (req, res) => {
 });
 
 // Get actions autorisees for commande
-router.get("/commandes/:id/actions", async (req, res) => {
+router.get("/commandes/:id/actions", requireCommandeReadAccess, async (req, res) => {
   try {
     const commande = await commandeRepo.getById(req.params.id);
     if (!commande) return res.status(404).json({ error: "Commande introuvable" });
@@ -281,7 +294,7 @@ router.get("/commandes/:id/actions", async (req, res) => {
 });
 
 // Get events for commande (audit trail)
-router.get("/commandes/:id/events", async (req, res) => {
+router.get("/commandes/:id/events", requireCommandeReadAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id_event, id_commande, type_event, payload, date_event
@@ -305,7 +318,7 @@ router.get("/commandes/:id/events", async (req, res) => {
 });
 
 // Get paiements for commande
-router.get("/commandes/:id/paiements", async (req, res) => {
+router.get("/commandes/:id/paiements", requireCommandeReadAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT op.id_operation,
@@ -347,7 +360,7 @@ router.get("/commandes/:id/paiements", async (req, res) => {
 });
 
 // Create a new Commande
-router.post("/commandes", async (req, res) => {
+router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
   const schema = z
     .object({
       idClient: z.string().min(1),

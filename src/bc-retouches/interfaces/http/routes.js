@@ -14,7 +14,7 @@ import { generateClientId, generateRetoucheId } from "../../../shared/domain/id-
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
-import { hasPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
+import { hasPermission, requireAnyPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
 import {
@@ -28,6 +28,19 @@ import {
 const router = express.Router();
 const retoucheRepo = new RetoucheRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
+const requireRetoucheReadAccess = requireAnyPermission([
+  PERMISSIONS.VOIR_RETOUCHES,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX,
+  PERMISSIONS.CLOTURER_CAISSE,
+  PERMISSIONS.TERMINER_COMMANDE,
+  PERMISSIONS.LIVRER_COMMANDE,
+  PERMISSIONS.ANNULER_COMMANDE
+]);
+const requireRetoucheCreateAccess = requireAnyPermission([
+  PERMISSIONS.CREER_RETOUCHE,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX,
+  PERMISSIONS.CLOTURER_CAISSE
+]);
 
 function resolveActeur(req, fallback = null) {
   const utilisateurId = req.auth?.utilisateurId || null;
@@ -112,7 +125,7 @@ async function enregistrerEvenementRetouche({
 }
 
 // List retouches
-router.get("/retouches", async (req, res) => {
+router.get("/retouches", requireRetoucheReadAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT r.id_retouche,
@@ -225,7 +238,7 @@ router.get("/audit/retouches", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
 });
 
 // Get retouche by id
-router.get("/retouches/:id", async (req, res) => {
+router.get("/retouches/:id", requireRetoucheReadAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT r.id_retouche,
@@ -270,7 +283,7 @@ router.get("/retouches/:id", async (req, res) => {
 });
 
 // Get actions autorisees for retouche
-router.get("/retouches/:id/actions", async (req, res) => {
+router.get("/retouches/:id/actions", requireRetoucheReadAccess, async (req, res) => {
   try {
     const retouche = await retoucheRepo.getById(req.params.id);
     if (!retouche) return res.status(404).json({ error: "Retouche introuvable" });
@@ -281,7 +294,7 @@ router.get("/retouches/:id/actions", async (req, res) => {
 });
 
 // Get events for retouche (audit trail)
-router.get("/retouches/:id/events", async (req, res) => {
+router.get("/retouches/:id/events", requireRetoucheReadAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id_event, id_retouche, type_event, payload, date_event
@@ -305,7 +318,7 @@ router.get("/retouches/:id/events", async (req, res) => {
 });
 
 // Get paiements for retouche
-router.get("/retouches/:id/paiements", async (req, res) => {
+router.get("/retouches/:id/paiements", requireRetoucheReadAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT op.id_operation,
@@ -347,7 +360,7 @@ router.get("/retouches/:id/paiements", async (req, res) => {
 });
 
 // Create a new Retouche
-router.post("/retouches", async (req, res) => {
+router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
   const schema = z
     .object({
       idClient: z.string().min(1),
@@ -420,7 +433,7 @@ router.post("/retouches", async (req, res) => {
   }
 });
 
-router.post("/retouches/wizard", async (req, res) => {
+router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) => {
   const schema = z
     .object({
       idClient: z.string().min(1).optional(),

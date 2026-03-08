@@ -14,7 +14,7 @@ import { requireFields, requireNumber, validateSchema } from "../../../shared/in
 import { generateOperationId } from "../../../shared/domain/id-generator.js";
 import { z } from "zod";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
-import { requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
+import { requireAnyPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
 import { PermissionInsuffisante } from "../../domain/errors.js";
 
@@ -22,6 +22,26 @@ const router = express.Router();
 const caisseRepo = new CaisseRepoPg();
 const bilanRepo = new BilanCaisseRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
+const requireCaisseOpenAccess = requireAnyPermission([
+  PERMISSIONS.OUVRIR_CAISSE,
+  PERMISSIONS.CLOTURER_CAISSE,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX
+]);
+const requireCaisseEntreeAccess = requireAnyPermission([
+  PERMISSIONS.ENREGISTRER_ENTREE_CAISSE,
+  PERMISSIONS.CLOTURER_CAISSE,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX
+]);
+const requireCaisseSortieAccess = requireAnyPermission([
+  PERMISSIONS.ENREGISTRER_SORTIE_CAISSE,
+  PERMISSIONS.CLOTURER_CAISSE,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX
+]);
+const requireCaisseAnnulationAccess = requireAnyPermission([
+  PERMISSIONS.ANNULER_OPERATION_CAISSE,
+  PERMISSIONS.CLOTURER_CAISSE,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX
+]);
 
 function resolveActeur(req, fallback = null) {
   const utilisateurId = req.auth?.utilisateurId || null;
@@ -242,7 +262,7 @@ router.get("/caisse/audit/operations", requirePermission(PERMISSIONS.VOIR_BILANS
 });
 
 // Create a caisse jour
-router.post("/caisse", async (req, res) => {
+router.post("/caisse", requireCaisseOpenAccess, async (req, res) => {
   const schema = z
     .object({
       soldeOuverture: z.coerce.number(),
@@ -290,7 +310,7 @@ router.post("/caisse", async (req, res) => {
 });
 
 // Open caisse du jour (server date)
-router.post("/caisse/ouvrir", async (req, res) => {
+router.post("/caisse/ouvrir", requireCaisseOpenAccess, async (req, res) => {
   const schema = z
     .object({
       soldeOuverture: z.coerce.number(),
@@ -338,7 +358,7 @@ router.post("/caisse/ouvrir", async (req, res) => {
 });
 
 // Enregistrer entree
-router.post("/caisse/:id/entrees", async (req, res) => {
+router.post("/caisse/:id/entrees", requireCaisseEntreeAccess, async (req, res) => {
   const schema = z
     .object({
       montant: z.coerce.number(),
@@ -391,7 +411,7 @@ router.post("/caisse/:id/entrees", async (req, res) => {
 });
 
 // Enregistrer sortie
-router.post("/caisse/:id/sorties", async (req, res) => {
+router.post("/caisse/:id/sorties", requireCaisseSortieAccess, async (req, res) => {
   const schema = z
     .object({
       montant: z.coerce.number(),
@@ -453,7 +473,7 @@ router.post("/caisse/:id/sorties", async (req, res) => {
 });
 
 // Annuler operation
-router.post("/caisse/:id/operations/:opId/annuler", async (req, res) => {
+router.post("/caisse/:id/operations/:opId/annuler", requireCaisseAnnulationAccess, async (req, res) => {
   const schema = z
     .object({
       motifAnnulation: z.string().min(1),

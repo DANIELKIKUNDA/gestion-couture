@@ -13,6 +13,8 @@ import { requireFields, validateSchema } from "../../../shared/interfaces/valida
 import { generateClientId, generateSerieMesuresId } from "../../../shared/domain/id-generator.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
 import { z } from "zod";
+import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
+import { requireAnyPermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 import {
   positiveInt,
   paginateRows,
@@ -28,6 +30,29 @@ const router = express.Router();
 const clientRepo = new ClientRepoPg();
 const serieRepo = new SerieMesuresRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
+const requireClientReadAccess = requireAnyPermission([
+  PERMISSIONS.VOIR_CLIENTS,
+  PERMISSIONS.GERER_UTILISATEURS,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX,
+  PERMISSIONS.CLOTURER_CAISSE
+]);
+const requireClientCreateAccess = requireAnyPermission([
+  PERMISSIONS.CREER_CLIENT,
+  PERMISSIONS.GERER_UTILISATEURS,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX,
+  PERMISSIONS.CLOTURER_CAISSE
+]);
+const requireClientUpdateAccess = requireAnyPermission([
+  PERMISSIONS.MODIFIER_CLIENT,
+  PERMISSIONS.GERER_UTILISATEURS,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX,
+  PERMISSIONS.CLOTURER_CAISSE
+]);
+const requireClientDeactivateAccess = requireAnyPermission([
+  PERMISSIONS.DESACTIVER_CLIENT,
+  PERMISSIONS.GERER_UTILISATEURS,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX
+]);
 const atelierConfigFallback = {
   nom: process.env.ATELIER_NOM || "Atelier de Couture",
   adresse: process.env.ATELIER_ADRESSE || "Adresse atelier",
@@ -176,7 +201,7 @@ function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelier
 }
 
 // List clients
-router.get("/clients", async (req, res) => {
+router.get("/clients", requireClientReadAccess, async (req, res) => {
   try {
     const clients = await clientRepo.listAll();
     res.json(clients);
@@ -185,7 +210,7 @@ router.get("/clients", async (req, res) => {
   }
 });
 // Consultation client (read-only)
-router.get("/clients/:id/consultation", async (req, res) => {
+router.get("/clients/:id/consultation", requireClientReadAccess, async (req, res) => {
   const idClient = req.params.id;
   const source = String(req.query.source || "ALL").toUpperCase();
   const typeHabit = String(req.query.typeHabit || "ALL").toUpperCase();
@@ -350,7 +375,7 @@ router.get("/clients/:id/consultation", async (req, res) => {
   }
 });
 
-router.get("/clients/:id/consultation/pdf", async (req, res) => {
+router.get("/clients/:id/consultation/pdf", requireClientReadAccess, async (req, res) => {
   try {
     const query = {
       ...req.query,
@@ -461,7 +486,7 @@ router.get("/clients/:id/consultation/pdf", async (req, res) => {
 });
 
 // Create client
-router.post("/clients", async (req, res) => {
+router.post("/clients", requireClientCreateAccess, async (req, res) => {
   const schema = z
     .object({
       nom: z.string().min(1),
@@ -503,7 +528,7 @@ router.post("/clients", async (req, res) => {
 });
 
 // Update client
-router.put("/clients/:id", async (req, res) => {
+router.put("/clients/:id", requireClientUpdateAccess, async (req, res) => {
   try {
     const schema = z.object({}).passthrough();
     const parsed = validateSchema(schema, req.body || {});
@@ -516,7 +541,7 @@ router.put("/clients/:id", async (req, res) => {
 });
 
 // Deactivate client
-router.post("/clients/:id/desactiver", async (req, res) => {
+router.post("/clients/:id/desactiver", requireClientDeactivateAccess, async (req, res) => {
   try {
     const client = await desactiverClient({ idClient: req.params.id, clientRepo });
     res.json(client);
