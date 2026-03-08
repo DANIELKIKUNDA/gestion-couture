@@ -46,7 +46,29 @@ async function resolveFacturationPrefix() {
     return "FAC";
   }
 }
-const requireStockAccess = requireAnyPermission([PERMISSIONS.GERER_STOCK, PERMISSIONS.VOIR_BILANS_GLOBAUX]);
+const requireStockReadAccess = requireAnyPermission([
+  PERMISSIONS.GERER_STOCK,
+  PERMISSIONS.GERER_VENTES,
+  PERMISSIONS.GERER_ACHATS_STOCK,
+  PERMISSIONS.GERER_AJUSTEMENTS_STOCK,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX
+]);
+const requireStockArticleAdminAccess = requireAnyPermission([
+  PERMISSIONS.GERER_STOCK,
+  PERMISSIONS.GERER_ACHATS_STOCK,
+  PERMISSIONS.GERER_AJUSTEMENTS_STOCK,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX
+]);
+const requireStockPurchaseAccess = requireAnyPermission([
+  PERMISSIONS.GERER_STOCK,
+  PERMISSIONS.GERER_ACHATS_STOCK,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX
+]);
+const requireStockAdjustmentAccess = requireAnyPermission([
+  PERMISSIONS.GERER_STOCK,
+  PERMISSIONS.GERER_AJUSTEMENTS_STOCK,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX
+]);
 const requireVenteAccess = requireAnyPermission([PERMISSIONS.GERER_VENTES, PERMISSIONS.VOIR_BILANS_GLOBAUX]);
 const requireStockAuditAccess = requireAnyPermission([PERMISSIONS.VOIR_AUDIT_STOCK, PERMISSIONS.VOIR_BILANS_GLOBAUX]);
 
@@ -67,7 +89,7 @@ function generatePriceHistoryId() {
 }
 
 // List articles
-router.get("/stock/articles", requireStockAccess, async (req, res) => {
+router.get("/stock/articles", requireStockReadAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id_article,
@@ -102,7 +124,7 @@ router.get("/stock/articles", requireStockAccess, async (req, res) => {
 });
 
 // List suppliers
-router.get("/stock/fournisseurs", requireStockAccess, async (req, res) => {
+router.get("/stock/fournisseurs", requireStockArticleAdminAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id_fournisseur, nom_fournisseur, telephone, actif, date_creation
@@ -124,7 +146,7 @@ router.get("/stock/fournisseurs", requireStockAccess, async (req, res) => {
 });
 
 // Create supplier
-router.post("/stock/fournisseurs", requireStockAccess, async (req, res) => {
+router.post("/stock/fournisseurs", requireStockArticleAdminAccess, async (req, res) => {
   const schema = z
     .object({
       nomFournisseur: z.string().min(1),
@@ -157,7 +179,7 @@ router.post("/stock/fournisseurs", requireStockAccess, async (req, res) => {
 });
 
 // Update supplier
-router.put("/stock/fournisseurs/:id", requireStockAccess, async (req, res) => {
+router.put("/stock/fournisseurs/:id", requireStockArticleAdminAccess, async (req, res) => {
   const schema = z
     .object({
       nomFournisseur: z.string().min(1).optional(),
@@ -203,7 +225,7 @@ router.put("/stock/fournisseurs/:id", requireStockAccess, async (req, res) => {
 });
 
 // List article price history
-router.get("/stock/articles/:id/prix-historique", requireStockAccess, async (req, res) => {
+router.get("/stock/articles/:id/prix-historique", requireStockArticleAdminAccess, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id_historique, id_article, ancien_prix, nouveau_prix, date_modification, modifie_par
@@ -237,7 +259,7 @@ router.get("/audit/stock-ventes", requireStockAuditAccess, async (req, res) => {
 });
 
 // Get stock movement detail
-router.get("/stock/mouvements/:id", requireStockAccess, async (req, res) => {
+router.get("/stock/mouvements/:id", requireStockReadAccess, async (req, res) => {
   try {
     const mouvement = await stockReadRepo.getStockMouvementById(req.params.id);
     if (!mouvement) return res.status(404).json({ error: "Mouvement introuvable" });
@@ -248,7 +270,7 @@ router.get("/stock/mouvements/:id", requireStockAccess, async (req, res) => {
 });
 
 // Create article
-router.post("/stock/articles", requireStockAccess, async (req, res) => {
+router.post("/stock/articles", requireStockArticleAdminAccess, async (req, res) => {
   const schema = z
     .object({
       nomArticle: z.string().min(1),
@@ -283,7 +305,7 @@ router.post("/stock/articles", requireStockAccess, async (req, res) => {
 });
 
 // Update article metadata (price, seuil, etc.)
-router.put("/stock/articles/:id", requireStockAccess, async (req, res) => {
+router.put("/stock/articles/:id", requireStockArticleAdminAccess, async (req, res) => {
   const schema = z
     .object({
       nomArticle: z.string().min(1).optional(),
@@ -338,7 +360,7 @@ router.put("/stock/articles/:id", requireStockAccess, async (req, res) => {
 });
 
 // Entrer stock
-router.post("/stock/articles/:id/entrees", requireStockAccess, async (req, res) => {
+router.post("/stock/articles/:id/entrees", requireStockPurchaseAccess, async (req, res) => {
   const schema = z
     .object({
       quantite: z.coerce.number(),
@@ -392,7 +414,7 @@ router.post("/stock/articles/:id/entrees", requireStockAccess, async (req, res) 
 });
 
 // Sortir stock
-router.post("/stock/articles/:id/sorties", requireStockAccess, async (req, res) => {
+router.post("/stock/articles/:id/sorties", requireStockAdjustmentAccess, async (req, res) => {
   const schema = z
     .object({
       quantite: z.coerce.number(),
@@ -428,7 +450,7 @@ router.post("/stock/articles/:id/sorties", requireStockAccess, async (req, res) 
 });
 
 // Ajuster stock
-router.post("/stock/articles/:id/ajuster", requireStockAccess, async (req, res) => {
+router.post("/stock/articles/:id/ajuster", requireStockAdjustmentAccess, async (req, res) => {
   const schema = z
     .object({
       quantite: z.coerce.number(),
@@ -464,7 +486,7 @@ router.post("/stock/articles/:id/ajuster", requireStockAccess, async (req, res) 
 });
 
 // Activer article
-router.post("/stock/articles/:id/activer", requireStockAccess, async (req, res) => {
+router.post("/stock/articles/:id/activer", requireStockArticleAdminAccess, async (req, res) => {
   try {
     const article = await activerArticle({ idArticle: req.params.id, articleRepo });
     res.json(article);
@@ -474,7 +496,7 @@ router.post("/stock/articles/:id/activer", requireStockAccess, async (req, res) 
 });
 
 // Desactiver article
-router.post("/stock/articles/:id/desactiver", requireStockAccess, async (req, res) => {
+router.post("/stock/articles/:id/desactiver", requireStockArticleAdminAccess, async (req, res) => {
   try {
     const article = await desactiverArticle({ idArticle: req.params.id, articleRepo });
     res.json(article);

@@ -320,6 +320,8 @@ const securityPermissionLabels = {
   VOIR_BILANS_GLOBAUX: "Voir bilans & audit",
   GERER_STOCK: "Gerer stock",
   GERER_VENTES: "Gerer ventes",
+  GERER_ACHATS_STOCK: "Gerer achats stock",
+  GERER_AJUSTEMENTS_STOCK: "Gerer ajustements stock",
   VOIR_AUDIT_STOCK: "Voir audit stock & ventes",
   CLOTURER_CAISSE: "Cloturer caisse",
   LIVRER_COMMANDE: "Livrer commande/retouche",
@@ -744,6 +746,20 @@ function persistAtelierSettings() {
 const settingsRoleAllowed = computed(() => hasPermission(PERMISSIONS.MODIFIER_PARAMETRES));
 const settingsCanEdit = computed(() => settingsEditMode.value && settingsRoleAllowed.value);
 const canAccessSecurityModule = computed(() => hasPermission(PERMISSIONS.GERER_UTILISATEURS));
+const canManageStockPurchases = computed(() =>
+  hasAnyPermission([PERMISSIONS.GERER_STOCK, PERMISSIONS.GERER_ACHATS_STOCK, PERMISSIONS.VOIR_BILANS_GLOBAUX])
+);
+const canManageStockAdjustments = computed(() =>
+  hasAnyPermission([PERMISSIONS.GERER_STOCK, PERMISSIONS.GERER_AJUSTEMENTS_STOCK, PERMISSIONS.VOIR_BILANS_GLOBAUX])
+);
+const canManageStockArticles = computed(() =>
+  hasAnyPermission([
+    PERMISSIONS.GERER_STOCK,
+    PERMISSIONS.GERER_ACHATS_STOCK,
+    PERMISSIONS.GERER_AJUSTEMENTS_STOCK,
+    PERMISSIONS.VOIR_BILANS_GLOBAUX
+  ])
+);
 const visibleSettingsTabs = computed(() =>
   settingsTabs.filter((tab) => tab.id !== "securite" || canAccessSecurityModule.value)
 );
@@ -1716,6 +1732,8 @@ const PERMISSIONS = {
   VOIR_BILANS_GLOBAUX: "VOIR_BILANS_GLOBAUX",
   GERER_STOCK: "GERER_STOCK",
   GERER_VENTES: "GERER_VENTES",
+  GERER_ACHATS_STOCK: "GERER_ACHATS_STOCK",
+  GERER_AJUSTEMENTS_STOCK: "GERER_AJUSTEMENTS_STOCK",
   VOIR_AUDIT_STOCK: "VOIR_AUDIT_STOCK",
   CLOTURER_CAISSE: "CLOTURER_CAISSE",
   LIVRER_COMMANDE: "LIVRER_COMMANDE",
@@ -1768,7 +1786,13 @@ function canAccessModule(moduleId) {
   if (moduleId === "caisse") return currentRole.value === "CAISSIER" || hasPermission(PERMISSIONS.CLOTURER_CAISSE);
   if (moduleId === "facturation") return currentRole.value === "CAISSIER" || canAccessModule("commandes");
   if (moduleId === "stockVentes") {
-    return hasAnyPermission([PERMISSIONS.GERER_STOCK, PERMISSIONS.GERER_VENTES, PERMISSIONS.VOIR_BILANS_GLOBAUX]);
+    return hasAnyPermission([
+      PERMISSIONS.GERER_STOCK,
+      PERMISSIONS.GERER_VENTES,
+      PERMISSIONS.GERER_ACHATS_STOCK,
+      PERMISSIONS.GERER_AJUSTEMENTS_STOCK,
+      PERMISSIONS.VOIR_BILANS_GLOBAUX
+    ]);
   }
   if (moduleId === "parametres") return hasPermission(PERMISSIONS.MODIFIER_PARAMETRES);
   if (moduleId === "audit") return canAccessAuditPath("/audit");
@@ -4557,6 +4581,10 @@ function scrollToStockList() {
 }
 
 async function onCreateArticle() {
+  if (!canManageStockArticles.value) {
+    notify("Acces refuse: gestion de stock reservee.");
+    return;
+  }
   const quantite = Number(newArticle.quantiteDisponible || 0);
   const prix = Number(newArticle.prixVenteUnitaire || 0);
   const seuil = Number(newArticle.seuilAlerte || 0);
@@ -4727,6 +4755,10 @@ function ensureStockInput(idArticle) {
 }
 
 async function onApprovisionnerStock(article) {
+  if (!canManageStockAdjustments.value) {
+    notify("Acces refuse: ajustement de stock reserve.");
+    return;
+  }
   const input = ensureStockInput(article.idArticle);
   const quantite = Number(input.quantite);
   if (Number.isNaN(quantite) || quantite <= 0) {
@@ -4749,6 +4781,10 @@ async function onApprovisionnerStock(article) {
 }
 
 async function onAcheterStock(article) {
+  if (!canManageStockPurchases.value) {
+    notify("Acces refuse: achat de stock reserve.");
+    return;
+  }
   const payload = await openActionModal({
     title: "Acheter du stock",
     message: `Cet achat augmentera le stock de ${article.nomArticle} et enregistrera une sortie de caisse.`,
@@ -4790,6 +4826,42 @@ async function onAcheterStock(article) {
       return;
     }
     notify(message);
+  }
+}
+
+async function onModifierArticleStock(article) {
+  if (!canManageStockArticles.value) {
+    notify("Acces refuse: gestion de stock reservee.");
+    return;
+  }
+  const payload = await openActionModal({
+    title: "Modifier l'article",
+    message: `Mettre a jour le prix de vente et le seuil d'alerte pour ${article.nomArticle}.`,
+    confirmLabel: "Enregistrer",
+    fields: [
+      { key: "prixVenteUnitaire", label: "Prix de vente unitaire", type: "number", required: true, min: 0, defaultValue: Number(article.prixVenteUnitaire || 0) },
+      { key: "seuilAlerte", label: "Seuil d'alerte", type: "number", required: true, min: 0, defaultValue: Number(article.seuilAlerte || 0) }
+    ]
+  });
+  if (!payload) return;
+
+  const prixVenteUnitaire = Number(payload.prixVenteUnitaire);
+  const seuilAlerte = Number(payload.seuilAlerte);
+  if (Number.isNaN(prixVenteUnitaire) || prixVenteUnitaire < 0) {
+    notify("Prix de vente invalide.");
+    return;
+  }
+  if (Number.isNaN(seuilAlerte) || seuilAlerte < 0) {
+    notify("Seuil d'alerte invalide.");
+    return;
+  }
+
+  try {
+    await atelierApi.updateStockArticle(article.idArticle, { prixVenteUnitaire, seuilAlerte });
+    await reloadAll();
+    notify(`Article mis a jour: ${article.nomArticle}`);
+  } catch (err) {
+    notify(readableError(err));
   }
 }
 
@@ -6302,11 +6374,11 @@ async function loadRetoucheDetail(idRetouche) {
           <article class="panel">
             <div class="panel-header">
               <h3>Gestion articles</h3>
-              <button class="action-btn blue" @click="showNewArticle = !showNewArticle">
+              <button v-if="canManageStockArticles" class="action-btn blue" @click="showNewArticle = !showNewArticle">
                 {{ showNewArticle ? "Fermer" : "Ajouter article" }}
               </button>
             </div>
-            <div v-if="showNewArticle" class="stack">
+            <div v-if="showNewArticle && canManageStockArticles" class="stack">
               <div class="form-grid">
                 <div class="form-row">
                   <label>Nom</label>
@@ -6384,21 +6456,27 @@ async function loadRetoucheDetail(idRetouche) {
                     </span>
                   </td>
                   <td class="row-actions">
-                    <input
-                      class="inline-input"
-                      type="number"
-                      min="0"
-                      placeholder="Quantite"
-                      v-model="ensureStockInput(article.idArticle).quantite"
-                    />
-                    <input
-                      class="inline-input"
-                      type="text"
-                      placeholder="Motif entree simple"
-                      v-model="ensureStockInput(article.idArticle).motif"
-                    />
-                    <button class="mini-btn" @click="onApprovisionnerStock(article)">Entrer</button>
-                    <button class="mini-btn" @click="onAcheterStock(article)">Acheter</button>
+                    <template v-if="canManageStockAdjustments || canManageStockPurchases || canManageStockArticles">
+                      <input
+                        v-if="canManageStockAdjustments"
+                        class="inline-input"
+                        type="number"
+                        min="0"
+                        placeholder="Quantite"
+                        v-model="ensureStockInput(article.idArticle).quantite"
+                      />
+                      <input
+                        v-if="canManageStockAdjustments"
+                        class="inline-input"
+                        type="text"
+                        placeholder="Motif entree simple"
+                        v-model="ensureStockInput(article.idArticle).motif"
+                      />
+                      <button v-if="canManageStockAdjustments" class="mini-btn" @click="onApprovisionnerStock(article)">Entrer</button>
+                      <button v-if="canManageStockPurchases" class="mini-btn" @click="onAcheterStock(article)">Acheter</button>
+                      <button v-if="canManageStockArticles" class="mini-btn" @click="onModifierArticleStock(article)">Modifier</button>
+                    </template>
+                    <span v-else class="helper">Lecture seule</span>
                   </td>
                 </tr>
                 <tr v-if="stockArticles.length === 0">
