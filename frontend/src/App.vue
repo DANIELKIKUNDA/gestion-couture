@@ -2524,18 +2524,31 @@ const dashboardRetouchesCards = computed(() => [
 const dashboardClientsActifs = computed(() => dashboardCards.value.find((card) => card.label === "Clients actifs") || null);
 
 const financeMetrics = computed(() => {
+  const today = todayIso();
+  const last7 = addDays(today, -7);
+  const last30 = addDays(today, -30);
   const ops = (caisseJour.value?.operations || []).filter((op) => op.statutOperation !== "ANNULEE");
   const totalEntrees = ops.filter((op) => op.typeOperation === "ENTREE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
   const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
-  const avances = ops
-    .filter((op) => op.typeOperation === "ENTREE" && String(op.motif || "").startsWith("AVANCE"))
-    .reduce((sum, op) => sum + Number(op.montant || 0), 0);
+  const isWithinDashboardPeriod = (dateRef) => {
+    if (!dateRef) return true;
+    if (dashboardPeriod.value === "TODAY") return dateRef === today;
+    if (dashboardPeriod.value === "LAST_7") return dateRef >= last7 && dateRef <= today;
+    if (dashboardPeriod.value === "LAST_30") return dateRef >= last30 && dateRef <= today;
+    return true;
+  };
+  const acomptesCommandes = commandesView.value
+    .filter((commande) => isWithinDashboardPeriod(dateOnly(commande.dateCreation || commande.datePrevue || "")))
+    .reduce((sum, commande) => sum + Number(commande.montantPaye || 0), 0);
+  const acomptesRetouches = retouches.value
+    .filter((retouche) => isWithinDashboardPeriod(dateOnly(retouche.dateDepot || retouche.datePrevue || "")))
+    .reduce((sum, retouche) => sum + Number(retouche.montantPaye || 0), 0);
 
   return {
     soldeCaisse: Number(caisseJour.value?.soldeCourant || 0),
     totalEncaissement: totalEntrees,
     depensesJour: totalSorties,
-    avancesRecues: avances
+    acomptesEncaisses: acomptesCommandes + acomptesRetouches
   };
 });
 
@@ -5804,8 +5817,8 @@ async function loadRetoucheDetail(idRetouche) {
             <strong>{{ formatCurrency(financeMetrics.depensesJour) }}</strong>
           </div>
           <div class="money-item red">
-            <p>Avances Recues</p>
-            <strong>{{ formatCurrency(financeMetrics.avancesRecues) }}</strong>
+            <p>Acomptes encaisses</p>
+            <strong>{{ formatCurrency(financeMetrics.acomptesEncaisses) }}</strong>
           </div>
 
         </article>
