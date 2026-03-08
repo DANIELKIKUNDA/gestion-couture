@@ -2483,6 +2483,34 @@ const financeMetrics = computed(() => {
   };
 });
 
+const dashboardSalesMetrics = computed(() => {
+  const today = todayIso();
+  const last7 = addDays(today, -7);
+  const last30 = addDays(today, -30);
+  const rows = ventes.value.filter((vente) => {
+    if (vente.statut !== "VALIDEE") return false;
+    const dateRef = dateOnly(vente.date || "");
+    if (!dateRef) return true;
+    if (dashboardPeriod.value === "TODAY") return dateRef === today;
+    if (dashboardPeriod.value === "LAST_7") return dateRef >= last7 && dateRef <= today;
+    if (dashboardPeriod.value === "LAST_30") return dateRef >= last30 && dateRef <= today;
+    return true;
+  });
+
+  const nombreVentes = rows.length;
+  const chiffreAffaires = rows.reduce((sum, vente) => sum + Number(vente.total || 0), 0);
+  const beneficeBrut = rows.reduce((sum, vente) => sum + Number(vente.beneficeTotal || 0), 0);
+  const totalPrixAchat = rows.reduce((sum, vente) => sum + Number(vente.totalPrixAchat || 0), 0);
+
+  return {
+    nombreVentes,
+    chiffreAffaires,
+    beneficeBrut,
+    margeMoyenne: chiffreAffaires > 0 ? (beneficeBrut / chiffreAffaires) * 100 : 0,
+    rentabilite: totalPrixAchat > 0 ? (beneficeBrut / totalPrixAchat) * 100 : 0
+  };
+});
+
 function dateOnly(value) {
   if (!value) return "";
   return String(value).slice(0, 10);
@@ -2513,7 +2541,17 @@ const recentWorkRows = computed(() => {
     dateRef: dateOnly(r.dateDepot || r.datePrevue || "")
   }));
 
-  const rows = [...cmdRows, ...retRows];
+  const venteRows = ventes.value.map((v) => ({
+    id: v.idVente,
+    clientNom: "Client comptoir",
+    type: "Vente",
+    statut: v.statut,
+    montantTotal: Number(v.total || 0),
+    avancePayee: Number(v.beneficeTotal || 0),
+    dateRef: dateOnly(v.date || "")
+  }));
+
+  const rows = [...cmdRows, ...retRows, ...venteRows];
   const filtered = rows.filter((row) => {
     if (!row.dateRef) return true;
     if (dashboardPeriod.value === "TODAY") return row.dateRef === today;
@@ -3786,6 +3824,8 @@ function normalizeVente(raw) {
     idVente: raw.idVente || raw.id_vente || raw.id,
     date: raw.date || raw.date_vente,
     total: Number(raw.total ?? 0),
+    totalPrixAchat: Number(raw.totalPrixAchat ?? raw.total_prix_achat ?? 0),
+    beneficeTotal: Number(raw.beneficeTotal ?? raw.benefice_total ?? 0),
     statut: raw.statut || "BROUILLON",
     referenceCaisse: raw.referenceCaisse || raw.reference_caisse || null,
     motifAnnulation: raw.motifAnnulation || raw.motif_annulation || null,
@@ -4031,6 +4071,13 @@ function addDays(isoDate, days) {
 
 function formatCurrency(value) {
   return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} ${atelierDevise.value}`;
+}
+
+function formatPercent(value) {
+  return `${new Intl.NumberFormat("fr-FR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1
+  }).format(Number(value || 0))} %`;
 }
 
 function findFactureByOrigine(typeOrigine, idOrigine) {
@@ -5685,6 +5732,25 @@ async function loadRetoucheDetail(idRetouche) {
             <strong>{{ formatCurrency(financeMetrics.avancesRecues) }}</strong>
           </div>
 
+        </article>
+
+        <article class="panel finance-band">
+          <div class="money-item">
+            <p>Ventes stock</p>
+            <strong>{{ dashboardSalesMetrics.nombreVentes }}</strong>
+          </div>
+          <div class="money-item blue">
+            <p>CA ventes stock</p>
+            <strong>{{ formatCurrency(dashboardSalesMetrics.chiffreAffaires) }}</strong>
+          </div>
+          <div class="money-item green">
+            <p>Benefice brut</p>
+            <strong>{{ formatCurrency(dashboardSalesMetrics.beneficeBrut) }}</strong>
+          </div>
+          <div class="money-item teal">
+            <p>Rentabilite</p>
+            <strong>{{ formatPercent(dashboardSalesMetrics.rentabilite) }}</strong>
+          </div>
         </article>
 
         <div class="split-grid legacy-split">
