@@ -738,6 +738,13 @@ export const atelierApi = {
     });
   },
 
+  createRetoucheWizard(input) {
+    return request("/retouches/wizard", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  },
+
   livrerCommande(idCommande) {
     return request(`/commandes/${idCommande}/livrer`, { method: "POST" });
   },

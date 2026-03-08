@@ -2,6 +2,7 @@ import express from "express";
 import { pool } from "../../../shared/infrastructure/db.js";
 import { RetoucheRepoPg } from "../../infrastructure/repositories/retouche-repo-pg.js";
 import { deposerRetouche } from "../../application/use-cases/deposer-retouche.js";
+import { creerClient } from "../../../bc-clients/application/use-cases/creer-client.js";
 import { demarrerTravail } from "../../application/use-cases/demarrer-travail.js";
 import { terminerTravail } from "../../application/use-cases/terminer-travail.js";
 import { appliquerPaiement } from "../../application/use-cases/appliquer-paiement.js";
@@ -9,7 +10,7 @@ import { enregistrerPaiementRetoucheViaCaisse } from "../../application/use-case
 import { livrerRetouche } from "../../application/use-cases/livrer-retouche.js";
 import { annulerRetoucheViaCaisse } from "../../application/use-cases/annuler-retouche-via-caisse.js";
 import { requireFields, requireNumber, validateSchema } from "../../../shared/interfaces/validation.js";
-import { generateRetoucheId } from "../../../shared/domain/id-generator.js";
+import { generateClientId, generateRetoucheId } from "../../../shared/domain/id-generator.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
@@ -411,6 +412,142 @@ router.post("/retouches", async (req, res) => {
     res.status(201).json(retouche);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/retouches/wizard", async (req, res) => {
+  const schema = z
+    .object({
+      idClient: z.string().min(1).optional(),
+      nouveauClient: z
+        .object({
+          nom: z.string().min(1),
+          prenom: z.string().min(1),
+          telephone: z.string().min(1)
+        })
+        .optional(),
+      descriptionRetouche: z.string().optional(),
+      typeRetouche: z.string().min(1),
+      montantTotal: z.coerce.number(),
+      typeHabit: z.string().min(1),
+      mesuresHabit: z.any().optional(),
+      datePrevue: z.string().optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+  const body = parsed.data;
+  const hasExistingClient = Boolean(String(body.idClient || "").trim());
+  const hasNewClient = Boolean(body.nouveauClient);
+  if (hasExistingClient === hasNewClient) {
+    return res.status(400).json({ error: "Fournissez soit idClient, soit nouveauClient." });
+  }
+  const r1 = requireFields(body, ["typeRetouche", "montantTotal", "typeHabit"]);
+  if (!r1.ok) return res.status(400).json({ error: r1.error });
+  const r2 = requireNumber(body, "montantTotal");
+  if (!r2.ok) return res.status(400).json({ error: r2.error });
+
+  const dbClient = await pool.connect();
+  try {
+    const acteur = resolveActeur(req);
+    const policy = await loadRetouchePolicy();
+    const typeDefinition = getTypeRetoucheDefinition(body.typeRetouche, policy);
+    if (!isRetoucheHabitCompatible(typeDefinition, body.typeHabit)) {
+      throw new Error("Type d'habit incompatible avec ce type de retouche");
+    }
+    const mesureTargets = resolveMesureTargetsForHabit({
+      typeDefinition,
+      typeHabit: body.typeHabit
+    });
+    if (typeDefinition.necessiteMesures === true && Array.isArray(typeDefinition.mesuresCibles) && typeDefinition.mesuresCibles.length > 0 && mesureTargets.length === 0) {
+      throw new Error("Configuration invalide: aucune mesure cible disponible pour ce type d'habit.");
+    }
+
+    await dbClient.query("BEGIN");
+
+    let createdClient = null;
+    let idClient = String(body.idClient || "").trim();
+    if (!idClient) {
+      createdClient = creerClient({
+        ...body.nouveauClient,
+        idClient: generateClientId()
+      });
+      idClient = createdClient.idClient;
+      await dbClient.query(
+        `INSERT INTO clients (id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          createdClient.idClient,
+          createdClient.nom,
+          createdClient.prenom,
+          createdClient.telephone,
+          createdClient.adresse,
+          createdClient.sexe,
+          createdClient.actif,
+          createdClient.dateCreation
+        ]
+      );
+    }
+
+    const retouche = deposerRetouche({
+      ...body,
+      idClient,
+      idRetouche: generateRetoucheId()
+    }, {
+      policy: { retouches: policy }
+    });
+
+    await dbClient.query(
+      `INSERT INTO retouches (id_retouche, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        retouche.idRetouche,
+        retouche.idClient,
+        retouche.descriptionRetouche,
+        retouche.typeRetouche,
+        retouche.dateDepot,
+        retouche.datePrevue,
+        retouche.montantTotal,
+        retouche.montantPaye,
+        retouche.statutRetouche,
+        retouche.typeHabit,
+        JSON.stringify(retouche.mesuresHabit)
+      ]
+    );
+
+    const measuresRequired = typeDefinition.necessiteMesures === true;
+    await dbClient.query(
+      `INSERT INTO retouche_events (id_event, id_retouche, type_event, payload, date_event)
+       VALUES ($1, $2, $3, $4::jsonb, NOW())`,
+      [
+        randomUUID(),
+        retouche.idRetouche,
+        "RETOUCHE_DEPOSEE",
+        JSON.stringify({
+          utilisateur: acteur.utilisateur,
+          ancienStatut: null,
+          nouveauStatut: retouche.statutRetouche,
+          utilisateurId: acteur.utilisateurId,
+          utilisateurNom: acteur.utilisateurNom,
+          role: acteur.role,
+          montantTotal: Number(retouche.montantTotal || 0),
+          typeRetouche: retouche.typeRetouche,
+          necessiteMesures: measuresRequired,
+          mesuresCibles: mesureTargets
+        })
+      ]
+    );
+
+    await dbClient.query("COMMIT");
+    return res.status(201).json({
+      retouche,
+      client: createdClient
+    });
+  } catch (err) {
+    await dbClient.query("ROLLBACK");
+    return res.status(400).json({ error: err.message });
+  } finally {
+    dbClient.release();
   }
 });
 

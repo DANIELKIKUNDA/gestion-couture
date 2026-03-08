@@ -2450,6 +2450,12 @@ const retoucheMesureFields = computed(() => {
     }))
   ];
 });
+const retoucheMeasuresConfigError = computed(() => {
+  if (!retoucheWizard.retouche.typeHabit) return "";
+  if (!retoucheMeasuresRequired.value) return "";
+  if (retoucheMesureFields.value.length > 0) return "";
+  return "Configuration invalide: aucune mesure exploitable n'est disponible pour ce type de retouche et cet habit.";
+});
 
 const lowStockArticles = computed(() =>
   stockArticles.value.filter((a) => Number(a.quantiteDisponible || 0) <= Number(a.seuilAlerte || 0))
@@ -4624,16 +4630,12 @@ async function onRetoucheWizardStep1() {
       retoucheWizard.resolvedClientId = retoucheWizard.existingClientId;
     } else {
       const payload = {
-        nom: retoucheWizard.newClient.nom,
-        prenom: retoucheWizard.newClient.prenom,
-        telephone: retoucheWizard.newClient.telephone
+        nom: String(retoucheWizard.newClient.nom || "").trim(),
+        prenom: String(retoucheWizard.newClient.prenom || "").trim(),
+        telephone: String(retoucheWizard.newClient.telephone || "").trim()
       };
       if (!payload.nom || !payload.prenom || !payload.telephone) throw new Error("Completez nom, prenom et telephone.");
-
-      const created = await atelierApi.createClient(payload);
-      const normalized = normalizeClient(created.client || created);
-      clients.value.push(normalized);
-      retoucheWizard.resolvedClientId = normalized.idClient;
+      retoucheWizard.resolvedClientId = "";
     }
 
     retoucheWizard.step = 2;
@@ -4647,14 +4649,15 @@ async function onRetoucheWizardStep1() {
 async function onRetoucheWizardStep2() {
   retoucheWizard.submitting = true;
   try {
-    if (!retoucheWizard.resolvedClientId) throw new Error("Client non resolu.");
-
     const montant = Number(retoucheWizard.retouche.montantTotal);
     if (Number.isNaN(montant) || montant <= 0) throw new Error("Montant total invalide.");
     if (!retoucheWizard.retouche.typeHabit) throw new Error("Type d'habit obligatoire.");
     if (!retoucheWizard.retouche.typeRetouche) throw new Error("Type de retouche obligatoire.");
     if (retoucheDescriptionRequired.value && !String(retoucheWizard.retouche.descriptionRetouche || "").trim()) {
       throw new Error("Description retouche obligatoire.");
+    }
+    if (retoucheMeasuresConfigError.value) {
+      throw new Error(retoucheMeasuresConfigError.value);
     }
 
     const measuresAllowed = retoucheMeasuresRequired.value || atelierSettings.retouches?.mesuresOptionnelles !== false;
@@ -4671,18 +4674,34 @@ async function onRetoucheWizardStep2() {
     }
 
     const payload = {
-      idClient: retoucheWizard.resolvedClientId,
       descriptionRetouche: String(retoucheWizard.retouche.descriptionRetouche || "").trim(),
       typeRetouche: retoucheWizard.retouche.typeRetouche,
       montantTotal: montant,
       typeHabit: retoucheWizard.retouche.typeHabit,
       mesuresHabit: mesuresSnapshot
     };
+    if (retoucheWizard.mode === "existing") {
+      if (!retoucheWizard.resolvedClientId) throw new Error("Client non resolu.");
+      payload.idClient = retoucheWizard.resolvedClientId;
+    } else {
+      payload.nouveauClient = {
+        nom: String(retoucheWizard.newClient.nom || "").trim(),
+        prenom: String(retoucheWizard.newClient.prenom || "").trim(),
+        telephone: String(retoucheWizard.newClient.telephone || "").trim()
+      };
+    }
 
     if (retoucheWizard.retouche.datePrevue) payload.datePrevue = `${retoucheWizard.retouche.datePrevue}T00:00:00.000Z`;
 
-    const created = await atelierApi.createRetouche(payload);
-    const normalized = normalizeRetouche(created);
+    const created = await atelierApi.createRetoucheWizard(payload);
+    if (created?.client) {
+      const normalizedClient = normalizeClient(created.client);
+      if (!clients.value.some((row) => row.idClient === normalizedClient.idClient)) {
+        clients.value.push(normalizedClient);
+      }
+      retoucheWizard.resolvedClientId = normalizedClient.idClient;
+    }
+    const normalized = normalizeRetouche(created.retouche || created);
     retoucheWizard.createdRetoucheId = normalized.idRetouche;
     retoucheWizard.createdFactureId = "";
     retouches.value.unshift(normalized);
@@ -9033,6 +9052,9 @@ async function loadRetoucheDetail(idRetouche) {
             <span v-else-if="atelierSettings.retouches?.mesuresOptionnelles === false">- non requises pour ce type</span>
             <span v-else>- saisie optionnelle</span>
           </label>
+          <p v-if="retoucheMeasuresConfigError" class="helper" style="color: #b42318;">
+            {{ retoucheMeasuresConfigError }}
+          </p>
           <div class="form-grid">
             <div v-for="field in retoucheMesureFields" :key="`ret-mes-${field.key}`" class="form-row">
               <label>{{ mesureDisplayLabel(field) }}</label>
