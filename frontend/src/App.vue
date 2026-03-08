@@ -89,6 +89,10 @@ const facturesPagination = reactive({
   page: 1,
   pageSize: 10
 });
+const ventesPagination = reactive({
+  page: 1,
+  pageSize: 10
+});
 const caisseOperationsPagination = reactive({
   page: 1,
   pageSize: 10
@@ -2190,6 +2194,12 @@ const ventesView = computed(() =>
     total: Number(vente.total || 0)
   }))
 );
+const ventesPages = computed(() => Math.max(1, Math.ceil(ventesView.value.length / ventesPagination.pageSize)));
+const ventesPaged = computed(() => {
+  const page = Math.min(Math.max(1, ventesPagination.page), ventesPages.value);
+  const start = (page - 1) * ventesPagination.pageSize;
+  return ventesView.value.slice(start, start + ventesPagination.pageSize);
+});
 
 const facturesView = computed(() =>
   factures.value.map((facture) => ({
@@ -3312,6 +3322,17 @@ watch(
 watch(commandesPages, (total) => {
   if (commandesPagination.page > total) commandesPagination.page = total;
 });
+
+watch(ventesPages, (total) => {
+  if (ventesPagination.page > total) ventesPagination.page = total;
+});
+
+watch(
+  () => ventesPagination.pageSize,
+  () => {
+    ventesPagination.page = 1;
+  }
+);
 
 watch(caisseOperationsPages, (total) => {
   if (caisseOperationsPagination.page > total) caisseOperationsPagination.page = total;
@@ -6706,7 +6727,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="vente in ventesView" :key="vente.idVente">
+                <tr v-for="vente in ventesPaged" :key="vente.idVente">
                   <td>{{ vente.idVente }}</td>
                   <td>{{ formatDateTime(vente.date) }}</td>
                   <td>
@@ -6751,7 +6772,18 @@ async function loadRetoucheDetail(idRetouche) {
                   <td colspan="6">Aucune vente disponible.</td>
                 </tr>
               </tbody>
-            </table></article>
+            </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="ventesPagination.pageSize">
+                <option :value="5">5 / page</option>
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="ventesPagination.page <= 1" @click="ventesPagination.page -= 1">Precedent</button>
+              <span>Page {{ ventesPagination.page }} / {{ ventesPages }} · {{ ventesView.length }} vente(s)</span>
+              <button class="mini-btn" :disabled="ventesPagination.page >= ventesPages" @click="ventesPagination.page += 1">Suivant</button>
+            </div>
+          </article>
         </template>
       </section>
 
