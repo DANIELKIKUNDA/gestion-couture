@@ -50,6 +50,7 @@ export class AuthSessionRepoPg {
     const row = result.rows[0];
     if (!row) return null;
     if (row.revoked_at) return null;
+    if (new Date(row.expire_at).getTime() <= Date.now()) return null;
     return {
       refreshToken: row.refresh_token,
       utilisateurId: row.utilisateur_id,

@@ -40,7 +40,21 @@ const revocationRepo = new AccessTokenRevocationRepoPg();
 const REFRESH_COOKIE = process.env.AUTH_REFRESH_COOKIE_NAME || "atelier_refresh_token";
 const COOKIE_SAMESITE = process.env.AUTH_COOKIE_SAMESITE || "lax";
 const COOKIE_SECURE = String(process.env.AUTH_COOKIE_SECURE || "false").toLowerCase() === "true";
+const REFRESH_COOKIE_MAX_AGE_MS = Math.max(
+  60_000,
+  Number(process.env.AUTH_REFRESH_COOKIE_MAX_AGE_MS || 1000 * 60 * 60 * 24 * 400)
+);
 const ALLOWED_ROLES = [ROLES.PROPRIETAIRE, ROLES.COUTURIER, ROLES.CAISSIER];
+
+function refreshCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: COOKIE_SAMESITE,
+    secure: COOKIE_SECURE,
+    path: "/",
+    maxAge: REFRESH_COOKIE_MAX_AGE_MS
+  };
+}
 
 function getCookie(req, name) {
   const header = String(req.headers?.cookie || "");
@@ -97,12 +111,11 @@ function summarizeUser(user) {
 }
 
 function setRefreshCookie(res, value) {
-  res.cookie(REFRESH_COOKIE, value, {
-    httpOnly: true,
-    sameSite: COOKIE_SAMESITE,
-    secure: COOKIE_SECURE,
-    path: "/"
-  });
+  res.cookie(REFRESH_COOKIE, value, refreshCookieOptions());
+}
+
+function clearRefreshCookie(res) {
+  res.clearCookie(REFRESH_COOKIE, refreshCookieOptions());
 }
 
 router.post("/auth/bootstrap-owner", async (req, res) => {
@@ -196,6 +209,7 @@ router.post("/auth/refresh", async (req, res) => {
       tokenVersion: Number(user.tokenVersion || 1)
     });
 
+    setRefreshCookie(res, refreshToken);
     res.json({ token });
   } catch (err) {
     res.status(401).json({ error: err.message || "Session invalide" });
@@ -214,7 +228,7 @@ router.post("/auth/logout", requireAuth, async (req, res) => {
         reason: "logout_volontaire"
       });
     }
-    res.clearCookie(REFRESH_COOKIE, { path: "/" });
+    clearRefreshCookie(res);
     await logSecurityAudit({
       utilisateurId: req.auth?.utilisateurId || null,
       role: req.auth?.roleId || req.auth?.role || null,

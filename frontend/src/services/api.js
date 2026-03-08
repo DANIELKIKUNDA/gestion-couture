@@ -13,6 +13,7 @@ export class ApiError extends Error {
 }
 
 let authLostHandler = null;
+let refreshPromise = null;
 
 export function setAuthLostHandler(handler) {
   authLostHandler = typeof handler === "function" ? handler : null;
@@ -45,46 +46,113 @@ function setAccessToken(token) {
   localStorage.setItem("token", token);
 }
 
-async function ensureAccessToken() {
-  const token = getStoredAccessToken();
-  return token || "";
+async function refreshAccessToken() {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    let response;
+    try {
+      response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        credentials: "include"
+      });
+    } catch (err) {
+      setAccessToken("");
+      throw new ApiError(
+        "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
+        0,
+        { path: "/auth/refresh", cause: String(err?.message || err || "network_error") }
+      );
+    }
+
+    const text = await response.text();
+    const payload = text ? tryParseJson(text) : null;
+    if (!response.ok || !payload?.token) {
+      setAccessToken("");
+      throw new ApiError(payload?.error || "Session invalide", response.status || 401, payload);
+    }
+
+    setAccessToken(payload.token);
+    return payload.token;
+  })();
+
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
 }
 
-async function fetchBlobWithAuthRetry(path, options = {}) {
-  const token = await ensureAccessToken();
+async function ensureAccessToken({ allowRefresh = true } = {}) {
+  const token = getStoredAccessToken();
+  if (token) return token;
+  if (!allowRefresh) return "";
+  try {
+    return await refreshAccessToken();
+  } catch {
+    return "";
+  }
+}
+
+async function withAuthHeaders(path, options = {}, tokenOverride = "") {
+  const token = tokenOverride || (await ensureAccessToken());
   if (!token) {
     const err = new ApiError("Connexion requise. Connecte-toi pour continuer.", 401, { path, reason: "missing_token" });
     notifyAuthLost({ reason: err.message, path, status: 401 });
     throw err;
   }
-  const headers = {
-    ...{ Authorization: `Bearer ${token}` },
-    ...(options.headers || {})
+  return {
+    token,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {})
+    }
+  };
+}
+
+async function fetchBlobWithAuthRetry(path, options = {}) {
+  const execute = async (tokenOverride = "") => {
+    const { headers } = await withAuthHeaders(path, options, tokenOverride);
+    let response;
+    try {
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers,
+        credentials: "include"
+      });
+    } catch (err) {
+      throw new ApiError(
+        "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
+        0,
+        { path, cause: String(err?.message || err || "network_error") }
+      );
+    }
+
+    if (response.status === 401) {
+      throw new ApiError("Connexion requise. Connecte-toi pour continuer.", 401, { path, reason: "unauthorized" });
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      const payload = text ? tryParseJson(text) : null;
+      const message = payload?.error || text || `Erreur API (${response.status}) sur ${path}`;
+      throw new ApiError(message, response.status, payload);
+    }
+
+    return response.blob();
   };
 
-  let response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
-      ...options,
-      headers,
-      credentials: "include"
-    });
+    return await execute();
   } catch (err) {
-    throw new ApiError(
-      "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
-      0,
-      { path, cause: String(err?.message || err || "network_error") }
-    );
+    if (!(err instanceof ApiError) || err.status !== 401) throw err;
+    try {
+      const refreshed = await refreshAccessToken();
+      return await execute(refreshed);
+    } catch (refreshErr) {
+      notifyAuthLost({ reason: "Session expiree. Reconnecte-toi.", path, status: 401 });
+      throw refreshErr instanceof ApiError ? refreshErr : err;
+    }
   }
-
-  if (!response.ok) {
-    const text = await response.text();
-    const payload = text ? tryParseJson(text) : null;
-    const message = payload?.error || text || `Erreur API (${response.status}) sur ${path}`;
-    throw new ApiError(message, response.status, payload);
-  }
-
-  return response.blob();
 }
 
 async function request(path, options = {}) {
@@ -95,49 +163,55 @@ async function requestWithRetry(path, options = {}) {
   const hasBody = Object.prototype.hasOwnProperty.call(options, "body");
   const isAuthPublicEndpoint =
     path === "/auth/login" ||
+    path === "/auth/refresh" ||
     path === "/auth/bootstrap-owner/status" ||
     path === "/auth/bootstrap-owner" ||
     path === "/auth/password/forgot" ||
     path === "/auth/password/reset";
-  const token = isAuthPublicEndpoint ? "" : await ensureAccessToken();
-  if (!isAuthPublicEndpoint && !token) {
-    const err = new ApiError("Connexion requise. Connecte-toi pour continuer.", 401, { path, reason: "missing_token" });
-    notifyAuthLost({ reason: err.message, path, status: 401 });
-    throw err;
-  }
-  const headers = {
-    ...(isAuthPublicEndpoint ? {} : { Authorization: `Bearer ${token}` }),
-    ...(options.headers || {})
+  const execute = async (tokenOverride = "") => {
+    const baseHeaders = isAuthPublicEndpoint ? { ...(options.headers || {}) } : (await withAuthHeaders(path, options, tokenOverride)).headers;
+    if (hasBody && !baseHeaders["Content-Type"]) {
+      baseHeaders["Content-Type"] = "application/json";
+    }
+
+    let response;
+    try {
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers: baseHeaders,
+        credentials: "include"
+      });
+    } catch (err) {
+      throw new ApiError(
+        "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
+        0,
+        { path, cause: String(err?.message || err || "network_error") }
+      );
+    }
+
+    const text = await response.text();
+    const payload = text ? tryParseJson(text) : null;
+
+    if (!response.ok) {
+      const message = payload?.error || `Erreur API (${response.status}) sur ${path}`;
+      throw new ApiError(message, response.status, payload);
+    }
+
+    return payload;
   };
 
-  if (hasBody && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  let response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
-      ...options,
-      headers,
-      credentials: "include"
-    });
+    return await execute();
   } catch (err) {
-    throw new ApiError(
-      "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
-      0,
-      { path, cause: String(err?.message || err || "network_error") }
-    );
+    if (isAuthPublicEndpoint || !(err instanceof ApiError) || err.status !== 401) throw err;
+    try {
+      const refreshed = await refreshAccessToken();
+      return await execute(refreshed);
+    } catch (refreshErr) {
+      notifyAuthLost({ reason: "Session expiree. Reconnecte-toi.", path, status: 401 });
+      throw refreshErr instanceof ApiError ? refreshErr : err;
+    }
   }
-
-  const text = await response.text();
-  const payload = text ? tryParseJson(text) : null;
-
-  if (!response.ok) {
-    const message = payload?.error || `Erreur API (${response.status}) sur ${path}`;
-    throw new ApiError(message, response.status, payload);
-  }
-
-  return payload;
 }
 
 function tryParseJson(text) {
@@ -211,9 +285,9 @@ export const atelierApi = {
   },
 
   async restoreSession() {
-    const storedToken = getStoredAccessToken();
-    if (!storedToken) return null;
     try {
+      await ensureAccessToken();
+      if (!getStoredAccessToken()) return null;
       const payload = await request("/auth/me", { method: "GET" });
       return this.normalizeSession(payload);
     } catch (err) {
