@@ -66,7 +66,7 @@ export function validateParametresPayload(payload) {
       if (typeOrders.has(row.ordreAffichage)) throw new Error(`Retouches.typesRetouche.ordreAffichage duplique: ${row.ordreAffichage}`);
       typeCodes.add(row.code);
       typeOrders.add(row.ordreAffichage);
-      const mesures = row.mesures !== undefined ? row.mesures : row.mesuresCibles;
+      const mesures = row.mesures !== undefined ? row.mesures : row.mesuresCibles !== undefined ? row.mesuresCibles : [];
       assertArray(mesures, `Retouches.typesRetouche.${row.code}.mesures`);
       const mesureCodes = new Set();
       const mesureOrdres = new Set();

@@ -671,6 +671,14 @@ function serializeSettings() {
   return JSON.stringify(cloneSettings(atelierSettings));
 }
 
+function buildNormalizedSettingsSnapshotPayload() {
+  const payload = cloneSettings(atelierSettings);
+  normalizeCaisseSettings(payload.caisse);
+  payload.retouches = prepareRetoucheSettingsForSave(payload.retouches);
+  payload.habits = prepareHabitSettingsForSave(payload.habits);
+  return payload;
+}
+
 function serializeSettingsUser() {
   return JSON.stringify({
     nom: settingsUser.nom,
@@ -679,7 +687,11 @@ function serializeSettingsUser() {
 }
 
 function captureSettingsSnapshot() {
-  settingsSnapshot.value = serializeSettings();
+  try {
+    settingsSnapshot.value = JSON.stringify(buildNormalizedSettingsSnapshotPayload());
+  } catch {
+    settingsSnapshot.value = serializeSettings();
+  }
   settingsUserSnapshot.value = serializeSettingsUser();
 }
 
@@ -800,9 +812,15 @@ const settingsUserSnapshotParsed = computed(() => {
   }
 });
 const settingsHasUnsavedChanges = computed(() => {
+  let currentSerialized = serializeSettings();
+  try {
+    currentSerialized = JSON.stringify(buildNormalizedSettingsSnapshotPayload());
+  } catch {
+    currentSerialized = serializeSettings();
+  }
   const noteDirty = settingsAuditNote.value.trim().length > 0;
   const userDirty = serializeSettingsUser() !== settingsUserSnapshot.value;
-  return serializeSettings() !== settingsSnapshot.value || userDirty || noteDirty;
+  return currentSerialized !== settingsSnapshot.value || userDirty || noteDirty;
 });
 const availableHabitTypeOptions = computed(() => {
   const configuredEntries = Object.entries(atelierSettings.habits || {})
@@ -1025,7 +1043,12 @@ const securityUsersPaged = computed(() => {
 });
 
 function settingsTabIsDirty(tabId) {
-  const current = cloneSettings(atelierSettings);
+  let current = cloneSettings(atelierSettings);
+  try {
+    current = buildNormalizedSettingsSnapshotPayload();
+  } catch {
+    current = cloneSettings(atelierSettings);
+  }
   const snapshot = settingsSnapshotParsed.value;
   if (tabId === "identite") return JSON.stringify(current.identite || {}) !== JSON.stringify(snapshot.identite || {});
   if (tabId === "commandes") return JSON.stringify(current.commandes || {}) !== JSON.stringify(snapshot.commandes || {});
@@ -1175,6 +1198,18 @@ function normalizeHabitTypeKeyInput(value) {
     .replace(/^_+|_+$/g, "");
 }
 
+function normalizeMeasureCodeInput(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 function normalizeRetoucheTypeDefinition(raw) {
   const code = String(raw?.code || "").trim().toUpperCase();
   if (!code) return null;
@@ -1261,8 +1296,15 @@ function ensureRetoucheTypeDraft(row, fallbackOrder = 1) {
 function prepareHabitSettingsForSave(habitsRaw) {
   if (!habitsRaw || typeof habitsRaw !== "object") throw new Error("Configuration des habits invalide.");
   const prepared = {};
-  const habitOrders = new Set();
-  for (const [rawKey, habit] of Object.entries(habitsRaw)) {
+  const orderedHabits = Object.entries(habitsRaw).sort((left, right) => {
+    const leftOrder = normalizeSortOrder(left?.[1]?.ordre);
+    const rightOrder = normalizeSortOrder(right?.[1]?.ordre);
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return String(left?.[1]?.label || left?.[0] || "").localeCompare(String(right?.[1]?.label || right?.[0] || ""), "fr", {
+      sensitivity: "base"
+    });
+  });
+  for (const [habitIndex, [rawKey, habit]] of orderedHabits.entries()) {
     const key = normalizeHabitTypeKeyInput(rawKey);
     if (!key) throw new Error("Chaque type d'habit doit avoir un code valide.");
     if (!habit || typeof habit !== "object") throw new Error(`Configuration invalide pour le type d'habit ${key}.`);
@@ -1271,24 +1313,25 @@ function prepareHabitSettingsForSave(habitsRaw) {
     if (habit.actif === false && isHabitTypeUsed(key)) {
       throw new Error(`Impossible d'archiver ${label}: ce type d'habit est deja utilise par des commandes ou des retouches.`);
     }
-    const ordre = normalizeSortOrder(habit.ordre, NaN);
-    if (!Number.isFinite(ordre)) throw new Error(`L'ordre du type d'habit ${label} est obligatoire.`);
-    if (habitOrders.has(ordre)) throw new Error(`Ordre de type d'habit duplique: ${ordre}.`);
-    habitOrders.add(ordre);
+    const ordre = habitIndex + 1;
     const mesuresRaw = Array.isArray(habit.mesures) ? habit.mesures : [];
     const measureCodes = new Set();
-    const measureOrders = new Set();
-    const mesures = mesuresRaw.map((mesure, index) => {
+    const mesures = [...mesuresRaw]
+      .sort((left, right) => {
+        const leftOrder = normalizeSortOrder(left?.ordre);
+        const rightOrder = normalizeSortOrder(right?.ordre);
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        return String(left?.label || left?.code || "").localeCompare(String(right?.label || right?.code || ""), "fr", {
+          sensitivity: "base"
+        });
+      })
+      .map((mesure, index) => {
       const code = String(mesure?.code || "").trim();
       if (!code) throw new Error(`Une mesure du type ${label} n'a pas de code.`);
       if (measureCodes.has(code)) throw new Error(`Code de mesure duplique pour ${label}: ${code}.`);
       measureCodes.add(code);
       const mesureLabel = String(mesure?.label || "").trim();
       if (!mesureLabel) throw new Error(`Le libelle de la mesure ${code} est obligatoire.`);
-      const mesureOrdre = normalizeSortOrder(mesure?.ordre, NaN);
-      if (!Number.isFinite(mesureOrdre)) throw new Error(`L'ordre de la mesure ${code} est obligatoire.`);
-      if (measureOrders.has(mesureOrdre)) throw new Error(`Ordre de mesure duplique pour ${label}: ${mesureOrdre}.`);
-      measureOrders.add(mesureOrdre);
       const typeChamp = normalizeMesureFieldType(mesure?.typeChamp);
       if (String(mesure?.typeChamp || "").trim() && typeChamp !== String(mesure?.typeChamp || "").trim().toLowerCase()) {
         throw new Error(`typeChamp invalide pour ${label} / ${code}. Valeurs autorisees: number, text, select.`);
@@ -1298,7 +1341,7 @@ function prepareHabitSettingsForSave(habitsRaw) {
         label: mesureLabel,
         obligatoire: normalizeBoolean(mesure?.obligatoire, false),
         actif: normalizeBoolean(mesure?.actif, true),
-        ordre: mesureOrdre,
+        ordre: index + 1,
         typeChamp
       };
     });
@@ -1316,22 +1359,34 @@ function prepareRetoucheSettingsForSave(retouchesRaw) {
   const retouches = retouchesRaw && typeof retouchesRaw === "object" ? retouchesRaw : {};
   const sourceTypes = Array.isArray(retouches.typesRetouche) ? retouches.typesRetouche : Array.isArray(retouches.typesRetouches) ? retouches.typesRetouches : [];
   const codes = new Set();
-  const orders = new Set();
-  const typesRetouche = sourceTypes.map((row, index) => {
+  const typesRetouche = [...sourceTypes]
+    .sort((left, right) => {
+      const leftOrder = normalizeSortOrder(left?.ordreAffichage);
+      const rightOrder = normalizeSortOrder(right?.ordreAffichage);
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return String(left?.libelle || left?.code || "").localeCompare(String(right?.libelle || right?.code || ""), "fr", {
+        sensitivity: "base"
+      });
+    })
+    .map((row, index) => {
     const draft = ensureRetoucheTypeDraft({ ...row }, index + 1);
     if (!draft) throw new Error("Un type de retouche a un code invalide.");
     if (codes.has(draft.code)) throw new Error(`Code de type de retouche duplique: ${draft.code}.`);
     codes.add(draft.code);
-    if (orders.has(draft.ordreAffichage)) throw new Error(`Ordre de type de retouche duplique: ${draft.ordreAffichage}.`);
-    orders.add(draft.ordreAffichage);
     const uniqueMesures = [];
     const mesureCodes = new Set();
-    const mesureOrdres = new Set();
-    for (const mesure of draft.mesures || []) {
+    for (const [measureIndex, mesure] of [...(draft.mesures || [])]
+      .sort((left, right) => {
+        const leftOrder = normalizeSortOrder(left?.ordre);
+        const rightOrder = normalizeSortOrder(right?.ordre);
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        return String(left?.label || left?.code || "").localeCompare(String(right?.label || right?.code || ""), "fr", {
+          sensitivity: "base"
+        });
+      })
+      .entries()) {
       if (mesureCodes.has(mesure.code)) throw new Error(`Mesure dupliquee pour ${draft.code}: ${mesure.code}.`);
-      if (mesureOrdres.has(mesure.ordre)) throw new Error(`Ordre de mesure duplique pour ${draft.code}: ${mesure.ordre}.`);
       mesureCodes.add(mesure.code);
-      mesureOrdres.add(mesure.ordre);
       uniqueMesures.push({
         code: mesure.code,
         label: mesure.label,
@@ -1339,7 +1394,7 @@ function prepareRetoucheSettingsForSave(retouchesRaw) {
         typeChamp: normalizeMesureFieldType(mesure.typeChamp),
         obligatoire: mesure.obligatoire === true,
         actif: mesure.actif !== false,
-        ordre: Number(mesure.ordre)
+        ordre: measureIndex + 1
       });
     }
     const uniqueHabits = Array.from(new Set(draft.habitsCompatibles));
@@ -1348,7 +1403,7 @@ function prepareRetoucheSettingsForSave(retouchesRaw) {
       code: draft.code,
       libelle: draft.libelle,
       actif: draft.actif !== false,
-      ordreAffichage: Number(draft.ordreAffichage),
+      ordreAffichage: index + 1,
       necessiteMesures: draft.necessiteMesures === true,
       mesures: uniqueMesures,
       descriptionObligatoire: draft.descriptionObligatoire === true,
@@ -1418,18 +1473,38 @@ function removeRetoucheType(code) {
   list.splice(index, 1);
 }
 
-function addMesureToRetoucheType(code) {
+async function addMesureToRetoucheType(code) {
   if (!settingsCanEdit.value) return;
   const type = atelierSettings.retouches.typesRetouche.find((row) => String(row?.code || "").trim().toUpperCase() === String(code || "").trim().toUpperCase());
   if (!type) return;
   if (!Array.isArray(type.mesures)) type.mesures = [];
-  const mesureCode = `mesure_${Date.now().toString(36)}`;
+  const payload = await openActionModal({
+    title: "Nouvelle mesure de retouche",
+    message: "Saisis le nom de la mesure. Le code technique doit refleter ce nom.",
+    confirmLabel: "Ajouter",
+    cancelLabel: "Annuler",
+    fields: [
+      { key: "label", label: "Nom de la mesure", type: "text", required: true, defaultValue: "" },
+      { key: "code", label: "Code technique", type: "text", required: false, defaultValue: "" },
+      { key: "typeChamp", label: "Type de champ", type: "select", required: true, defaultValue: "number", options: mesureTypeOptions },
+      { key: "unite", label: "Unite", type: "text", required: false, defaultValue: "cm" },
+      { key: "obligatoire", label: "Obligatoire", type: "select", required: true, defaultValue: "true", options: [{ value: "true", label: "Oui" }, { value: "false", label: "Non" }] }
+    ]
+  });
+  if (!payload) return;
+  const mesureLabel = String(payload.label || "").trim();
+  const mesureCode = normalizeMeasureCodeInput(payload.code || payload.label);
+  if (!mesureLabel) return notify("Le nom de la mesure est obligatoire.");
+  if (!mesureCode) return notify("Le code technique de la mesure est invalide.");
+  if (type.mesures.some((mesure) => String(mesure?.code || "") === mesureCode)) {
+    return notify(`Le code de mesure ${mesureCode} existe deja pour cette retouche.`);
+  }
   type.mesures.push({
     code: mesureCode,
-    label: "Nouvelle mesure retouche",
-    unite: "cm",
-    typeChamp: "number",
-    obligatoire: true,
+    label: mesureLabel,
+    unite: String(payload.unite || "").trim() || (payload.typeChamp === "number" ? "cm" : ""),
+    typeChamp: normalizeMesureFieldType(payload.typeChamp),
+    obligatoire: String(payload.obligatoire) === "true",
     actif: true,
     ordre: type.mesures.length + 1
   });
@@ -1454,18 +1529,37 @@ async function canLeaveSettings() {
   });
 }
 
-function addMesureToHabit(habitKey) {
+async function addMesureToHabit(habitKey) {
   if (!settingsCanEdit.value) return;
   const habit = atelierSettings.habits[habitKey];
   if (!habit) return;
-  const code = `mesure_${Date.now().toString(36)}`;
+  const payload = await openActionModal({
+    title: "Nouvelle mesure",
+    message: "Saisis le nom de la mesure. Le code technique doit refleter ce nom.",
+    confirmLabel: "Ajouter",
+    cancelLabel: "Annuler",
+    fields: [
+      { key: "label", label: "Nom de la mesure", type: "text", required: true, defaultValue: "" },
+      { key: "code", label: "Code technique", type: "text", required: false, defaultValue: "" },
+      { key: "typeChamp", label: "Type de champ", type: "select", required: true, defaultValue: "number", options: mesureTypeOptions },
+      { key: "obligatoire", label: "Obligatoire", type: "select", required: true, defaultValue: "false", options: [{ value: "true", label: "Oui" }, { value: "false", label: "Non" }] }
+    ]
+  });
+  if (!payload) return;
+  const code = normalizeMeasureCodeInput(payload.code || payload.label);
+  const label = String(payload.label || "").trim();
+  if (!label) return notify("Le nom de la mesure est obligatoire.");
+  if (!code) return notify("Le code technique de la mesure est invalide.");
+  if (habit.mesures.some((mesure) => String(mesure?.code || "") === code)) {
+    return notify(`Le code de mesure ${code} existe deja pour cet habit.`);
+  }
   habit.mesures.push({
     code,
-    label: "Nouvelle mesure",
-    obligatoire: false,
+    label,
+    obligatoire: String(payload.obligatoire) === "true",
     actif: true,
     ordre: habit.mesures.length + 1,
-    typeChamp: "number"
+    typeChamp: normalizeMesureFieldType(payload.typeChamp)
   });
 }
 
@@ -1564,7 +1658,7 @@ async function saveAtelierSettings() {
     settingsEditMode.value = false;
     notify("Parametres atelier sauvegardes.");
   } catch (err) {
-    const message = err instanceof ApiError ? err.message : "Erreur lors de la sauvegarde des parametres.";
+    const message = err instanceof ApiError ? err.message : String(err?.message || "Erreur lors de la sauvegarde des parametres.");
     settingsError.value = message;
     notify(message);
   } finally {
