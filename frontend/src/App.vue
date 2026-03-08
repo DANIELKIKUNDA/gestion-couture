@@ -2631,7 +2631,11 @@ const recentCaisseActivity = computed(() => {
 
 const caisseStatus = computed(() => caisseJour.value?.statutCaisse || "INCONNUE");
 const caisseOuverte = computed(() => caisseStatus.value === "OUVERTE");
-const caisseOperations = computed(() => caisseJour.value?.operations || []);
+const caisseOperations = computed(() =>
+  [...(caisseJour.value?.operations || [])].sort((a, b) =>
+    String(b.dateOperation || "").localeCompare(String(a.dateOperation || ""))
+  )
+);
 const caisseOperationsPages = computed(() => Math.max(1, Math.ceil(caisseOperations.value.length / caisseOperationsPagination.pageSize)));
 const caisseOperationsPaged = computed(() => {
   const page = Math.min(Math.max(1, caisseOperationsPagination.page), caisseOperationsPages.value);
