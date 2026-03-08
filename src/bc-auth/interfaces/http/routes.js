@@ -241,8 +241,8 @@ router.post("/auth/login", loginRateLimit, async (req, res) => {
 
     setRefreshCookie(res, out.refreshToken);
     res.json({ token: out.token, utilisateur: out.utilisateur });
-  } catch (err) {
-    res.status(401).json({ error: err.message || "Identifiants invalides" });
+  } catch {
+    res.status(401).json({ error: "Identifiants invalides" });
   }
 });
 

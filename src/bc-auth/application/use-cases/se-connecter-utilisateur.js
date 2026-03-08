@@ -2,12 +2,17 @@ import { verifyPassword } from "../../infrastructure/security/password-hasher.js
 import { signAccessToken, createOpaqueToken } from "../../infrastructure/security/jwt-service.js";
 import { ACCOUNT_STATES, normalizeAccountState } from "../../domain/account-state.js";
 
+// Constant-time fallback to reduce user-enumeration via timing on login.
+const DUMMY_PASSWORD_HASH =
+  "scrypt:7d7f5823cb8ef4d39f4fdc8ed3305f91:09ec950f0d4af9769d1f9acb6549e44f8b5c90cc1f9fca1f7df5f4a9d9b141ef";
+
 export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRepo, authSessionRepo, email, motDePasse }) {
   const user = await utilisateurRepo.findByEmail(email);
-  if (!user) throw new Error("Utilisateur inexistant");
+  const passwordHash = user?.motDePasseHash || DUMMY_PASSWORD_HASH;
+  const passwordValid = verifyPassword(motDePasse, passwordHash);
+  if (!user || !passwordValid) throw new Error("Identifiants invalides");
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
   if (etatCompte !== ACCOUNT_STATES.ACTIVE) throw new Error("Compte inactif: connexion refusee");
-  if (!verifyPassword(motDePasse, user.motDePasseHash)) throw new Error("Mot de passe incorrect");
 
   const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
   const permissions = rolePerm?.permissions || [];
