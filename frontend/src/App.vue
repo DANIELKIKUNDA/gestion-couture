@@ -2444,28 +2444,83 @@ const lowStockArticles = computed(() =>
   stockArticles.value.filter((a) => Number(a.quantiteDisponible || 0) <= Number(a.seuilAlerte || 0))
 );
 
+const dashboardScopedCommandes = computed(() => {
+  const today = todayIso();
+  const last7 = addDays(today, -7);
+  const last30 = addDays(today, -30);
+  return commandesView.value.filter((commande) => {
+    const dateRef = dateOnly(commande.dateCreation || commande.datePrevue || "");
+    if (!dateRef) return true;
+    if (dashboardPeriod.value === "TODAY") return dateRef === today;
+    if (dashboardPeriod.value === "LAST_7") return dateRef >= last7 && dateRef <= today;
+    if (dashboardPeriod.value === "LAST_30") return dateRef >= last30 && dateRef <= today;
+    return true;
+  });
+});
+
+const dashboardScopedRetouches = computed(() => {
+  const today = todayIso();
+  const last7 = addDays(today, -7);
+  const last30 = addDays(today, -30);
+  return retouchesView.value.filter((retouche) => {
+    const dateRef = dateOnly(retouche.dateDepot || retouche.datePrevue || "");
+    if (!dateRef) return true;
+    if (dashboardPeriod.value === "TODAY") return dateRef === today;
+    if (dashboardPeriod.value === "LAST_7") return dateRef >= last7 && dateRef <= today;
+    if (dashboardPeriod.value === "LAST_30") return dateRef >= last30 && dateRef <= today;
+    return true;
+  });
+});
+
 const dashboardCards = computed(() => [
   {
-    label: "Commandes creees aujourd'hui",
-    value: commandesView.value.filter((c) => dateOnly(c.dateCreation) === todayIso()).length,
+    label:
+      dashboardPeriod.value === "TODAY"
+        ? "Commandes creees aujourd'hui"
+        : dashboardPeriod.value === "LAST_7"
+          ? "Commandes creees ces 7 derniers jours"
+          : "Commandes creees ces 30 derniers jours",
+    value: dashboardScopedCommandes.value.filter((c) => Boolean(dateOnly(c.dateCreation))).length,
     tone: "blue"
   },
   {
-    label: "Retouches creees aujourd'hui",
-    value: retouches.value.filter((r) => dateOnly(r.dateDepot) === todayIso()).length,
+    label:
+      dashboardPeriod.value === "TODAY"
+        ? "Retouches creees aujourd'hui"
+        : dashboardPeriod.value === "LAST_7"
+          ? "Retouches creees ces 7 derniers jours"
+          : "Retouches creees ces 30 derniers jours",
+    value: dashboardScopedRetouches.value.filter((r) => Boolean(dateOnly(r.dateDepot))).length,
     tone: "teal"
   },
-  { label: "Commandes en cours", value: commandesView.value.filter((c) => c.statutCommande === "EN_COURS").length, tone: "blue" },
-  { label: "Commandes pretes", value: commandesView.value.filter((c) => c.statutCommande === "TERMINEE").length, tone: "green" },
+  { label: "Commandes en cours", value: dashboardScopedCommandes.value.filter((c) => c.statutCommande === "EN_COURS").length, tone: "blue" },
+  { label: "Commandes pretes", value: dashboardScopedCommandes.value.filter((c) => c.statutCommande === "TERMINEE").length, tone: "green" },
   {
     label: "Commandes a solder",
-    value: commandesView.value.filter((c) => c.soldeRestant > 0 && c.statutCommande !== "ANNULEE").length,
+    value: dashboardScopedCommandes.value.filter((c) => c.soldeRestant > 0 && c.statutCommande !== "ANNULEE").length,
     tone: "amber"
   },
-  { label: "Retouches en cours", value: retouches.value.filter((r) => r.statutRetouche === "EN_COURS").length, tone: "teal" },
-  { label: "Retouches a solder", value: retouchesView.value.filter((r) => r.soldeRestant > 0).length, tone: "amber" },
+  { label: "Retouches en cours", value: dashboardScopedRetouches.value.filter((r) => r.statutRetouche === "EN_COURS").length, tone: "teal" },
+  { label: "Retouches pretes", value: dashboardScopedRetouches.value.filter((r) => r.statutRetouche === "TERMINEE").length, tone: "green" },
+  { label: "Retouches a solder", value: dashboardScopedRetouches.value.filter((r) => r.soldeRestant > 0).length, tone: "amber" },
   { label: "Clients actifs", value: clients.value.filter((c) => c.actif !== false).length, tone: "slate" }
 ]);
+
+const dashboardCommandesCards = computed(() => [
+  dashboardCards.value.find((card) => card.label.startsWith("Commandes creees")),
+  dashboardCards.value.find((card) => card.label === "Commandes en cours"),
+  dashboardCards.value.find((card) => card.label === "Commandes pretes"),
+  dashboardCards.value.find((card) => card.label === "Commandes a solder")
+].filter(Boolean));
+
+const dashboardRetouchesCards = computed(() => [
+  dashboardCards.value.find((card) => card.label.startsWith("Retouches creees")),
+  dashboardCards.value.find((card) => card.label === "Retouches en cours"),
+  dashboardCards.value.find((card) => card.label === "Retouches pretes"),
+  dashboardCards.value.find((card) => card.label === "Retouches a solder")
+].filter(Boolean));
+
+const dashboardClientsActifs = computed(() => dashboardCards.value.find((card) => card.label === "Clients actifs") || null);
 
 const financeMetrics = computed(() => {
   const ops = (caisseJour.value?.operations || []).filter((op) => op.statutOperation !== "ANNULEE");
@@ -5697,6 +5752,7 @@ async function loadRetoucheDetail(idRetouche) {
           <div>
             <h3>Vue globale</h3>
             <p class="helper">Filtrer les indicateurs par periode</p>
+            <p v-if="dashboardClientsActifs" class="helper"><strong>Clients actifs:</strong> {{ dashboardClientsActifs.value }}</p>
           </div>
           <div class="row-actions">
             <select v-model="dashboardPeriod">
@@ -5708,7 +5764,14 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <div class="kpi-grid legacy-kpi-grid">
-          <article v-for="card in dashboardCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
+          <article v-for="card in dashboardCommandesCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
+            <div class="kpi-head"><span>{{ card.label }}</span></div>
+            <strong>{{ card.value }}</strong>
+          </article>
+        </div>
+
+        <div class="kpi-grid legacy-kpi-grid">
+          <article v-for="card in dashboardRetouchesCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
             <div class="kpi-head"><span>{{ card.label }}</span></div>
             <strong>{{ card.value }}</strong>
           </article>
