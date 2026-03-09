@@ -1,12 +1,19 @@
 import { ACCOUNT_STATES, normalizeAccountState } from "../../../domain/account-state.js";
 import { logSecurityAudit } from "../security-audit.js";
 
+function normalizeRole(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function isOwnerRole(auth) {
+  return normalizeRole(auth?.role || auth?.roleId) === "PROPRIETAIRE";
+}
+
 export function hasPermission(auth, permission) {
   if (!permission) return true;
-  const role = String(auth?.role || auth?.roleId || "").toUpperCase();
-  if (role === "PROPRIETAIRE") return true;
+  if (isOwnerRole(auth)) return true;
   const perms = Array.isArray(auth?.permissions) ? auth.permissions : [];
-  return perms.map((p) => String(p || "").toUpperCase()).includes(String(permission).toUpperCase());
+  return perms.map((p) => String(p || "").trim().toUpperCase()).includes(String(permission).trim().toUpperCase());
 }
 
 export function hasAnyPermission(auth, permissions = []) {

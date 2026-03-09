@@ -20,7 +20,7 @@ async function run() {
   await rolePermissionRepo.save({
     atelierId: "ATELIER",
     role: ROLES.PROPRIETAIRE,
-    permissions: [PERMISSIONS.GERER_UTILISATEURS, PERMISSIONS.MODIFIER_PARAMETRES],
+    permissions: [],
     updatedBy: "integration-test"
   });
 
@@ -42,6 +42,9 @@ async function run() {
   assert.equal(login.status, 200, "login proprietaire doit repondre 200");
   const token = String(login.body?.token || "");
   assert.ok(token, "token proprietaire manquant");
+
+  const usersList = await client.get("/api/auth/users").set("Authorization", `Bearer ${token}`);
+  assert.equal(usersList.status, 200, "proprietaire doit lister les utilisateurs meme sans permissions stockees");
 
   const selfDisable = await client
     .patch(`/api/auth/users/${encodeURIComponent(owner.id)}/activation`)

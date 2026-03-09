@@ -1,12 +1,8 @@
 export function buildAuthContext(payload) {
   return {
     utilisateurId: payload?.sub || null,
-    nom: payload?.nom || null,
-    role: payload?.role || payload?.roleId || null,
-    roleId: payload?.roleId || payload?.role || null,
-    atelierId: payload?.atelierId || "ATELIER",
-    permissions: Array.isArray(payload?.permissions) ? payload.permissions : [],
-    etatCompte: payload?.etatCompte || "ACTIVE",
-    tokenVersion: Number(payload?.tokenVersion || 1)
+    email: payload?.email || null,
+    role: payload?.role || null,
+    roleId: payload?.role || null
   };
 }

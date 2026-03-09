@@ -1,6 +1,7 @@
 import { verifyPassword } from "../../infrastructure/security/password-hasher.js";
 import { signAccessToken, createOpaqueToken } from "../../infrastructure/security/jwt-service.js";
 import { ACCOUNT_STATES, normalizeAccountState } from "../../domain/account-state.js";
+import { PERMISSIONS } from "../../domain/permissions.js";
 
 // Constant-time fallback to reduce user-enumeration via timing on login.
 const DUMMY_PASSWORD_HASH =
@@ -15,16 +16,11 @@ export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRe
   if (etatCompte !== ACCOUNT_STATES.ACTIVE) throw new Error("Compte inactif: connexion refusee");
 
   const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
-  const permissions = rolePerm?.permissions || [];
+  const permissions = String(user.roleId || "").toUpperCase() === "PROPRIETAIRE" ? Object.values(PERMISSIONS) : rolePerm?.permissions || [];
   const token = signAccessToken({
     sub: user.id,
-    nom: user.nom,
+    email: user.email,
     role: user.roleId,
-    roleId: user.roleId,
-    atelierId: user.atelierId || "ATELIER",
-    permissions,
-    etatCompte,
-    tokenVersion: Number(user.tokenVersion || 1)
   });
 
   const refreshToken = createOpaqueToken();

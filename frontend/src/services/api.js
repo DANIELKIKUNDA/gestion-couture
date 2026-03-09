@@ -20,6 +20,7 @@ export class ApiError extends Error {
 
 let authLostHandler = null;
 let refreshPromise = null;
+let sessionMutationCounter = 0;
 
 export function setAuthLostHandler(handler) {
   authLostHandler = typeof handler === "function" ? handler : null;
@@ -38,22 +39,25 @@ function getStoredAccessToken() {
   return localStorage.getItem("access_token") || localStorage.getItem("token") || "";
 }
 
-function clearStoredTokens() {
+function clearStoredTokens({ markMutation = true } = {}) {
   localStorage.removeItem("access_token");
   localStorage.removeItem("token");
+  if (markMutation) sessionMutationCounter += 1;
 }
 
-function setAccessToken(token) {
+function setAccessToken(token, { markMutation = true } = {}) {
   if (!token) {
-    clearStoredTokens();
+    clearStoredTokens({ markMutation });
     return;
   }
   localStorage.setItem("access_token", token);
   localStorage.setItem("token", token);
+  if (markMutation) sessionMutationCounter += 1;
 }
 
 async function refreshAccessToken() {
   if (refreshPromise) return refreshPromise;
+  const refreshSessionVersion = sessionMutationCounter;
   refreshPromise = (async () => {
     let response;
     try {
@@ -73,11 +77,19 @@ async function refreshAccessToken() {
     const text = await response.text();
     const payload = text ? tryParseJson(text) : null;
     if (!response.ok || !payload?.token) {
-      setAccessToken("");
+      if (sessionMutationCounter === refreshSessionVersion) {
+        setAccessToken("", { markMutation: false });
+      }
       throw new ApiError(payload?.error || "Session invalide", response.status || 401, payload);
     }
 
-    setAccessToken(payload.token);
+    if (sessionMutationCounter !== refreshSessionVersion) {
+      const currentToken = getStoredAccessToken();
+      if (currentToken) return currentToken;
+      throw new ApiError("Session invalide", 401, { path: "/auth/refresh", reason: "stale_refresh" });
+    }
+
+    setAccessToken(payload.token, { markMutation: false });
     return payload.token;
   })();
 
@@ -247,7 +259,7 @@ export const atelierApi = {
       body: JSON.stringify({ email, motDePasse })
     });
     if (response?.token) {
-      setAccessToken(response.token);
+      setAccessToken(response.token, { markMutation: true });
     }
     return response;
   },
@@ -256,7 +268,7 @@ export const atelierApi = {
     try {
       await request("/auth/logout", { method: "POST" });
     } finally {
-      setAccessToken("");
+      setAccessToken("", { markMutation: true });
     }
   },
 

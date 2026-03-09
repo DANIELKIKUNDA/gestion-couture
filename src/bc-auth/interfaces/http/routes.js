@@ -96,7 +96,7 @@ async function ensureRolePermissions() {
 async function withPermissions(user) {
   await ensureRolePermissions();
   const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
-  const permissions = rolePerm?.permissions || [];
+  const permissions = String(user.roleId || "").toUpperCase() === ROLES.PROPRIETAIRE ? Object.values(PERMISSIONS) : rolePerm?.permissions || [];
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
   return {
     id: user.id,
@@ -127,7 +127,8 @@ function setRefreshCookie(res, value) {
 }
 
 function clearRefreshCookie(res) {
-  res.clearCookie(REFRESH_COOKIE, refreshCookieOptions());
+  const { maxAge: _maxAge, ...options } = refreshCookieOptions();
+  res.clearCookie(REFRESH_COOKIE, options);
 }
 
 function createAuthRateLimiter({ windowMs, max, action, message }) {
@@ -241,7 +242,10 @@ router.post("/auth/login", loginRateLimit, async (req, res) => {
 
     setRefreshCookie(res, out.refreshToken);
     res.json({ token: out.token, utilisateur: out.utilisateur });
-  } catch {
+  } catch (err) {
+    if (err?.message === "Compte inactif: connexion refusee") {
+      return res.status(401).json({ error: err.message });
+    }
     res.status(401).json({ error: "Identifiants invalides" });
   }
 });
@@ -258,16 +262,10 @@ router.post("/auth/refresh", refreshRateLimit, async (req, res) => {
     if (!user) return res.status(401).json({ error: "Session invalide" });
     if (etatCompte !== ACCOUNT_STATES.ACTIVE) return res.status(401).json({ error: "Compte inactif: connexion refusee" });
 
-    const userWithPerms = await withPermissions(user);
     const token = signAccessToken({
       sub: user.id,
-      nom: user.nom,
-      role: user.roleId,
-      roleId: user.roleId,
-      atelierId: user.atelierId || "ATELIER",
-      permissions: userWithPerms.permissions,
-      etatCompte,
-      tokenVersion: Number(user.tokenVersion || 1)
+      email: user.email,
+      role: user.roleId
     });
 
     setRefreshCookie(res, refreshToken);

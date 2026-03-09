@@ -1,4 +1,5 @@
 import { ACCOUNT_STATES, normalizeAccountState } from "../../../domain/account-state.js";
+import { PERMISSIONS } from "../../../domain/permissions.js";
 import { UtilisateurRepoPg } from "../../../infrastructure/repositories/utilisateur-repo-pg.js";
 import { RolePermissionAtelierRepoPg } from "../../../infrastructure/repositories/role-permission-atelier-repo-pg.js";
 import { AccessTokenRevocationRepoPg } from "../../../infrastructure/repositories/access-token-revocation-repo-pg.js";
@@ -14,8 +15,16 @@ function parseBearer(req) {
   return auth.slice(7).trim();
 }
 
-function securityError(res, message = "Acces non autorise") {
+function authError(res, message = "Session invalide") {
+  return res.status(401).json({ error: message });
+}
+
+function permissionError(res, message = "Acces non autorise") {
   return res.status(403).json({ error: message });
+}
+
+function normalizeRole(value) {
+  return String(value || "").trim().toUpperCase();
 }
 
 export async function securityPolicy(req, res, next) {
@@ -32,7 +41,7 @@ export async function securityPolicy(req, res, next) {
       succes: false,
       raison: "token_revoque"
     });
-    return securityError(res);
+    return authError(res, "Session invalide");
   }
 
   const user = await utilisateurRepo.getById(req.auth.utilisateurId);
@@ -45,7 +54,7 @@ export async function securityPolicy(req, res, next) {
       succes: false,
       raison: "utilisateur_introuvable"
     });
-    return securityError(res);
+    return authError(res, "Session invalide");
   }
 
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
@@ -58,21 +67,7 @@ export async function securityPolicy(req, res, next) {
       succes: false,
       raison: `compte_${etatCompte.toLowerCase()}`
     });
-    return res.status(401).json({ error: "Compte inactif: connexion refusee" });
-  }
-
-  const tokenVersion = Number(req.auth.tokenVersion || 1);
-  const currentTokenVersion = Number(user.tokenVersion || 1);
-  if (tokenVersion !== currentTokenVersion) {
-    await logSecurityAudit({
-      utilisateurId: user.id,
-      role: user.roleId,
-      action: "TOKEN_REVOQUE_PAR_CHANGEMENT_REFUS",
-      entite: req.path,
-      succes: false,
-      raison: "version_token_invalide"
-    });
-    return securityError(res);
+    return authError(res, "Compte inactif: connexion refusee");
   }
 
   req.isReadOnly = false;
@@ -84,8 +79,7 @@ export async function securityPolicy(req, res, next) {
     role: user.roleId,
     roleId: user.roleId,
     etatCompte,
-    tokenVersion: currentTokenVersion,
-    permissions: rolePerm?.permissions || []
+    permissions: normalizeRole(user.roleId) === "PROPRIETAIRE" ? Object.values(PERMISSIONS) : rolePerm?.permissions || []
   };
 
   next();

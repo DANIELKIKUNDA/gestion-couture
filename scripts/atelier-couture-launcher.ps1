@@ -1,18 +1,18 @@
+param(
+  [switch]$NoBrowser
+)
+
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 $backendUrl = "http://localhost:3000/health"
 $frontendUrl = "http://localhost:5173"
+$frontendDir = Join-Path $root "frontend"
+$frontendSrcDir = Join-Path $frontendDir "src"
+$frontendDistDir = Join-Path $frontendDir "dist"
 $logsDir = Join-Path $root "logs"
 $npmPath = (Get-Command npm.cmd).Source
 $nodePath = (Get-Command node.exe).Source
-$chromeCandidates = @(
-  "C:\Program Files\Google\Chrome\Application\chrome.exe",
-  "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-  (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe")
-)
-$chromePath = $chromeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-
 if (-not (Test-Path $logsDir)) {
   New-Item -ItemType Directory -Path $logsDir | Out-Null
 }
@@ -27,6 +27,27 @@ function Test-PortOpen {
     return $null -ne $connection
   } catch {
     return $false
+  }
+}
+
+function Stop-ProcessOnPort {
+  param(
+    [Parameter(Mandatory = $true)][int]$Port
+  )
+
+  $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+  if (-not $conns) {
+    return
+  }
+
+  $processIds = $conns | Select-Object -ExpandProperty OwningProcess -Unique
+  foreach ($processId in $processIds) {
+    try {
+      Stop-Process -Id $processId -Force -ErrorAction Stop
+      Write-Host "Processus sur le port $Port arrete (PID $processId)."
+    } catch {
+      Write-Warning ("Impossible d'arreter PID {0} sur le port {1}: {2}" -f $processId, $Port, $_.Exception.Message)
+    }
   }
 }
 
@@ -71,37 +92,84 @@ function Wait-HttpReady {
   throw "Demarrage trop lent ou indisponible: $Url"
 }
 
-if (-not (Test-PortOpen -Port 3000)) {
-  Start-BackgroundProcess `
-    -WorkingDirectory $root `
-    -FilePath $npmPath `
-    -Arguments @("run", "start") `
-    -StdoutPath (Join-Path $logsDir "launcher-backend.out.log") `
-    -StderrPath (Join-Path $logsDir "launcher-backend.err.log")
+function Get-LatestWriteTime {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path
+  )
+
+  if (-not (Test-Path $Path)) {
+    return [datetime]::MinValue
+  }
+
+  $item = Get-Item $Path -ErrorAction SilentlyContinue
+  if ($null -eq $item) {
+    return [datetime]::MinValue
+  }
+
+  if (-not $item.PSIsContainer) {
+    return $item.LastWriteTime
+  }
+
+  $latest = $item.LastWriteTime
+  $children = Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue
+  foreach ($child in $children) {
+    if ($child.LastWriteTime -gt $latest) {
+      $latest = $child.LastWriteTime
+    }
+  }
+  return $latest
 }
 
-try {
-  $frontendReady = Invoke-WebRequest -Uri "$frontendUrl/health" -UseBasicParsing -TimeoutSec 2
-  $hasFrontend = $frontendReady.StatusCode -ge 200 -and $frontendReady.StatusCode -lt 500
-} catch {
-  $hasFrontend = $false
+function Ensure-FrontendBuild {
+  $distIndex = Join-Path $frontendDistDir "index.html"
+  $sourceTimes = @(
+    (Get-LatestWriteTime -Path $frontendSrcDir),
+    (Get-LatestWriteTime -Path (Join-Path $frontendDir "index.html")),
+    (Get-LatestWriteTime -Path (Join-Path $frontendDir "package.json")),
+    (Get-LatestWriteTime -Path (Join-Path $frontendDir "vite.config.js"))
+  )
+  $latestSource = ($sourceTimes | Sort-Object -Descending | Select-Object -First 1)
+  $latestDist = Get-LatestWriteTime -Path $frontendDistDir
+
+  if ((-not (Test-Path $distIndex)) -or ($latestSource -gt $latestDist)) {
+    Write-Host "Build frontend en cours..."
+    Push-Location $frontendDir
+    try {
+      & $npmPath run build
+      if ($LASTEXITCODE -ne 0) {
+        throw "Le build frontend a echoue."
+      }
+    } finally {
+      Pop-Location
+    }
+  } else {
+    Write-Host "Frontend dist deja a jour."
+  }
 }
 
-if (-not $hasFrontend) {
-  Start-BackgroundProcess `
-    -WorkingDirectory $root `
-    -FilePath $nodePath `
-    -Arguments @("scripts/serve-frontend.js") `
-    -StdoutPath (Join-Path $logsDir "launcher-frontend.out.log") `
-    -StderrPath (Join-Path $logsDir "launcher-frontend.err.log")
-}
+Ensure-FrontendBuild
+
+Stop-ProcessOnPort -Port 3000
+Stop-ProcessOnPort -Port 5173
+
+Start-BackgroundProcess `
+  -WorkingDirectory $root `
+  -FilePath $npmPath `
+  -Arguments @("run", "start") `
+  -StdoutPath (Join-Path $logsDir "launcher-backend.out.log") `
+  -StderrPath (Join-Path $logsDir "launcher-backend.err.log")
+
+Start-BackgroundProcess `
+  -WorkingDirectory $root `
+  -FilePath $nodePath `
+  -Arguments @("scripts/serve-frontend.js") `
+  -StdoutPath (Join-Path $logsDir "launcher-frontend.out.log") `
+  -StderrPath (Join-Path $logsDir "launcher-frontend.err.log")
 
 Wait-HttpReady -Url $backendUrl -TimeoutSeconds 45 | Out-Null
 Wait-HttpReady -Url "$frontendUrl/health" -TimeoutSeconds 45 | Out-Null
 
-if ($chromePath) {
-  Start-Process -WindowStyle Hidden -FilePath $chromePath -ArgumentList @("--app=$frontendUrl")
-} else {
+if (-not $NoBrowser) {
   Start-Process -FilePath "explorer.exe" -ArgumentList $frontendUrl
 }
 Write-Host "Atelier Couture lance."

@@ -26,15 +26,20 @@ function signData(data) {
 export function signAccessToken(payload) {
   const body = { ...payload };
   const encoded = b64url(JSON.stringify(body));
-  const sig = signData(encoded);
-  return `${encoded}.${sig}`;
+  const nonce = randomBytes(16).toString("base64url");
+  const sig = signData(`${encoded}.${nonce}`);
+  return `${encoded}.${nonce}.${sig}`;
 }
 
 export function verifyAccessToken(token) {
   const raw = String(token || "");
-  const [encoded, sig] = raw.split(".");
+  const parts = raw.split(".");
+  if (parts.length !== 2 && parts.length !== 3) throw new Error("Token invalide");
+
+  const [encoded, nonce, sig] = parts.length === 3 ? parts : [parts[0], "", parts[1]];
   if (!encoded || !sig) throw new Error("Token invalide");
-  const expected = signData(encoded);
+
+  const expected = parts.length === 3 ? signData(`${encoded}.${nonce}`) : signData(encoded);
   if (expected !== sig) throw new Error("Signature token invalide");
   return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
 }

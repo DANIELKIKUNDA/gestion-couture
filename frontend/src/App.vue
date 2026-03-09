@@ -818,6 +818,13 @@ function persistAtelierSettings() {
 const settingsRoleAllowed = computed(() => hasPermission(PERMISSIONS.MODIFIER_PARAMETRES));
 const settingsCanEdit = computed(() => settingsEditMode.value && settingsRoleAllowed.value);
 const canAccessSecurityModule = computed(() => hasPermission(PERMISSIONS.GERER_UTILISATEURS));
+const canCreateClient = computed(() => hasPermission(PERMISSIONS.CREER_CLIENT));
+const canCreateCommande = computed(() => hasAnyPermission([PERMISSIONS.CREER_COMMANDE, PERMISSIONS.VOIR_BILANS_GLOBAUX, PERMISSIONS.CLOTURER_CAISSE]));
+const canCreateRetouche = computed(() => hasAnyPermission([PERMISSIONS.CREER_RETOUCHE, PERMISSIONS.VOIR_BILANS_GLOBAUX, PERMISSIONS.CLOTURER_CAISSE]));
+const canCreateVente = computed(() => hasAnyPermission([PERMISSIONS.GERER_VENTES, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
+const canOpenCaisse = computed(() => hasAnyPermission([PERMISSIONS.OUVRIR_CAISSE, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
+const canRecordCaisseExpense = computed(() => hasAnyPermission([PERMISSIONS.ENREGISTRER_SORTIE_CAISSE, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
+const canCloseCaisse = computed(() => hasAnyPermission([PERMISSIONS.CLOTURER_CAISSE, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
 const canManageStockPurchases = computed(() =>
   hasAnyPermission([PERMISSIONS.GERER_STOCK, PERMISSIONS.GERER_ACHATS_STOCK, PERMISSIONS.VOIR_BILANS_GLOBAUX])
 );
@@ -1991,12 +1998,24 @@ const iconPaths = {
 
 const PERMISSIONS = {
   ANNULER_COMMANDE: "ANNULER_COMMANDE",
+  VOIR_CLIENTS: "VOIR_CLIENTS",
+  CREER_CLIENT: "CREER_CLIENT",
+  MODIFIER_CLIENT: "MODIFIER_CLIENT",
+  DESACTIVER_CLIENT: "DESACTIVER_CLIENT",
+  VOIR_COMMANDES: "VOIR_COMMANDES",
+  CREER_COMMANDE: "CREER_COMMANDE",
+  VOIR_RETOUCHES: "VOIR_RETOUCHES",
+  CREER_RETOUCHE: "CREER_RETOUCHE",
   VOIR_BILANS_GLOBAUX: "VOIR_BILANS_GLOBAUX",
   GERER_STOCK: "GERER_STOCK",
   GERER_VENTES: "GERER_VENTES",
   GERER_ACHATS_STOCK: "GERER_ACHATS_STOCK",
   GERER_AJUSTEMENTS_STOCK: "GERER_AJUSTEMENTS_STOCK",
   VOIR_AUDIT_STOCK: "VOIR_AUDIT_STOCK",
+  OUVRIR_CAISSE: "OUVRIR_CAISSE",
+  ENREGISTRER_ENTREE_CAISSE: "ENREGISTRER_ENTREE_CAISSE",
+  ENREGISTRER_SORTIE_CAISSE: "ENREGISTRER_SORTIE_CAISSE",
+  ANNULER_OPERATION_CAISSE: "ANNULER_OPERATION_CAISSE",
   CLOTURER_CAISSE: "CLOTURER_CAISSE",
   LIVRER_COMMANDE: "LIVRER_COMMANDE",
   TERMINER_COMMANDE: "TERMINER_COMMANDE",
@@ -2026,6 +2045,90 @@ function hasAnyPermission(list = []) {
   return list.some((permission) => hasPermission(permission));
 }
 
+const canReadClients = computed(() =>
+  hasAnyPermission([
+    PERMISSIONS.VOIR_CLIENTS,
+    PERMISSIONS.GERER_UTILISATEURS,
+    PERMISSIONS.VOIR_BILANS_GLOBAUX,
+    PERMISSIONS.CLOTURER_CAISSE
+  ])
+);
+const canReadCommandes = computed(() =>
+  hasAnyPermission([
+    PERMISSIONS.VOIR_COMMANDES,
+    PERMISSIONS.VOIR_BILANS_GLOBAUX,
+    PERMISSIONS.CLOTURER_CAISSE,
+    PERMISSIONS.TERMINER_COMMANDE,
+    PERMISSIONS.LIVRER_COMMANDE,
+    PERMISSIONS.ANNULER_COMMANDE
+  ])
+);
+const canReadRetouches = computed(() =>
+  hasAnyPermission([
+    PERMISSIONS.VOIR_RETOUCHES,
+    PERMISSIONS.VOIR_BILANS_GLOBAUX,
+    PERMISSIONS.CLOTURER_CAISSE,
+    PERMISSIONS.TERMINER_COMMANDE,
+    PERMISSIONS.LIVRER_COMMANDE,
+    PERMISSIONS.ANNULER_COMMANDE
+  ])
+);
+const canReadStockArticles = computed(() =>
+  hasAnyPermission([
+    PERMISSIONS.GERER_STOCK,
+    PERMISSIONS.GERER_VENTES,
+    PERMISSIONS.GERER_ACHATS_STOCK,
+    PERMISSIONS.GERER_AJUSTEMENTS_STOCK,
+    PERMISSIONS.VOIR_BILANS_GLOBAUX
+  ])
+);
+const canReadVentes = computed(() =>
+  hasAnyPermission([
+    PERMISSIONS.GERER_VENTES,
+    PERMISSIONS.VOIR_BILANS_GLOBAUX
+  ])
+);
+
+function hasModuleAccessPermissions(moduleId) {
+  if (moduleId === "dashboard") return true;
+  if (moduleId === "commandes") {
+    return canReadCommandes.value || canCreateCommande.value;
+  }
+  if (moduleId === "retouches") {
+    return canReadRetouches.value || canCreateRetouche.value;
+  }
+  if (moduleId === "clientsMesures") {
+    return canReadClients.value || canCreateClient.value || hasPermission(PERMISSIONS.MODIFIER_CLIENT) || hasPermission(PERMISSIONS.DESACTIVER_CLIENT);
+  }
+  if (moduleId === "caisse") {
+    return hasAnyPermission([
+      PERMISSIONS.OUVRIR_CAISSE,
+      PERMISSIONS.ENREGISTRER_ENTREE_CAISSE,
+      PERMISSIONS.ENREGISTRER_SORTIE_CAISSE,
+      PERMISSIONS.ANNULER_OPERATION_CAISSE,
+      PERMISSIONS.CLOTURER_CAISSE,
+      PERMISSIONS.VOIR_BILANS_GLOBAUX
+    ]);
+  }
+  if (moduleId === "stockVentes") {
+    return canReadStockArticles.value || canReadVentes.value || hasPermission(PERMISSIONS.VOIR_AUDIT_STOCK);
+  }
+  if (moduleId === "facturation") {
+    return hasAnyPermission([
+      PERMISSIONS.VOIR_COMMANDES,
+      PERMISSIONS.CREER_COMMANDE,
+      PERMISSIONS.VOIR_RETOUCHES,
+      PERMISSIONS.CREER_RETOUCHE,
+      PERMISSIONS.GERER_VENTES,
+      PERMISSIONS.VOIR_BILANS_GLOBAUX,
+      PERMISSIONS.CLOTURER_CAISSE
+    ]);
+  }
+  if (moduleId === "parametres") return hasPermission(PERMISSIONS.MODIFIER_PARAMETRES);
+  if (moduleId === "audit") return canAccessAuditPath("/audit");
+  return false;
+}
+
 function canAccessAuditPath(path = "/audit") {
   if (!isAuthenticated.value) return false;
   if (currentRole.value === "PROPRIETAIRE") return true;
@@ -2038,27 +2141,7 @@ function canAccessAuditPath(path = "/audit") {
 function canAccessModule(moduleId) {
   if (!isAuthenticated.value) return false;
   if (currentRole.value === "PROPRIETAIRE") return true;
-  if (moduleId === "dashboard") return true;
-  if (moduleId === "commandes") {
-    if (currentRole.value === "CAISSIER" || currentRole.value === "COUTURIER") return true;
-    return hasAnyPermission([PERMISSIONS.TERMINER_COMMANDE, PERMISSIONS.LIVRER_COMMANDE, PERMISSIONS.ANNULER_COMMANDE]);
-  }
-  if (moduleId === "retouches") return currentRole.value === "CAISSIER" || currentRole.value === "COUTURIER" || canAccessModule("commandes");
-  if (moduleId === "clientsMesures") return currentRole.value === "CAISSIER" || currentRole.value === "COUTURIER" || canAccessModule("commandes");
-  if (moduleId === "caisse") return currentRole.value === "CAISSIER" || hasPermission(PERMISSIONS.CLOTURER_CAISSE);
-  if (moduleId === "facturation") return currentRole.value === "CAISSIER" || canAccessModule("commandes");
-  if (moduleId === "stockVentes") {
-    return hasAnyPermission([
-      PERMISSIONS.GERER_STOCK,
-      PERMISSIONS.GERER_VENTES,
-      PERMISSIONS.GERER_ACHATS_STOCK,
-      PERMISSIONS.GERER_AJUSTEMENTS_STOCK,
-      PERMISSIONS.VOIR_BILANS_GLOBAUX
-    ]);
-  }
-  if (moduleId === "parametres") return hasPermission(PERMISSIONS.MODIFIER_PARAMETRES);
-  if (moduleId === "audit") return canAccessAuditPath("/audit");
-  return false;
+  return hasModuleAccessPermissions(moduleId);
 }
 
 function canAccessRoute(routeId) {
@@ -2082,6 +2165,11 @@ const menuItems = [
 ];
 
 const visibleMenuItems = computed(() => menuItems.filter((item) => canAccessModule(item.id)));
+
+function resolveAccessibleRoute(preferredRoute = "dashboard") {
+  if (canAccessRoute(preferredRoute)) return preferredRoute;
+  return visibleMenuItems.value[0]?.id || "dashboard";
+}
 
 const auditRoutes = [
   { path: "/audit", title: "Historique & Audit", subtitle: "Hub de navigation audit" },
@@ -3233,7 +3321,14 @@ async function hydrateAuthSession() {
     applyAuthSession(null);
     const message = readableError(err);
     const lowered = message.toLowerCase();
-    const isAuthNoise = lowered.includes("acces non autorise") || lowered.includes("connexion requise");
+    const status = err instanceof ApiError ? Number(err.status || 0) : 0;
+    const isAuthNoise =
+      status === 401 ||
+      status === 403 ||
+      lowered.includes("acces non autorise") ||
+      lowered.includes("connexion requise") ||
+      lowered.includes("action non autorisee") ||
+      lowered.includes("session invalide");
     authError.value = isAuthNoise ? "" : message;
     authMode.value = "login";
     return false;
@@ -3259,11 +3354,11 @@ async function submitLogin() {
   authError.value = "";
   authenticating.value = true;
   try {
-    const response = await atelierApi.login({
+    await atelierApi.login({
       email: loginForm.email.trim(),
       motDePasse: loginForm.motDePasse
     });
-    const session = normalizeSessionPayload(response?.utilisateur ? { ...response.utilisateur } : await atelierApi.me());
+    const session = normalizeSessionPayload(await atelierApi.me());
     applyAuthSession(session);
     authMode.value = "login";
     loginForm.motDePasse = "";
@@ -3361,7 +3456,7 @@ onMounted(async () => {
     await loadAtelierSettings();
     await reloadAll();
     if (currentRoute.value === "audit") loadAuditPage(auditSubRoute.value);
-    if (!canAccessRoute(currentRoute.value)) currentRoute.value = "forbidden";
+    if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute();
   }
   authReady.value = true;
 });
@@ -3378,8 +3473,7 @@ watch(
     if (!authReady.value) return;
     if (!isAuthenticated.value) return;
     if (!canAccessRoute(currentRoute.value)) {
-      forbiddenMessage.value = "Acces refuse pour cette section.";
-      currentRoute.value = "forbidden";
+      currentRoute.value = resolveAccessibleRoute();
     }
   }
 );
@@ -3688,8 +3782,7 @@ async function openRoute(routeId) {
     return;
   }
   if (!canAccessRoute(routeId)) {
-    forbiddenMessage.value = "Acces refuse pour cette section.";
-    currentRoute.value = "forbidden";
+    currentRoute.value = resolveAccessibleRoute(currentRoute.value);
     return;
   }
   if (routeId !== currentRoute.value) {
@@ -3723,16 +3816,25 @@ async function reloadAll() {
   detailCommandeActions.value = null;
   detailRetoucheActions.value = null;
 
+  const shouldLoadClients = canReadClients.value;
+  const shouldLoadCommandes = canReadCommandes.value;
+  const shouldLoadRetouches = canReadRetouches.value;
+  const shouldLoadRetoucheTypes = shouldLoadRetouches || settingsRoleAllowed.value;
+  const shouldLoadStock = canReadStockArticles.value;
+  const shouldLoadVentes = canReadVentes.value;
+  const shouldLoadFactures = canAccessModule("facturation");
+  const shouldLoadCaisse = canAccessModule("caisse");
+
   const [clientsResult, commandesResult, retouchesResult, retoucheTypesResult, stockResult, ventesResult, facturesResult, caisseDaysResult] =
     await Promise.allSettled([
-    atelierApi.listClients(),
-    atelierApi.listCommandes(),
-    atelierApi.listRetouches(),
-    atelierApi.listRetoucheTypes(),
-    atelierApi.listStockArticles(),
-    atelierApi.listVentes(),
-    atelierApi.listFactures(),
-    atelierApi.listCaisseJours()
+    shouldLoadClients ? atelierApi.listClients() : Promise.resolve([]),
+    shouldLoadCommandes ? atelierApi.listCommandes() : Promise.resolve([]),
+    shouldLoadRetouches ? atelierApi.listRetouches() : Promise.resolve([]),
+    shouldLoadRetoucheTypes ? atelierApi.listRetoucheTypes() : Promise.resolve([]),
+    shouldLoadStock ? atelierApi.listStockArticles() : Promise.resolve([]),
+    shouldLoadVentes ? atelierApi.listVentes() : Promise.resolve([]),
+    shouldLoadFactures ? atelierApi.listFactures() : Promise.resolve([]),
+    shouldLoadCaisse ? atelierApi.listCaisseJours() : Promise.resolve([])
     ]);
 
   if (clientsResult.status === "fulfilled") {
@@ -3744,13 +3846,13 @@ async function reloadAll() {
       selectedClientConsultationId.value = clients.value[0]?.idClient || "";
       clientConsultation.value = null;
     }
-  } else appendError(clientsResult.reason);
+  } else if (shouldLoadClients) appendError(clientsResult.reason);
 
   if (commandesResult.status === "fulfilled") commandes.value = commandesResult.value.map(normalizeCommande);
-  else appendError(commandesResult.reason);
+  else if (shouldLoadCommandes) appendError(commandesResult.reason);
 
   if (retouchesResult.status === "fulfilled") retouches.value = retouchesResult.value.map(normalizeRetouche);
-  else appendError(retouchesResult.reason);
+  else if (shouldLoadRetouches) appendError(retouchesResult.reason);
 
   if (retoucheTypesResult.status === "fulfilled") {
     retoucheTypeDefinitions.value = (retoucheTypesResult.value || [])
@@ -3762,16 +3864,16 @@ async function reloadAll() {
           sensitivity: "base"
         });
       });
-  } else appendError(retoucheTypesResult.reason);
+  } else if (shouldLoadRetoucheTypes) appendError(retoucheTypesResult.reason);
 
   if (stockResult.status === "fulfilled") stockArticles.value = stockResult.value.map(normalizeStockArticle);
-  else appendError(stockResult.reason);
+  else if (shouldLoadStock) appendError(stockResult.reason);
 
   if (ventesResult.status === "fulfilled") ventes.value = ventesResult.value.map(normalizeVente);
-  else appendError(ventesResult.reason);
+  else if (shouldLoadVentes) appendError(ventesResult.reason);
 
   if (facturesResult.status === "fulfilled") factures.value = facturesResult.value.map(normalizeFacture);
-  else appendError(facturesResult.reason);
+  else if (shouldLoadFactures) appendError(facturesResult.reason);
 
   if (caisseDaysResult.status === "fulfilled") {
     const days = caisseDaysResult.value || [];
@@ -3785,11 +3887,11 @@ async function reloadAll() {
     } else {
       caisseJour.value = null;
     }
-  } else {
+  } else if (shouldLoadCaisse) {
     appendError(caisseDaysResult.reason);
   }
 
-  if (currentRoute.value === "clientsMesures" && selectedClientConsultationId.value) {
+  if (shouldLoadClients && currentRoute.value === "clientsMesures" && selectedClientConsultationId.value) {
     await loadClientConsultation(selectedClientConsultationId.value, true);
   }
 
@@ -3894,7 +3996,9 @@ async function loadAuditPage(path = "/audit") {
 
   try {
     if (!canAccessAuditPath(path)) {
-      auditError.value = "Acces refuse: permissions insuffisantes.";
+      if (currentRoute.value === "audit") {
+        currentRoute.value = resolveAccessibleRoute();
+      }
       return;
     }
     if (path === "/audit") {
@@ -3984,7 +4088,16 @@ async function loadAudit() {
 
 function appendError(err) {
   const msg = readableError(err);
-  errorMessage.value = errorMessage.value ? `${errorMessage.value} | ${msg}` : msg;
+  if (!msg) return;
+  const parts = errorMessage.value
+    ? errorMessage.value.split("|").map((item) => item.trim()).filter(Boolean)
+    : [];
+  if (parts.includes(msg)) {
+    errorMessage.value = parts.join(" | ");
+    return;
+  }
+  parts.push(msg);
+  errorMessage.value = parts.join(" | ");
 }
 
 function appendAuditError(message) {
@@ -4025,6 +4138,8 @@ function translateErrorMessage(message) {
       if (lower.includes("required")) return "Ce champ est requis.";
       if (lower.includes("invalid")) return "Valeur invalide.";
       if (lower.includes("not allowed")) return "Action non autorisee.";
+      if (lower.includes("acces non autorise") || lower.includes("acces refuse")) return "Action non autorisee pour votre compte.";
+      if (lower.includes("permissions insuffisantes")) return "Action non autorisee pour votre compte.";
       if (lower.includes("exceeds total")) return "Le paiement depasse le montant total.";
       if (lower.includes("insufficient balance")) return "Solde insuffisant.";
       if (lower.includes("operation not found")) return "Operation introuvable.";
@@ -4702,6 +4817,7 @@ function resetWizard() {
 }
 
 function openNouvelleCommande() {
+  if (!canCreateCommande.value) return;
   resetWizard();
   wizard.open = true;
 }
@@ -4736,6 +4852,7 @@ function resetRetoucheWizard() {
 }
 
 function openNouvelleRetouche() {
+  if (!canCreateRetouche.value) return;
   resetRetoucheWizard();
   retoucheWizard.open = true;
 }
@@ -4857,6 +4974,7 @@ async function onWizardStep1() {
       if (!wizard.existingClientId) throw new Error("Selectionnez un client existant.");
       wizard.resolvedClientId = wizard.existingClientId;
     } else {
+      if (!canCreateClient.value) throw new Error("Creation de client non autorisee.");
       const payload = {
         nom: wizard.newClient.nom,
         prenom: wizard.newClient.prenom,
@@ -4881,6 +4999,7 @@ async function onWizardStep1() {
 async function onWizardStep2() {
   wizard.submitting = true;
   try {
+    if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
     if (!wizard.resolvedClientId) throw new Error("Client non resolu.");
 
     const montant = Number(wizard.commande.montantTotal);
@@ -4934,6 +5053,7 @@ async function onRetoucheWizardStep1() {
       if (!retoucheWizard.existingClientId) throw new Error("Selectionnez un client existant.");
       retoucheWizard.resolvedClientId = retoucheWizard.existingClientId;
     } else {
+      if (!canCreateClient.value) throw new Error("Creation de client non autorisee.");
       const payload = {
         nom: String(retoucheWizard.newClient.nom || "").trim(),
         prenom: String(retoucheWizard.newClient.prenom || "").trim(),
@@ -4954,6 +5074,7 @@ async function onRetoucheWizardStep1() {
 async function onRetoucheWizardStep2() {
   retoucheWizard.submitting = true;
   try {
+    if (!canCreateRetouche.value) throw new Error("Creation de retouche non autorisee.");
     const montant = Number(retoucheWizard.retouche.montantTotal);
     if (Number.isNaN(montant) || montant <= 0) throw new Error("Montant total invalide.");
     if (!retoucheWizard.retouche.typeHabit) throw new Error("Type d'habit obligatoire.");
@@ -5585,6 +5706,7 @@ async function onAnnulerRetoucheDetail() {
 }
 
 async function onDepenseCaisse() {
+  if (!canRecordCaisseExpense.value) return;
   if (!caisseJour.value) return;
   if (!caisseOuverte.value) {
     notify("Caisse cloturee. Depense interdite.");
@@ -5644,6 +5766,7 @@ async function onDepenseCaisse() {
 }
 
 async function onCloturerCaisse() {
+  if (!canCloseCaisse.value) return;
   if (!caisseJour.value) return;
   if (!caisseOuverte.value) {
     notify("Caisse deja cloturee.");
@@ -5668,6 +5791,7 @@ async function onCloturerCaisse() {
 }
 
 async function onOuvrirCaisseDuJour() {
+  if (!canOpenCaisse.value) return;
   try {
     const info = await atelierApi.getOuvertureCaisseInfo();
     let soldeOuverture = 0;
@@ -5691,6 +5815,7 @@ async function onOuvrirCaisseDuJour() {
 }
 
 async function onOuvrirCaisseAnticipee() {
+  if (!canOpenCaisse.value) return;
   const ouverturePayload = await openActionModal({
     title: "Ouverture anticipee",
     message: "Cette action est reservee au manager.",
@@ -6258,7 +6383,7 @@ async function loadRetoucheDetail(idRetouche) {
       <section v-else-if="currentRoute === 'commandes'" class="commandes-page">
         <article class="panel panel-header">
           <h3>Page centrale des commandes</h3>
-          <button class="action-btn blue" @click="openNouvelleCommande">
+          <button v-if="canCreateCommande" class="action-btn blue" @click="openNouvelleCommande">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path v-for="(path, i) in iconPaths.plus" :key="`new-cmd-${i}`" :d="path" />
             </svg>
@@ -6337,9 +6462,9 @@ async function loadRetoucheDetail(idRetouche) {
 
         <article v-show="commandeSection === 'actions'" class="panel">
           <div class="quick-actions">
-            <button class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
+            <button v-if="canCreateCommande" class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
             <button class="action-btn green" @click="commandeSection = 'liste'">Voir la liste</button>
-            <button class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
+            <button v-if="canAccessModule('clientsMesures')" class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
           </div>
         </article>
 
@@ -6441,7 +6566,7 @@ async function loadRetoucheDetail(idRetouche) {
         <section v-else-if="currentRoute === 'retouches'" class="commandes-page">
         <article class="panel panel-header">
           <h3>Page centrale des retouches</h3>
-          <button class="action-btn blue" @click="openNouvelleRetouche">
+          <button v-if="canCreateRetouche" class="action-btn blue" @click="openNouvelleRetouche">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path v-for="(path, i) in iconPaths.plus" :key="`new-ret-${i}`" :d="path" />
             </svg>
@@ -6520,9 +6645,9 @@ async function loadRetoucheDetail(idRetouche) {
 
         <article v-show="retoucheSection === 'actions'" class="panel">
           <div class="quick-actions">
-            <button class="action-btn blue" @click="openNouvelleRetouche">Nouvelle retouche</button>
+            <button v-if="canCreateRetouche" class="action-btn blue" @click="openNouvelleRetouche">Nouvelle retouche</button>
             <button class="action-btn green" @click="retoucheSection = 'liste'">Voir la liste</button>
-            <button class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
+            <button v-if="canAccessModule('clientsMesures')" class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
           </div>
         </article>
 
@@ -6994,7 +7119,7 @@ async function loadRetoucheDetail(idRetouche) {
         </template>
 
         <template v-else>
-          <article class="panel">
+          <article v-if="canCreateVente" class="panel">
             <h3>Nouvelle vente</h3>
             <div class="stack-form">
               <label>Article</label>
@@ -8508,10 +8633,10 @@ async function loadRetoucheDetail(idRetouche) {
               </svg>
               {{ caisseStatus }}
             </span>
-            <button class="action-btn green" v-if="!caisseOuverte" @click="onOuvrirCaisseDuJour">Ouvrir la caisse</button>
-            <button class="mini-btn" v-if="!caisseOuverte" @click="onOuvrirCaisseAnticipee">Ouverture anticipee (manager)</button>
-            <button class="action-btn amber" v-if="caisseOuverte" @click="onDepenseCaisse">Enregistrer depense</button>
-            <button class="action-btn red" v-if="caisseOuverte" @click="onCloturerCaisse">Cloturer la caisse</button>
+            <button class="action-btn green" v-if="!caisseOuverte && canOpenCaisse" @click="onOuvrirCaisseDuJour">Ouvrir la caisse</button>
+            <button class="mini-btn" v-if="!caisseOuverte && canOpenCaisse" @click="onOuvrirCaisseAnticipee">Ouverture anticipee (manager)</button>
+            <button class="action-btn amber" v-if="caisseOuverte && canRecordCaisseExpense" @click="onDepenseCaisse">Enregistrer depense</button>
+            <button class="action-btn red" v-if="caisseOuverte && canCloseCaisse" @click="onCloturerCaisse">Cloturer la caisse</button>
           </div>
 
         </article>
@@ -9260,7 +9385,7 @@ async function loadRetoucheDetail(idRetouche) {
 
           <div class="segmented">
             <button class="mini-btn" :class="{ active: wizard.mode === 'existing' }" @click="wizard.mode = 'existing'">Client existant</button>
-            <button class="mini-btn" :class="{ active: wizard.mode === 'new' }" @click="wizard.mode = 'new'">Nouveau client</button>
+            <button v-if="canCreateClient" class="mini-btn" :class="{ active: wizard.mode === 'new' }" @click="wizard.mode = 'new'">Nouveau client</button>
           </div>
 
           <div v-if="wizard.mode === 'existing'" class="stack-form">
@@ -9290,7 +9415,7 @@ async function loadRetoucheDetail(idRetouche) {
                 <li v-if="wizardClientSearchResults.length === 0" class="client-search-empty">Aucun client trouvé</li>
               </ul>
             </div>
-            <button class="mini-btn" @click="wizard.mode = 'new'">+ Nouveau client</button>
+            <button v-if="canCreateClient" class="mini-btn" @click="wizard.mode = 'new'">+ Nouveau client</button>
 
             <div v-if="wizard.existingClientId" class="client-insight-card">
               <p class="client-insight-title">Client selectionne</p>
@@ -9414,7 +9539,7 @@ async function loadRetoucheDetail(idRetouche) {
 
         <div class="segmented">
           <button class="mini-btn" :class="{ active: retoucheWizard.mode === 'existing' }" @click="retoucheWizard.mode = 'existing'">Client existant</button>
-          <button class="mini-btn" :class="{ active: retoucheWizard.mode === 'new' }" @click="retoucheWizard.mode = 'new'">Nouveau client</button>
+          <button v-if="canCreateClient" class="mini-btn" :class="{ active: retoucheWizard.mode === 'new' }" @click="retoucheWizard.mode = 'new'">Nouveau client</button>
         </div>
 
         <div v-if="retoucheWizard.mode === 'existing'" class="stack-form">
@@ -9444,7 +9569,7 @@ async function loadRetoucheDetail(idRetouche) {
               <li v-if="retoucheClientSearchResultsWizard.length === 0" class="client-search-empty">Aucun client trouvé</li>
             </ul>
           </div>
-          <button class="mini-btn" @click="retoucheWizard.mode = 'new'">+ Nouveau client</button>
+          <button v-if="canCreateClient" class="mini-btn" @click="retoucheWizard.mode = 'new'">+ Nouveau client</button>
 
           <div v-if="retoucheWizard.existingClientId" class="client-insight-card">
             <p class="client-insight-title">Client selectionne</p>
