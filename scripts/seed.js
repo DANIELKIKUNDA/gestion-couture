@@ -10,6 +10,12 @@ const pool = new pg.Pool({
 });
 
 async function run() {
+  await pool.query(
+    `INSERT INTO ateliers (id_atelier, nom, slug, actif)
+     VALUES ('ATELIER', 'Atelier historique', 'atelier-historique', true)
+     ON CONFLICT (id_atelier) DO NOTHING`
+  );
+
   // Parametres atelier
   const parametresPayload = {
     meta: { version: 1, lastSavedAt: new Date().toISOString() },

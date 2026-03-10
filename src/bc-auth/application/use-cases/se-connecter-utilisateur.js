@@ -21,6 +21,7 @@ export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRe
     sub: user.id,
     email: user.email,
     role: user.roleId,
+    atelierId: user.atelierId || "ATELIER"
   });
 
   const refreshToken = createOpaqueToken();
@@ -35,6 +36,7 @@ export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRe
       nom: user.nom,
       email: user.email,
       roleId: user.roleId,
+      atelierId: user.atelierId || "ATELIER",
       permissions
     }
   };

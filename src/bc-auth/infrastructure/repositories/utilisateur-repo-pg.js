@@ -53,6 +53,21 @@ async function ensureSchema() {
   await pool.query(`UPDATE utilisateurs SET role_id = 'COUTURIER' WHERE role_id IS NULL OR role_id = ''`);
   await pool.query(`UPDATE utilisateurs SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR atelier_id = ''`);
   await pool.query(`UPDATE utilisateurs SET date_mise_a_jour = NOW() WHERE date_mise_a_jour IS NULL`);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF to_regclass('ateliers') IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint
+           WHERE conname = 'utilisateurs_atelier_fk'
+         ) THEN
+        ALTER TABLE utilisateurs
+          ADD CONSTRAINT utilisateurs_atelier_fk
+          FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      END IF;
+    END $$;
+  `);
   schemaReady = true;
 }
 
@@ -114,6 +129,34 @@ export class UtilisateurRepoPg {
     return result.rows.map(mapRow);
   }
 
+  async listByAtelier(atelierId = "ATELIER") {
+    const value = String(atelierId || "ATELIER");
+    await ensureSchema();
+    const result = await pool.query(
+      `SELECT id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+       FROM utilisateurs
+       WHERE atelier_id = $1
+       ORDER BY date_creation DESC`,
+      [value]
+    );
+    return result.rows.map(mapRow);
+  }
+
+  async getByIdAndAtelier(id, atelierId = "ATELIER") {
+    const idValue = String(id || "");
+    const atelierValue = String(atelierId || "ATELIER");
+    await ensureSchema();
+    const result = await pool.query(
+      `SELECT id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+       FROM utilisateurs
+       WHERE id_utilisateur = $1
+         AND atelier_id = $2
+       LIMIT 1`,
+      [idValue, atelierValue]
+    );
+    return mapRow(result.rows[0] || null);
+  }
+
   async save(user) {
     const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
     const payload = {
@@ -158,25 +201,41 @@ export class UtilisateurRepoPg {
     return saved;
   }
 
-  async hasAnyOwner() {
+  async hasAnyOwner(atelierId = null) {
     await ensureSchema();
+    const params = [];
+    let atelierSql = "";
+    if (atelierId !== null && atelierId !== undefined) {
+      params.push(String(atelierId || "ATELIER"));
+      atelierSql = ` AND atelier_id = $1`;
+    }
     const result = await pool.query(
       `SELECT 1
        FROM utilisateurs
        WHERE UPPER(role_id) = 'PROPRIETAIRE'
-       LIMIT 1`
+       ${atelierSql}
+       LIMIT 1`,
+      params
     );
     return result.rowCount > 0;
   }
 
-  async countActiveOwners() {
+  async countActiveOwners(atelierId = null) {
     await ensureSchema();
+    const params = [];
+    let atelierSql = "";
+    if (atelierId !== null && atelierId !== undefined) {
+      params.push(String(atelierId || "ATELIER"));
+      atelierSql = ` AND atelier_id = $1`;
+    }
     const result = await pool.query(
       `SELECT COUNT(*)::int AS total
        FROM utilisateurs
        WHERE UPPER(role_id) = 'PROPRIETAIRE'
          AND UPPER(COALESCE(etat_compte, 'ACTIVE')) = 'ACTIVE'
-         AND actif = true`
+         AND actif = true
+         ${atelierSql}`,
+      params
     );
     return Number(result.rows[0]?.total || 0);
   }

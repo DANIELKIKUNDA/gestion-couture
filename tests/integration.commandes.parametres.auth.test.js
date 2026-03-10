@@ -38,6 +38,7 @@ async function run() {
   const me = await client.get("/api/auth/me").set("Authorization", `Bearer ${ownerToken}`);
   assert.equal(me.status, 200, "2) /api/auth/me avec token doit repondre 200");
   assert.ok(Array.isArray(me.body?.permissions), "permissions[] manquant dans /auth/me");
+  assert.equal(me.body?.user?.atelierId, "ATELIER", "atelierId manquant dans /auth/me");
 
   const commandesNoToken = await client.get("/api/commandes");
   assert.equal(commandesNoToken.status, 401, "3) /api/commandes sans token doit repondre 401");

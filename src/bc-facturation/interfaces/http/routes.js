@@ -25,9 +25,25 @@ const atelierConfigFallback = {
   afficherLogo: true
 };
 
-async function resolveAtelierConfig() {
+function atelierIdFromReq(req) {
+  return String(req.auth?.atelierId || "ATELIER");
+}
+
+function scopedFactureRepo(req) {
+  return factureRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedOrigineReader(req) {
+  return origineReader.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedParametresRepo(req) {
+  return parametresRepo.forAtelier(atelierIdFromReq(req));
+}
+
+async function resolveAtelierConfig(req = null) {
   try {
-    const current = await parametresRepo.getCurrent();
+    const current = await (req ? scopedParametresRepo(req) : parametresRepo).getCurrent();
     const identite = current?.payload?.identite || {};
     const facturation = current?.payload?.facturation || {};
     return {
@@ -150,7 +166,7 @@ function facturePdfHtml(facture, autoPrint = false, atelierConfig = atelierConfi
 
 router.get("/factures", async (req, res) => {
   try {
-    const factures = await listerFactures({ factureRepo });
+    const factures = await listerFactures({ factureRepo: scopedFactureRepo(req) });
     res.json(factures);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -159,7 +175,7 @@ router.get("/factures", async (req, res) => {
 
 router.get("/factures/:id", async (req, res) => {
   try {
-    const facture = await obtenirFacture({ idFacture: req.params.id, factureRepo });
+    const facture = await obtenirFacture({ idFacture: req.params.id, factureRepo: scopedFactureRepo(req) });
     res.json(facture);
   } catch (err) {
     res.status(404).json({ error: err.message });
@@ -179,16 +195,16 @@ router.post("/factures/emettre", async (req, res) => {
   const required = requireFields(body, ["typeOrigine", "idOrigine"]);
   if (!required.ok) return res.status(400).json({ error: required.error });
   try {
-    const atelierConfig = await resolveAtelierConfig();
+    const atelierConfig = await resolveAtelierConfig(req);
     const facture = await emettreFacture({
       input: {
         ...body,
         prefixeNumero: atelierConfig.prefixeNumero
       },
-      factureRepo,
-      origineReader
+      factureRepo: scopedFactureRepo(req),
+      origineReader: scopedOrigineReader(req)
     });
-    const detail = await obtenirFacture({ idFacture: facture.idFacture, factureRepo });
+    const detail = await obtenirFacture({ idFacture: facture.idFacture, factureRepo: scopedFactureRepo(req) });
     res.status(201).json(detail);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -197,8 +213,8 @@ router.post("/factures/emettre", async (req, res) => {
 
 router.get("/factures/:id/pdf", async (req, res) => {
   try {
-    const facture = await obtenirFacture({ idFacture: req.params.id, factureRepo });
-    const atelierConfig = await resolveAtelierConfig();
+    const facture = await obtenirFacture({ idFacture: req.params.id, factureRepo: scopedFactureRepo(req) });
+    const atelierConfig = await resolveAtelierConfig(req);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(facturePdfHtml(facture, req.query.autoprint === "1", atelierConfig));
   } catch (err) {
@@ -208,7 +224,7 @@ router.get("/factures/:id/pdf", async (req, res) => {
 
 router.get("/audit/factures", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX), async (req, res) => {
   try {
-    const factures = await listerFactures({ factureRepo });
+    const factures = await listerFactures({ factureRepo: scopedFactureRepo(req) });
     res.json(factures);
   } catch (err) {
     res.status(400).json({ error: err.message });

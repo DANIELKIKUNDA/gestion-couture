@@ -15,6 +15,7 @@ const OPERATIONS_SQL = `
     )
     FROM caisse_operation op
     WHERE op.reference_metier = COALESCE(f.id_origine, f.id_reference)
+      AND op.atelier_id = f.atelier_id
   ), '[]'::jsonb) AS operations_caisse
 `;
 
@@ -40,6 +41,14 @@ function toFacture(row) {
 }
 
 export class FactureRepoPg {
+  constructor(atelierId = "ATELIER") {
+    this.atelierId = String(atelierId || "ATELIER");
+  }
+
+  forAtelier(atelierId) {
+    return new FactureRepoPg(atelierId);
+  }
+
   async ensureNumeroSequence() {
     await pool.query("CREATE SEQUENCE IF NOT EXISTS facture_numero_seq START WITH 1 INCREMENT BY 1");
   }
@@ -85,9 +94,9 @@ export class FactureRepoPg {
               ${OPERATIONS_SQL}
        FROM factures f
        LEFT JOIN clients cl ON cl.id_client = f.id_client
-       WHERE f.type_origine = $1 AND f.id_origine = $2
+       WHERE f.type_origine = $1 AND f.id_origine = $2 AND f.atelier_id = $3
        LIMIT 1`,
-      [typeOrigine, idOrigine]
+      [typeOrigine, idOrigine, this.atelierId]
     );
     if (res.rowCount === 0) return null;
     return toFacture(res.rows[0]);
@@ -116,8 +125,8 @@ export class FactureRepoPg {
               ${OPERATIONS_SQL}
        FROM factures f
        LEFT JOIN clients cl ON cl.id_client = f.id_client
-       WHERE f.id_facture = $1`,
-      [idFacture]
+       WHERE f.id_facture = $1 AND f.atelier_id = $2`,
+      [idFacture, this.atelierId]
     );
     if (res.rowCount === 0) return null;
     return toFacture(res.rows[0]);
@@ -146,8 +155,10 @@ export class FactureRepoPg {
               ${OPERATIONS_SQL}
        FROM factures f
        LEFT JOIN clients cl ON cl.id_client = f.id_client
-       WHERE COALESCE(f.type_origine, f.type_reference) IN ('COMMANDE', 'RETOUCHE', 'VENTE')
-       ORDER BY f.date_emission DESC, f.numero_facture DESC`
+       WHERE f.atelier_id = $1
+         AND COALESCE(f.type_origine, f.type_reference) IN ('COMMANDE', 'RETOUCHE', 'VENTE')
+       ORDER BY f.date_emission DESC, f.numero_facture DESC`,
+      [this.atelierId]
     );
     const items = [];
     for (const row of res.rows) {
@@ -163,11 +174,12 @@ export class FactureRepoPg {
   async save(facture) {
     await pool.query(
       `INSERT INTO factures (
-        id_facture, numero_facture, type_origine, id_origine, client_snapshot,
+        id_facture, atelier_id, numero_facture, type_origine, id_origine, client_snapshot,
         date_emission, montant_total, reference_caisse, lignes_json
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [
         facture.idFacture,
+        this.atelierId,
         facture.numeroFacture,
         facture.typeOrigine,
         facture.idOrigine,

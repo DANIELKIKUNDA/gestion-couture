@@ -62,13 +62,21 @@ LEFT JOIN LATERAL (
 ) op ON TRUE`;
 
 export class StockReadRepoPg {
+  constructor(atelierId = "ATELIER") {
+    this.atelierId = String(atelierId || "ATELIER");
+  }
+
+  forAtelier(atelierId) {
+    return new StockReadRepoPg(atelierId);
+  }
+
   async listAuditStockVentes() {
-    const result = await pool.query(`${MOVEMENT_SELECT} ORDER BY m.date_mouvement DESC`);
+    const result = await pool.query(`${MOVEMENT_SELECT} WHERE m.atelier_id = $1 ORDER BY m.date_mouvement DESC`, [this.atelierId]);
     return result.rows.map(mapStockMovementRow);
   }
 
   async getStockMouvementById(idMouvement) {
-    const result = await pool.query(`${MOVEMENT_SELECT} WHERE m.id_mouvement = $1 LIMIT 1`, [idMouvement]);
+    const result = await pool.query(`${MOVEMENT_SELECT} WHERE m.id_mouvement = $1 AND m.atelier_id = $2 LIMIT 1`, [idMouvement, this.atelierId]);
     if (result.rowCount === 0) return null;
     return mapStockMovementRow(result.rows[0]);
   }

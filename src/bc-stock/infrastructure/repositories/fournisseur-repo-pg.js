@@ -1,10 +1,18 @@
 import { pool } from "../../../shared/infrastructure/db.js";
 
 export class FournisseurRepoPg {
+  constructor(atelierId = "ATELIER") {
+    this.atelierId = String(atelierId || "ATELIER");
+  }
+
+  forAtelier(atelierId) {
+    return new FournisseurRepoPg(atelierId);
+  }
+
   async getActiveById(idFournisseur) {
     const result = await pool.query(
-      "SELECT id_fournisseur, nom_fournisseur, telephone, actif, date_creation FROM fournisseurs WHERE id_fournisseur = $1 AND actif = true",
-      [idFournisseur]
+      "SELECT id_fournisseur, nom_fournisseur, telephone, actif, date_creation FROM fournisseurs WHERE id_fournisseur = $1 AND actif = true AND atelier_id = $2",
+      [idFournisseur, this.atelierId]
     );
     if (result.rowCount === 0) return null;
 

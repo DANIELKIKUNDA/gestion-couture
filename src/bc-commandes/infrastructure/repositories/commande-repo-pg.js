@@ -2,18 +2,26 @@
 import { Commande } from "../../domain/commande.js";
 
 export class CommandeRepoPg {
+  constructor(atelierId = "ATELIER") {
+    this.atelierId = String(atelierId || "ATELIER");
+  }
+
+  forAtelier(atelierId) {
+    return new CommandeRepoPg(atelierId);
+  }
+
   async existsByTypeHabit(typeHabit) {
     const normalized = String(typeHabit || "").trim().toUpperCase();
     if (!normalized) return false;
-    const res = await pool.query("SELECT 1 FROM commandes WHERE UPPER(type_habit) = $1 LIMIT 1", [normalized]);
+    const res = await pool.query("SELECT 1 FROM commandes WHERE atelier_id = $1 AND UPPER(type_habit) = $2 LIMIT 1", [this.atelierId, normalized]);
     return res.rowCount > 0;
   }
 
   // Fetch a Commande by ID and rehydrate the aggregate
   async getById(idCommande) {
     const res = await pool.query(
-      "SELECT id_commande, id_client, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM commandes WHERE id_commande = $1",
-      [idCommande]
+      "SELECT id_commande, id_client, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM commandes WHERE id_commande = $1 AND atelier_id = $2",
+      [idCommande, this.atelierId]
     );
     if (res.rowCount === 0) return null;
 
@@ -36,13 +44,14 @@ export class CommandeRepoPg {
   // Upsert Commande
   async save(commande) {
     await pool.query(
-      `INSERT INTO commandes (id_commande, id_client, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      `INSERT INTO commandes (id_commande, atelier_id, id_client, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        ON CONFLICT (id_commande)
-       DO UPDATE SET id_client=$2, description=$3, date_creation=$4, date_prevue=$5,
-         montant_total=$6, montant_paye=$7, statut=$8, type_habit=$9, mesures_habit_snapshot=$10`,
+       DO UPDATE SET atelier_id=$2, id_client=$3, description=$4, date_creation=$5, date_prevue=$6,
+         montant_total=$7, montant_paye=$8, statut=$9, type_habit=$10, mesures_habit_snapshot=$11`,
       [
         commande.idCommande,
+        this.atelierId,
         commande.idClient,
         commande.descriptionCommande,
         commande.dateCreation,

@@ -61,9 +61,25 @@ const atelierConfigFallback = {
   devise: "FC"
 };
 
-async function resolveAtelierConfig() {
+function atelierIdFromReq(req) {
+  return String(req.auth?.atelierId || "ATELIER");
+}
+
+function scopedClientRepo(req) {
+  return clientRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedSerieRepo(req) {
+  return serieRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedParametresRepo(req) {
+  return parametresRepo.forAtelier(atelierIdFromReq(req));
+}
+
+async function resolveAtelierConfig(req = null) {
   try {
-    const current = await parametresRepo.getCurrent();
+    const current = await (req ? scopedParametresRepo(req) : parametresRepo).getCurrent();
     const identite = current?.payload?.identite || {};
     return {
       nom: String(identite.nomAtelier || atelierConfigFallback.nom),
@@ -203,7 +219,7 @@ function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelier
 // List clients
 router.get("/clients", requireClientReadAccess, async (req, res) => {
   try {
-    const clients = await clientRepo.listAll();
+    const clients = await scopedClientRepo(req).listAll();
     res.json(clients);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -224,8 +240,8 @@ router.get("/clients/:id/consultation", requireClientReadAccess, async (req, res
     const clientResult = await pool.query(
       `SELECT id_client, nom, prenom, telephone, date_creation
        FROM clients
-       WHERE id_client = $1`,
-      [idClient]
+       WHERE id_client = $1 AND atelier_id = $2`,
+      [idClient, atelierIdFromReq(req)]
     );
 
     if (clientResult.rowCount === 0) {
@@ -235,17 +251,17 @@ router.get("/clients/:id/consultation", requireClientReadAccess, async (req, res
     const commandesResult = await pool.query(
       `SELECT id_commande, date_creation, type_habit, statut, montant_total, montant_paye, mesures_habit_snapshot
        FROM commandes
-       WHERE id_client = $1
+       WHERE id_client = $1 AND atelier_id = $2
        ORDER BY date_creation DESC`,
-      [idClient]
+      [idClient, atelierIdFromReq(req)]
     );
 
     const retouchesResult = await pool.query(
       `SELECT id_retouche, date_depot, type_habit, type_retouche, statut, montant_total, montant_paye, mesures_habit_snapshot
        FROM retouches
-       WHERE id_client = $1
+       WHERE id_client = $1 AND atelier_id = $2
        ORDER BY date_depot DESC`,
-      [idClient]
+      [idClient, atelierIdFromReq(req)]
     );
 
     const client = clientResult.rows[0];
@@ -392,20 +408,20 @@ router.get("/clients/:id/consultation/pdf", requireClientReadAccess, async (req,
     const clientResult = await pool.query(
       `SELECT id_client, nom, prenom, telephone, date_creation
        FROM clients
-       WHERE id_client = $1`,
-      [idClient]
+       WHERE id_client = $1 AND atelier_id = $2`,
+      [idClient, atelierIdFromReq(req)]
     );
     if (clientResult.rowCount === 0) return res.status(404).json({ error: "Client introuvable" });
 
     const commandesResult = await pool.query(
       `SELECT id_commande, date_creation, type_habit, statut, montant_total, montant_paye, mesures_habit_snapshot
-       FROM commandes WHERE id_client = $1 ORDER BY date_creation DESC`,
-      [idClient]
+       FROM commandes WHERE id_client = $1 AND atelier_id = $2 ORDER BY date_creation DESC`,
+      [idClient, atelierIdFromReq(req)]
     );
     const retouchesResult = await pool.query(
       `SELECT id_retouche, date_depot, type_habit, type_retouche, statut, montant_total, montant_paye, mesures_habit_snapshot
-       FROM retouches WHERE id_client = $1 ORDER BY date_depot DESC`,
-      [idClient]
+       FROM retouches WHERE id_client = $1 AND atelier_id = $2 ORDER BY date_depot DESC`,
+      [idClient, atelierIdFromReq(req)]
     );
 
     const client = clientResult.rows[0];
@@ -477,7 +493,7 @@ router.get("/clients/:id/consultation/pdf", requireClientReadAccess, async (req,
       }
     };
 
-    const atelierConfig = await resolveAtelierConfig();
+    const atelierConfig = await resolveAtelierConfig(req);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(consultationPdfHtml(payload, req.query.autoprint === "1", atelierConfig));
   } catch (err) {
@@ -505,7 +521,7 @@ router.post("/clients", requireClientCreateAccess, async (req, res) => {
       ...body,
       idClient: generateClientId()
     });
-    await clientRepo.save(client);
+    await scopedClientRepo(req).save(client);
     res.status(201).json({
       client,
       event: {
@@ -533,7 +549,7 @@ router.put("/clients/:id", requireClientUpdateAccess, async (req, res) => {
     const schema = z.object({}).passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-    const client = await modifierClient({ idClient: req.params.id, input: parsed.data, clientRepo });
+    const client = await modifierClient({ idClient: req.params.id, input: parsed.data, clientRepo: scopedClientRepo(req) });
     res.json(client);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -543,7 +559,7 @@ router.put("/clients/:id", requireClientUpdateAccess, async (req, res) => {
 // Deactivate client
 router.post("/clients/:id/desactiver", requireClientDeactivateAccess, async (req, res) => {
   try {
-    const client = await desactiverClient({ idClient: req.params.id, clientRepo });
+    const client = await desactiverClient({ idClient: req.params.id, clientRepo: scopedClientRepo(req) });
     res.json(client);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -575,7 +591,7 @@ router.post("/clients/:id/mesures", async (req, res) => {
       prisePar: body.prisePar,
       observations: body.observations
     });
-    await serieRepo.save(serie);
+    await scopedSerieRepo(req).save(serie);
     res.status(201).json(serie);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -596,7 +612,7 @@ router.post("/clients/:id/mesures/:idSerie/activer", async (req, res) => {
       idClient: req.params.id,
       typeVetement: parsed.data.typeVetement,
       idSerieMesures: req.params.idSerie,
-      serieRepo
+      serieRepo: scopedSerieRepo(req)
     });
     res.json(serie);
   } catch (err) {
@@ -607,7 +623,7 @@ router.post("/clients/:id/mesures/:idSerie/activer", async (req, res) => {
 // Desactiver serie mesures
 router.post("/clients/:id/mesures/:idSerie/desactiver", async (req, res) => {
   try {
-    const serie = await desactiverSerieMesures({ idSerieMesures: req.params.idSerie, serieRepo });
+    const serie = await desactiverSerieMesures({ idSerieMesures: req.params.idSerie, serieRepo: scopedSerieRepo(req) });
     res.json(serie);
   } catch (err) {
     res.status(400).json({ error: err.message });

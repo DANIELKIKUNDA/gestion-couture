@@ -10,9 +10,21 @@ const router = express.Router();
 const repo = new AtelierParametresRepoPg();
 const commandeRepo = new CommandeRepoPg();
 
+function atelierIdFromReq(req) {
+  return String(req.auth?.atelierId || "ATELIER");
+}
+
+function scopedRepo(req) {
+  return repo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedCommandeRepo(req) {
+  return commandeRepo.forAtelier(atelierIdFromReq(req));
+}
+
 router.get("/parametres-atelier", requirePermission(PERMISSIONS.MODIFIER_PARAMETRES), async (req, res) => {
   try {
-    const current = await getParametresAtelier({ repo });
+    const current = await getParametresAtelier({ repo: scopedRepo(req) });
     res.json(
       current || {
         payload: null,
@@ -28,7 +40,7 @@ router.get("/parametres-atelier", requirePermission(PERMISSIONS.MODIFIER_PARAMET
 
 router.get("/parametres-atelier/policy", requirePermission(PERMISSIONS.MODIFIER_PARAMETRES), async (req, res) => {
   try {
-    const current = await getParametresAtelier({ repo });
+    const current = await getParametresAtelier({ repo: scopedRepo(req) });
     res.json(current?.payload || null);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -40,7 +52,13 @@ router.put("/parametres-atelier", requirePermission(PERMISSIONS.MODIFIER_PARAMET
     const payload = req.body?.payload;
     const updatedBy = req.body?.updatedBy || null;
     const expectedVersion = req.body?.expectedVersion ?? payload?.meta?.version ?? null;
-    const saved = await saveParametresAtelier({ repo, payload, updatedBy, expectedVersion, commandeRepo });
+    const saved = await saveParametresAtelier({
+      repo: scopedRepo(req),
+      payload,
+      updatedBy,
+      expectedVersion,
+      commandeRepo: scopedCommandeRepo(req)
+    });
     res.json(saved);
   } catch (err) {
     res.status(400).json({ error: err.message });

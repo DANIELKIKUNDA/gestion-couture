@@ -2,6 +2,7 @@
 
 CREATE TABLE IF NOT EXISTS commandes (
   id_commande TEXT PRIMARY KEY,
+  atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
   id_client TEXT NOT NULL,
   id_serie_mesures TEXT NULL,
   description TEXT NOT NULL,
@@ -80,9 +81,35 @@ BEGIN
 END $$;
 
 -- Useful indexes
+CREATE INDEX IF NOT EXISTS idx_commandes_atelier_id ON commandes (atelier_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_commandes_atelier_id_commande_unique ON commandes (atelier_id, id_commande);
 CREATE INDEX IF NOT EXISTS idx_commandes_client ON commandes (id_client);
+CREATE INDEX IF NOT EXISTS idx_commandes_atelier_client ON commandes (atelier_id, id_client);
 CREATE INDEX IF NOT EXISTS idx_commandes_statut ON commandes (statut);
 CREATE INDEX IF NOT EXISTS idx_commandes_date_prevue ON commandes (date_prevue);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'commandes_atelier_fk'
+  ) THEN
+    ALTER TABLE commandes
+      ADD CONSTRAINT commandes_atelier_fk
+      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'commandes_client_atelier_fk'
+  ) THEN
+    ALTER TABLE commandes
+      ADD CONSTRAINT commandes_client_atelier_fk
+      FOREIGN KEY (atelier_id, id_client)
+      REFERENCES clients(atelier_id, id_client);
+  END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION commandes_validate_statut_transition()
 RETURNS TRIGGER
@@ -117,10 +144,37 @@ EXECUTE FUNCTION commandes_validate_statut_transition();
 -- Optional: table for commande events (audit trail)
 CREATE TABLE IF NOT EXISTS commande_events (
   id_event TEXT PRIMARY KEY,
+  atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
   id_commande TEXT NOT NULL REFERENCES commandes(id_commande),
   type_event TEXT NOT NULL,
   payload JSONB NOT NULL,
   date_event TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_commande_events_atelier_id ON commande_events (atelier_id);
 CREATE INDEX IF NOT EXISTS idx_commande_events_commande ON commande_events (id_commande);
+CREATE INDEX IF NOT EXISTS idx_commande_events_atelier_commande ON commande_events (atelier_id, id_commande);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'commande_events_atelier_fk'
+  ) THEN
+    ALTER TABLE commande_events
+      ADD CONSTRAINT commande_events_atelier_fk
+      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'commande_events_commande_atelier_fk'
+  ) THEN
+    ALTER TABLE commande_events
+      ADD CONSTRAINT commande_events_commande_atelier_fk
+      FOREIGN KEY (atelier_id, id_commande)
+      REFERENCES commandes(atelier_id, id_commande)
+      ON DELETE CASCADE;
+  END IF;
+END $$;

@@ -9,6 +9,7 @@ import { appliquerPaiement } from "../../application/use-cases/appliquer-paiemen
 import { enregistrerPaiementRetoucheViaCaisse } from "../../application/use-cases/enregistrer-paiement-via-caisse.js";
 import { livrerRetouche } from "../../application/use-cases/livrer-retouche.js";
 import { annulerRetoucheViaCaisse } from "../../application/use-cases/annuler-retouche-via-caisse.js";
+import { CaisseRepoPg } from "../../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
 import { requireFields, requireNumber, validateSchema } from "../../../shared/interfaces/validation.js";
 import { generateClientId, generateRetoucheId } from "../../../shared/domain/id-generator.js";
 import { randomUUID } from "node:crypto";
@@ -50,12 +51,29 @@ function resolveActeur(req, fallback = null) {
   return { utilisateurId, utilisateurNom, role, utilisateur };
 }
 
-async function loadRetouchePolicy() {
-  if (!parametresRepo || typeof parametresRepo.getCurrent !== "function") {
+function atelierIdFromReq(req) {
+  return String(req.auth?.atelierId || "ATELIER");
+}
+
+function scopedRetoucheRepo(req) {
+  return retoucheRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedParametresRepo(req) {
+  return parametresRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedCaisseRepo(req) {
+  return new CaisseRepoPg(atelierIdFromReq(req));
+}
+
+async function loadRetouchePolicy(options = null) {
+  const repo = options?.req ? scopedParametresRepo(options.req) : parametresRepo;
+  if (!repo || typeof repo.getCurrent !== "function") {
     return resolveRetouchePolicy(null);
   }
   try {
-    const current = await parametresRepo.getCurrent();
+    const current = await repo.getCurrent();
     return resolveRetouchePolicy(current?.payload || null);
   } catch {
     return resolveRetouchePolicy(null);
@@ -104,6 +122,7 @@ function actionRulesForRetoucheAvecPermissions(retouche, auth) {
 }
 
 async function enregistrerEvenementRetouche({
+  atelierId,
   idRetouche,
   typeEvent,
   utilisateur = null,
@@ -118,9 +137,9 @@ async function enregistrerEvenementRetouche({
     ...payload
   };
   await pool.query(
-    `INSERT INTO retouche_events (id_event, id_retouche, type_event, payload, date_event)
-     VALUES ($1, $2, $3, $4::jsonb, NOW())`,
-    [randomUUID(), idRetouche, typeEvent, JSON.stringify(eventPayload)]
+    `INSERT INTO retouche_events (id_event, atelier_id, id_retouche, type_event, payload, date_event)
+     VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
+    [randomUUID(), atelierId, idRetouche, typeEvent, JSON.stringify(eventPayload)]
   );
 }
 
@@ -143,7 +162,9 @@ router.get("/retouches", requireRetoucheReadAccess, async (req, res) => {
               c.prenom
        FROM retouches r
        LEFT JOIN clients c ON c.id_client = r.id_client
-       ORDER BY r.date_depot DESC`
+       WHERE r.atelier_id = $1
+       ORDER BY r.date_depot DESC`,
+      [atelierIdFromReq(req)]
     );
 
     const rows = result.rows.map((row) => ({
@@ -169,7 +190,7 @@ router.get("/retouches", requireRetoucheReadAccess, async (req, res) => {
 
 router.get("/retouches/types", async (req, res) => {
   try {
-    const policy = await loadRetouchePolicy();
+    const policy = await loadRetouchePolicy({ req });
     res.json(
       (policy.typesRetouche || []).map((row) => ({
         code: row.code,
@@ -210,8 +231,10 @@ router.get("/audit/retouches", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
       FROM retouches r
       LEFT JOIN clients c ON c.id_client = r.id_client
       LEFT JOIN caisse_operation op ON op.reference_metier = r.id_retouche AND op.motif = 'PAIEMENT_RETOUCHE'
+      WHERE r.atelier_id = $1
       GROUP BY r.id_retouche, c.nom, c.prenom
-      ORDER BY r.date_depot DESC`
+      ORDER BY r.date_depot DESC`,
+      [atelierIdFromReq(req)]
     );
 
     res.json(
@@ -256,8 +279,8 @@ router.get("/retouches/:id", requireRetoucheReadAccess, async (req, res) => {
               c.prenom
        FROM retouches r
        LEFT JOIN clients c ON c.id_client = r.id_client
-       WHERE r.id_retouche = $1`,
-      [req.params.id]
+       WHERE r.id_retouche = $1 AND r.atelier_id = $2`,
+      [req.params.id, atelierIdFromReq(req)]
     );
 
     if (result.rowCount === 0) return res.status(404).json({ error: "Retouche introuvable" });
@@ -285,7 +308,7 @@ router.get("/retouches/:id", requireRetoucheReadAccess, async (req, res) => {
 // Get actions autorisees for retouche
 router.get("/retouches/:id/actions", requireRetoucheReadAccess, async (req, res) => {
   try {
-    const retouche = await retoucheRepo.getById(req.params.id);
+    const retouche = await scopedRetoucheRepo(req).getById(req.params.id);
     if (!retouche) return res.status(404).json({ error: "Retouche introuvable" });
     res.json(actionRulesForRetoucheAvecPermissions(retouche, req.auth));
   } catch (err) {
@@ -299,9 +322,9 @@ router.get("/retouches/:id/events", requireRetoucheReadAccess, async (req, res) 
     const result = await pool.query(
       `SELECT id_event, id_retouche, type_event, payload, date_event
        FROM retouche_events
-       WHERE id_retouche = $1
+       WHERE id_retouche = $1 AND atelier_id = $2
        ORDER BY date_event DESC`,
-      [req.params.id]
+      [req.params.id, atelierIdFromReq(req)]
     );
     res.json(
       result.rows.map((row) => ({
@@ -334,9 +357,9 @@ router.get("/retouches/:id/paiements", requireRetoucheReadAccess, async (req, re
               cj.date_jour
        FROM caisse_operation op
        LEFT JOIN caisse_jour cj ON cj.id_caisse_jour = op.id_caisse_jour
-       WHERE op.reference_metier = $1
+       WHERE op.reference_metier = $1 AND op.atelier_id = $2
        ORDER BY op.date_operation DESC`,
-      [req.params.id]
+      [req.params.id, atelierIdFromReq(req)]
     );
 
     res.json(
@@ -381,7 +404,7 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
 
   try {
     const acteur = resolveActeur(req);
-    const policy = await loadRetouchePolicy();
+    const policy = await loadRetouchePolicy({ req });
     const typeDefinition = getTypeRetoucheDefinition(body.typeRetouche, policy);
     const habitCompatible = isRetoucheHabitCompatible(typeDefinition, body.typeHabit);
     if (!habitCompatible) throw new Error("Type d'habit incompatible avec ce type de retouche");
@@ -400,8 +423,9 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     }, {
       policy: { retouches: policy }
     });
-    await retoucheRepo.save(retouche);
+    await scopedRetoucheRepo(req).save(retouche);
     await enregistrerEvenementRetouche({
+      atelierId: atelierIdFromReq(req),
       idRetouche: retouche.idRetouche,
       typeEvent: "RETOUCHE_DEPOSEE",
       utilisateur: acteur.utilisateur,
@@ -468,7 +492,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
   const dbClient = await pool.connect();
   try {
     const acteur = resolveActeur(req);
-    const policy = await loadRetouchePolicy();
+    const policy = await loadRetouchePolicy({ req });
     const typeDefinition = getTypeRetoucheDefinition(body.typeRetouche, policy);
     if (!isRetoucheHabitCompatible(typeDefinition, body.typeHabit)) {
       throw new Error("Type d'habit incompatible avec ce type de retouche");
@@ -484,6 +508,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
 
     await dbClient.query("BEGIN");
 
+    const atelierId = atelierIdFromReq(req);
     let createdClient = null;
     let idClient = String(body.idClient || "").trim();
     if (!idClient) {
@@ -493,10 +518,11 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
       });
       idClient = createdClient.idClient;
       await dbClient.query(
-        `INSERT INTO clients (id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        `INSERT INTO clients (id_client, atelier_id, nom, prenom, telephone, adresse, sexe, actif, date_creation)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
           createdClient.idClient,
+          atelierId,
           createdClient.nom,
           createdClient.prenom,
           createdClient.telephone,
@@ -517,10 +543,11 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     });
 
     await dbClient.query(
-      `INSERT INTO retouches (id_retouche, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      `INSERT INTO retouches (id_retouche, atelier_id, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [
         retouche.idRetouche,
+        atelierId,
         retouche.idClient,
         retouche.descriptionRetouche,
         retouche.typeRetouche,
@@ -536,10 +563,11 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
 
     const measuresRequired = typeDefinition.necessiteMesures === true;
     await dbClient.query(
-      `INSERT INTO retouche_events (id_event, id_retouche, type_event, payload, date_event)
-       VALUES ($1, $2, $3, $4::jsonb, NOW())`,
+      `INSERT INTO retouche_events (id_event, atelier_id, id_retouche, type_event, payload, date_event)
+       VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
       [
         randomUUID(),
+        atelierId,
         retouche.idRetouche,
         "RETOUCHE_DEPOSEE",
         JSON.stringify({
@@ -581,13 +609,15 @@ router.post("/retouches/:id/demarrer", async (req, res) => {
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
     const acteur = resolveActeur(req);
-    const before = await retoucheRepo.getById(req.params.id);
+    const repo = scopedRetoucheRepo(req);
+    const before = await repo.getById(req.params.id);
     const retouche = await demarrerTravail({
       idRetouche: req.params.id,
       parametresAtelier: parsed.data.parametresAtelier || {},
-      retoucheRepo
+      retoucheRepo: repo
     });
     await enregistrerEvenementRetouche({
+      atelierId: atelierIdFromReq(req),
       idRetouche: retouche.idRetouche,
       typeEvent: "TRAVAIL_DEMARRE",
       utilisateur: acteur.utilisateur,
@@ -616,12 +646,14 @@ router.post("/retouches/:id/terminer", requirePermission(PERMISSIONS.TERMINER_CO
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   try {
     const acteur = resolveActeur(req, parsed.data.utilisateur);
-    const before = await retoucheRepo.getById(req.params.id);
+    const repo = scopedRetoucheRepo(req);
+    const before = await repo.getById(req.params.id);
     const retouche = await terminerTravail({
       idRetouche: req.params.id,
-      retoucheRepo
+      retoucheRepo: repo
     });
     await enregistrerEvenementRetouche({
+      atelierId: atelierIdFromReq(req),
       idRetouche: retouche.idRetouche,
       typeEvent: "TRAVAIL_TERMINE",
       utilisateur: acteur.utilisateur,
@@ -668,13 +700,15 @@ router.post("/retouches/:id/paiements", async (req, res) => {
 
   try {
     const acteur = resolveActeur(req, body.utilisateur);
-    const before = await retoucheRepo.getById(req.params.id);
+    const repo = scopedRetoucheRepo(req);
+    const before = await repo.getById(req.params.id);
     const retouche = await appliquerPaiement({
       idRetouche: req.params.id,
       montant: body.montant,
-      retoucheRepo
+      retoucheRepo: repo
     });
     await enregistrerEvenementRetouche({
+      atelierId: atelierIdFromReq(req),
       idRetouche: retouche.idRetouche,
       typeEvent: "PAIEMENT_ENREGISTRE",
       utilisateur: acteur.utilisateur,
@@ -725,15 +759,19 @@ router.post("/retouches/:id/paiements/caisse", async (req, res) => {
 
   try {
     const acteur = resolveActeur(req, body.utilisateur);
-    const before = await retoucheRepo.getById(req.params.id);
+    const repo = scopedRetoucheRepo(req);
+    const before = await repo.getById(req.params.id);
     const retouche = await enregistrerPaiementRetoucheViaCaisse({
       idRetouche: req.params.id,
       montant: body.montant,
       idCaisseJour: body.idCaisseJour,
       utilisateur: acteur.utilisateur || body.utilisateur,
-      modePaiement: body.modePaiement || "CASH"
+      modePaiement: body.modePaiement || "CASH",
+      retoucheRepo: repo,
+      caisseRepo: scopedCaisseRepo(req)
     });
     await enregistrerEvenementRetouche({
+      atelierId: atelierIdFromReq(req),
       idRetouche: retouche.idRetouche,
       typeEvent: "PAIEMENT_CAISSE_ENREGISTRE",
       utilisateur: acteur.utilisateur,
@@ -778,9 +816,11 @@ router.post("/retouches/:id/livrer", requirePermission(PERMISSIONS.LIVRER_COMMAN
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   try {
     const acteur = resolveActeur(req, parsed.data.utilisateur);
-    const before = await retoucheRepo.getById(req.params.id);
-    const retouche = await livrerRetouche({ idRetouche: req.params.id, retoucheRepo });
+    const repo = scopedRetoucheRepo(req);
+    const before = await repo.getById(req.params.id);
+    const retouche = await livrerRetouche({ idRetouche: req.params.id, retoucheRepo: repo });
     await enregistrerEvenementRetouche({
+      atelierId: atelierIdFromReq(req),
       idRetouche: retouche.idRetouche,
       typeEvent: "RETOUCHE_LIVREE",
       utilisateur: acteur.utilisateur,
@@ -822,14 +862,18 @@ router.post("/retouches/:id/annuler", requirePermission(PERMISSIONS.ANNULER_COMM
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   try {
     const acteur = resolveActeur(req, parsed.data.utilisateur);
-    const before = await retoucheRepo.getById(req.params.id);
+    const repo = scopedRetoucheRepo(req);
+    const before = await repo.getById(req.params.id);
     const retouche = await annulerRetoucheViaCaisse({
       idRetouche: req.params.id,
       idCaisseJour: parsed.data.idCaisseJour,
       utilisateur: acteur.utilisateur || parsed.data.utilisateur,
-      modePaiement: parsed.data.modePaiement || "CASH"
+      modePaiement: parsed.data.modePaiement || "CASH",
+      retoucheRepo: repo,
+      caisseRepo: scopedCaisseRepo(req)
     });
     await enregistrerEvenementRetouche({
+      atelierId: atelierIdFromReq(req),
       idRetouche: retouche.idRetouche,
       typeEvent: "RETOUCHE_ANNULEE",
       utilisateur: acteur.utilisateur,

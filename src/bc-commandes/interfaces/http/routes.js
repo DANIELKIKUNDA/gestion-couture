@@ -7,6 +7,7 @@ import { appliquerPaiement } from "../../application/use-cases/appliquer-paiemen
 import { enregistrerPaiementViaCaisse } from "../../application/use-cases/enregistrer-paiement-via-caisse.js";
 import { livrerCommande } from "../../application/use-cases/livrer-commande.js";
 import { annulerCommandeViaCaisse } from "../../application/use-cases/annuler-commande-via-caisse.js";
+import { CaisseRepoPg } from "../../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
 import { requireFields, requireNumber, validateSchema } from "../../../shared/interfaces/validation.js";
 import { generateCommandeId } from "../../../shared/domain/id-generator.js";
 import { randomUUID } from "node:crypto";
@@ -42,6 +43,22 @@ function resolveActeur(req, fallback = null) {
   return { utilisateurId, utilisateurNom, role, utilisateur };
 }
 
+function atelierIdFromReq(req) {
+  return String(req.auth?.atelierId || "ATELIER");
+}
+
+function scopedCommandeRepo(req) {
+  return commandeRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedParametresRepo(req) {
+  return parametresRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedCaisseRepo(req) {
+  return new CaisseRepoPg(atelierIdFromReq(req));
+}
+
 const DEBUG_COMMANDE_POLICY = String(process.env.DEBUG_COMMANDE_POLICY || "").toLowerCase() === "true";
 
 function logCommandePolicy(context, meta) {
@@ -50,8 +67,9 @@ function logCommandePolicy(context, meta) {
   console.info(`[COMMANDES_POLICY] context=${scope} source=${meta.source} version=${meta.version ?? "n/a"}`);
 }
 
-async function loadCommandePolicy(context = "unknown") {
-  if (!parametresRepo || typeof parametresRepo.getCurrent !== "function") {
+async function loadCommandePolicy(context = "unknown", req = null) {
+  const repo = req ? scopedParametresRepo(req) : parametresRepo;
+  if (!repo || typeof repo.getCurrent !== "function") {
     const meta = {
       policy: resolveCommandePolicy(null),
       payload: null,
@@ -62,7 +80,7 @@ async function loadCommandePolicy(context = "unknown") {
     return meta;
   }
   try {
-    const current = await parametresRepo.getCurrent();
+    const current = await repo.getCurrent();
     const meta = {
       policy: resolveCommandePolicy(current?.payload || null),
       payload: current?.payload || null,
@@ -129,6 +147,7 @@ function actionRulesForCommandeAvecPermissions(commande, auth, policy) {
 }
 
 async function enregistrerEvenementCommande({
+  atelierId,
   idCommande,
   typeEvent,
   utilisateur = null,
@@ -143,9 +162,9 @@ async function enregistrerEvenementCommande({
     ...payload
   };
   await pool.query(
-    `INSERT INTO commande_events (id_event, id_commande, type_event, payload, date_event)
-     VALUES ($1, $2, $3, $4::jsonb, NOW())`,
-    [randomUUID(), idCommande, typeEvent, JSON.stringify(eventPayload)]
+    `INSERT INTO commande_events (id_event, atelier_id, id_commande, type_event, payload, date_event)
+     VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
+    [randomUUID(), atelierId, idCommande, typeEvent, JSON.stringify(eventPayload)]
   );
 }
 
@@ -167,7 +186,9 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
               cl.prenom
        FROM commandes c
        LEFT JOIN clients cl ON cl.id_client = c.id_client
-       ORDER BY c.date_creation DESC`
+       WHERE c.atelier_id = $1
+       ORDER BY c.date_creation DESC`,
+      [atelierIdFromReq(req)]
     );
 
     const rows = result.rows.map((row) => ({
@@ -212,8 +233,10 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
       FROM commandes c
       LEFT JOIN clients cl ON cl.id_client = c.id_client
       LEFT JOIN caisse_operation op ON op.reference_metier = c.id_commande AND op.motif = 'PAIEMENT_COMMANDE'
+      WHERE c.atelier_id = $1
       GROUP BY c.id_commande, cl.nom, cl.prenom
-      ORDER BY c.date_creation DESC`
+      ORDER BY c.date_creation DESC`,
+      [atelierIdFromReq(req)]
     );
 
     res.json(
@@ -256,8 +279,8 @@ router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
               cl.prenom
        FROM commandes c
        LEFT JOIN clients cl ON cl.id_client = c.id_client
-       WHERE c.id_commande = $1`,
-      [req.params.id]
+       WHERE c.id_commande = $1 AND c.atelier_id = $2`,
+      [req.params.id, atelierIdFromReq(req)]
     );
 
     if (result.rowCount === 0) return res.status(404).json({ error: "Commande introuvable" });
@@ -284,9 +307,9 @@ router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
 // Get actions autorisees for commande
 router.get("/commandes/:id/actions", requireCommandeReadAccess, async (req, res) => {
   try {
-    const commande = await commandeRepo.getById(req.params.id);
+    const commande = await scopedCommandeRepo(req).getById(req.params.id);
     if (!commande) return res.status(404).json({ error: "Commande introuvable" });
-    const policyMeta = await loadCommandePolicy("commandes.actions");
+    const policyMeta = await loadCommandePolicy("commandes.actions", req);
     res.json(actionRulesForCommandeAvecPermissions(commande, req.auth, policyMeta.policy));
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -299,9 +322,9 @@ router.get("/commandes/:id/events", requireCommandeReadAccess, async (req, res) 
     const result = await pool.query(
       `SELECT id_event, id_commande, type_event, payload, date_event
        FROM commande_events
-       WHERE id_commande = $1
+       WHERE id_commande = $1 AND atelier_id = $2
        ORDER BY date_event DESC`,
-      [req.params.id]
+      [req.params.id, atelierIdFromReq(req)]
     );
     res.json(
       result.rows.map((row) => ({
@@ -334,9 +357,9 @@ router.get("/commandes/:id/paiements", requireCommandeReadAccess, async (req, re
               cj.date_jour
        FROM caisse_operation op
        LEFT JOIN caisse_jour cj ON cj.id_caisse_jour = op.id_caisse_jour
-       WHERE op.reference_metier = $1
+       WHERE op.reference_metier = $1 AND op.atelier_id = $2
        ORDER BY op.date_operation DESC`,
-      [req.params.id]
+      [req.params.id, atelierIdFromReq(req)]
     );
 
     res.json(
@@ -381,7 +404,7 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
 
   try {
     const acteur = resolveActeur(req);
-    const policyMeta = await loadCommandePolicy("commandes.create");
+    const policyMeta = await loadCommandePolicy("commandes.create", req);
     const policyInput = policyMeta.payload || { commandes: policyMeta.policy };
     const commande = creerCommande({
       ...body,
@@ -389,8 +412,9 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     }, {
       policy: policyInput
     });
-    await commandeRepo.save(commande);
+    await scopedCommandeRepo(req).save(commande);
     await enregistrerEvenementCommande({
+      atelierId: atelierIdFromReq(req),
       idCommande: commande.idCommande,
       typeEvent: "COMMANDE_CREEE",
       utilisateur: acteur.utilisateur,
@@ -430,12 +454,14 @@ router.post("/commandes/:id/terminer", requirePermission(PERMISSIONS.TERMINER_CO
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   try {
     const acteur = resolveActeur(req, parsed.data.utilisateur);
-    const before = await commandeRepo.getById(req.params.id);
+    const repo = scopedCommandeRepo(req);
+    const before = await repo.getById(req.params.id);
     const commande = await terminerTravail({
       idCommande: req.params.id,
-      commandeRepo
+      commandeRepo: repo
     });
     await enregistrerEvenementCommande({
+      atelierId: atelierIdFromReq(req),
       idCommande: commande.idCommande,
       typeEvent: "TRAVAIL_TERMINE",
       utilisateur: acteur.utilisateur,
@@ -482,15 +508,17 @@ router.post("/commandes/:id/paiements", async (req, res) => {
 
   try {
     const acteur = resolveActeur(req, body.utilisateur);
-    const before = await commandeRepo.getById(req.params.id);
-    const policyMeta = await loadCommandePolicy("commandes.paiements");
+    const repo = scopedCommandeRepo(req);
+    const before = await repo.getById(req.params.id);
+    const policyMeta = await loadCommandePolicy("commandes.paiements", req);
     const commande = await appliquerPaiement({
       idCommande: req.params.id,
       montant: body.montant,
-      commandeRepo,
+      commandeRepo: repo,
       policy: { commandes: policyMeta.policy }
     });
     await enregistrerEvenementCommande({
+      atelierId: atelierIdFromReq(req),
       idCommande: commande.idCommande,
       typeEvent: "PAIEMENT_ENREGISTRE",
       utilisateur: acteur.utilisateur,
@@ -541,17 +569,21 @@ router.post("/commandes/:id/paiements/caisse", async (req, res) => {
 
   try {
     const acteur = resolveActeur(req, body.utilisateur);
-    const before = await commandeRepo.getById(req.params.id);
-    const policyMeta = await loadCommandePolicy("commandes.paiements.caisse");
+    const repo = scopedCommandeRepo(req);
+    const before = await repo.getById(req.params.id);
+    const policyMeta = await loadCommandePolicy("commandes.paiements.caisse", req);
     const commande = await enregistrerPaiementViaCaisse({
       idCommande: req.params.id,
       montant: body.montant,
+      commandeRepo: repo,
+      caisseRepo: scopedCaisseRepo(req),
       idCaisseJour: body.idCaisseJour,
       utilisateur: acteur.utilisateur || body.utilisateur,
       modePaiement: body.modePaiement || "CASH",
       policy: { commandes: policyMeta.policy }
     });
     await enregistrerEvenementCommande({
+      atelierId: atelierIdFromReq(req),
       idCommande: commande.idCommande,
       typeEvent: "PAIEMENT_CAISSE_ENREGISTRE",
       utilisateur: acteur.utilisateur,
@@ -596,10 +628,12 @@ router.post("/commandes/:id/livrer", requirePermission(PERMISSIONS.LIVRER_COMMAN
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   try {
     const acteur = resolveActeur(req, parsed.data.utilisateur);
-    const before = await commandeRepo.getById(req.params.id);
-    const policyMeta = await loadCommandePolicy("commandes.livrer");
-    const commande = await livrerCommande({ idCommande: req.params.id, commandeRepo, policy: { commandes: policyMeta.policy } });
+    const repo = scopedCommandeRepo(req);
+    const before = await repo.getById(req.params.id);
+    const policyMeta = await loadCommandePolicy("commandes.livrer", req);
+    const commande = await livrerCommande({ idCommande: req.params.id, commandeRepo: repo, policy: { commandes: policyMeta.policy } });
     await enregistrerEvenementCommande({
+      atelierId: atelierIdFromReq(req),
       idCommande: commande.idCommande,
       typeEvent: "COMMANDE_LIVREE",
       utilisateur: acteur.utilisateur,
@@ -642,16 +676,20 @@ router.post("/commandes/:id/annuler", requirePermission(PERMISSIONS.ANNULER_COMM
 
   try {
     const acteur = resolveActeur(req, parsed.data.utilisateur);
-    const before = await commandeRepo.getById(req.params.id);
-    const policyMeta = await loadCommandePolicy("commandes.annuler");
+    const repo = scopedCommandeRepo(req);
+    const before = await repo.getById(req.params.id);
+    const policyMeta = await loadCommandePolicy("commandes.annuler", req);
     const commande = await annulerCommandeViaCaisse({
       idCommande: req.params.id,
+      commandeRepo: repo,
+      caisseRepo: scopedCaisseRepo(req),
       idCaisseJour: parsed.data.idCaisseJour,
       utilisateur: acteur.utilisateur || parsed.data.utilisateur,
       modePaiement: parsed.data.modePaiement || "CASH",
       policy: { commandes: policyMeta.policy }
     });
     await enregistrerEvenementCommande({
+      atelierId: atelierIdFromReq(req),
       idCommande: commande.idCommande,
       typeEvent: "COMMANDE_ANNULEE",
       utilisateur: acteur.utilisateur,
@@ -668,6 +706,7 @@ router.post("/commandes/:id/annuler", requirePermission(PERMISSIONS.ANNULER_COMM
     });
     if (Number(before?.montantPaye || 0) > 0) {
       await enregistrerEvenementCommande({
+        atelierId: atelierIdFromReq(req),
         idCommande: commande.idCommande,
         typeEvent: "REMBOURSEMENT_COMMANDE_ANNULEE",
         utilisateur: acteur.utilisateur,

@@ -38,9 +38,49 @@ const factureRepo = new FactureRepoPg();
 const origineFactureReader = new OrigineFactureReaderPg();
 const parametresRepo = new AtelierParametresRepoPg();
 
-async function resolveFacturationPrefix() {
+function atelierIdFromReq(req) {
+  return String(req.auth?.atelierId || "ATELIER");
+}
+
+function scopedArticleRepo(req) {
+  return articleRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedStockReadRepo(req) {
+  return stockReadRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedVenteRepo(req) {
+  return venteRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedVenteReadRepo(req) {
+  return venteReadRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedCaisseRepo(req) {
+  return caisseRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedFournisseurRepo(req) {
+  return fournisseurRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedFactureRepo(req) {
+  return factureRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedOrigineFactureReader(req) {
+  return origineFactureReader.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedParametresRepo(req) {
+  return parametresRepo.forAtelier(atelierIdFromReq(req));
+}
+
+async function resolveFacturationPrefix(req = null) {
   try {
-    const current = await parametresRepo.getCurrent();
+    const current = await (req ? scopedParametresRepo(req) : parametresRepo).getCurrent();
     return String(current?.payload?.facturation?.prefixeNumero || "FAC").toUpperCase();
   } catch {
     return "FAC";
@@ -102,7 +142,10 @@ router.get("/stock/articles", requireStockReadAccess, async (req, res) => {
               seuil_alerte,
               actif
        FROM articles
+       WHERE atelier_id = $1
        ORDER BY nom_article ASC`
+      ,
+      [atelierIdFromReq(req)]
     );
 
     res.json(
@@ -127,9 +170,12 @@ router.get("/stock/articles", requireStockReadAccess, async (req, res) => {
 router.get("/stock/fournisseurs", requireStockArticleAdminAccess, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id_fournisseur, nom_fournisseur, telephone, actif, date_creation
+       `SELECT id_fournisseur, nom_fournisseur, telephone, actif, date_creation
        FROM fournisseurs
+       WHERE atelier_id = $1
        ORDER BY nom_fournisseur ASC`
+      ,
+      [atelierIdFromReq(req)]
     );
     res.json(
       result.rows.map((row) => ({
@@ -160,10 +206,10 @@ router.post("/stock/fournisseurs", requireStockArticleAdminAccess, async (req, r
   const idFournisseur = generateSupplierId();
   try {
     const result = await pool.query(
-      `INSERT INTO fournisseurs (id_fournisseur, nom_fournisseur, telephone, actif)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO fournisseurs (id_fournisseur, atelier_id, nom_fournisseur, telephone, actif)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING id_fournisseur, nom_fournisseur, telephone, actif, date_creation`,
-      [idFournisseur, body.nomFournisseur.trim(), body.telephone?.trim() || null, body.actif !== false]
+      [idFournisseur, atelierIdFromReq(req), body.nomFournisseur.trim(), body.telephone?.trim() || null, body.actif !== false]
     );
     const row = result.rows[0];
     res.status(201).json({
@@ -195,8 +241,8 @@ router.put("/stock/fournisseurs/:id", requireStockArticleAdminAccess, async (req
 
   try {
     const current = await pool.query(
-      "SELECT id_fournisseur, nom_fournisseur, telephone, actif, date_creation FROM fournisseurs WHERE id_fournisseur = $1",
-      [req.params.id]
+      "SELECT id_fournisseur, nom_fournisseur, telephone, actif, date_creation FROM fournisseurs WHERE id_fournisseur = $1 AND atelier_id = $2",
+      [req.params.id, atelierIdFromReq(req)]
     );
     if (current.rowCount === 0) return res.status(404).json({ error: "Fournisseur introuvable" });
     const row = current.rows[0];
@@ -205,11 +251,11 @@ router.put("/stock/fournisseurs/:id", requireStockArticleAdminAccess, async (req
     const actif = body.actif !== undefined ? body.actif : row.actif;
 
     const updated = await pool.query(
-      `UPDATE fournisseurs
+       `UPDATE fournisseurs
        SET nom_fournisseur = $2, telephone = $3, actif = $4
-       WHERE id_fournisseur = $1
+       WHERE id_fournisseur = $1 AND atelier_id = $5
        RETURNING id_fournisseur, nom_fournisseur, telephone, actif, date_creation`,
-      [req.params.id, nom, telephone, actif]
+      [req.params.id, nom, telephone, actif, atelierIdFromReq(req)]
     );
     const out = updated.rows[0];
     res.json({
@@ -228,11 +274,11 @@ router.put("/stock/fournisseurs/:id", requireStockArticleAdminAccess, async (req
 router.get("/stock/articles/:id/prix-historique", requireStockArticleAdminAccess, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id_historique, id_article, ancien_prix, nouveau_prix, date_modification, modifie_par
+       `SELECT id_historique, id_article, ancien_prix, nouveau_prix, date_modification, modifie_par
        FROM stock_prix_historique
-       WHERE id_article = $1
+       WHERE id_article = $1 AND atelier_id = $2
        ORDER BY date_modification DESC`,
-      [req.params.id]
+      [req.params.id, atelierIdFromReq(req)]
     );
     res.json(
       result.rows.map((row) => ({
@@ -252,7 +298,7 @@ router.get("/stock/articles/:id/prix-historique", requireStockArticleAdminAccess
 // Audit stock & ventes (read-only)
 router.get("/audit/stock-ventes", requireStockAuditAccess, async (req, res) => {
   try {
-    res.json(await stockReadRepo.listAuditStockVentes());
+    res.json(await scopedStockReadRepo(req).listAuditStockVentes());
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -261,7 +307,7 @@ router.get("/audit/stock-ventes", requireStockAuditAccess, async (req, res) => {
 // Get stock movement detail
 router.get("/stock/mouvements/:id", requireStockReadAccess, async (req, res) => {
   try {
-    const mouvement = await stockReadRepo.getStockMouvementById(req.params.id);
+    const mouvement = await scopedStockReadRepo(req).getStockMouvementById(req.params.id);
     if (!mouvement) return res.status(404).json({ error: "Mouvement introuvable" });
     res.json(mouvement);
   } catch (err) {
@@ -297,7 +343,7 @@ router.post("/stock/articles", requireStockArticleAdminAccess, async (req, res) 
       prixAchatMoyen: body.prixAchatInitial ?? 0,
       idArticle: generateArticleId()
     });
-    await articleRepo.save(article);
+    await scopedArticleRepo(req).save(article);
     res.status(201).json(article);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -334,7 +380,7 @@ router.put("/stock/articles/:id", requireStockArticleAdminAccess, async (req, re
   }
 
   try {
-    const article = await articleRepo.getById(req.params.id);
+    const article = await scopedArticleRepo(req).getById(req.params.id);
     if (!article) return res.status(404).json({ error: "Article introuvable" });
     const oldPrice = Number(article.prixVenteUnitaire || 0);
 
@@ -345,12 +391,12 @@ router.put("/stock/articles/:id", requireStockArticleAdminAccess, async (req, re
     if (body.seuilAlerte !== undefined) article.seuilAlerte = body.seuilAlerte;
     if (body.actif !== undefined) article.actif = body.actif;
 
-    await articleRepo.save(article);
+    await scopedArticleRepo(req).save(article);
     if (body.prixVenteUnitaire !== undefined && oldPrice !== body.prixVenteUnitaire) {
       await pool.query(
-        `INSERT INTO stock_prix_historique (id_historique, id_article, ancien_prix, nouveau_prix, modifie_par)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [generatePriceHistoryId(), article.idArticle, oldPrice, body.prixVenteUnitaire, body.updatedBy || null]
+        `INSERT INTO stock_prix_historique (id_historique, atelier_id, id_article, ancien_prix, nouveau_prix, modifie_par)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [generatePriceHistoryId(), atelierIdFromReq(req), article.idArticle, oldPrice, body.prixVenteUnitaire, body.updatedBy || null]
       );
     }
     res.json(article);
@@ -402,10 +448,10 @@ router.post("/stock/articles/:id/entrees", requireStockPurchaseAccess, async (re
         referenceAchat: body.referenceAchat || null,
         prixAchatUnitaire: body.prixAchatUnitaire === undefined ? null : body.prixAchatUnitaire
       },
-      articleRepo,
-      caisseRepo,
+      articleRepo: scopedArticleRepo(req),
+      caisseRepo: scopedCaisseRepo(req),
       idCaisseJour: body.idCaisseJour || null,
-      fournisseurRepo
+      fournisseurRepo: scopedFournisseurRepo(req)
     });
     res.json(article);
   } catch (err) {
@@ -441,7 +487,7 @@ router.post("/stock/articles/:id/sorties", requireStockAdjustmentAccess, async (
         utilisateur: acteur.utilisateur || body.utilisateur,
         referenceMetier: body.referenceMetier || null
       },
-      articleRepo
+      articleRepo: scopedArticleRepo(req)
     });
     res.json(article);
   } catch (err) {
@@ -477,7 +523,7 @@ router.post("/stock/articles/:id/ajuster", requireStockAdjustmentAccess, async (
         utilisateur: acteur.utilisateur || body.utilisateur,
         referenceMetier: body.referenceMetier || null
       },
-      articleRepo
+      articleRepo: scopedArticleRepo(req)
     });
     res.json(article);
   } catch (err) {
@@ -488,7 +534,7 @@ router.post("/stock/articles/:id/ajuster", requireStockAdjustmentAccess, async (
 // Activer article
 router.post("/stock/articles/:id/activer", requireStockArticleAdminAccess, async (req, res) => {
   try {
-    const article = await activerArticle({ idArticle: req.params.id, articleRepo });
+    const article = await activerArticle({ idArticle: req.params.id, articleRepo: scopedArticleRepo(req) });
     res.json(article);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -498,7 +544,7 @@ router.post("/stock/articles/:id/activer", requireStockArticleAdminAccess, async
 // Desactiver article
 router.post("/stock/articles/:id/desactiver", requireStockArticleAdminAccess, async (req, res) => {
   try {
-    const article = await desactiverArticle({ idArticle: req.params.id, articleRepo });
+    const article = await desactiverArticle({ idArticle: req.params.id, articleRepo: scopedArticleRepo(req) });
     res.json(article);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -508,7 +554,7 @@ router.post("/stock/articles/:id/desactiver", requireStockArticleAdminAccess, as
 // List ventes
 router.get("/ventes", requireVenteAccess, async (req, res) => {
   try {
-    res.json(await venteReadRepo.listVentes());
+    res.json(await scopedVenteReadRepo(req).listVentes());
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -517,7 +563,7 @@ router.get("/ventes", requireVenteAccess, async (req, res) => {
 // Get vente detail
 router.get("/ventes/:id", requireVenteAccess, async (req, res) => {
   try {
-    const vente = await venteRepo.getById(req.params.id);
+    const vente = await scopedVenteRepo(req).getById(req.params.id);
     if (!vente) return res.status(404).json({ error: "Vente introuvable" });
 
     res.json({
@@ -557,8 +603,8 @@ router.post("/ventes", requireVenteAccess, async (req, res) => {
   try {
     const vente = await creerVente({
       input: body,
-      articleRepo,
-      venteRepo
+      articleRepo: scopedArticleRepo(req),
+      venteRepo: scopedVenteRepo(req)
     });
     res.status(201).json(vente);
   } catch (err) {
@@ -583,8 +629,8 @@ router.post("/ventes/:id/lignes", requireVenteAccess, async (req, res) => {
     const vente = await mettreAJourVente({
       idVente: req.params.id,
       lignesVente: body.lignesVente,
-      articleRepo,
-      venteRepo
+      articleRepo: scopedArticleRepo(req),
+      venteRepo: scopedVenteRepo(req)
     });
     res.json(vente);
   } catch (err) {
@@ -614,9 +660,9 @@ router.post("/ventes/:id/valider", requireVenteAccess, async (req, res) => {
       idCaisseJour: body.idCaisseJour,
       modePaiement: body.modePaiement || "CASH",
       utilisateur: acteur.utilisateur || body.utilisateur,
-      venteRepo,
-      articleRepo,
-      caisseRepo
+      venteRepo: scopedVenteRepo(req),
+      articleRepo: scopedArticleRepo(req),
+      caisseRepo: scopedCaisseRepo(req)
     });
     res.json(vente);
   } catch (err) {
@@ -645,20 +691,20 @@ router.post("/ventes/:id/valider-et-facturer", requireVenteAccess, async (req, r
       idCaisseJour: body.idCaisseJour,
       modePaiement: body.modePaiement || "CASH",
       utilisateur: acteur.utilisateur || body.utilisateur,
-      venteRepo,
-      articleRepo,
-      caisseRepo
+      venteRepo: scopedVenteRepo(req),
+      articleRepo: scopedArticleRepo(req),
+      caisseRepo: scopedCaisseRepo(req)
     });
     const facture = await emettreFacture({
       input: {
         typeOrigine: "VENTE",
         idOrigine: vente.idVente,
-        prefixeNumero: await resolveFacturationPrefix()
+        prefixeNumero: await resolveFacturationPrefix(req)
       },
-      factureRepo,
-      origineReader: origineFactureReader
+      factureRepo: scopedFactureRepo(req),
+      origineReader: scopedOrigineFactureReader(req)
     });
-    const detailFacture = await obtenirFacture({ idFacture: facture.idFacture, factureRepo });
+    const detailFacture = await obtenirFacture({ idFacture: facture.idFacture, factureRepo: scopedFactureRepo(req) });
     res.json({ vente, facture: detailFacture });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -678,7 +724,7 @@ router.post("/ventes/:id/annuler", requireVenteAccess, async (req, res) => {
     const vente = await annulerVente({
       idVente: req.params.id,
       motif: parsed.data.motif || null,
-      venteRepo
+      venteRepo: scopedVenteRepo(req)
     });
     res.json(vente);
   } catch (err) {

@@ -14,11 +14,21 @@ function mapVenteRow(row) {
 }
 
 export class VenteReadRepoPg {
+  constructor(atelierId = "ATELIER") {
+    this.atelierId = String(atelierId || "ATELIER");
+  }
+
+  forAtelier(atelierId) {
+    return new VenteReadRepoPg(atelierId);
+  }
+
   async listVentes() {
     const result = await pool.query(
       `SELECT id_vente, date_vente, total, statut, reference_caisse, motif_annulation, total_prix_achat, benefice_total
        FROM ventes
-       ORDER BY date_vente DESC`
+       WHERE atelier_id = $1
+       ORDER BY date_vente DESC`,
+      [this.atelierId]
     );
     return result.rows.map(mapVenteRow);
   }

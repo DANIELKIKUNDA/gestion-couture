@@ -9,8 +9,16 @@ export class ConflitVersionParametresError extends Error {
 }
 
 export class AtelierParametresRepoPg {
+  constructor(atelierId = "ATELIER") {
+    this.atelierId = String(atelierId || "ATELIER");
+  }
+
+  forAtelier(atelierId) {
+    return new AtelierParametresRepoPg(atelierId);
+  }
+
   async getCurrent() {
-    const res = await pool.query("SELECT payload, version, updated_at, updated_by FROM atelier_parametres WHERE id = 1");
+    const res = await pool.query("SELECT payload, version, updated_at, updated_by FROM atelier_parametres WHERE atelier_id = $1 LIMIT 1", [this.atelierId]);
     if (res.rowCount === 0) return null;
     const row = res.rows[0];
     return {
@@ -23,17 +31,17 @@ export class AtelierParametresRepoPg {
 
   async save({ payload, expectedVersion = null, updatedBy = null }) {
     const res = await pool.query(
-      `INSERT INTO atelier_parametres (id, payload, version, updated_at, updated_by)
-       VALUES (1, $1, 1, NOW(), $2)
-       ON CONFLICT (id)
+      `INSERT INTO atelier_parametres (id, atelier_id, payload, version, updated_at, updated_by)
+       VALUES (COALESCE((SELECT MAX(ap.id) + 1 FROM atelier_parametres ap), 1), $1, $2, 1, NOW(), $3)
+       ON CONFLICT (atelier_id)
        DO UPDATE SET
          payload = EXCLUDED.payload,
          version = atelier_parametres.version + 1,
          updated_at = NOW(),
          updated_by = EXCLUDED.updated_by
-       WHERE ($3::int IS NULL OR atelier_parametres.version = $3::int)
+       WHERE ($4::int IS NULL OR atelier_parametres.version = $4::int)
        RETURNING payload, version, updated_at, updated_by`,
-      [payload, updatedBy, expectedVersion]
+      [this.atelierId, payload, updatedBy, expectedVersion]
     );
     if (res.rowCount === 0) {
       const current = await this.getCurrent();

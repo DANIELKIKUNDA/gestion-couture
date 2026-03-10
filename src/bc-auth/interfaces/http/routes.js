@@ -93,8 +93,16 @@ async function ensureRolePermissions() {
   }
 }
 
+async function ensureRolePermissionsForAtelier(atelierId = "ATELIER") {
+  const existing = await rolePermissionRepo.listByAtelier(atelierId);
+  if (existing.length > 0) return;
+  for (const [role, permissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+    await rolePermissionRepo.save({ atelierId, role, permissions, updatedBy: "system" });
+  }
+}
+
 async function withPermissions(user) {
-  await ensureRolePermissions();
+  await ensureRolePermissionsForAtelier(user.atelierId || "ATELIER");
   const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
   const permissions = String(user.roleId || "").toUpperCase() === ROLES.PROPRIETAIRE ? Object.values(PERMISSIONS) : rolePerm?.permissions || [];
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
@@ -103,6 +111,7 @@ async function withPermissions(user) {
     nom: user.nom,
     email: user.email,
     roleId: user.roleId,
+    atelierId: user.atelierId || "ATELIER",
     actif: user.actif !== false,
     etatCompte,
     tokenVersion: Number(user.tokenVersion || 1),
@@ -116,6 +125,7 @@ function summarizeUser(user) {
     id: user.id,
     email: user.email || null,
     roleId: user.roleId || null,
+    atelierId: user.atelierId || "ATELIER",
     etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
     actif: user.actif !== false,
     tokenVersion: Number(user.tokenVersion || 1)
@@ -186,7 +196,7 @@ router.post("/auth/bootstrap-owner", async (req, res) => {
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
-    if (await utilisateurRepo.hasAnyOwner()) {
+    if (await utilisateurRepo.hasAnyOwner("ATELIER")) {
       return res.status(409).json({ error: "Proprietaire deja initialise" });
     }
 
@@ -201,7 +211,7 @@ router.post("/auth/bootstrap-owner", async (req, res) => {
       atelierId: "ATELIER"
     });
     await utilisateurRepo.save(user);
-    await ensureRolePermissions();
+    await ensureRolePermissionsForAtelier("ATELIER");
     res.status(201).json({ utilisateur: await withPermissions(user) });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -210,7 +220,7 @@ router.post("/auth/bootstrap-owner", async (req, res) => {
 
 router.get("/auth/bootstrap-owner/status", async (_req, res) => {
   try {
-    const initialized = await utilisateurRepo.hasAnyOwner();
+    const initialized = await utilisateurRepo.hasAnyOwner("ATELIER");
     res.json({ initialized });
   } catch (err) {
     await logSecurityAudit({
@@ -231,7 +241,8 @@ router.post("/auth/login", loginRateLimit, async (req, res) => {
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
-    await ensureRolePermissions();
+    const loginUser = await utilisateurRepo.findByEmail(parsed.data.email);
+    await ensureRolePermissionsForAtelier(loginUser?.atelierId || "ATELIER");
     const out = await seConnecterUtilisateur({
       utilisateurRepo,
       rolePermissionRepo,
@@ -265,7 +276,8 @@ router.post("/auth/refresh", refreshRateLimit, async (req, res) => {
     const token = signAccessToken({
       sub: user.id,
       email: user.email,
-      role: user.roleId
+      role: user.roleId,
+      atelierId: user.atelierId || "ATELIER"
     });
 
     setRefreshCookie(res, refreshToken);
@@ -316,6 +328,7 @@ router.get("/auth/me", requireAuth, async (req, res) => {
         email: me.email,
         roles: [me.roleId],
         roleId: me.roleId,
+        atelierId: me.atelierId || "ATELIER",
         actif: me.actif !== false,
         etatCompte: me.etatCompte,
         tokenVersion: Number(me.tokenVersion || 1)
@@ -365,8 +378,8 @@ router.post("/auth/password/reset", resetPasswordRateLimit, async (req, res) => 
 
 router.get("/auth/role-permissions", requirePermission(PERMISSIONS.GERER_UTILISATEURS), async (_req, res) => {
   try {
-    await ensureRolePermissions();
-    const rows = await rolePermissionRepo.listByAtelier("ATELIER");
+    await ensureRolePermissionsForAtelier(_req.auth?.atelierId || "ATELIER");
+    const rows = await rolePermissionRepo.listByAtelier(_req.auth?.atelierId || "ATELIER");
     res.json(rows);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -387,7 +400,7 @@ router.put("/auth/role-permissions/:role", requirePermission(PERMISSIONS.GERER_U
       return res.status(400).json({ error: "Le role proprietaire doit conserver la permission GERER_UTILISATEURS" });
     }
     const row = await rolePermissionRepo.save({
-      atelierId: "ATELIER",
+      atelierId: req.auth?.atelierId || "ATELIER",
       role,
       permissions: normalizedPermissions,
       updatedBy: req.auth.utilisateurId
@@ -418,13 +431,17 @@ router.put("/auth/role-permissions/:role", requirePermission(PERMISSIONS.GERER_U
 
 router.get("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), async (_req, res) => {
   try {
-    const rows = await gererUtilisateurs({ utilisateurRepo, input: { action: "list" } });
+    const rows = await gererUtilisateurs({
+      utilisateurRepo,
+      input: { action: "list", atelierId: _req.auth?.atelierId || "ATELIER" }
+    });
     res.json(
       rows.map((u) => ({
         id: u.id,
         nom: u.nom,
         email: u.email,
         roleId: u.roleId,
+        atelierId: u.atelierId || "ATELIER",
         actif: u.actif !== false,
         etatCompte: normalizeAccountState(u.etatCompte || (u.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
         tokenVersion: Number(u.tokenVersion || 1)
@@ -455,6 +472,7 @@ router.post("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), as
       input: {
         action: "create",
         ...parsed.data,
+        atelierId: req.auth?.atelierId || "ATELIER",
         actif: etatCompte !== ACCOUNT_STATES.DISABLED
       }
     });
@@ -477,6 +495,7 @@ router.post("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), as
       nom: user.nom,
       email: user.email,
       roleId: user.roleId,
+      atelierId: user.atelierId || "ATELIER",
       actif: user.actif !== false,
       etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
       tokenVersion: Number(user.tokenVersion || 1)
@@ -498,7 +517,7 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
       .passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-    const current = await utilisateurRepo.getById(req.params.id);
+    const current = await utilisateurRepo.getByIdAndAtelier(req.params.id, req.auth?.atelierId || "ATELIER");
     if (!current) return res.status(404).json({ error: "Utilisateur introuvable" });
     const isSelfUpdate = String(req.auth?.utilisateurId || "") === String(req.params.id || "");
     if (isSelfUpdate && parsed.data.roleId && String(parsed.data.roleId).toUpperCase() !== ROLES.PROPRIETAIRE) {
@@ -520,7 +539,7 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
     const wasActiveOwner = currentRole === ROLES.PROPRIETAIRE && currentState === ACCOUNT_STATES.ACTIVE;
     const remainsActiveOwner = nextRole === ROLES.PROPRIETAIRE && nextState === ACCOUNT_STATES.ACTIVE;
     if (wasActiveOwner && !remainsActiveOwner) {
-      const activeOwners = await utilisateurRepo.countActiveOwners();
+      const activeOwners = await utilisateurRepo.countActiveOwners(req.auth?.atelierId || "ATELIER");
       if (activeOwners <= 1) {
         return res.status(400).json({ error: "Operation refusee: dernier proprietaire actif" });
       }
@@ -562,6 +581,7 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
       nom: user.nom,
       email: user.email,
       roleId: user.roleId,
+      atelierId: user.atelierId || "ATELIER",
       actif: user.actif !== false,
       etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
       tokenVersion: Number(user.tokenVersion || 1)
@@ -590,12 +610,12 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
       return res.status(400).json({ error: "Vous ne pouvez pas desactiver votre propre compte" });
     }
 
-    const current = await utilisateurRepo.getById(req.params.id);
+    const current = await utilisateurRepo.getByIdAndAtelier(req.params.id, req.auth?.atelierId || "ATELIER");
     if (!current) return res.status(404).json({ error: "Utilisateur introuvable" });
     const currentState = normalizeAccountState(current.etatCompte || (current.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
     const isActiveOwner = String(current.roleId || "").toUpperCase() === ROLES.PROPRIETAIRE && currentState === ACCOUNT_STATES.ACTIVE;
     if (isActiveOwner && parsed.data.actif === false) {
-      const activeOwners = await utilisateurRepo.countActiveOwners();
+      const activeOwners = await utilisateurRepo.countActiveOwners(req.auth?.atelierId || "ATELIER");
       if (activeOwners <= 1) {
         return res.status(400).json({ error: "Operation refusee: dernier proprietaire actif" });
       }
@@ -625,6 +645,7 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
       nom: user.nom,
       email: user.email,
       roleId: user.roleId,
+      atelierId: user.atelierId || "ATELIER",
       actif: user.actif !== false,
       etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
       tokenVersion: Number(user.tokenVersion || 1)

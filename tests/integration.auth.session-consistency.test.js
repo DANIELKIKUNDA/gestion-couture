@@ -53,6 +53,7 @@ async function run() {
   assert.equal(firstPayload.sub, owner.id, "payload token doit contenir user_id");
   assert.equal(firstPayload.email, ownerEmail, "payload token doit contenir email");
   assert.equal(firstPayload.role, ROLES.PROPRIETAIRE, "payload token doit contenir role");
+  assert.equal(firstPayload.atelierId, "ATELIER", "payload token doit contenir atelierId");
   assert.equal("permissions" in firstPayload, false, "permissions ne doivent pas etre stockees dans le token");
 
   const firstUsersList = await agent.get("/api/auth/users").set("Authorization", `Bearer ${firstToken}`);

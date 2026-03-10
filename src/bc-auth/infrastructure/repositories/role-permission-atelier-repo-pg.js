@@ -10,12 +10,46 @@ async function ensureSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS role_permission_atelier (
       id_role_permission TEXT PRIMARY KEY,
+      atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
       role TEXT NOT NULL,
       permission_code TEXT NOT NULL,
       actif BOOLEAN NOT NULL DEFAULT true,
       date_creation TIMESTAMP NOT NULL DEFAULT NOW(),
-      UNIQUE(role, permission_code)
+      UNIQUE(atelier_id, role, permission_code)
     )
+  `);
+  await pool.query(`ALTER TABLE role_permission_atelier ADD COLUMN IF NOT EXISTS atelier_id TEXT NOT NULL DEFAULT 'ATELIER'`);
+  await pool.query(`UPDATE role_permission_atelier SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR atelier_id = ''`);
+  await pool.query(`ALTER TABLE role_permission_atelier DROP CONSTRAINT IF EXISTS role_permission_atelier_role_permission_code_key`);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'role_permission_atelier_atelier_role_permission_key'
+      ) THEN
+        ALTER TABLE role_permission_atelier
+          ADD CONSTRAINT role_permission_atelier_atelier_role_permission_key
+          UNIQUE (atelier_id, role, permission_code);
+      END IF;
+    END $$;
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_role_permission_atelier_atelier_id ON role_permission_atelier (atelier_id)`);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF to_regclass('ateliers') IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint
+           WHERE conname = 'role_permission_atelier_atelier_fk'
+         ) THEN
+        ALTER TABLE role_permission_atelier
+          ADD CONSTRAINT role_permission_atelier_atelier_fk
+          FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      END IF;
+    END $$;
   `);
   schemaReady = true;
 }
@@ -41,7 +75,14 @@ export class RolePermissionAtelierRepoPg {
     if (!useMemory) {
       try {
         await ensureSchema();
-        const roleRows = await pool.query(`SELECT DISTINCT role FROM role_permission_atelier WHERE actif = true ORDER BY role ASC`);
+        const roleRows = await pool.query(
+          `SELECT DISTINCT role
+           FROM role_permission_atelier
+           WHERE atelier_id = $1
+             AND actif = true
+           ORDER BY role ASC`,
+          [String(atelierId || "ATELIER")]
+        );
         const items = [];
         for (const row of roleRows.rows) {
           const role = normalizeRole(row.role);
@@ -69,14 +110,14 @@ export class RolePermissionAtelierRepoPg {
     if (!useMemory) {
       try {
         await ensureSchema();
-        await pool.query(`DELETE FROM role_permission_atelier WHERE role = $1`, [roleValue]);
+        await pool.query(`DELETE FROM role_permission_atelier WHERE atelier_id = $1 AND role = $2`, [String(atelierId || "ATELIER"), roleValue]);
         for (const permission of permissionValues) {
           await pool.query(
-            `INSERT INTO role_permission_atelier (id_role_permission, role, permission_code, actif)
-             VALUES ($1, $2, $3, true)
-             ON CONFLICT (role, permission_code)
+            `INSERT INTO role_permission_atelier (id_role_permission, atelier_id, role, permission_code, actif)
+             VALUES ($1, $2, $3, $4, true)
+             ON CONFLICT (atelier_id, role, permission_code)
              DO UPDATE SET actif = true`,
-            [randomUUID(), roleValue, permission]
+            [randomUUID(), String(atelierId || "ATELIER"), roleValue, permission]
           );
         }
       } catch {
@@ -96,9 +137,11 @@ export class RolePermissionAtelierRepoPg {
         const result = await pool.query(
           `SELECT permission_code
            FROM role_permission_atelier
-           WHERE role = $1 AND actif = true
+           WHERE atelier_id = $1
+             AND role = $2
+             AND actif = true
            ORDER BY permission_code ASC`,
-          [roleValue]
+          [String(atelierId || "ATELIER"), roleValue]
         );
         if (result.rowCount === 0) return null;
         return {

@@ -2,16 +2,24 @@
 import { CaisseJour } from "../../domain/caisse-jour.js";
 
 export class CaisseRepoPg {
+  constructor(atelierId = "ATELIER") {
+    this.atelierId = String(atelierId || "ATELIER");
+  }
+
+  forAtelier(atelierId) {
+    return new CaisseRepoPg(atelierId);
+  }
+
   async getById(idCaisseJour) {
     const res = await pool.query(
-      "SELECT id_caisse_jour, date_jour, statut, solde_ouverture, solde_cloture, ouverte_par, cloturee_par, date_ouverture, date_cloture, ouverture_anticipee, motif_ouverture_anticipee, autorisee_par FROM caisse_jour WHERE id_caisse_jour = $1",
-      [idCaisseJour]
+      "SELECT id_caisse_jour, date_jour, statut, solde_ouverture, solde_cloture, ouverte_par, cloturee_par, date_ouverture, date_cloture, ouverture_anticipee, motif_ouverture_anticipee, autorisee_par FROM caisse_jour WHERE id_caisse_jour = $1 AND atelier_id = $2",
+      [idCaisseJour, this.atelierId]
     );
     if (res.rowCount === 0) return null;
 
     const opRes = await pool.query(
-      "SELECT id_operation, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation, type_depense, justification, impact_journalier, impact_global FROM caisse_operation WHERE id_caisse_jour = $1",
-      [idCaisseJour]
+      "SELECT id_operation, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation, type_depense, justification, impact_journalier, impact_global FROM caisse_operation WHERE id_caisse_jour = $1 AND atelier_id = $2",
+      [idCaisseJour, this.atelierId]
     );
 
     const row = res.rows[0];
@@ -51,8 +59,8 @@ export class CaisseRepoPg {
 
   async getByDate(dateJour) {
     const res = await pool.query(
-      "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour = $1 LIMIT 1",
-      [dateJour]
+      "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour = $1 AND atelier_id = $2 LIMIT 1",
+      [dateJour, this.atelierId]
     );
     if (res.rowCount === 0) return null;
     return this.getById(res.rows[0].id_caisse_jour);
@@ -60,8 +68,8 @@ export class CaisseRepoPg {
 
   async getLatestBeforeDate(dateJour) {
     const res = await pool.query(
-      "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour < $1 ORDER BY date_jour DESC LIMIT 1",
-      [dateJour]
+      "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour < $1 AND atelier_id = $2 ORDER BY date_jour DESC LIMIT 1",
+      [dateJour, this.atelierId]
     );
     if (res.rowCount === 0) return null;
     return this.getById(res.rows[0].id_caisse_jour);
@@ -69,8 +77,8 @@ export class CaisseRepoPg {
 
   async listBeforeDate(dateJour, limit = 60) {
     const res = await pool.query(
-      "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour < $1 ORDER BY date_jour DESC LIMIT $2",
-      [dateJour, limit]
+      "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour < $1 AND atelier_id = $2 ORDER BY date_jour DESC LIMIT $3",
+      [dateJour, this.atelierId, limit]
     );
     const items = [];
     for (const row of res.rows) {
@@ -82,8 +90,8 @@ export class CaisseRepoPg {
 
   async listByDateRange(dateDebut, dateFin) {
     const res = await pool.query(
-      "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour >= $1 AND date_jour <= $2 ORDER BY date_jour ASC",
-      [dateDebut, dateFin]
+      "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour >= $1 AND date_jour <= $2 AND atelier_id = $3 ORDER BY date_jour ASC",
+      [dateDebut, dateFin, this.atelierId]
     );
     const items = [];
     for (const row of res.rows) {
@@ -95,12 +103,13 @@ export class CaisseRepoPg {
 
   async save(caisse) {
     await pool.query(
-      `INSERT INTO caisse_jour (id_caisse_jour, date_jour, statut, solde_ouverture, solde_cloture, ouverte_par, cloturee_par, date_ouverture, date_cloture, ouverture_anticipee, motif_ouverture_anticipee, autorisee_par)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `INSERT INTO caisse_jour (id_caisse_jour, atelier_id, date_jour, statut, solde_ouverture, solde_cloture, ouverte_par, cloturee_par, date_ouverture, date_cloture, ouverture_anticipee, motif_ouverture_anticipee, autorisee_par)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (id_caisse_jour)
-       DO UPDATE SET date_jour=$2, statut=$3, solde_ouverture=$4, solde_cloture=$5, ouverte_par=$6, cloturee_par=$7, date_ouverture=$8, date_cloture=$9, ouverture_anticipee=$10, motif_ouverture_anticipee=$11, autorisee_par=$12`,
+       DO UPDATE SET atelier_id=$2, date_jour=$3, statut=$4, solde_ouverture=$5, solde_cloture=$6, ouverte_par=$7, cloturee_par=$8, date_ouverture=$9, date_cloture=$10, ouverture_anticipee=$11, motif_ouverture_anticipee=$12, autorisee_par=$13`,
       [
         caisse.idCaisseJour,
+        this.atelierId,
         caisse.date,
         caisse.statutCaisse,
         caisse.soldeOuverture,
@@ -118,12 +127,13 @@ export class CaisseRepoPg {
     // Persist operations (upsert by id_operation)
     for (const op of caisse.operations) {
       await pool.query(
-        `INSERT INTO caisse_operation (id_operation, id_caisse_jour, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation, type_depense, justification, impact_journalier, impact_global)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        `INSERT INTO caisse_operation (id_operation, atelier_id, id_caisse_jour, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation, type_depense, justification, impact_journalier, impact_global)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (id_operation)
-         DO UPDATE SET type_operation=$3, montant=$4, mode_paiement=$5, motif=$6, reference_metier=$7, date_operation=$8, effectue_par=$9, statut_operation=$10, motif_annulation=$11, annulee_par=$12, date_annulation=$13, type_depense=$14, justification=$15, impact_journalier=$16, impact_global=$17`,
+         DO UPDATE SET atelier_id=$2, type_operation=$4, montant=$5, mode_paiement=$6, motif=$7, reference_metier=$8, date_operation=$9, effectue_par=$10, statut_operation=$11, motif_annulation=$12, annulee_par=$13, date_annulation=$14, type_depense=$15, justification=$16, impact_journalier=$17, impact_global=$18`,
         [
           op.idOperation,
+          this.atelierId,
           caisse.idCaisseJour,
           op.typeOperation,
           op.montant,

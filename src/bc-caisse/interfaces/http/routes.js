@@ -51,6 +51,22 @@ function resolveActeur(req, fallback = null) {
   return { utilisateurId, utilisateurNom, role, utilisateur };
 }
 
+function atelierIdFromReq(req) {
+  return String(req.auth?.atelierId || "ATELIER");
+}
+
+function scopedCaisseRepo(req) {
+  return caisseRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedBilanRepo(req) {
+  return bilanRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedParametresRepo(req) {
+  return parametresRepo.forAtelier(atelierIdFromReq(req));
+}
+
 function normalizeCaisse(caisse) {
   const operations = caisse.operations || [];
   const soldeCourant = operations.reduce((sum, op) => {
@@ -101,7 +117,10 @@ router.get("/caisse", async (req, res) => {
     const result = await pool.query(
       `SELECT id_caisse_jour, date_jour, statut, solde_ouverture, solde_cloture, ouverte_par, cloturee_par, date_ouverture, date_cloture
        FROM caisse_jour
+       WHERE atelier_id = $1
        ORDER BY date_jour DESC`
+      ,
+      [atelierIdFromReq(req)]
     );
 
     res.json(
@@ -130,7 +149,7 @@ router.get("/caisse/:id", async (req, res, next) => {
   const reserved = new Set(["bilans", "audit", "ouvrir", "ouverture-info"]);
   if (reserved.has(String(req.params.id || "").toLowerCase())) return next();
   try {
-    const caisse = await caisseRepo.getById(req.params.id);
+    const caisse = await scopedCaisseRepo(req).getById(req.params.id);
     if (!caisse) return res.status(404).json({ error: "Caisse introuvable" });
     res.json(normalizeCaisse(caisse));
   } catch (err) {
@@ -148,8 +167,8 @@ router.get("/caisse/ouverture-info", async (req, res) => {
   try {
     const info = await preparerOuvertureCaisseDuJour({
       soldeInitial,
-      caisseRepo,
-      parametresRepo,
+      caisseRepo: scopedCaisseRepo(req),
+      parametresRepo: scopedParametresRepo(req),
       overrideHeureOuverture,
       role,
       motifOverride
@@ -172,12 +191,12 @@ router.get("/caisse/bilans", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX),
   try {
     let rows = [];
     if (mode === "all") {
-      rows = await bilanRepo.listByType(typeBilan, limit);
+      rows = await scopedBilanRepo(req).listByType(typeBilan, limit);
     } else {
       if (!dateDebut || !dateFin) {
         return res.status(400).json({ error: "dateDebut et dateFin requis" });
       }
-      rows = await bilanRepo.listByPeriod(typeBilan, dateDebut, dateFin);
+      rows = await scopedBilanRepo(req).listByPeriod(typeBilan, dateDebut, dateFin);
     }
     res.json(rows);
   } catch (err) {
@@ -191,7 +210,7 @@ router.get("/caisse/bilans/dernier", requirePermission(PERMISSIONS.VOIR_BILANS_G
   if (!typeBilan) return res.status(400).json({ error: "type requis" });
 
   try {
-    const row = await bilanRepo.getLatest(typeBilan);
+    const row = await scopedBilanRepo(req).getLatest(typeBilan);
     if (!row) return res.status(404).json({ error: "Bilan introuvable" });
     res.json(row);
   } catch (err) {
@@ -222,9 +241,10 @@ router.get("/caisse/audit/journalier", requirePermission(PERMISSIONS.VOIR_BILANS
         COALESCE(COUNT(op.id_operation), 0) AS nombre_operations
       FROM caisse_jour cj
       LEFT JOIN caisse_operation op ON op.id_caisse_jour = cj.id_caisse_jour
-      WHERE cj.statut = 'CLOTUREE'
+      WHERE cj.statut = 'CLOTUREE' AND cj.atelier_id = $1
       GROUP BY cj.id_caisse_jour
-      ORDER BY cj.date_jour DESC`
+      ORDER BY cj.date_jour DESC`,
+      [atelierIdFromReq(req)]
     );
 
     res.json(result.rows);
@@ -253,7 +273,10 @@ router.get("/caisse/audit/operations", requirePermission(PERMISSIONS.VOIR_BILANS
         op.impact_global,
         op.id_caisse_jour
       FROM caisse_operation op
+      WHERE op.atelier_id = $1
       ORDER BY op.date_operation DESC`
+      ,
+      [atelierIdFromReq(req)]
     );
     res.json(result.rows);
   } catch (err) {
@@ -288,8 +311,8 @@ router.post("/caisse", requireCaisseOpenAccess, async (req, res) => {
       overrideHeureOuverture: body.overrideHeureOuverture === true,
       role: body.role || "",
       motifOverride: body.motifOverride || "",
-      caisseRepo,
-      parametresRepo
+      caisseRepo: scopedCaisseRepo(req),
+      parametresRepo: scopedParametresRepo(req)
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
@@ -336,8 +359,8 @@ router.post("/caisse/ouvrir", requireCaisseOpenAccess, async (req, res) => {
       overrideHeureOuverture: body.overrideHeureOuverture === true,
       role: body.role || "",
       motifOverride: body.motifOverride || "",
-      caisseRepo,
-      parametresRepo
+      caisseRepo: scopedCaisseRepo(req),
+      parametresRepo: scopedParametresRepo(req)
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
@@ -388,7 +411,7 @@ router.post("/caisse/:id/entrees", requireCaisseEntreeAccess, async (req, res) =
         referenceMetier: body.referenceMetier || null,
         utilisateur: acteur.utilisateur || body.utilisateur
       },
-      caisseRepo
+      caisseRepo: scopedCaisseRepo(req)
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
@@ -445,8 +468,8 @@ router.post("/caisse/:id/sorties", requireCaisseSortieAccess, async (req, res) =
         justification: body.justification || null,
         role: acteur.role || body.role || ""
       },
-      caisseRepo,
-      parametresRepo
+      caisseRepo: scopedCaisseRepo(req),
+      parametresRepo: scopedParametresRepo(req)
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
@@ -495,7 +518,7 @@ router.post("/caisse/:id/operations/:opId/annuler", requireCaisseAnnulationAcces
         motifAnnulation: body.motifAnnulation,
         utilisateur: acteur.utilisateur || body.utilisateur
       },
-      caisseRepo
+      caisseRepo: scopedCaisseRepo(req)
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
@@ -532,13 +555,13 @@ router.post("/caisse/:id/cloturer", requirePermission(PERMISSIONS.CLOTURER_CAISS
     const caisse = await cloturerCaisse({
       idCaisseJour: req.params.id,
       input: { utilisateur: acteur.utilisateur || body.utilisateur },
-      caisseRepo
+      caisseRepo: scopedCaisseRepo(req)
     });
     await genererBilansApresCloture({
       caisseCloturee: caisse,
-      caisseRepo,
-      bilanRepo,
-      parametresRepo,
+      caisseRepo: scopedCaisseRepo(req),
+      bilanRepo: scopedBilanRepo(req),
+      parametresRepo: scopedParametresRepo(req),
       utilisateur: acteur.utilisateur || body.utilisateur
     });
     await enregistrerEvenementAudit({

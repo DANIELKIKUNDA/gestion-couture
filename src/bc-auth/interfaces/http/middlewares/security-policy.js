@@ -78,6 +78,7 @@ export async function securityPolicy(req, res, next) {
     nom: user.nom,
     role: user.roleId,
     roleId: user.roleId,
+    atelierId: user.atelierId || "ATELIER",
     etatCompte,
     permissions: normalizeRole(user.roleId) === "PROPRIETAIRE" ? Object.values(PERMISSIONS) : rolePerm?.permissions || []
   };

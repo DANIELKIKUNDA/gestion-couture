@@ -2,10 +2,18 @@
 import { Retouche } from "../../domain/retouche.js";
 
 export class RetoucheRepoPg {
+  constructor(atelierId = "ATELIER") {
+    this.atelierId = String(atelierId || "ATELIER");
+  }
+
+  forAtelier(atelierId) {
+    return new RetoucheRepoPg(atelierId);
+  }
+
   async getById(idRetouche) {
     const res = await pool.query(
-      "SELECT id_retouche, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM retouches WHERE id_retouche = $1",
-      [idRetouche]
+      "SELECT id_retouche, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM retouches WHERE id_retouche = $1 AND atelier_id = $2",
+      [idRetouche, this.atelierId]
     );
     if (res.rowCount === 0) return null;
 
@@ -28,13 +36,14 @@ export class RetoucheRepoPg {
 
   async save(retouche) {
     await pool.query(
-      `INSERT INTO retouches (id_retouche, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `INSERT INTO retouches (id_retouche, atelier_id, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (id_retouche)
-       DO UPDATE SET id_client=$2, description=$3, type_retouche=$4, date_depot=$5, date_prevue=$6,
-         montant_total=$7, montant_paye=$8, statut=$9, type_habit=$10, mesures_habit_snapshot=$11`,
+       DO UPDATE SET atelier_id=$2, id_client=$3, description=$4, type_retouche=$5, date_depot=$6, date_prevue=$7,
+         montant_total=$8, montant_paye=$9, statut=$10, type_habit=$11, mesures_habit_snapshot=$12`,
       [
         retouche.idRetouche,
+        this.atelierId,
         retouche.idClient,
         retouche.descriptionRetouche,
         retouche.typeRetouche,

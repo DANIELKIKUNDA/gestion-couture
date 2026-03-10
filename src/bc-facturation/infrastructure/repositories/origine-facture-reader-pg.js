@@ -10,6 +10,14 @@ function clientSnapshot(row) {
 }
 
 export class OrigineFactureReaderPg {
+  constructor(atelierId = "ATELIER") {
+    this.atelierId = String(atelierId || "ATELIER");
+  }
+
+  forAtelier(atelierId) {
+    return new OrigineFactureReaderPg(atelierId);
+  }
+
   async readCommande(idCommande) {
     const res = await pool.query(
       `SELECT c.id_commande,
@@ -19,8 +27,8 @@ export class OrigineFactureReaderPg {
               cl.telephone AS client_contact
        FROM commandes c
        LEFT JOIN clients cl ON cl.id_client = c.id_client
-       WHERE c.id_commande = $1`,
-      [idCommande]
+       WHERE c.id_commande = $1 AND c.atelier_id = $2`,
+      [idCommande, this.atelierId]
     );
     if (res.rowCount === 0) return null;
     const row = res.rows[0];
@@ -49,8 +57,8 @@ export class OrigineFactureReaderPg {
               cl.telephone AS client_contact
        FROM retouches r
        LEFT JOIN clients cl ON cl.id_client = r.id_client
-       WHERE r.id_retouche = $1`,
-      [idRetouche]
+       WHERE r.id_retouche = $1 AND r.atelier_id = $2`,
+      [idRetouche, this.atelierId]
     );
     if (res.rowCount === 0) return null;
     const row = res.rows[0];
@@ -74,16 +82,16 @@ export class OrigineFactureReaderPg {
     const venteRes = await pool.query(
       `SELECT id_vente, total, reference_caisse
        FROM ventes
-       WHERE id_vente = $1`,
-      [idVente]
+       WHERE id_vente = $1 AND atelier_id = $2`,
+      [idVente, this.atelierId]
     );
     if (venteRes.rowCount === 0) return null;
     const lignesRes = await pool.query(
       `SELECT libelle_article, quantite, prix_unitaire
        FROM vente_lignes
-       WHERE id_vente = $1
+       WHERE id_vente = $1 AND atelier_id = $2
        ORDER BY id_ligne ASC`,
-      [idVente]
+      [idVente, this.atelierId]
     );
 
     const vente = venteRes.rows[0];

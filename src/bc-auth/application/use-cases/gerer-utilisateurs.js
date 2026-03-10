@@ -4,7 +4,10 @@ import { hashPassword } from "../../infrastructure/security/password-hasher.js";
 import { validatePasswordPolicy } from "../../domain/password-policy.js";
 
 export async function gererUtilisateurs({ utilisateurRepo, input }) {
-  if (input.action === "list") return utilisateurRepo.list();
+  if (input.action === "list") {
+    if (input.atelierId) return utilisateurRepo.listByAtelier(input.atelierId);
+    return utilisateurRepo.list();
+  }
 
   if (input.action === "create") {
     const email = String(input.email || "").trim().toLowerCase();
@@ -16,6 +19,7 @@ export async function gererUtilisateurs({ utilisateurRepo, input }) {
       nom: input.nom,
       email,
       roleId: input.roleId,
+      atelierId: input.atelierId || "ATELIER",
       actif: true,
       motDePasseHash: hashPassword(input.motDePasse)
     });
@@ -30,7 +34,8 @@ export async function gererUtilisateurs({ utilisateurRepo, input }) {
     const next = {
       ...current,
       nom: input.nom ?? current.nom,
-      roleId: input.roleId ?? current.roleId
+      roleId: input.roleId ?? current.roleId,
+      atelierId: current.atelierId || "ATELIER"
     };
     Object.setPrototypeOf(next, Utilisateur.prototype);
     if (input.actif === true) next.activer();
