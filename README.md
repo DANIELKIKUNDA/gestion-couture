@@ -72,6 +72,11 @@ npm run build
 ## API Examples
 See `docs/http-examples.md`.
 
+## Onboarding multi-tenant
+- `POST /api/ateliers` cree un atelier avec son proprietaire initial.
+- `GET /api/auth/bootstrap-owner/status`, `POST /api/auth/bootstrap-owner` et `POST /api/auth/login` acceptent `atelierSlug` dans le body, la query string, ou le header `X-Atelier-Slug`.
+- `GET /api/ateliers/current` retourne l'atelier associe au token courant.
+
 ## API Docs (OpenAPI)
 OpenAPI JSON is available at:
 

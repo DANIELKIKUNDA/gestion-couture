@@ -25,7 +25,9 @@ import { reinitialiserMotDePasse } from "../../application/use-cases/reinitialis
 import { gererUtilisateurs } from "../../application/use-cases/gerer-utilisateurs.js";
 import { changerStatutUtilisateur } from "../../application/use-cases/changer-statut-utilisateur.js";
 import { pool } from "../../../shared/infrastructure/db.js";
+import { AtelierRepoPg } from "../../../shared/infrastructure/repositories/atelier-repo-pg.js";
 import { ensureEvenementAuditSchema } from "../../../shared/infrastructure/audit-log.js";
+import { buildDefaultAtelierParametresPayload } from "../../../bc-parametres/domain/default-parametres.js";
 import { requireAuth } from "./middlewares/auth-guard.js";
 import { requirePermission } from "./middlewares/require-permission.js";
 import { PERMISSIONS } from "../../domain/permissions.js";
@@ -37,6 +39,10 @@ const rolePermissionRepo = new RolePermissionAtelierRepoPg();
 const authSessionRepo = new AuthSessionRepoPg();
 const resetTokenRepo = new PasswordResetTokenRepoPg();
 const revocationRepo = new AccessTokenRevocationRepoPg();
+const atelierRepo = new AtelierRepoPg();
+
+const LEGACY_ATELIER_ID = "ATELIER";
+const LEGACY_ATELIER_SLUG = "atelier-historique";
 
 const REFRESH_COOKIE = process.env.AUTH_REFRESH_COOKIE_NAME || "atelier_refresh_token";
 const IS_PROD = String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
@@ -85,15 +91,121 @@ function getBearerToken(req) {
   return auth.slice(7).trim();
 }
 
+function normalizeAtelierSlug(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isValidAtelierSlug(slug) {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(slug || ""));
+}
+
+function generateAtelierId() {
+  return `ATL-${randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`;
+}
+
+function readHeader(req, name) {
+  const raw = req.headers?.[name];
+  return Array.isArray(raw) ? raw[0] : raw;
+}
+
+function extractAtelierSlug(req, payload = null) {
+  const fromHeader = readHeader(req, "x-atelier-slug");
+  const fromPayload = payload && typeof payload === "object" ? payload.atelierSlug : req.body?.atelierSlug;
+  const fromQuery = req.query?.atelierSlug;
+  return normalizeAtelierSlug(fromHeader || fromPayload || fromQuery || "");
+}
+
+function summarizeAtelier(atelier) {
+  if (!atelier) return null;
+  return {
+    idAtelier: atelier.idAtelier,
+    nom: atelier.nom,
+    slug: atelier.slug,
+    actif: atelier.actif !== false,
+    createdAt: atelier.createdAt || null,
+    updatedAt: atelier.updatedAt || null
+  };
+}
+
+async function ensureLegacyAtelier() {
+  const existing = await atelierRepo.getById(LEGACY_ATELIER_ID);
+  if (existing) return existing;
+  return atelierRepo.save({
+    idAtelier: LEGACY_ATELIER_ID,
+    nom: "Atelier historique",
+    slug: LEGACY_ATELIER_SLUG,
+    actif: true
+  });
+}
+
+async function resolveRequestedAtelier(req, { payload = null, allowDefault = true, requireExisting = false, requireActive = false } = {}) {
+  const slug = extractAtelierSlug(req, payload);
+  if (!slug) {
+    if (!allowDefault) return null;
+    const legacy = await ensureLegacyAtelier();
+    if (requireActive && legacy.actif === false) {
+      const err = new Error("Atelier inactif");
+      err.code = "ATELIER_INACTIVE";
+      throw err;
+    }
+    return legacy;
+  }
+
+  const atelier = await atelierRepo.getBySlug(slug);
+  if (!atelier) {
+    if (!requireExisting) return null;
+    const err = new Error("Atelier introuvable");
+    err.code = "ATELIER_NOT_FOUND";
+    throw err;
+  }
+  if (requireActive && atelier.actif === false) {
+    const err = new Error("Atelier inactif");
+    err.code = "ATELIER_INACTIVE";
+    throw err;
+  }
+  return atelier;
+}
+
+async function insertDefaultRolePermissionsForAtelier(dbClient, atelierId, updatedBy = "system") {
+  for (const [role, permissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+    const normalizedPermissions = Array.from(new Set((permissions || []).map((item) => String(item || "").trim().toUpperCase()).filter(Boolean)));
+    for (const permission of normalizedPermissions) {
+      await dbClient.query(
+        `INSERT INTO role_permission_atelier (id_role_permission, atelier_id, role, permission_code, actif)
+         VALUES ($1, $2, $3, $4, true)
+         ON CONFLICT (atelier_id, role, permission_code)
+         DO UPDATE SET actif = true`,
+        [randomUUID(), atelierId, role, permission]
+      );
+    }
+    if (normalizedPermissions.length === 0) {
+      await dbClient.query(`DELETE FROM role_permission_atelier WHERE atelier_id = $1 AND role = $2`, [atelierId, role]);
+    }
+  }
+  return updatedBy;
+}
+
+async function insertDefaultAtelierParametres(dbClient, atelierId, nomAtelier, updatedBy = "system") {
+  const payload = buildDefaultAtelierParametresPayload({ nomAtelier });
+  await dbClient.query(
+    `INSERT INTO atelier_parametres (id, atelier_id, payload, version, updated_at, updated_by)
+     VALUES (COALESCE((SELECT MAX(ap.id) + 1 FROM atelier_parametres ap), 1), $1, $2, 1, NOW(), $3)
+     ON CONFLICT (atelier_id) DO NOTHING`,
+    [atelierId, payload, updatedBy]
+  );
+}
+
 async function ensureRolePermissions() {
-  const existing = await rolePermissionRepo.listByAtelier("ATELIER");
+  const existing = await rolePermissionRepo.listByAtelier(LEGACY_ATELIER_ID);
   if (existing.length > 0) return;
   for (const [role, permissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
-    await rolePermissionRepo.save({ atelierId: "ATELIER", role, permissions, updatedBy: "system" });
+    await rolePermissionRepo.save({ atelierId: LEGACY_ATELIER_ID, role, permissions, updatedBy: "system" });
   }
 }
 
-async function ensureRolePermissionsForAtelier(atelierId = "ATELIER") {
+async function ensureRolePermissionsForAtelier(atelierId = LEGACY_ATELIER_ID) {
   const existing = await rolePermissionRepo.listByAtelier(atelierId);
   if (existing.length > 0) return;
   for (const [role, permissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
@@ -102,8 +214,8 @@ async function ensureRolePermissionsForAtelier(atelierId = "ATELIER") {
 }
 
 async function withPermissions(user) {
-  await ensureRolePermissionsForAtelier(user.atelierId || "ATELIER");
-  const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
+  await ensureRolePermissionsForAtelier(user.atelierId || LEGACY_ATELIER_ID);
+  const rolePerm = await rolePermissionRepo.get(user.atelierId || LEGACY_ATELIER_ID, user.roleId);
   const permissions = String(user.roleId || "").toUpperCase() === ROLES.PROPRIETAIRE ? Object.values(PERMISSIONS) : rolePerm?.permissions || [];
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
   return {
@@ -111,7 +223,7 @@ async function withPermissions(user) {
     nom: user.nom,
     email: user.email,
     roleId: user.roleId,
-    atelierId: user.atelierId || "ATELIER",
+    atelierId: user.atelierId || LEGACY_ATELIER_ID,
     actif: user.actif !== false,
     etatCompte,
     tokenVersion: Number(user.tokenVersion || 1),
@@ -125,7 +237,7 @@ function summarizeUser(user) {
     id: user.id,
     email: user.email || null,
     roleId: user.roleId || null,
-    atelierId: user.atelierId || "ATELIER",
+    atelierId: user.atelierId || LEGACY_ATELIER_ID,
     etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
     actif: user.actif !== false,
     tokenVersion: Number(user.tokenVersion || 1)
@@ -190,13 +302,116 @@ const refreshRateLimit = createAuthRateLimiter({
   message: "Trop de rafraichissements de session. Reessayez dans une minute."
 });
 
+router.post("/ateliers", async (req, res) => {
+  const schema = z
+    .object({
+      nomAtelier: z.string().min(1),
+      slug: z.string().min(2).max(64),
+      proprietaire: z.object({
+        nom: z.string().min(1),
+        email: z.string().email(),
+        motDePasse: z.string().min(8)
+      })
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+  const nomAtelier = String(parsed.data.nomAtelier || "").trim();
+  const slug = normalizeAtelierSlug(parsed.data.slug);
+  const ownerNom = String(parsed.data.proprietaire?.nom || "").trim();
+  const ownerEmail = String(parsed.data.proprietaire?.email || "").trim().toLowerCase();
+  const ownerPassword = String(parsed.data.proprietaire?.motDePasse || "");
+
+  if (!isValidAtelierSlug(slug)) {
+    return res.status(400).json({ error: "Slug atelier invalide" });
+  }
+
+  try {
+    await rolePermissionRepo.listByAtelier(LEGACY_ATELIER_ID);
+
+    const existingAtelier = await atelierRepo.getBySlug(slug);
+    if (existingAtelier) {
+      return res.status(409).json({ error: "Slug atelier deja utilise" });
+    }
+
+    const existingUser = await utilisateurRepo.findByEmail(ownerEmail);
+    if (existingUser) {
+      return res.status(409).json({ error: "Email deja utilise" });
+    }
+
+    validatePasswordPolicy(ownerPassword);
+
+    const dbClient = await pool.connect();
+    try {
+      await dbClient.query("BEGIN");
+
+      const scopedAtelierRepo = new AtelierRepoPg(dbClient);
+      const atelier = await scopedAtelierRepo.save({
+        idAtelier: generateAtelierId(),
+        nom: nomAtelier,
+        slug,
+        actif: true
+      });
+
+      const ownerId = randomUUID();
+      const ownerHash = hashPassword(ownerPassword);
+      await dbClient.query(
+        `INSERT INTO utilisateurs (id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash, date_mise_a_jour)
+         VALUES ($1, $2, $3, $4, $5, true, $6, 1, $7, NOW())`,
+        [ownerId, ownerNom, ownerEmail, ROLES.PROPRIETAIRE, atelier.idAtelier, ACCOUNT_STATES.ACTIVE, ownerHash]
+      );
+
+      await insertDefaultRolePermissionsForAtelier(dbClient, atelier.idAtelier, ownerId);
+      await insertDefaultAtelierParametres(dbClient, atelier.idAtelier, atelier.nom, ownerId);
+
+      await dbClient.query("COMMIT");
+
+      return res.status(201).json({
+        atelier: summarizeAtelier(atelier),
+        proprietaire: {
+          id: ownerId,
+          nom: ownerNom,
+          email: ownerEmail,
+          roleId: ROLES.PROPRIETAIRE,
+          atelierId: atelier.idAtelier,
+          actif: true,
+          etatCompte: ACCOUNT_STATES.ACTIVE,
+          tokenVersion: 1
+        }
+      });
+    } catch (err) {
+      await dbClient.query("ROLLBACK");
+      if (err?.code === "23505") {
+        return res.status(409).json({ error: "Atelier deja existant" });
+      }
+      throw err;
+    } finally {
+      dbClient.release();
+    }
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/ateliers/current", requireAuth, async (req, res) => {
+  try {
+    const atelier = await atelierRepo.getById(req.auth?.atelierId || LEGACY_ATELIER_ID);
+    if (!atelier) return res.status(404).json({ error: "Atelier introuvable" });
+    res.json(summarizeAtelier(atelier));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post("/auth/bootstrap-owner", async (req, res) => {
   try {
-    const schema = z.object({ nom: z.string().min(1), email: z.string().email(), motDePasse: z.string().min(8) }).passthrough();
+    const schema = z.object({ nom: z.string().min(1), email: z.string().email(), motDePasse: z.string().min(8), atelierSlug: z.string().optional() }).passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
-    if (await utilisateurRepo.hasAnyOwner("ATELIER")) {
+    const atelier = await resolveRequestedAtelier(req, { payload: parsed.data, allowDefault: true, requireExisting: true, requireActive: true });
+    if (await utilisateurRepo.hasAnyOwner(atelier.idAtelier)) {
       return res.status(409).json({ error: "Proprietaire deja initialise" });
     }
 
@@ -208,20 +423,38 @@ router.post("/auth/bootstrap-owner", async (req, res) => {
       roleId: ROLES.PROPRIETAIRE,
       actif: true,
       motDePasseHash: hashPassword(parsed.data.motDePasse),
-      atelierId: "ATELIER"
+      atelierId: atelier.idAtelier
     });
     await utilisateurRepo.save(user);
-    await ensureRolePermissionsForAtelier("ATELIER");
+    await ensureRolePermissionsForAtelier(atelier.idAtelier);
+    await pool.query(
+      `INSERT INTO atelier_parametres (id, atelier_id, payload, version, updated_at, updated_by)
+       VALUES (COALESCE((SELECT MAX(ap.id) + 1 FROM atelier_parametres ap), 1), $1, $2, 1, NOW(), $3)
+       ON CONFLICT (atelier_id) DO NOTHING`,
+      [atelier.idAtelier, buildDefaultAtelierParametresPayload({ nomAtelier: atelier.nom }), user.id]
+    );
     res.status(201).json({ utilisateur: await withPermissions(user) });
   } catch (err) {
+    if (err?.code === "ATELIER_NOT_FOUND") return res.status(404).json({ error: err.message });
+    if (err?.code === "ATELIER_INACTIVE") return res.status(403).json({ error: err.message });
     res.status(400).json({ error: err.message });
   }
 });
 
-router.get("/auth/bootstrap-owner/status", async (_req, res) => {
+router.get("/auth/bootstrap-owner/status", async (req, res) => {
   try {
-    const initialized = await utilisateurRepo.hasAnyOwner("ATELIER");
-    res.json({ initialized });
+    const slug = extractAtelierSlug(req);
+    if (slug) {
+      const atelier = await atelierRepo.getBySlug(slug);
+      if (!atelier) {
+        return res.json({ initialized: false, atelierExists: false, atelier: null });
+      }
+      const initialized = await utilisateurRepo.hasAnyOwner(atelier.idAtelier);
+      return res.json({ initialized, atelierExists: true, atelier: summarizeAtelier(atelier) });
+    }
+    const legacy = await ensureLegacyAtelier();
+    const initialized = await utilisateurRepo.hasAnyOwner(legacy.idAtelier);
+    res.json({ initialized, atelierExists: true, atelier: summarizeAtelier(legacy) });
   } catch (err) {
     await logSecurityAudit({
       utilisateurId: req.auth?.utilisateurId || null,
@@ -237,18 +470,32 @@ router.get("/auth/bootstrap-owner/status", async (_req, res) => {
 
 router.post("/auth/login", loginRateLimit, async (req, res) => {
   try {
-    const schema = z.object({ email: z.string().email(), motDePasse: z.string().min(1) }).passthrough();
+    const schema = z.object({ email: z.string().email(), motDePasse: z.string().min(1), atelierSlug: z.string().optional() }).passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
-    const loginUser = await utilisateurRepo.findByEmail(parsed.data.email);
-    await ensureRolePermissionsForAtelier(loginUser?.atelierId || "ATELIER");
+    const requestedSlug = extractAtelierSlug(req, parsed.data);
+    const requestedAtelier = requestedSlug ? await atelierRepo.getBySlug(requestedSlug) : null;
+    if (requestedSlug && (!requestedAtelier || requestedAtelier.actif === false)) {
+      throw new Error("Identifiants invalides");
+    }
+
+    const loginUser = requestedAtelier
+      ? await utilisateurRepo.findByEmailInAtelier(parsed.data.email, requestedAtelier.idAtelier)
+      : await utilisateurRepo.findByEmail(parsed.data.email);
+
+    if (requestedAtelier && loginUser && loginUser.atelierId !== requestedAtelier.idAtelier) {
+      throw new Error("Identifiants invalides");
+    }
+
+    await ensureRolePermissionsForAtelier(requestedAtelier?.idAtelier || loginUser?.atelierId || LEGACY_ATELIER_ID);
     const out = await seConnecterUtilisateur({
       utilisateurRepo,
       rolePermissionRepo,
       authSessionRepo,
       email: parsed.data.email,
-      motDePasse: parsed.data.motDePasse
+      motDePasse: parsed.data.motDePasse,
+      atelierId: requestedAtelier?.idAtelier || null
     });
 
     setRefreshCookie(res, out.refreshToken);
@@ -277,7 +524,7 @@ router.post("/auth/refresh", refreshRateLimit, async (req, res) => {
       sub: user.id,
       email: user.email,
       role: user.roleId,
-      atelierId: user.atelierId || "ATELIER"
+      atelierId: user.atelierId || LEGACY_ATELIER_ID
     });
 
     setRefreshCookie(res, refreshToken);
@@ -328,7 +575,7 @@ router.get("/auth/me", requireAuth, async (req, res) => {
         email: me.email,
         roles: [me.roleId],
         roleId: me.roleId,
-        atelierId: me.atelierId || "ATELIER",
+        atelierId: me.atelierId || LEGACY_ATELIER_ID,
         actif: me.actif !== false,
         etatCompte: me.etatCompte,
         tokenVersion: Number(me.tokenVersion || 1)
@@ -378,8 +625,8 @@ router.post("/auth/password/reset", resetPasswordRateLimit, async (req, res) => 
 
 router.get("/auth/role-permissions", requirePermission(PERMISSIONS.GERER_UTILISATEURS), async (_req, res) => {
   try {
-    await ensureRolePermissionsForAtelier(_req.auth?.atelierId || "ATELIER");
-    const rows = await rolePermissionRepo.listByAtelier(_req.auth?.atelierId || "ATELIER");
+    await ensureRolePermissionsForAtelier(_req.auth?.atelierId || LEGACY_ATELIER_ID);
+    const rows = await rolePermissionRepo.listByAtelier(_req.auth?.atelierId || LEGACY_ATELIER_ID);
     res.json(rows);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -400,7 +647,7 @@ router.put("/auth/role-permissions/:role", requirePermission(PERMISSIONS.GERER_U
       return res.status(400).json({ error: "Le role proprietaire doit conserver la permission GERER_UTILISATEURS" });
     }
     const row = await rolePermissionRepo.save({
-      atelierId: req.auth?.atelierId || "ATELIER",
+      atelierId: req.auth?.atelierId || LEGACY_ATELIER_ID,
       role,
       permissions: normalizedPermissions,
       updatedBy: req.auth.utilisateurId
@@ -433,7 +680,7 @@ router.get("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), asy
   try {
     const rows = await gererUtilisateurs({
       utilisateurRepo,
-      input: { action: "list", atelierId: _req.auth?.atelierId || "ATELIER" }
+      input: { action: "list", atelierId: _req.auth?.atelierId || LEGACY_ATELIER_ID }
     });
     res.json(
       rows.map((u) => ({
@@ -441,7 +688,7 @@ router.get("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), asy
         nom: u.nom,
         email: u.email,
         roleId: u.roleId,
-        atelierId: u.atelierId || "ATELIER",
+        atelierId: u.atelierId || LEGACY_ATELIER_ID,
         actif: u.actif !== false,
         etatCompte: normalizeAccountState(u.etatCompte || (u.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
         tokenVersion: Number(u.tokenVersion || 1)
@@ -472,7 +719,7 @@ router.post("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), as
       input: {
         action: "create",
         ...parsed.data,
-        atelierId: req.auth?.atelierId || "ATELIER",
+        atelierId: req.auth?.atelierId || LEGACY_ATELIER_ID,
         actif: etatCompte !== ACCOUNT_STATES.DISABLED
       }
     });
@@ -495,7 +742,7 @@ router.post("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), as
       nom: user.nom,
       email: user.email,
       roleId: user.roleId,
-      atelierId: user.atelierId || "ATELIER",
+      atelierId: user.atelierId || LEGACY_ATELIER_ID,
       actif: user.actif !== false,
       etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
       tokenVersion: Number(user.tokenVersion || 1)
@@ -517,7 +764,7 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
       .passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-    const current = await utilisateurRepo.getByIdAndAtelier(req.params.id, req.auth?.atelierId || "ATELIER");
+    const current = await utilisateurRepo.getByIdAndAtelier(req.params.id, req.auth?.atelierId || LEGACY_ATELIER_ID);
     if (!current) return res.status(404).json({ error: "Utilisateur introuvable" });
     const isSelfUpdate = String(req.auth?.utilisateurId || "") === String(req.params.id || "");
     if (isSelfUpdate && parsed.data.roleId && String(parsed.data.roleId).toUpperCase() !== ROLES.PROPRIETAIRE) {
@@ -539,7 +786,7 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
     const wasActiveOwner = currentRole === ROLES.PROPRIETAIRE && currentState === ACCOUNT_STATES.ACTIVE;
     const remainsActiveOwner = nextRole === ROLES.PROPRIETAIRE && nextState === ACCOUNT_STATES.ACTIVE;
     if (wasActiveOwner && !remainsActiveOwner) {
-      const activeOwners = await utilisateurRepo.countActiveOwners(req.auth?.atelierId || "ATELIER");
+      const activeOwners = await utilisateurRepo.countActiveOwners(req.auth?.atelierId || LEGACY_ATELIER_ID);
       if (activeOwners <= 1) {
         return res.status(400).json({ error: "Operation refusee: dernier proprietaire actif" });
       }
@@ -581,7 +828,7 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
       nom: user.nom,
       email: user.email,
       roleId: user.roleId,
-      atelierId: user.atelierId || "ATELIER",
+      atelierId: user.atelierId || LEGACY_ATELIER_ID,
       actif: user.actif !== false,
       etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
       tokenVersion: Number(user.tokenVersion || 1)
@@ -610,12 +857,12 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
       return res.status(400).json({ error: "Vous ne pouvez pas desactiver votre propre compte" });
     }
 
-    const current = await utilisateurRepo.getByIdAndAtelier(req.params.id, req.auth?.atelierId || "ATELIER");
+    const current = await utilisateurRepo.getByIdAndAtelier(req.params.id, req.auth?.atelierId || LEGACY_ATELIER_ID);
     if (!current) return res.status(404).json({ error: "Utilisateur introuvable" });
     const currentState = normalizeAccountState(current.etatCompte || (current.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
     const isActiveOwner = String(current.roleId || "").toUpperCase() === ROLES.PROPRIETAIRE && currentState === ACCOUNT_STATES.ACTIVE;
     if (isActiveOwner && parsed.data.actif === false) {
-      const activeOwners = await utilisateurRepo.countActiveOwners(req.auth?.atelierId || "ATELIER");
+      const activeOwners = await utilisateurRepo.countActiveOwners(req.auth?.atelierId || LEGACY_ATELIER_ID);
       if (activeOwners <= 1) {
         return res.status(400).json({ error: "Operation refusee: dernier proprietaire actif" });
       }
@@ -645,7 +892,7 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
       nom: user.nom,
       email: user.email,
       roleId: user.roleId,
-      atelierId: user.atelierId || "ATELIER",
+      atelierId: user.atelierId || LEGACY_ATELIER_ID,
       actif: user.actif !== false,
       etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
       tokenVersion: Number(user.tokenVersion || 1)

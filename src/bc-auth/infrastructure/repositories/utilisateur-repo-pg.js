@@ -106,6 +106,21 @@ export class UtilisateurRepoPg {
     return mapRow(result.rows[0] || null);
   }
 
+  async findByEmailInAtelier(email, atelierId = "ATELIER") {
+    const value = String(email || "").trim().toLowerCase();
+    const atelierValue = String(atelierId || "ATELIER");
+    await ensureSchema();
+    const result = await pool.query(
+      `SELECT id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+       FROM utilisateurs
+       WHERE LOWER(email) = $1
+         AND atelier_id = $2
+       LIMIT 1`,
+      [value, atelierValue]
+    );
+    return mapRow(result.rows[0] || null);
+  }
+
   async getById(id) {
     const value = String(id || "");
     await ensureSchema();

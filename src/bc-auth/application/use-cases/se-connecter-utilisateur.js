@@ -6,22 +6,26 @@ import { PERMISSIONS } from "../../domain/permissions.js";
 // Constant-time fallback to reduce user-enumeration via timing on login.
 const DUMMY_PASSWORD_HASH =
   "scrypt:7d7f5823cb8ef4d39f4fdc8ed3305f91:09ec950f0d4af9769d1f9acb6549e44f8b5c90cc1f9fca1f7df5f4a9d9b141ef";
+const LEGACY_ATELIER_ID = "ATELIER";
 
-export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRepo, authSessionRepo, email, motDePasse }) {
-  const user = await utilisateurRepo.findByEmail(email);
+export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRepo, authSessionRepo, email, motDePasse, atelierId = null }) {
+  const user =
+    atelierId && typeof utilisateurRepo.findByEmailInAtelier === "function"
+      ? await utilisateurRepo.findByEmailInAtelier(email, atelierId)
+      : await utilisateurRepo.findByEmail(email);
   const passwordHash = user?.motDePasseHash || DUMMY_PASSWORD_HASH;
   const passwordValid = verifyPassword(motDePasse, passwordHash);
   if (!user || !passwordValid) throw new Error("Identifiants invalides");
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
   if (etatCompte !== ACCOUNT_STATES.ACTIVE) throw new Error("Compte inactif: connexion refusee");
 
-  const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
+  const rolePerm = await rolePermissionRepo.get(user.atelierId || LEGACY_ATELIER_ID, user.roleId);
   const permissions = String(user.roleId || "").toUpperCase() === "PROPRIETAIRE" ? Object.values(PERMISSIONS) : rolePerm?.permissions || [];
   const token = signAccessToken({
     sub: user.id,
     email: user.email,
     role: user.roleId,
-    atelierId: user.atelierId || "ATELIER"
+    atelierId: user.atelierId || LEGACY_ATELIER_ID
   });
 
   const refreshToken = createOpaqueToken();
@@ -36,7 +40,7 @@ export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRe
       nom: user.nom,
       email: user.email,
       roleId: user.roleId,
-      atelierId: user.atelierId || "ATELIER",
+      atelierId: user.atelierId || LEGACY_ATELIER_ID,
       permissions
     }
   };
