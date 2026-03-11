@@ -1,7 +1,8 @@
 export const ROLES = {
   PROPRIETAIRE: "PROPRIETAIRE",
   CAISSIER: "CAISSIER",
-  COUTURIER: "COUTURIER"
+  COUTURIER: "COUTURIER",
+  MANAGER_SYSTEME: "MANAGER_SYSTEME"
 };
 
 export function normalizeRole(role) {

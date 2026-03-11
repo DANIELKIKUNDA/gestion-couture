@@ -1,6 +1,8 @@
 import { ACCOUNT_STATES, normalizeAccountState } from "../../../domain/account-state.js";
 import { logSecurityAudit } from "../security-audit.js";
 
+import { isSystemOnlyPermission } from "../../../domain/permissions.js";
+
 function normalizeRole(value) {
   return String(value || "").trim().toUpperCase();
 }
@@ -11,7 +13,7 @@ function isOwnerRole(auth) {
 
 export function hasPermission(auth, permission) {
   if (!permission) return true;
-  if (isOwnerRole(auth)) return true;
+  if (isOwnerRole(auth)) return !isSystemOnlyPermission(permission);
   const perms = Array.isArray(auth?.permissions) ? auth.permissions : [];
   return perms.map((p) => String(p || "").trim().toUpperCase()).includes(String(permission).trim().toUpperCase());
 }

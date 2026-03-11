@@ -7,6 +7,7 @@ import { validateSchema } from "../../../shared/interfaces/validation.js";
 import { ROLES } from "../../domain/roles.js";
 import { DEFAULT_ROLE_PERMISSIONS } from "../../domain/default-role-permissions.js";
 import { ACCOUNT_STATES, normalizeAccountState } from "../../domain/account-state.js";
+import { resolveGrantedPermissions } from "../../domain/granted-permissions.js";
 import { validatePasswordPolicy } from "../../domain/password-policy.js";
 import { Utilisateur } from "../../domain/utilisateur.js";
 import { hashPassword } from "../../infrastructure/security/password-hasher.js";
@@ -30,6 +31,7 @@ import { ensureEvenementAuditSchema } from "../../../shared/infrastructure/audit
 import { buildDefaultAtelierParametresPayload } from "../../../bc-parametres/domain/default-parametres.js";
 import { requireAuth } from "./middlewares/auth-guard.js";
 import { requirePermission } from "./middlewares/require-permission.js";
+import { requireSystemManager } from "./middlewares/require-system-manager.js";
 import { PERMISSIONS } from "../../domain/permissions.js";
 import { logSecurityAudit } from "./security-audit.js";
 
@@ -43,6 +45,8 @@ const atelierRepo = new AtelierRepoPg();
 
 const LEGACY_ATELIER_ID = "ATELIER";
 const LEGACY_ATELIER_SLUG = "atelier-historique";
+const SYSTEM_ATELIER_ID = "SYSTEME";
+const SYSTEM_ATELIER_SLUG = "systeme-interne";
 
 const REFRESH_COOKIE = process.env.AUTH_REFRESH_COOKIE_NAME || "atelier_refresh_token";
 const IS_PROD = String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
@@ -101,6 +105,15 @@ function isValidAtelierSlug(slug) {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(slug || ""));
 }
 
+function isReservedAtelierSlug(slug) {
+  const normalized = normalizeAtelierSlug(slug);
+  return normalized === LEGACY_ATELIER_SLUG || normalized === SYSTEM_ATELIER_SLUG;
+}
+
+function isSystemAtelier(atelier) {
+  return String(atelier?.idAtelier || "").trim().toUpperCase() === SYSTEM_ATELIER_ID;
+}
+
 function generateAtelierId() {
   return `ATL-${randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`;
 }
@@ -129,6 +142,16 @@ function summarizeAtelier(atelier) {
   };
 }
 
+function defaultRolePermissionEntriesForAtelier(atelierId = LEGACY_ATELIER_ID) {
+  const normalizedAtelierId = String(atelierId || LEGACY_ATELIER_ID).trim().toUpperCase();
+  return Object.entries(DEFAULT_ROLE_PERMISSIONS).filter(([role]) => {
+    if (normalizedAtelierId === SYSTEM_ATELIER_ID) {
+      return role === ROLES.MANAGER_SYSTEME;
+    }
+    return role !== ROLES.MANAGER_SYSTEME;
+  });
+}
+
 async function ensureLegacyAtelier() {
   const existing = await atelierRepo.getById(LEGACY_ATELIER_ID);
   if (existing) return existing;
@@ -136,6 +159,17 @@ async function ensureLegacyAtelier() {
     idAtelier: LEGACY_ATELIER_ID,
     nom: "Atelier historique",
     slug: LEGACY_ATELIER_SLUG,
+    actif: true
+  });
+}
+
+async function ensureSystemAtelier() {
+  const existing = await atelierRepo.getById(SYSTEM_ATELIER_ID);
+  if (existing) return existing;
+  return atelierRepo.save({
+    idAtelier: SYSTEM_ATELIER_ID,
+    nom: "Administration systeme",
+    slug: SYSTEM_ATELIER_SLUG,
     actif: true
   });
 }
@@ -169,7 +203,7 @@ async function resolveRequestedAtelier(req, { payload = null, allowDefault = tru
 }
 
 async function insertDefaultRolePermissionsForAtelier(dbClient, atelierId, updatedBy = "system") {
-  for (const [role, permissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+  for (const [role, permissions] of defaultRolePermissionEntriesForAtelier(atelierId)) {
     const normalizedPermissions = Array.from(new Set((permissions || []).map((item) => String(item || "").trim().toUpperCase()).filter(Boolean)));
     for (const permission of normalizedPermissions) {
       await dbClient.query(
@@ -200,7 +234,7 @@ async function insertDefaultAtelierParametres(dbClient, atelierId, nomAtelier, u
 async function ensureRolePermissions() {
   const existing = await rolePermissionRepo.listByAtelier(LEGACY_ATELIER_ID);
   if (existing.length > 0) return;
-  for (const [role, permissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+  for (const [role, permissions] of defaultRolePermissionEntriesForAtelier(LEGACY_ATELIER_ID)) {
     await rolePermissionRepo.save({ atelierId: LEGACY_ATELIER_ID, role, permissions, updatedBy: "system" });
   }
 }
@@ -208,15 +242,44 @@ async function ensureRolePermissions() {
 async function ensureRolePermissionsForAtelier(atelierId = LEGACY_ATELIER_ID) {
   const existing = await rolePermissionRepo.listByAtelier(atelierId);
   if (existing.length > 0) return;
-  for (const [role, permissions] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+  for (const [role, permissions] of defaultRolePermissionEntriesForAtelier(atelierId)) {
     await rolePermissionRepo.save({ atelierId, role, permissions, updatedBy: "system" });
   }
 }
 
+async function ensureSystemRolePermissions() {
+  await ensureSystemAtelier();
+  const existing = await rolePermissionRepo.get(SYSTEM_ATELIER_ID, ROLES.MANAGER_SYSTEME);
+  if (existing?.permissions?.length) return existing;
+  return rolePermissionRepo.save({
+    atelierId: SYSTEM_ATELIER_ID,
+    role: ROLES.MANAGER_SYSTEME,
+    permissions: [PERMISSIONS.GERER_ATELIERS],
+    updatedBy: "system"
+  });
+}
+
+async function hasAnySystemManager() {
+  await ensureSystemRolePermissions();
+  const rows = await utilisateurRepo.listByAtelier(SYSTEM_ATELIER_ID);
+  return rows.some((row) => String(row.roleId || "").trim().toUpperCase() === ROLES.MANAGER_SYSTEME);
+}
+
+function assertTenantAtelier(atelier) {
+  if (!isSystemAtelier(atelier)) return;
+  const err = new Error("Atelier reserve");
+  err.code = "ATELIER_RESERVED";
+  throw err;
+}
+
 async function withPermissions(user) {
-  await ensureRolePermissionsForAtelier(user.atelierId || LEGACY_ATELIER_ID);
+  if (String(user.roleId || "").trim().toUpperCase() === ROLES.MANAGER_SYSTEME) {
+    await ensureSystemRolePermissions();
+  } else {
+    await ensureRolePermissionsForAtelier(user.atelierId || LEGACY_ATELIER_ID);
+  }
   const rolePerm = await rolePermissionRepo.get(user.atelierId || LEGACY_ATELIER_ID, user.roleId);
-  const permissions = String(user.roleId || "").toUpperCase() === ROLES.PROPRIETAIRE ? Object.values(PERMISSIONS) : rolePerm?.permissions || [];
+  const permissions = resolveGrantedPermissions(user.roleId, rolePerm?.permissions || []);
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
   return {
     id: user.id,
@@ -229,6 +292,84 @@ async function withPermissions(user) {
     tokenVersion: Number(user.tokenVersion || 1),
     permissions
   };
+}
+
+async function createAtelierWithOwner({ nomAtelier, slug, ownerNom, ownerEmail, ownerPassword, createdBy = "system" }) {
+  const atelierNom = String(nomAtelier || "").trim();
+  const atelierSlug = normalizeAtelierSlug(slug);
+  const proprietaireNom = String(ownerNom || "").trim();
+  const proprietaireEmail = String(ownerEmail || "").trim().toLowerCase();
+  const proprietairePassword = String(ownerPassword || "");
+
+  if (!isValidAtelierSlug(atelierSlug)) {
+    throw new Error("Slug atelier invalide");
+  }
+  if (isReservedAtelierSlug(atelierSlug)) {
+    throw new Error("Slug atelier reserve");
+  }
+
+  await rolePermissionRepo.listByAtelier(LEGACY_ATELIER_ID);
+
+  const existingAtelier = await atelierRepo.getBySlug(atelierSlug);
+  if (existingAtelier) {
+    const err = new Error("Slug atelier deja utilise");
+    err.code = "ATELIER_CONFLICT";
+    throw err;
+  }
+
+  const existingUser = await utilisateurRepo.findByEmail(proprietaireEmail);
+  if (existingUser) {
+    const err = new Error("Email deja utilise");
+    err.code = "EMAIL_CONFLICT";
+    throw err;
+  }
+
+  validatePasswordPolicy(proprietairePassword);
+
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query("BEGIN");
+
+    const scopedAtelierRepo = new AtelierRepoPg(dbClient);
+    const atelier = await scopedAtelierRepo.save({
+      idAtelier: generateAtelierId(),
+      nom: atelierNom,
+      slug: atelierSlug,
+      actif: true
+    });
+
+    const ownerId = randomUUID();
+    const ownerHash = hashPassword(proprietairePassword);
+    await dbClient.query(
+      `INSERT INTO utilisateurs (id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash, date_mise_a_jour)
+       VALUES ($1, $2, $3, $4, $5, true, $6, 1, $7, NOW())`,
+      [ownerId, proprietaireNom, proprietaireEmail, ROLES.PROPRIETAIRE, atelier.idAtelier, ACCOUNT_STATES.ACTIVE, ownerHash]
+    );
+
+    await insertDefaultRolePermissionsForAtelier(dbClient, atelier.idAtelier, createdBy || ownerId);
+    await insertDefaultAtelierParametres(dbClient, atelier.idAtelier, atelier.nom, createdBy || ownerId);
+
+    await dbClient.query("COMMIT");
+
+    return {
+      atelier,
+      proprietaire: {
+        id: ownerId,
+        nom: proprietaireNom,
+        email: proprietaireEmail,
+        roleId: ROLES.PROPRIETAIRE,
+        atelierId: atelier.idAtelier,
+        actif: true,
+        etatCompte: ACCOUNT_STATES.ACTIVE,
+        tokenVersion: 1
+      }
+    };
+  } catch (err) {
+    await dbClient.query("ROLLBACK");
+    throw err;
+  } finally {
+    dbClient.release();
+  }
 }
 
 function summarizeUser(user) {
@@ -317,79 +458,21 @@ router.post("/ateliers", async (req, res) => {
   const parsed = validateSchema(schema, req.body || {});
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
-  const nomAtelier = String(parsed.data.nomAtelier || "").trim();
-  const slug = normalizeAtelierSlug(parsed.data.slug);
-  const ownerNom = String(parsed.data.proprietaire?.nom || "").trim();
-  const ownerEmail = String(parsed.data.proprietaire?.email || "").trim().toLowerCase();
-  const ownerPassword = String(parsed.data.proprietaire?.motDePasse || "");
-
-  if (!isValidAtelierSlug(slug)) {
-    return res.status(400).json({ error: "Slug atelier invalide" });
-  }
-
   try {
-    await rolePermissionRepo.listByAtelier(LEGACY_ATELIER_ID);
-
-    const existingAtelier = await atelierRepo.getBySlug(slug);
-    if (existingAtelier) {
-      return res.status(409).json({ error: "Slug atelier deja utilise" });
-    }
-
-    const existingUser = await utilisateurRepo.findByEmail(ownerEmail);
-    if (existingUser) {
-      return res.status(409).json({ error: "Email deja utilise" });
-    }
-
-    validatePasswordPolicy(ownerPassword);
-
-    const dbClient = await pool.connect();
-    try {
-      await dbClient.query("BEGIN");
-
-      const scopedAtelierRepo = new AtelierRepoPg(dbClient);
-      const atelier = await scopedAtelierRepo.save({
-        idAtelier: generateAtelierId(),
-        nom: nomAtelier,
-        slug,
-        actif: true
-      });
-
-      const ownerId = randomUUID();
-      const ownerHash = hashPassword(ownerPassword);
-      await dbClient.query(
-        `INSERT INTO utilisateurs (id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash, date_mise_a_jour)
-         VALUES ($1, $2, $3, $4, $5, true, $6, 1, $7, NOW())`,
-        [ownerId, ownerNom, ownerEmail, ROLES.PROPRIETAIRE, atelier.idAtelier, ACCOUNT_STATES.ACTIVE, ownerHash]
-      );
-
-      await insertDefaultRolePermissionsForAtelier(dbClient, atelier.idAtelier, ownerId);
-      await insertDefaultAtelierParametres(dbClient, atelier.idAtelier, atelier.nom, ownerId);
-
-      await dbClient.query("COMMIT");
-
-      return res.status(201).json({
-        atelier: summarizeAtelier(atelier),
-        proprietaire: {
-          id: ownerId,
-          nom: ownerNom,
-          email: ownerEmail,
-          roleId: ROLES.PROPRIETAIRE,
-          atelierId: atelier.idAtelier,
-          actif: true,
-          etatCompte: ACCOUNT_STATES.ACTIVE,
-          tokenVersion: 1
-        }
-      });
-    } catch (err) {
-      await dbClient.query("ROLLBACK");
-      if (err?.code === "23505") {
-        return res.status(409).json({ error: "Atelier deja existant" });
-      }
-      throw err;
-    } finally {
-      dbClient.release();
-    }
+    const out = await createAtelierWithOwner({
+      nomAtelier: parsed.data.nomAtelier,
+      slug: parsed.data.slug,
+      ownerNom: parsed.data.proprietaire?.nom,
+      ownerEmail: parsed.data.proprietaire?.email,
+      ownerPassword: parsed.data.proprietaire?.motDePasse
+    });
+    return res.status(201).json({
+      atelier: summarizeAtelier(out.atelier),
+      proprietaire: out.proprietaire
+    });
   } catch (err) {
+    if (err?.code === "ATELIER_CONFLICT") return res.status(409).json({ error: err.message });
+    if (err?.code === "EMAIL_CONFLICT") return res.status(409).json({ error: err.message });
     return res.status(400).json({ error: err.message });
   }
 });
@@ -404,6 +487,109 @@ router.get("/ateliers/current", requireAuth, async (req, res) => {
   }
 });
 
+router.get("/system/bootstrap-manager/status", async (_req, res) => {
+  try {
+    const initialized = await hasAnySystemManager();
+    res.json({ initialized });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/system/bootstrap-manager", async (req, res) => {
+  try {
+    const schema = z.object({ nom: z.string().min(1), email: z.string().email(), motDePasse: z.string().min(8) }).passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    await ensureSystemRolePermissions();
+    if (await hasAnySystemManager()) {
+      return res.status(409).json({ error: "Manager systeme deja initialise" });
+    }
+
+    const email = String(parsed.data.email || "").trim().toLowerCase();
+    const existingUser = await utilisateurRepo.findByEmail(email);
+    if (existingUser) {
+      return res.status(409).json({ error: "Email deja utilise" });
+    }
+
+    validatePasswordPolicy(parsed.data.motDePasse);
+    const user = new Utilisateur({
+      id: randomUUID(),
+      nom: parsed.data.nom,
+      email,
+      roleId: ROLES.MANAGER_SYSTEME,
+      actif: true,
+      motDePasseHash: hashPassword(parsed.data.motDePasse),
+      atelierId: SYSTEM_ATELIER_ID
+    });
+    await utilisateurRepo.save(user);
+    res.status(201).json({ utilisateur: await withPermissions(user) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/system/ateliers", requireSystemManager, async (_req, res) => {
+  try {
+    const rows = await atelierRepo.listAll();
+    res.json(rows.filter((row) => !isSystemAtelier(row)).map(summarizeAtelier));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/system/ateliers", requireSystemManager, async (req, res) => {
+  const schema = z
+    .object({
+      nomAtelier: z.string().min(1),
+      slug: z.string().min(2).max(64),
+      proprietaire: z.object({
+        nom: z.string().min(1),
+        email: z.string().email(),
+        motDePasse: z.string().min(8)
+      })
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+  try {
+    const out = await createAtelierWithOwner({
+      nomAtelier: parsed.data.nomAtelier,
+      slug: parsed.data.slug,
+      ownerNom: parsed.data.proprietaire?.nom,
+      ownerEmail: parsed.data.proprietaire?.email,
+      ownerPassword: parsed.data.proprietaire?.motDePasse,
+      createdBy: req.auth?.utilisateurId || "system"
+    });
+    res.status(201).json({
+      atelier: summarizeAtelier(out.atelier),
+      proprietaire: out.proprietaire
+    });
+  } catch (err) {
+    if (err?.code === "ATELIER_CONFLICT") return res.status(409).json({ error: err.message });
+    if (err?.code === "EMAIL_CONFLICT") return res.status(409).json({ error: err.message });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch("/system/ateliers/:id/activation", requireSystemManager, async (req, res) => {
+  try {
+    const schema = z.object({ actif: z.boolean() }).passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    if (String(req.params.id || "").trim().toUpperCase() === SYSTEM_ATELIER_ID) {
+      return res.status(400).json({ error: "Atelier reserve" });
+    }
+    const updated = await atelierRepo.setActive(req.params.id, parsed.data.actif);
+    if (!updated) return res.status(404).json({ error: "Atelier introuvable" });
+    res.json(summarizeAtelier(updated));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post("/auth/bootstrap-owner", async (req, res) => {
   try {
     const schema = z.object({ nom: z.string().min(1), email: z.string().email(), motDePasse: z.string().min(8), atelierSlug: z.string().optional() }).passthrough();
@@ -411,6 +597,7 @@ router.post("/auth/bootstrap-owner", async (req, res) => {
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
     const atelier = await resolveRequestedAtelier(req, { payload: parsed.data, allowDefault: true, requireExisting: true, requireActive: true });
+    assertTenantAtelier(atelier);
     if (await utilisateurRepo.hasAnyOwner(atelier.idAtelier)) {
       return res.status(409).json({ error: "Proprietaire deja initialise" });
     }
@@ -435,6 +622,7 @@ router.post("/auth/bootstrap-owner", async (req, res) => {
     );
     res.status(201).json({ utilisateur: await withPermissions(user) });
   } catch (err) {
+    if (err?.code === "ATELIER_RESERVED") return res.status(403).json({ error: err.message });
     if (err?.code === "ATELIER_NOT_FOUND") return res.status(404).json({ error: err.message });
     if (err?.code === "ATELIER_INACTIVE") return res.status(403).json({ error: err.message });
     res.status(400).json({ error: err.message });
@@ -446,7 +634,7 @@ router.get("/auth/bootstrap-owner/status", async (req, res) => {
     const slug = extractAtelierSlug(req);
     if (slug) {
       const atelier = await atelierRepo.getBySlug(slug);
-      if (!atelier) {
+      if (!atelier || isSystemAtelier(atelier)) {
         return res.json({ initialized: false, atelierExists: false, atelier: null });
       }
       const initialized = await utilisateurRepo.hasAnyOwner(atelier.idAtelier);
@@ -488,7 +676,11 @@ router.post("/auth/login", loginRateLimit, async (req, res) => {
       throw new Error("Identifiants invalides");
     }
 
-    await ensureRolePermissionsForAtelier(requestedAtelier?.idAtelier || loginUser?.atelierId || LEGACY_ATELIER_ID);
+    if (String(loginUser?.roleId || "").trim().toUpperCase() === ROLES.MANAGER_SYSTEME) {
+      await ensureSystemRolePermissions();
+    } else {
+      await ensureRolePermissionsForAtelier(requestedAtelier?.idAtelier || loginUser?.atelierId || LEGACY_ATELIER_ID);
+    }
     const out = await seConnecterUtilisateur({
       utilisateurRepo,
       rolePermissionRepo,

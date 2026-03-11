@@ -22,5 +22,20 @@ export const PERMISSIONS = {
   LIVRER_COMMANDE: "LIVRER_COMMANDE",
   TERMINER_COMMANDE: "TERMINER_COMMANDE",
   MODIFIER_PARAMETRES: "MODIFIER_PARAMETRES",
-  GERER_UTILISATEURS: "GERER_UTILISATEURS"
+  GERER_UTILISATEURS: "GERER_UTILISATEURS",
+  GERER_ATELIERS: "GERER_ATELIERS"
 };
+
+const SYSTEM_ONLY_PERMISSIONS = new Set([PERMISSIONS.GERER_ATELIERS]);
+
+export function isSystemOnlyPermission(permission) {
+  return SYSTEM_ONLY_PERMISSIONS.has(String(permission || "").trim().toUpperCase());
+}
+
+export function listTenantPermissions() {
+  return Object.values(PERMISSIONS).filter((permission) => !SYSTEM_ONLY_PERMISSIONS.has(permission));
+}
+
+export function listSystemPermissions() {
+  return [PERMISSIONS.GERER_ATELIERS];
+}

@@ -1,13 +1,16 @@
 import { ACCOUNT_STATES, normalizeAccountState } from "../../../domain/account-state.js";
-import { PERMISSIONS } from "../../../domain/permissions.js";
+import { resolveGrantedPermissions } from "../../../domain/granted-permissions.js";
 import { UtilisateurRepoPg } from "../../../infrastructure/repositories/utilisateur-repo-pg.js";
 import { RolePermissionAtelierRepoPg } from "../../../infrastructure/repositories/role-permission-atelier-repo-pg.js";
 import { AccessTokenRevocationRepoPg } from "../../../infrastructure/repositories/access-token-revocation-repo-pg.js";
+import { AtelierRepoPg } from "../../../../shared/infrastructure/repositories/atelier-repo-pg.js";
 import { logSecurityAudit } from "../security-audit.js";
 
 const utilisateurRepo = new UtilisateurRepoPg();
 const rolePermissionRepo = new RolePermissionAtelierRepoPg();
 const revocationRepo = new AccessTokenRevocationRepoPg();
+const atelierRepo = new AtelierRepoPg();
+const SYSTEM_ATELIER_ID = "SYSTEME";
 
 function parseBearer(req) {
   const auth = String(req.headers?.authorization || "");
@@ -72,6 +75,21 @@ export async function securityPolicy(req, res, next) {
 
   req.isReadOnly = false;
 
+  if (String(user.atelierId || "").trim().toUpperCase() !== SYSTEM_ATELIER_ID) {
+    const atelier = await atelierRepo.getById(user.atelierId || "ATELIER");
+    if (atelier && atelier.actif === false) {
+      await logSecurityAudit({
+        utilisateurId: user.id,
+        role: user.roleId,
+        action: "ATELIER_INACTIF_REFUS",
+        entite: req.path,
+        succes: false,
+        raison: `atelier_${String(user.atelierId || "").trim().toUpperCase()}_inactif`
+      });
+      return authError(res, "Atelier inactif");
+    }
+  }
+
   const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
   req.auth = {
     ...req.auth,
@@ -80,7 +98,7 @@ export async function securityPolicy(req, res, next) {
     roleId: user.roleId,
     atelierId: user.atelierId || "ATELIER",
     etatCompte,
-    permissions: normalizeRole(user.roleId) === "PROPRIETAIRE" ? Object.values(PERMISSIONS) : rolePerm?.permissions || []
+    permissions: resolveGrantedPermissions(user.roleId, rolePerm?.permissions || [])
   };
 
   next();

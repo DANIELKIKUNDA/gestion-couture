@@ -1,8 +1,8 @@
-﻿import { PERMISSIONS } from "./permissions.js";
+import { PERMISSIONS, listSystemPermissions, listTenantPermissions } from "./permissions.js";
 import { ROLES } from "./roles.js";
 
 export const DEFAULT_ROLE_PERMISSIONS = {
-  [ROLES.PROPRIETAIRE]: Object.values(PERMISSIONS),
+  [ROLES.PROPRIETAIRE]: listTenantPermissions(),
   [ROLES.COUTURIER]: [
     PERMISSIONS.VOIR_COMMANDES,
     PERMISSIONS.VOIR_RETOUCHES,
@@ -22,5 +22,6 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     PERMISSIONS.ENREGISTRER_SORTIE_CAISSE,
     PERMISSIONS.ANNULER_OPERATION_CAISSE,
     PERMISSIONS.CLOTURER_CAISSE
-  ]
+  ],
+  [ROLES.MANAGER_SYSTEME]: listSystemPermissions()
 };

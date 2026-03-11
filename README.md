@@ -76,6 +76,8 @@ See `docs/http-examples.md`.
 - `POST /api/ateliers` cree un atelier avec son proprietaire initial.
 - `GET /api/auth/bootstrap-owner/status`, `POST /api/auth/bootstrap-owner` et `POST /api/auth/login` acceptent `atelierSlug` dans le body, la query string, ou le header `X-Atelier-Slug`.
 - `GET /api/ateliers/current` retourne l'atelier associe au token courant.
+- `GET /api/system/bootstrap-manager/status` et `POST /api/system/bootstrap-manager` permettent d'initialiser le premier `MANAGER_SYSTEME`.
+- `GET /api/system/ateliers`, `POST /api/system/ateliers` et `PATCH /api/system/ateliers/:id/activation` sont reserves au `MANAGER_SYSTEME`.
 
 ## API Docs (OpenAPI)
 OpenAPI JSON is available at:
