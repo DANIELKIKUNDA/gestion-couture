@@ -275,9 +275,9 @@ async function run() {
   };
 
   await pool.query(
-    `INSERT INTO atelier_parametres (id, payload, version, updated_at, updated_by)
-     VALUES (1, $1, $2, NOW(), $3)
-     ON CONFLICT (id) DO NOTHING`,
+    `INSERT INTO atelier_parametres (id, atelier_id, payload, version, updated_at, updated_by)
+     VALUES (COALESCE((SELECT MAX(ap.id) + 1 FROM atelier_parametres ap), 1), 'ATELIER', $1, $2, NOW(), $3)
+     ON CONFLICT (atelier_id) DO NOTHING`,
     [parametresPayload, 1, "seed"]
   );
 

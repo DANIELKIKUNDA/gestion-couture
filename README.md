@@ -25,6 +25,12 @@ Edit `.env` if needed.
 npm run initdb
 ```
 
+If you already have an existing database from before the multi-tenant rollout, apply migrations once:
+
+```bash
+npm run migrate
+```
+
 4. (Optional) Seed demo data
 
 ```bash
@@ -88,6 +94,12 @@ Integration smoke test:
 
 ```bash
 npm run test:integration
+```
+
+Multi-tenant integration checks:
+
+```bash
+npm run test:integration:multi-tenant
 ```
 
 Read-only integration tests (skip if DB is unreachable):

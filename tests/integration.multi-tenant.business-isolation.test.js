@@ -79,6 +79,8 @@ async function ensureExistingAteliersReferenced() {
 
 async function seedBusinessDataset({ atelierId, suffix }) {
   const now = new Date();
+  const invoiceDiscriminator = String(suffix).toUpperCase().endsWith("B") ? "2" : "1";
+  const invoiceSequence = (String(suffix).replace(/\D/g, "") || String(Date.now())) + invoiceDiscriminator;
   const clientId = `CLI-${suffix}`;
   const commandeId = `CMD-${suffix}`;
   const retoucheId = `RET-${suffix}`;
@@ -149,7 +151,7 @@ async function seedBusinessDataset({ atelierId, suffix }) {
     [
       factureId,
       atelierId,
-      `FAC-${suffix}`,
+      `FAC-${now.getUTCFullYear()}-${invoiceSequence}`,
       venteId,
       JSON.stringify({ nom: `Nom ${suffix} Prenom ${suffix}`, contact: `+243${suffix.slice(-6)}` }),
       now,

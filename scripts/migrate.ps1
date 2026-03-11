@@ -46,5 +46,6 @@ if (-not (Test-Path $migrationsPath)) {
 $files = Get-ChildItem -Path $migrationsPath -Filter *.sql | Sort-Object Name
 foreach ($file in $files) {
   Write-Host "Applying migration: $($file.Name)"
-  psql -h $DbHost -p $DbPort -U $DbUser -d $DbName -f $file.FullName
+  psql -v ON_ERROR_STOP=1 -h $DbHost -p $DbPort -U $DbUser -d $DbName -f $file.FullName
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }

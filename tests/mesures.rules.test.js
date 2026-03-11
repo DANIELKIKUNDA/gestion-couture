@@ -26,7 +26,7 @@ function run() {
         typeHabit: "PANTALON",
         mesuresHabit: {}
       }),
-    "mesure manquante"
+    "mesure manquante: longueur"
   );
 
   assertThrows(
@@ -39,7 +39,7 @@ function run() {
         typeHabit: "PANTALON",
         mesuresHabit: { longueur: 105 }
       }),
-    "mesure manquante"
+    "mesure manquante: tourtaille"
   );
 
   assertThrows(
@@ -72,7 +72,7 @@ function run() {
         typeHabit: "ROBE",
         mesuresHabit: {}
       }),
-    "au moins une mesure"
+    "mesure obligatoire: longueur"
   );
 
   const retouche = deposerRetouche({

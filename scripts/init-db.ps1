@@ -39,4 +39,5 @@ if (-not (Get-Command psql -ErrorAction SilentlyContinue)) {
 $env:PGPASSWORD = $DbPassword
 
 # Apply schema files
-psql -h $DbHost -p $DbPort -U $DbUser -d $DbName -f (Join-Path $PSScriptRoot '..\schema_all.sql')
+psql -v ON_ERROR_STOP=1 -h $DbHost -p $DbPort -U $DbUser -d $DbName -f (Join-Path $PSScriptRoot '..\schema_all.sql')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

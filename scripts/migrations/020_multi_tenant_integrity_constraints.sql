@@ -49,6 +49,47 @@ ON vente_lignes (atelier_id, id_vente);
 CREATE INDEX IF NOT EXISTS idx_vente_lignes_atelier_article
 ON vente_lignes (atelier_id, id_article);
 
+INSERT INTO clients (id_client, atelier_id, nom, prenom, telephone, adresse, sexe, actif, date_creation)
+SELECT
+  missing.id_client,
+  missing.atelier_id,
+  'Client migration',
+  'Placeholder',
+  CONCAT('MIG-', missing.atelier_id, '-', missing.id_client),
+  NULL,
+  NULL,
+  true,
+  NOW()
+FROM (
+  SELECT DISTINCT s.atelier_id, s.id_client
+  FROM series_mesures s
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM clients c
+    WHERE c.atelier_id = s.atelier_id
+      AND c.id_client = s.id_client
+  )
+  UNION
+  SELECT DISTINCT c.atelier_id, c.id_client
+  FROM commandes c
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM clients cl
+    WHERE cl.atelier_id = c.atelier_id
+      AND cl.id_client = c.id_client
+  )
+  UNION
+  SELECT DISTINCT r.atelier_id, r.id_client
+  FROM retouches r
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM clients cl
+    WHERE cl.atelier_id = r.atelier_id
+      AND cl.id_client = r.id_client
+  )
+) AS missing
+ON CONFLICT (id_client) DO NOTHING;
+
 DO $$
 BEGIN
   IF NOT EXISTS (
