@@ -5,6 +5,7 @@ const auditRepo = new EvenementAuditRepoPg();
 export async function logSecurityAudit({
   utilisateurId = null,
   role = null,
+  atelierId = null,
   action,
   entite = null,
   entiteId = null,
@@ -16,6 +17,7 @@ export async function logSecurityAudit({
     await auditRepo.save({
       utilisateurId,
       role,
+      atelierId,
       action: String(action || "SECURITY_ACTION"),
       date: new Date().toISOString(),
       entite,

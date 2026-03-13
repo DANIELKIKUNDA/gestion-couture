@@ -5,6 +5,10 @@ const CAISSE_MODE_PAIEMENT = import.meta.env.VITE_CAISSE_MODE_PAIEMENT || "CASH"
 
 function assignIfPresent(target, key, value) {
   if (value !== null && value !== undefined && value !== "") {
+    if (target && typeof target.set === "function") {
+      target.set(key, value);
+      return;
+    }
     target[key] = value;
   }
 }
@@ -184,6 +188,8 @@ async function requestWithRetry(path, options = {}) {
     path === "/auth/refresh" ||
     path === "/auth/bootstrap-owner/status" ||
     path === "/auth/bootstrap-owner" ||
+    path === "/system/bootstrap-manager/status" ||
+    path === "/system/bootstrap-manager" ||
     path === "/auth/password/forgot" ||
     path === "/auth/password/reset";
   const execute = async (tokenOverride = "") => {
@@ -253,10 +259,12 @@ async function resolveCaisseJourId(preferredId = "") {
 }
 
 export const atelierApi = {
-  async login({ email, motDePasse }) {
+  async login({ email, motDePasse, atelierSlug = "" }) {
+    const payload = { email, motDePasse };
+    assignIfPresent(payload, "atelierSlug", atelierSlug);
     const response = await request("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, motDePasse })
+      body: JSON.stringify(payload)
     });
     if (response?.token) {
       setAccessToken(response.token, { markMutation: true });
@@ -332,16 +340,110 @@ export const atelierApi = {
     });
   },
 
-  bootstrapOwner({ nom, email, motDePasse }) {
+  bootstrapOwner({ nom, email, motDePasse, atelierSlug = "" }) {
+    const payload = { nom, email, motDePasse };
+    assignIfPresent(payload, "atelierSlug", atelierSlug);
     return request("/auth/bootstrap-owner", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+
+  async getOwnerBootstrapStatus({ atelierSlug = "" } = {}) {
+    const query = new URLSearchParams();
+    assignIfPresent(
+      {
+        set(key, value) {
+          query.set(key, value);
+        }
+      },
+      "atelierSlug",
+      atelierSlug
+    );
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request(`/auth/bootstrap-owner/status${suffix}`, { method: "GET" });
+  },
+
+  async hasOwnerBootstrapDone({ atelierSlug = "" } = {}) {
+    const payload = await this.getOwnerBootstrapStatus({ atelierSlug });
+    return payload?.initialized === true;
+  },
+
+  getSystemBootstrapStatus() {
+    return request("/system/bootstrap-manager/status", { method: "GET" });
+  },
+
+  bootstrapSystemManager({ nom, email, motDePasse }) {
+    return request("/system/bootstrap-manager", {
       method: "POST",
       body: JSON.stringify({ nom, email, motDePasse })
     });
   },
 
-  async hasOwnerBootstrapDone() {
-    const payload = await request("/auth/bootstrap-owner/status", { method: "GET" });
-    return payload?.initialized === true;
+  listSystemAteliers({ search = "", status = "", sortBy = "", sortDir = "", page = null, pageSize = null } = {}) {
+    const query = new URLSearchParams();
+    assignIfPresent(
+      {
+        set(key, value) {
+          query.set(key, value);
+        }
+      },
+      "search",
+      String(search || "").trim()
+    );
+    assignIfPresent(
+      {
+        set(key, value) {
+          query.set(key, value);
+        }
+      },
+      "status",
+      String(status || "").trim()
+    );
+    assignIfPresent(
+      {
+        set(key, value) {
+          query.set(key, value);
+        }
+      },
+      "sortBy",
+      String(sortBy || "").trim()
+    );
+    assignIfPresent(
+      {
+        set(key, value) {
+          query.set(key, value);
+        }
+      },
+      "sortDir",
+      String(sortDir || "").trim()
+    );
+    if (page !== null && page !== undefined && page !== "") {
+      query.set("page", String(page));
+    }
+    if (pageSize !== null && pageSize !== undefined && pageSize !== "") {
+      query.set("pageSize", String(pageSize));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request(`/system/ateliers${suffix}`, { method: "GET" });
+  },
+
+  createSystemAtelier(input) {
+    return request("/system/ateliers", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  },
+
+  getSystemAtelierDetail(idAtelier) {
+    return request(`/system/ateliers/${encodeURIComponent(idAtelier)}`, { method: "GET" });
+  },
+
+  setSystemAtelierActivation(idAtelier, actif) {
+    return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/activation`, {
+      method: "PATCH",
+      body: JSON.stringify({ actif: actif !== false })
+    });
   },
 
   listRolePermissions() {

@@ -1,6 +1,10 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { atelierApi, ApiError, setAuthLostHandler } from "./services/api.js";
+import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
+import SystemAtelierDetailPage from "./components/system/SystemAtelierDetailPage.vue";
+import SystemAteliersPage from "./components/system/SystemAteliersPage.vue";
+import { getPasswordPolicyError } from "./utils/password-policy.js";
 
 function createPagination(pageSize = 10) {
   return reactive({
@@ -28,7 +32,11 @@ function createClientSidePager(rowsComputed, pagination) {
   return { pages, paged };
 }
 
+const AUTH_PORTAL_STORAGE_KEY = "atelier.auth.portal.v1";
+const AUTH_ATELIER_SLUG_STORAGE_KEY = "atelier.auth.slug.v1";
+
 const currentRoute = ref("dashboard");
+const contentScrollRef = ref(null);
 const toast = ref("");
 const loading = ref(false);
 const errorMessage = ref("");
@@ -36,6 +44,9 @@ const authReady = ref(false);
 const authenticating = ref(false);
 const authError = ref("");
 const authMode = ref("checking");
+const authPortal = ref(typeof window !== "undefined" && window.localStorage.getItem(AUTH_PORTAL_STORAGE_KEY) === "system" ? "system" : "atelier");
+const authAtelierSlug = ref(typeof window !== "undefined" ? window.localStorage.getItem(AUTH_ATELIER_SLUG_STORAGE_KEY) || "" : "");
+const authAtelierContext = ref(null);
 const forbiddenMessage = ref("Acces refuse: permissions insuffisantes.");
 const loginForm = reactive({
   email: "",
@@ -45,6 +56,40 @@ const showPassword = ref(false);
 const authUser = ref(null);
 const authPermissions = ref([]);
 const bootstrapInitializing = ref(false);
+let authModeDetectionTimer = null;
+let systemAteliersSearchTimer = null;
+
+const systemAteliers = ref([]);
+const systemAteliersLoading = ref(false);
+const systemAteliersError = ref("");
+const systemAteliersSearch = ref("");
+const systemAteliersStatus = ref("ALL");
+const systemAteliersSort = ref("createdAt_desc");
+const systemAteliersTotal = ref(0);
+const systemAteliersSummary = reactive({
+  total: 0,
+  actifs: 0,
+  inactifs: 0,
+  utilisateurs: 0
+});
+const systemAteliersPagination = createPagination(10);
+const systemAtelierActionId = ref("");
+const systemAtelierDetailId = ref("");
+const systemAtelierDetail = ref(null);
+const systemAtelierDetailLoading = ref(false);
+const systemAtelierDetailError = ref("");
+const systemAtelierDetailRequestId = ref(0);
+const systemAtelierModal = reactive({
+  open: false,
+  submitting: false,
+  error: "",
+  nomAtelier: "",
+  slug: "",
+  slugTouched: false,
+  proprietaireNom: "",
+  proprietaireEmail: "",
+  proprietaireMotDePasse: ""
+});
 
 const clients = ref([]);
 const commandes = ref([]);
@@ -788,6 +833,11 @@ function closeSettingsConfirmModal(confirmed) {
 async function loadAtelierSettings() {
   loadAtelierSettingsLocal();
   captureSettingsSnapshot();
+  if (currentRole.value === "MANAGER_SYSTEME") {
+    settingsLoading.value = false;
+    settingsError.value = "";
+    return;
+  }
   try {
     settingsLoading.value = true;
     settingsError.value = "";
@@ -813,6 +863,39 @@ async function loadAtelierSettings() {
 function persistAtelierSettings() {
   const payload = cloneSettings(atelierSettings);
   window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
+}
+
+function normalizeAtelierSlugInput(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 64);
+}
+
+function persistAuthPortal() {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(AUTH_PORTAL_STORAGE_KEY, authPortal.value);
+}
+
+function persistAuthAtelierSlug() {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(AUTH_ATELIER_SLUG_STORAGE_KEY, authAtelierSlug.value);
+}
+
+function resetSystemAtelierModal() {
+  systemAtelierModal.open = false;
+  systemAtelierModal.submitting = false;
+  systemAtelierModal.error = "";
+  systemAtelierModal.nomAtelier = "";
+  systemAtelierModal.slug = "";
+  systemAtelierModal.slugTouched = false;
+  systemAtelierModal.proprietaireNom = "";
+  systemAtelierModal.proprietaireEmail = "";
+  systemAtelierModal.proprietaireMotDePasse = "";
 }
 
 const settingsRoleAllowed = computed(() => hasPermission(PERMISSIONS.MODIFIER_PARAMETRES));
@@ -848,6 +931,21 @@ const atelierNomAffichage = computed(() => {
   const value = String(atelierSettings.identite?.nomAtelier || "").trim();
   return value || "Atelier de Couture";
 });
+const isSystemManager = computed(() => currentRole.value === "MANAGER_SYSTEME");
+const authPortalLabel = computed(() => (authPortal.value === "system" ? "Administration systeme" : "Connexion atelier"));
+const authCardTitle = computed(() => {
+  if (authPortal.value === "system") return "Administration systeme";
+  const nomAtelier = String(authAtelierContext.value?.nom || "").trim();
+  return nomAtelier || "Connexion atelier";
+});
+const authCardSubtitle = computed(() => {
+  if (authPortal.value === "system") return "Console multi-tenant securisee";
+  if (authAtelierContext.value?.slug) return `Slug actif: ${authAtelierContext.value.slug}`;
+  return "Connexion securisee a votre atelier";
+});
+const workspaceName = computed(() => (isSystemManager.value ? "Administration systeme" : atelierNomAffichage.value));
+const workspaceSubtitle = computed(() => (isSystemManager.value ? "Console multi-tenant" : "Gestion metier"));
+const workspaceLogoText = computed(() => (isSystemManager.value || authPortal.value === "system" ? "MS" : "AT"));
 const atelierDevise = computed(() => {
   const value = String(atelierSettings.identite?.devise || "").trim().toUpperCase();
   return value || "FC";
@@ -2020,7 +2118,8 @@ const PERMISSIONS = {
   LIVRER_COMMANDE: "LIVRER_COMMANDE",
   TERMINER_COMMANDE: "TERMINER_COMMANDE",
   MODIFIER_PARAMETRES: "MODIFIER_PARAMETRES",
-  GERER_UTILISATEURS: "GERER_UTILISATEURS"
+  GERER_UTILISATEURS: "GERER_UTILISATEURS",
+  GERER_ATELIERS: "GERER_ATELIERS"
 };
 
 function normalizeSessionPayload(payload) {
@@ -2030,13 +2129,16 @@ function normalizeSessionPayload(payload) {
 const isAuthenticated = computed(() => Boolean(authUser.value));
 const currentRole = computed(() => String(authUser.value?.roleId || "").toUpperCase());
 const atelierNomConnexion = computed(() => {
-  return atelierNomAffichage.value;
+  return authCardTitle.value;
 });
 
 function hasPermission(permission) {
   if (!permission) return true;
   if (!isAuthenticated.value) return false;
-  if (currentRole.value === "PROPRIETAIRE") return true;
+  if (currentRole.value === "MANAGER_SYSTEME") {
+    return authPermissions.value.includes(permission);
+  }
+  if (currentRole.value === "PROPRIETAIRE") return permission !== PERMISSIONS.GERER_ATELIERS;
   return authPermissions.value.includes(permission);
 }
 
@@ -2090,6 +2192,7 @@ const canReadVentes = computed(() =>
 );
 
 function hasModuleAccessPermissions(moduleId) {
+  if (moduleId === "systemAteliers") return hasPermission(PERMISSIONS.GERER_ATELIERS);
   if (moduleId === "dashboard") return true;
   if (moduleId === "commandes") {
     return canReadCommandes.value || canCreateCommande.value;
@@ -2131,6 +2234,7 @@ function hasModuleAccessPermissions(moduleId) {
 
 function canAccessAuditPath(path = "/audit") {
   if (!isAuthenticated.value) return false;
+  if (currentRole.value === "MANAGER_SYSTEME") return false;
   if (currentRole.value === "PROPRIETAIRE") return true;
   if (path === "/audit" || path === "/audit/stock-ventes") {
     return hasAnyPermission([PERMISSIONS.VOIR_BILANS_GLOBAUX, PERMISSIONS.VOIR_AUDIT_STOCK]);
@@ -2140,7 +2244,10 @@ function canAccessAuditPath(path = "/audit") {
 
 function canAccessModule(moduleId) {
   if (!isAuthenticated.value) return false;
-  if (currentRole.value === "PROPRIETAIRE") return true;
+  if (currentRole.value === "MANAGER_SYSTEME") {
+    return moduleId === "systemAteliers" && hasPermission(PERMISSIONS.GERER_ATELIERS);
+  }
+  if (currentRole.value === "PROPRIETAIRE") return moduleId !== "systemAteliers";
   return hasModuleAccessPermissions(moduleId);
 }
 
@@ -2148,11 +2255,12 @@ function canAccessRoute(routeId) {
   if (routeId === "commande-detail" || routeId === "retouche-detail") return canAccessModule("commandes");
   if (routeId === "vente-detail") return canAccessModule("stockVentes");
   if (routeId === "facture-detail") return canAccessModule("facturation");
+  if (routeId === "systemAtelierDetail") return canAccessModule("systemAteliers");
   if (routeId === "forbidden") return true;
   return canAccessModule(routeId);
 }
 
-const menuItems = [
+const atelierMenuItems = [
   { id: "dashboard", label: "Tableau de Bord", icon: "dashboard" },
   { id: "commandes", label: "Commandes", icon: "clipboard" },
   { id: "retouches", label: "Retouches", icon: "scissors" },
@@ -2164,11 +2272,13 @@ const menuItems = [
   { id: "audit", label: "Historique & Audit", icon: "history" }
 ];
 
-const visibleMenuItems = computed(() => menuItems.filter((item) => canAccessModule(item.id)));
+const systemMenuItems = [{ id: "systemAteliers", label: "Ateliers", icon: "users" }];
+const menuItems = computed(() => (isSystemManager.value ? systemMenuItems : atelierMenuItems));
+const visibleMenuItems = computed(() => menuItems.value.filter((item) => canAccessModule(item.id)));
 
 function resolveAccessibleRoute(preferredRoute = "dashboard") {
   if (canAccessRoute(preferredRoute)) return preferredRoute;
-  return visibleMenuItems.value[0]?.id || "dashboard";
+  return visibleMenuItems.value[0]?.id || (isSystemManager.value ? "systemAteliers" : "dashboard");
 }
 
 const auditRoutes = [
@@ -2410,6 +2520,8 @@ const stockArticleMap = computed(() => {
 });
 
 const currentTitle = computed(() => {
+  if (currentRoute.value === "systemAteliers") return "Ateliers";
+  if (currentRoute.value === "systemAtelierDetail") return "Detail Atelier";
   if (currentRoute.value === "commande-detail") return "Detail Commande";
   if (currentRoute.value === "retouche-detail") return "Detail Retouche";
   if (currentRoute.value === "vente-detail") return "Detail Vente";
@@ -2418,12 +2530,23 @@ const currentTitle = computed(() => {
   if (currentRoute.value === "audit") {
     return auditRoutes.find((item) => item.path === auditSubRoute.value)?.title || "Historique & Audit";
   }
-  return menuItems.find((item) => item.id === currentRoute.value)?.label || "Atelier";
+  return menuItems.value.find((item) => item.id === currentRoute.value)?.label || "Atelier";
 });
 
 const currentAuditRoute = computed(() => {
   return auditRoutes.find((item) => item.path === auditSubRoute.value) || auditRoutes[0];
 });
+
+const systemAteliersPages = computed(() => Math.max(1, Math.ceil(systemAteliersTotal.value / systemAteliersPagination.pageSize)));
+const systemAteliersFilteredCount = computed(() => Number(systemAteliersTotal.value || 0));
+const systemAteliersStats = computed(() => ({
+  total: Number(systemAteliersSummary.total || systemAteliers.value.length),
+  actifs: Number(systemAteliersSummary.actifs || systemAteliers.value.filter((atelier) => atelier.actif).length),
+  inactifs: Number(systemAteliersSummary.inactifs || systemAteliers.value.filter((atelier) => !atelier.actif).length),
+  utilisateurs: Number(
+    systemAteliersSummary.utilisateurs || systemAteliers.value.reduce((sum, atelier) => sum + Number(atelier.nombreUtilisateurs || 0), 0)
+  )
+}));
 
 const detailSoldeRestant = computed(() => soldeRestant(detailCommande.value));
 const canPayerDetail = computed(() => {
@@ -3242,6 +3365,19 @@ const selectedVente = computed(() =>
   ventesView.value.find((vente) => vente.idVente === selectedVenteId.value) || null
 );
 
+function scrollMainContentToTop(behavior = "auto") {
+  nextTick(() => {
+    const container = contentScrollRef.value;
+    if (container && typeof container.scrollTo === "function") {
+      container.scrollTo({ top: 0, behavior });
+      return;
+    }
+    if (typeof window !== "undefined" && typeof window.scrollTo === "function") {
+      window.scrollTo({ top: 0, behavior });
+    }
+  });
+}
+
 function normalizeAuditPath(pathname = "") {
   const clean = String(pathname || "").replace(/\/+$/, "") || "/";
   if (!clean.startsWith("/audit")) return "";
@@ -3272,6 +3408,13 @@ function navigateAudit(path, replace = false) {
 
 async function onBrowserNavigation() {
   if (!isAuthenticated.value) return;
+  if (isSystemManager.value) {
+    if (window.location.pathname.startsWith("/audit")) {
+      window.history.replaceState({}, "", "/");
+    }
+    currentRoute.value = resolveAccessibleRoute(currentRoute.value);
+    return;
+  }
   const canLeave = await canLeaveSettings();
   if (!canLeave) {
     window.history.pushState({}, "", "/");
@@ -3279,6 +3422,11 @@ async function onBrowserNavigation() {
   }
   const auditPath = normalizeAuditPath(window.location.pathname);
   if (!auditPath) return;
+  if (!canAccessAuditPath(auditPath)) {
+    currentRoute.value = resolveAccessibleRoute(currentRoute.value);
+    window.history.replaceState({}, "", "/");
+    return;
+  }
   currentRoute.value = "audit";
   auditSubRoute.value = auditPath;
   loadAuditPage(auditPath);
@@ -3303,6 +3451,7 @@ function applyAuthSession(session) {
     id: session.id || "",
     nom: session.nom || "",
     email: session.email || "",
+    atelierId: session.atelierId || "",
     roleId: String(session.roleId || session.roles?.[0] || "").toUpperCase()
   };
   authPermissions.value = Array.from(new Set((session.permissions || []).map((p) => String(p || "").toUpperCase())));
@@ -3340,10 +3489,38 @@ async function detectAuthMode() {
     authMode.value = "login";
     return;
   }
+  authError.value = "";
   authMode.value = "checking";
+  if (authPortal.value === "system") {
+    authAtelierContext.value = null;
+    try {
+      const payload = await atelierApi.getSystemBootstrapStatus();
+      authMode.value = payload?.initialized ? "login" : "system-bootstrap";
+    } catch {
+      authMode.value = "login";
+    }
+    return;
+  }
+
+  authAtelierSlug.value = normalizeAtelierSlugInput(authAtelierSlug.value);
+  persistAuthAtelierSlug();
+  if (!authAtelierSlug.value) {
+    authAtelierContext.value = null;
+    authMode.value = "slug-required";
+    return;
+  }
   try {
-    const ownerExists = await atelierApi.hasOwnerBootstrapDone();
-    authMode.value = ownerExists ? "login" : "bootstrap";
+    const status = await atelierApi.getOwnerBootstrapStatus({ atelierSlug: authAtelierSlug.value });
+    authAtelierContext.value = status?.atelier || null;
+    if (status?.atelierExists === false) {
+      authMode.value = "atelier-not-found";
+      return;
+    }
+    if (status?.atelier?.actif === false) {
+      authMode.value = "atelier-inactive";
+      return;
+    }
+    authMode.value = status?.initialized ? "login" : "bootstrap";
   } catch {
     authMode.value = "login";
   }
@@ -3351,12 +3528,18 @@ async function detectAuthMode() {
 
 async function submitLogin() {
   if (authenticating.value) return;
+  if (authPortal.value === "atelier" && !authAtelierSlug.value) {
+    authMode.value = "slug-required";
+    authError.value = "Renseigne d'abord le slug de l'atelier.";
+    return;
+  }
   authError.value = "";
   authenticating.value = true;
   try {
     await atelierApi.login({
       email: loginForm.email.trim(),
-      motDePasse: loginForm.motDePasse
+      motDePasse: loginForm.motDePasse,
+      atelierSlug: authPortal.value === "atelier" ? authAtelierSlug.value : ""
     });
     const session = normalizeSessionPayload(await atelierApi.me());
     applyAuthSession(session);
@@ -3364,7 +3547,7 @@ async function submitLogin() {
     loginForm.motDePasse = "";
     await loadAtelierSettings();
     await reloadAll();
-    if (!canAccessRoute(currentRoute.value)) currentRoute.value = "dashboard";
+    if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute(currentRoute.value);
   } catch (err) {
     applyAuthSession(null);
     authError.value = loginErrorMessage(err);
@@ -3389,6 +3572,11 @@ async function sendForgotPassword() {
 
 async function bootstrapAtelier() {
   if (bootstrapInitializing.value) return;
+  if (!authAtelierSlug.value) {
+    authMode.value = "slug-required";
+    authError.value = "Renseigne d'abord le slug de l'atelier.";
+    return;
+  }
   const payload = await openActionModal({
     title: "Initialiser l'atelier",
     message: "Creer le compte proprietaire initial.",
@@ -3400,6 +3588,11 @@ async function bootstrapAtelier() {
     ]
   });
   if (!payload) return;
+  const ownerPasswordError = getPasswordPolicyError(String(payload.motDePasse || ""));
+  if (ownerPasswordError) {
+    authError.value = ownerPasswordError;
+    return;
+  }
 
   bootstrapInitializing.value = true;
   authError.value = "";
@@ -3407,7 +3600,8 @@ async function bootstrapAtelier() {
     await atelierApi.bootstrapOwner({
       nom: String(payload.nom || "").trim(),
       email: String(payload.email || "").trim(),
-      motDePasse: String(payload.motDePasse || "")
+      motDePasse: String(payload.motDePasse || ""),
+      atelierSlug: authAtelierSlug.value
     });
     authMode.value = "login";
     loginForm.email = String(payload.email || "").trim();
@@ -3426,6 +3620,44 @@ async function bootstrapAtelier() {
   }
 }
 
+async function bootstrapSystemManager() {
+  if (bootstrapInitializing.value) return;
+  const payload = await openActionModal({
+    title: "Initialiser le manager systeme",
+    message: "Creer le compte global d'administration multi-tenant.",
+    confirmLabel: "Initialiser",
+    fields: [
+      { key: "nom", label: "Nom du manager", type: "text", required: true, defaultValue: "" },
+      { key: "email", label: "Email du manager", type: "email", required: true, defaultValue: "" },
+      { key: "motDePasse", label: "Mot de passe", type: "password", required: true, defaultValue: "" }
+    ]
+  });
+  if (!payload) return;
+  const managerPasswordError = getPasswordPolicyError(String(payload.motDePasse || ""));
+  if (managerPasswordError) {
+    authError.value = managerPasswordError;
+    return;
+  }
+
+  bootstrapInitializing.value = true;
+  authError.value = "";
+  try {
+    await atelierApi.bootstrapSystemManager({
+      nom: String(payload.nom || "").trim(),
+      email: String(payload.email || "").trim(),
+      motDePasse: String(payload.motDePasse || "")
+    });
+    authMode.value = "login";
+    loginForm.email = String(payload.email || "").trim();
+    loginForm.motDePasse = "";
+    authError.value = "Manager systeme initialise. Connecte-toi avec ce compte.";
+  } catch (err) {
+    authError.value = readableError(err);
+  } finally {
+    bootstrapInitializing.value = false;
+  }
+}
+
 async function submitLogout() {
   try {
     await atelierApi.logout();
@@ -3435,6 +3667,10 @@ async function submitLogout() {
   applyAuthSession(null);
   authError.value = "";
   currentRoute.value = "dashboard";
+  authAtelierContext.value = null;
+  systemAteliers.value = [];
+  closeSystemAtelierDetail();
+  await detectAuthMode();
 }
 
 onMounted(async () => {
@@ -3455,7 +3691,7 @@ onMounted(async () => {
   if (isAuthenticated.value) {
     await loadAtelierSettings();
     await reloadAll();
-    if (currentRoute.value === "audit") loadAuditPage(auditSubRoute.value);
+    if (currentRoute.value === "audit" && canAccessRoute("audit")) loadAuditPage(auditSubRoute.value);
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute();
   }
   authReady.value = true;
@@ -3465,7 +3701,31 @@ onUnmounted(() => {
   setAuthLostHandler(null);
   window.removeEventListener("popstate", onBrowserNavigation);
   window.removeEventListener("beforeunload", onBeforeUnload);
+  if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
+  clearSystemAteliersSearchDebounce();
 });
+
+function scheduleDetectAuthMode(delay = 240) {
+  if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
+  authModeDetectionTimer = window.setTimeout(() => {
+    authModeDetectionTimer = null;
+    void detectAuthMode();
+  }, delay);
+}
+
+function setAuthPortal(portal) {
+  const nextPortal = portal === "system" ? "system" : "atelier";
+  if (authPortal.value === nextPortal) return;
+  authPortal.value = nextPortal;
+  authError.value = "";
+  loginForm.motDePasse = "";
+  showPassword.value = false;
+  authAtelierContext.value = null;
+  persistAuthPortal();
+  if (!isAuthenticated.value && authReady.value) {
+    scheduleDetectAuthMode(0);
+  }
+}
 
 watch(
   () => [isAuthenticated.value, currentRole.value, authPermissions.value.join("|"), currentRoute.value],
@@ -3475,6 +3735,29 @@ watch(
     if (!canAccessRoute(currentRoute.value)) {
       currentRoute.value = resolveAccessibleRoute();
     }
+  }
+);
+
+watch(authPortal, () => {
+  persistAuthPortal();
+});
+
+watch(authAtelierSlug, (value) => {
+  const normalized = normalizeAtelierSlugInput(value);
+  if (normalized !== value) {
+    authAtelierSlug.value = normalized;
+    return;
+  }
+  persistAuthAtelierSlug();
+  if (authPortal.value !== "atelier" || isAuthenticated.value || !authReady.value) return;
+  scheduleDetectAuthMode();
+});
+
+watch(
+  () => systemAtelierModal.nomAtelier,
+  (value) => {
+    if (!systemAtelierModal.open || systemAtelierModal.slugTouched) return;
+    systemAtelierModal.slug = normalizeAtelierSlugInput(value);
   }
 );
 
@@ -3802,9 +4085,305 @@ async function openRoute(routeId) {
   if (routeId === "clientsMesures" && !selectedClientConsultationId.value && clients.value.length > 0) {
     selectedClientConsultationId.value = clients.value[0].idClient;
   }
+  if (currentRoute.value === "systemAtelierDetail" && routeId !== "systemAtelierDetail") {
+    closeSystemAtelierDetail();
+  }
   currentRoute.value = routeId;
   if (routeId === "clientsMesures" && selectedClientConsultationId.value) {
     loadClientConsultation(selectedClientConsultationId.value);
+  }
+}
+
+function canReloadSystemAteliers() {
+  return authReady.value && isAuthenticated.value && isSystemManager.value;
+}
+
+function clearSystemAteliersSearchDebounce() {
+  if (!systemAteliersSearchTimer) return;
+  window.clearTimeout(systemAteliersSearchTimer);
+  systemAteliersSearchTimer = null;
+}
+
+function resolveSystemAteliersSortOption(value = "createdAt_desc") {
+  const normalized = String(value || "").trim();
+  const allowed = new Set([
+    "createdAt_desc",
+    "createdAt_asc",
+    "nom_asc",
+    "nom_desc",
+    "slug_asc",
+    "slug_desc",
+    "utilisateurs_desc",
+    "utilisateurs_asc"
+  ]);
+  const safeValue = allowed.has(normalized) ? normalized : "createdAt_desc";
+  const [sortBy, sortDir] = safeValue.split("_");
+  return {
+    value: safeValue,
+    sortBy,
+    sortDir
+  };
+}
+
+async function loadSystemAteliers({ syncGlobalError = false, page = null, pageSize = null, scrollToTop = false } = {}) {
+  const requestedPage = Math.max(1, Number(page || systemAteliersPagination.page || 1));
+  const requestedPageSize = Math.max(1, Number(pageSize || systemAteliersPagination.pageSize || 10));
+  const sort = resolveSystemAteliersSortOption(systemAteliersSort.value);
+  clearSystemAteliersSearchDebounce();
+  systemAteliersLoading.value = true;
+  systemAteliersError.value = "";
+  try {
+    const payload = await atelierApi.listSystemAteliers({
+      search: systemAteliersSearch.value,
+      status: systemAteliersStatus.value,
+      sortBy: sort.sortBy,
+      sortDir: sort.sortDir,
+      page: requestedPage,
+      pageSize: requestedPageSize
+    });
+    const normalized = normalizeSystemAtelierListPayload(payload, {
+      page: requestedPage,
+      pageSize: requestedPageSize,
+      search: systemAteliersSearch.value,
+      status: systemAteliersStatus.value,
+      sortBy: sort.sortBy,
+      sortDir: sort.sortDir
+    });
+    systemAteliers.value = normalized.items;
+    systemAteliersTotal.value = normalized.pagination.total;
+    systemAteliersPagination.page = normalized.pagination.page;
+    systemAteliersPagination.pageSize = normalized.pagination.pageSize;
+    systemAteliersSummary.total = normalized.summary.total;
+    systemAteliersSummary.actifs = normalized.summary.actifs;
+    systemAteliersSummary.inactifs = normalized.summary.inactifs;
+    systemAteliersSummary.utilisateurs = normalized.summary.utilisateurs;
+    if (scrollToTop && currentRoute.value === "systemAteliers") {
+      scrollMainContentToTop("smooth");
+    }
+  } catch (err) {
+    systemAteliers.value = [];
+    systemAteliersTotal.value = 0;
+    systemAteliersSummary.total = 0;
+    systemAteliersSummary.actifs = 0;
+    systemAteliersSummary.inactifs = 0;
+    systemAteliersSummary.utilisateurs = 0;
+    systemAteliersError.value = readableError(err);
+    if (syncGlobalError) appendError(err);
+  } finally {
+    systemAteliersLoading.value = false;
+  }
+}
+
+function refreshSystemAteliersList() {
+  if (!canReloadSystemAteliers()) return;
+  void loadSystemAteliers({ scrollToTop: true });
+}
+
+function updateSystemAteliersSearch(value) {
+  systemAteliersSearch.value = String(value || "");
+  clearSystemAteliersSearchDebounce();
+  systemAteliersSearchTimer = window.setTimeout(() => {
+    systemAteliersSearchTimer = null;
+    if (!canReloadSystemAteliers()) return;
+    void loadSystemAteliers({ page: 1, scrollToTop: true });
+  }, 260);
+}
+
+function updateSystemAteliersPageSize(value) {
+  const nextPageSize = [10, 20, 50].includes(Number(value)) ? Number(value) : 10;
+  if (!canReloadSystemAteliers()) {
+    systemAteliersPagination.pageSize = nextPageSize;
+    systemAteliersPagination.page = 1;
+    return;
+  }
+  void loadSystemAteliers({ page: 1, pageSize: nextPageSize, scrollToTop: true });
+}
+
+function updateSystemAteliersStatus(value) {
+  systemAteliersStatus.value = ["ALL", "ACTIVE", "INACTIVE"].includes(String(value || "").trim().toUpperCase())
+    ? String(value || "").trim().toUpperCase()
+    : "ALL";
+  if (!canReloadSystemAteliers()) return;
+  void loadSystemAteliers({ page: 1, scrollToTop: true });
+}
+
+function updateSystemAteliersSort(value) {
+  systemAteliersSort.value = resolveSystemAteliersSortOption(value).value;
+  if (!canReloadSystemAteliers()) return;
+  void loadSystemAteliers({ page: 1, scrollToTop: true });
+}
+
+function goToPreviousSystemAteliersPage() {
+  if (systemAteliersLoading.value || systemAteliersPagination.page <= 1) return;
+  void loadSystemAteliers({ page: systemAteliersPagination.page - 1, scrollToTop: true });
+}
+
+function goToNextSystemAteliersPage() {
+  if (systemAteliersLoading.value || systemAteliersPagination.page >= systemAteliersPages.value) return;
+  void loadSystemAteliers({ page: systemAteliersPagination.page + 1, scrollToTop: true });
+}
+
+function closeSystemAtelierDetail() {
+  systemAtelierDetailRequestId.value += 1;
+  systemAtelierDetailId.value = "";
+  systemAtelierDetail.value = null;
+  systemAtelierDetailError.value = "";
+  systemAtelierDetailLoading.value = false;
+}
+
+async function loadSystemAtelierDetail(idAtelier, { syncGlobalError = false } = {}) {
+  const targetId = String(idAtelier || "").trim();
+  if (!targetId) {
+    closeSystemAtelierDetail();
+    return;
+  }
+  const requestId = systemAtelierDetailRequestId.value + 1;
+  systemAtelierDetailRequestId.value = requestId;
+  systemAtelierDetailId.value = targetId;
+  systemAtelierDetailLoading.value = true;
+  systemAtelierDetailError.value = "";
+  try {
+    const payload = await atelierApi.getSystemAtelierDetail(targetId);
+    if (systemAtelierDetailRequestId.value !== requestId) return;
+    systemAtelierDetail.value = normalizeSystemAtelierDetail(payload);
+  } catch (err) {
+    if (systemAtelierDetailRequestId.value !== requestId) return;
+    if (err instanceof ApiError && err.status === 404) {
+      const fallbackAtelier = systemAteliers.value.find((atelier) => String(atelier?.idAtelier || "").trim() === targetId);
+      if (fallbackAtelier) {
+        systemAtelierDetail.value = buildSystemAtelierDetailFallback(fallbackAtelier);
+        systemAtelierDetailError.value = "";
+        return;
+      }
+      closeSystemAtelierDetail();
+      if (currentRoute.value === "systemAtelierDetail") {
+        currentRoute.value = "systemAteliers";
+        scrollMainContentToTop();
+      }
+      systemAteliersError.value = `Le detail de l'atelier ${targetId} n'est plus disponible.`;
+      return;
+    }
+    systemAtelierDetail.value = null;
+    systemAtelierDetailError.value = readableError(err);
+    if (syncGlobalError) appendError(err);
+  } finally {
+    if (systemAtelierDetailRequestId.value !== requestId) return;
+    systemAtelierDetailLoading.value = false;
+  }
+}
+
+function refreshSystemAtelierDetail() {
+  if (!systemAtelierDetailId.value) return;
+  void loadSystemAtelierDetail(systemAtelierDetailId.value);
+}
+
+function openSystemAtelierDetail(atelier) {
+  const targetId = String(atelier?.idAtelier || atelier || "").trim();
+  if (!targetId) return;
+  currentRoute.value = "systemAtelierDetail";
+  scrollMainContentToTop();
+  if (systemAtelierDetailId.value === targetId && (systemAtelierDetail.value || systemAtelierDetailLoading.value)) return;
+  void loadSystemAtelierDetail(targetId);
+}
+
+function returnToSystemAteliers() {
+  closeSystemAtelierDetail();
+  currentRoute.value = "systemAteliers";
+  scrollMainContentToTop();
+}
+
+function openSystemAtelierModal() {
+  resetSystemAtelierModal();
+  systemAtelierModal.open = true;
+}
+
+function closeSystemAtelierModal() {
+  resetSystemAtelierModal();
+}
+
+async function submitSystemAtelierCreate() {
+  if (systemAtelierModal.submitting) return;
+  systemAtelierModal.error = "";
+  systemAtelierModal.nomAtelier = String(systemAtelierModal.nomAtelier || "").trim();
+  systemAtelierModal.slug = normalizeAtelierSlugInput(systemAtelierModal.slug);
+  systemAtelierModal.proprietaireNom = String(systemAtelierModal.proprietaireNom || "").trim();
+  systemAtelierModal.proprietaireEmail = String(systemAtelierModal.proprietaireEmail || "").trim();
+
+  if (!systemAtelierModal.nomAtelier) {
+    systemAtelierModal.error = "Le nom de l'atelier est obligatoire.";
+    return;
+  }
+  if (!systemAtelierModal.slug || systemAtelierModal.slug.length < 2) {
+    systemAtelierModal.error = "Le slug doit contenir au moins 2 caracteres.";
+    return;
+  }
+  if (!systemAtelierModal.proprietaireNom) {
+    systemAtelierModal.error = "Le nom du proprietaire est obligatoire.";
+    return;
+  }
+  if (!systemAtelierModal.proprietaireEmail) {
+    systemAtelierModal.error = "L'email du proprietaire est obligatoire.";
+    return;
+  }
+  const passwordError = getPasswordPolicyError(systemAtelierModal.proprietaireMotDePasse);
+  if (passwordError) {
+    systemAtelierModal.error = passwordError;
+    return;
+  }
+
+  systemAtelierModal.submitting = true;
+  try {
+    const created = await atelierApi.createSystemAtelier({
+      nomAtelier: systemAtelierModal.nomAtelier,
+      slug: systemAtelierModal.slug,
+      proprietaire: {
+        nom: systemAtelierModal.proprietaireNom,
+        email: systemAtelierModal.proprietaireEmail,
+        motDePasse: systemAtelierModal.proprietaireMotDePasse
+      }
+    });
+    closeSystemAtelierModal();
+    await loadSystemAteliers({ page: 1 });
+    const createdAtelierId = String(created?.atelier?.idAtelier || "");
+    if (createdAtelierId) {
+      openSystemAtelierDetail(createdAtelierId);
+    }
+    notify("Atelier cree avec succes.");
+  } catch (err) {
+    systemAtelierModal.error = readableError(err);
+  } finally {
+    systemAtelierModal.submitting = false;
+  }
+}
+
+async function toggleSystemAtelierActivation(atelier) {
+  const idAtelier = String(atelier?.idAtelier || "").trim();
+  if (!idAtelier || systemAtelierActionId.value) return;
+  const nextActif = atelier.actif !== true;
+  const confirmed = await openActionModal({
+    title: nextActif ? "Reactiver l'atelier" : "Desactiver l'atelier",
+    message: nextActif
+      ? `Voulez-vous reactiver ${atelier.nom} ?`
+      : `Voulez-vous desactiver ${atelier.nom} ? Les sessions actives de cet atelier seront coupees.`,
+    confirmLabel: nextActif ? "Reactiver" : "Desactiver",
+    cancelLabel: "Annuler",
+    tone: nextActif ? "green" : "red"
+  });
+  if (!confirmed) return;
+
+  systemAtelierActionId.value = idAtelier;
+  systemAteliersError.value = "";
+  try {
+    await atelierApi.setSystemAtelierActivation(idAtelier, nextActif);
+    await loadSystemAteliers();
+    if (systemAtelierDetailId.value === idAtelier) {
+      await loadSystemAtelierDetail(idAtelier);
+    }
+    notify(`Atelier ${nextActif ? "reactive" : "desactive"}: ${atelier.nom}.`);
+  } catch (err) {
+    systemAteliersError.value = readableError(err);
+  } finally {
+    systemAtelierActionId.value = "";
   }
 }
 
@@ -3815,6 +4394,22 @@ async function reloadAll() {
   retoucheActionsById.value = {};
   detailCommandeActions.value = null;
   detailRetoucheActions.value = null;
+
+  if (isSystemManager.value) {
+    clients.value = [];
+    commandes.value = [];
+    retouches.value = [];
+    stockArticles.value = [];
+    ventes.value = [];
+    factures.value = [];
+    caisseJour.value = null;
+    await loadSystemAteliers({ syncGlobalError: true });
+    if (currentRoute.value === "systemAtelierDetail" && systemAtelierDetailId.value) {
+      await loadSystemAtelierDetail(systemAtelierDetailId.value);
+    }
+    loading.value = false;
+    return;
+  }
 
   const shouldLoadClients = canReadClients.value;
   const shouldLoadCommandes = canReadCommandes.value;
@@ -4129,6 +4724,11 @@ function translateErrorMessage(message) {
       if (lower.includes("string must contain at least 1 character")) return "Ce champ est obligatoire.";
       if (lower.includes("invalid email")) return "Adresse email invalide.";
       if (lower.includes("string must contain at least 8 character")) return "Le mot de passe doit contenir au moins 8 caracteres.";
+      if (lower.includes("mot de passe trop court")) return "Le mot de passe doit contenir au moins 8 caracteres.";
+      if (lower.includes("majuscule requise")) return "Le mot de passe doit contenir au moins une majuscule.";
+      if (lower.includes("minuscule requise")) return "Le mot de passe doit contenir au moins une minuscule.";
+      if (lower.includes("un chiffre requis")) return "Le mot de passe doit contenir au moins un chiffre.";
+      if (lower.includes("caract")) return 'Le mot de passe doit contenir au moins un caractere special (!@#$%^&*(),.?":{}|<>).';
       if (lower.includes("caisse is closed")) return "Operation impossible: la caisse est cloturee.";
       if (lower.includes("la caisse est cloturee")) return "Operation impossible: la caisse est cloturee.";
       if (lower.includes("must be non-empty")) return "Ce champ ne doit pas etre vide.";
@@ -4162,6 +4762,198 @@ function loginErrorMessage(err) {
   if (lowered.includes("identifiants invalides")) return "Adresse email ou mot de passe incorrect.";
   if (lowered.includes("compte inactif")) return "Compte desactive ou suspendu. Contactez le proprietaire.";
   return message;
+}
+
+function normalizeSystemAtelier(raw) {
+  return {
+    idAtelier: raw?.idAtelier || raw?.id_atelier || "",
+    nom: String(raw?.nom || "").trim(),
+    slug: String(raw?.slug || "").trim(),
+    actif: raw?.actif !== false,
+    createdAt: raw?.createdAt || raw?.created_at || "",
+    updatedAt: raw?.updatedAt || raw?.updated_at || "",
+    proprietaire: raw?.proprietaire
+      ? {
+          id: raw.proprietaire.id || "",
+          nom: String(raw.proprietaire.nom || "").trim(),
+          email: String(raw.proprietaire.email || "").trim()
+        }
+      : null,
+    nombreUtilisateurs: Number(raw?.nombreUtilisateurs ?? raw?.nombre_utilisateurs ?? 0)
+  };
+}
+
+function normalizeSystemAtelierDetail(raw) {
+  return {
+    idAtelier: raw?.idAtelier || raw?.id_atelier || "",
+    nom: String(raw?.nom || "").trim(),
+    slug: String(raw?.slug || "").trim(),
+    actif: raw?.actif !== false,
+    createdAt: raw?.createdAt || raw?.created_at || "",
+    updatedAt: raw?.updatedAt || raw?.updated_at || "",
+    proprietaire: raw?.proprietaire
+      ? {
+          id: raw.proprietaire.id || "",
+          nom: String(raw.proprietaire.nom || "").trim(),
+          email: String(raw.proprietaire.email || "").trim(),
+          actif: raw.proprietaire.actif !== false,
+          etatCompte: String(raw.proprietaire.etatCompte || raw.proprietaire.etat_compte || "ACTIVE").trim().toUpperCase()
+        }
+      : null,
+    stats: {
+      totalUtilisateurs: Number(raw?.stats?.totalUtilisateurs ?? raw?.stats?.total_utilisateurs ?? 0),
+      utilisateursActifs: Number(raw?.stats?.utilisateursActifs ?? raw?.stats?.utilisateurs_actifs ?? 0),
+      utilisateursInactifs: Number(raw?.stats?.utilisateursInactifs ?? raw?.stats?.utilisateurs_inactifs ?? 0)
+    },
+    health: {
+      signal: String(raw?.health?.signal || "idle").trim().toLowerCase(),
+      message: String(raw?.health?.message || "").trim(),
+      lastEventAt: raw?.health?.lastEventAt || raw?.health?.last_event_at || "",
+      eventsLast7Days: Number(raw?.health?.eventsLast7Days ?? raw?.health?.events_last_7_days ?? 0),
+      eventsLast30Days: Number(raw?.health?.eventsLast30Days ?? raw?.health?.events_last_30_days ?? 0)
+    },
+    recentActivity: Array.isArray(raw?.recentActivity)
+      ? raw.recentActivity.map((item) => ({
+          idEvenement: item?.idEvenement || item?.id_evenement || "",
+          utilisateurId: item?.utilisateurId || item?.utilisateur_id || "",
+          utilisateurNom: String(item?.utilisateurNom || item?.utilisateur_nom || item?.payload?.utilisateurNom || "").trim(),
+          utilisateurEmail: String(item?.utilisateurEmail || item?.utilisateur_email || "").trim(),
+          role: String(item?.role || "").trim(),
+          action: String(item?.action || "").trim(),
+          entite: String(item?.entite || "").trim(),
+          entiteId: item?.entiteId || item?.entite_id || "",
+          payload: item?.payload && typeof item.payload === "object" ? item.payload : {},
+          dateEvenement: item?.dateEvenement || item?.date_evenement || ""
+        }))
+      : []
+  };
+}
+
+function matchesSystemAtelierSearch(atelier, rawSearch = "") {
+  const query = String(rawSearch || "").trim().toLowerCase();
+  if (!query) return true;
+  const haystack = [
+    atelier?.nom || "",
+    atelier?.slug || "",
+    atelier?.idAtelier || "",
+    atelier?.proprietaire?.nom || "",
+    atelier?.proprietaire?.email || ""
+  ]
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query);
+}
+
+function matchesSystemAtelierStatus(atelier, rawStatus = "ALL") {
+  const status = String(rawStatus || "ALL").trim().toUpperCase();
+  if (status === "ACTIVE") return atelier?.actif === true;
+  if (status === "INACTIVE") return atelier?.actif === false;
+  return true;
+}
+
+function compareSystemAteliers(left, right, sortBy = "createdAt", sortDir = "desc") {
+  const direction = String(sortDir || "desc").trim().toLowerCase() === "asc" ? 1 : -1;
+  const compareText = (a, b) => String(a || "").localeCompare(String(b || ""), "fr", { sensitivity: "base" });
+  const compareDate = (a, b) => String(a || "").localeCompare(String(b || ""));
+  const compareNumber = (a, b) => Number(a || 0) - Number(b || 0);
+
+  let value = 0;
+  if (sortBy === "nom") value = compareText(left?.nom, right?.nom);
+  else if (sortBy === "slug") value = compareText(left?.slug, right?.slug);
+  else if (sortBy === "utilisateurs") value = compareNumber(left?.nombreUtilisateurs, right?.nombreUtilisateurs);
+  else value = compareDate(left?.createdAt, right?.createdAt);
+
+  if (value !== 0) return value * direction;
+  return compareDate(right?.createdAt, left?.createdAt);
+}
+
+function buildSystemAtelierDetailFallback(raw) {
+  const atelier = normalizeSystemAtelier(raw);
+  const totalUtilisateurs = Number(atelier?.nombreUtilisateurs || 0);
+  return {
+    idAtelier: atelier.idAtelier,
+    nom: atelier.nom,
+    slug: atelier.slug,
+    actif: atelier.actif,
+    createdAt: atelier.createdAt,
+    updatedAt: atelier.updatedAt,
+    proprietaire: atelier.proprietaire
+      ? {
+          id: atelier.proprietaire.id || "",
+          nom: atelier.proprietaire.nom || "",
+          email: atelier.proprietaire.email || "",
+          actif: true,
+          etatCompte: "ACTIVE"
+        }
+      : null,
+    stats: {
+      totalUtilisateurs,
+      utilisateursActifs: atelier.actif ? totalUtilisateurs : 0,
+      utilisateursInactifs: atelier.actif ? 0 : totalUtilisateurs
+    },
+    health: {
+      signal: atelier.actif ? "idle" : "warning",
+      message: "Details avances indisponibles sur ce serveur. Affichage du resume atelier.",
+      lastEventAt: "",
+      eventsLast7Days: 0,
+      eventsLast30Days: 0
+    },
+    recentActivity: []
+  };
+}
+
+function summarizeSystemAteliers(rows) {
+  const items = Array.isArray(rows) ? rows : [];
+  return {
+    total: items.length,
+    actifs: items.filter((atelier) => atelier.actif).length,
+    inactifs: items.filter((atelier) => !atelier.actif).length,
+    utilisateurs: items.reduce((sum, atelier) => sum + Number(atelier.nombreUtilisateurs || 0), 0)
+  };
+}
+
+function normalizeSystemAtelierListPayload(payload, { page, pageSize, search = "", status = "ALL", sortBy = "createdAt", sortDir = "desc" } = {}) {
+  if (Array.isArray(payload)) {
+    const allItems = payload.map(normalizeSystemAtelier);
+    const filteredItems = allItems
+      .filter((atelier) => matchesSystemAtelierSearch(atelier, search))
+      .filter((atelier) => matchesSystemAtelierStatus(atelier, status))
+      .sort((left, right) => compareSystemAteliers(left, right, sortBy, sortDir));
+    const requestedPageSize = Math.max(1, Number(pageSize || 10));
+    const total = filteredItems.length;
+    const totalPages = Math.max(1, Math.ceil(total / requestedPageSize));
+    const currentPage = Math.min(Math.max(1, Number(page || 1)), totalPages);
+    const start = (currentPage - 1) * requestedPageSize;
+    const items = filteredItems.slice(start, start + requestedPageSize);
+    return {
+      items,
+      pagination: {
+        page: currentPage,
+        pageSize: requestedPageSize,
+        total,
+        totalPages
+      },
+      summary: summarizeSystemAteliers(allItems)
+    };
+  }
+
+  const items = (payload?.items || []).map(normalizeSystemAtelier);
+  const fallbackSummary = summarizeSystemAteliers(items);
+  return {
+    items,
+    pagination: {
+      page: Number(payload?.pagination?.page || page || 1),
+      pageSize: Number(payload?.pagination?.pageSize || pageSize || 10),
+      total: Number(payload?.pagination?.total || items.length),
+      totalPages: Number(payload?.pagination?.totalPages || Math.max(1, Math.ceil(items.length / Math.max(1, Number(pageSize || 10)))))
+    },
+    summary: {
+      total: Number(payload?.summary?.total || fallbackSummary.total),
+      actifs: Number(payload?.summary?.actifs || fallbackSummary.actifs),
+      inactifs: Number(payload?.summary?.inactifs || fallbackSummary.inactifs),
+      utilisateurs: Number(payload?.summary?.utilisateurs || fallbackSummary.utilisateurs)
+    }
+  };
 }
 
 function normalizeClient(raw) {
@@ -6138,8 +6930,8 @@ async function loadRetoucheDetail(idRetouche) {
     <article class="auth-card">
       <header class="auth-card-head">
         <div class="auth-logo">
-          <img v-if="atelierLogoUrl" :src="atelierLogoUrl" alt="Logo atelier" />
-          <span v-else>AT</span>
+          <img v-if="atelierLogoUrl && authPortal === 'atelier'" :src="atelierLogoUrl" alt="Logo atelier" />
+          <span v-else>{{ workspaceLogoText }}</span>
         </div>
         <h2>Chargement de la session...</h2>
       </header>
@@ -6150,20 +6942,58 @@ async function loadRetoucheDetail(idRetouche) {
     <article class="auth-card">
       <header class="auth-card-head">
         <div class="auth-logo">
-          <img v-if="atelierLogoUrl" :src="atelierLogoUrl" alt="Logo atelier" />
-          <span v-else>AT</span>
+          <img v-if="atelierLogoUrl && authPortal === 'atelier'" :src="atelierLogoUrl" alt="Logo atelier" />
+          <span v-else>{{ workspaceLogoText }}</span>
         </div>
         <h2>{{ atelierNomConnexion }}</h2>
-        <p>Connexion securisee</p>
+        <p>{{ authCardSubtitle }}</p>
       </header>
+      <div class="segmented auth-portal-switch" role="tablist" aria-label="Type de connexion">
+        <button class="mini-btn auth-portal-btn" :class="{ active: authPortal === 'atelier' }" type="button" @click="setAuthPortal('atelier')">
+          Atelier
+        </button>
+        <button class="mini-btn auth-portal-btn" :class="{ active: authPortal === 'system' }" type="button" @click="setAuthPortal('system')">
+          Administration systeme
+        </button>
+      </div>
+      <div v-if="authPortal === 'atelier'" class="auth-form auth-slug-form">
+        <label for="login-atelier-slug">Slug atelier</label>
+        <input
+          id="login-atelier-slug"
+          v-model.trim="authAtelierSlug"
+          type="text"
+          inputmode="text"
+          autocomplete="organization"
+          placeholder="ex: atelier-kintambo"
+        />
+        <p v-if="authAtelierContext?.nom" class="helper auth-helper">
+          Atelier detecte: <strong>{{ authAtelierContext.nom }}</strong>
+          <span v-if="authAtelierContext.slug"> · {{ authAtelierContext.slug }}</span>
+        </p>
+      </div>
       <p v-if="authError" class="auth-error">{{ authError }}</p>
       <div v-if="authMode === 'checking'" class="auth-message">
-        <p>Verification de la configuration de l'atelier...</p>
+        <p>{{ authPortal === 'system' ? "Verification de la console systeme..." : "Verification de la configuration de l'atelier..." }}</p>
+      </div>
+      <div v-else-if="authMode === 'slug-required'" class="auth-message">
+        <p>Renseigne le slug de l'atelier pour charger la bonne instance.</p>
+      </div>
+      <div v-else-if="authMode === 'atelier-not-found'" class="auth-message">
+        <p>Aucun atelier ne correspond a ce slug.</p>
+      </div>
+      <div v-else-if="authMode === 'atelier-inactive'" class="auth-message">
+        <p>Cet atelier est actuellement desactive. Contacte l'administration systeme.</p>
       </div>
       <div v-else-if="authMode === 'bootstrap'" class="auth-message">
         <p>Aucun compte proprietaire n'existe encore pour cet atelier.</p>
         <button class="action-btn blue auth-submit" type="button" :disabled="bootstrapInitializing" @click="bootstrapAtelier">
           {{ bootstrapInitializing ? "Initialisation..." : "Initialiser l'atelier" }}
+        </button>
+      </div>
+      <div v-else-if="authMode === 'system-bootstrap'" class="auth-message">
+        <p>Aucun manager systeme n'existe encore pour cette application.</p>
+        <button class="action-btn blue auth-submit" type="button" :disabled="bootstrapInitializing" @click="bootstrapSystemManager">
+          {{ bootstrapInitializing ? "Initialisation..." : "Initialiser le manager systeme" }}
         </button>
       </div>
       <form v-else class="auth-form" @submit.prevent="submitLogin">
@@ -6192,12 +7022,12 @@ async function loadRetoucheDetail(idRetouche) {
     <aside class="sidebar classic-sidebar">
       <div class="brand classic-brand">
         <div class="brand-mark">
-          <img v-if="atelierLogoUrl" :src="atelierLogoUrl" alt="Logo atelier" />
-          <span v-else>AT</span>
+          <img v-if="atelierLogoUrl && !isSystemManager" :src="atelierLogoUrl" alt="Logo atelier" />
+          <span v-else>{{ workspaceLogoText }}</span>
         </div>
         <div>
-          <h1>{{ atelierNomAffichage }}</h1>
-          <p>Gestion metier</p>
+          <h1>{{ workspaceName }}</h1>
+          <p>{{ workspaceSubtitle }}</p>
         </div>
       </div>
 
@@ -6207,7 +7037,7 @@ async function loadRetoucheDetail(idRetouche) {
           :key="item.id"
           href="#"
           class="menu-item"
-          :class="{ active: currentRoute === item.id }"
+          :class="{ active: currentRoute === item.id || (currentRoute === 'systemAtelierDetail' && item.id === 'systemAteliers') }"
           @click.prevent="openRoute(item.id)"
         >
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -6230,7 +7060,7 @@ async function loadRetoucheDetail(idRetouche) {
         <div>
           <p class="date-label">{{ todayLabel() }}</p>
           <h2>{{ currentTitle }}</h2>
-          <p class="date-label">{{ atelierNomAffichage }}</p>
+          <p class="date-label">{{ workspaceName }}</p>
         </div>
         <div class="topbar-actions">
           <button class="mini-btn" @click="reloadAll" :disabled="loading">Actualiser</button>
@@ -6238,11 +7068,52 @@ async function loadRetoucheDetail(idRetouche) {
         </div>
       </header>
 
-      <div class="content-scroll">
+      <div ref="contentScrollRef" class="content-scroll">
         <div v-if="errorMessage" class="panel error-panel">
           <strong>Erreur de synchronisation API</strong>
           <p>{{ errorMessage }}</p>
         </div>
+
+        <SystemAteliersPage
+          v-if="currentRoute === 'systemAteliers'"
+          :loading="systemAteliersLoading"
+          :error="systemAteliersError"
+          :search="systemAteliersSearch"
+          :status-filter="systemAteliersStatus"
+          :sort-option="systemAteliersSort"
+          :stats="systemAteliersStats"
+          :ateliers="systemAteliers"
+          :filtered-count="systemAteliersFilteredCount"
+          :action-id="systemAtelierActionId"
+          :selected-atelier-id="systemAtelierDetailId"
+          :page="systemAteliersPagination.page"
+          :pages="systemAteliersPages"
+          :page-size="systemAteliersPagination.pageSize"
+          :format-date-time="formatDateTime"
+          @refresh="refreshSystemAteliersList"
+          @open-create="openSystemAtelierModal"
+          @toggle-activation="toggleSystemAtelierActivation"
+          @open-detail="openSystemAtelierDetail"
+          @update-search="updateSystemAteliersSearch"
+          @update-status-filter="updateSystemAteliersStatus"
+          @update-sort-option="updateSystemAteliersSort"
+          @update-page-size="updateSystemAteliersPageSize"
+          @prev-page="goToPreviousSystemAteliersPage"
+          @next-page="goToNextSystemAteliersPage"
+        />
+
+        <SystemAtelierDetailPage
+          v-if="currentRoute === 'systemAtelierDetail'"
+          :selected-atelier-id="systemAtelierDetailId"
+          :detail="systemAtelierDetail"
+          :detail-loading="systemAtelierDetailLoading"
+          :detail-error="systemAtelierDetailError"
+          :action-id="systemAtelierActionId"
+          :format-date-time="formatDateTime"
+          @back="returnToSystemAteliers"
+          @refresh="refreshSystemAtelierDetail"
+          @toggle-activation="toggleSystemAtelierActivation"
+        />
 
         <section v-if="currentRoute === 'dashboard'" class="dashboard classic-dashboard">
         <article class="panel dashboard-filter">
@@ -9332,6 +10203,27 @@ async function loadRetoucheDetail(idRetouche) {
         </section>
       </div>
     </main>
+
+  <SystemAtelierCreateModal
+      :open="systemAtelierModal.open"
+      :submitting="systemAtelierModal.submitting"
+      :error="systemAtelierModal.error"
+      :nom-atelier="systemAtelierModal.nomAtelier"
+      :slug="systemAtelierModal.slug"
+      :proprietaire-nom="systemAtelierModal.proprietaireNom"
+      :proprietaire-email="systemAtelierModal.proprietaireEmail"
+      :proprietaire-mot-de-passe="systemAtelierModal.proprietaireMotDePasse"
+      @close="closeSystemAtelierModal"
+      @submit="submitSystemAtelierCreate"
+      @update-nom-atelier="systemAtelierModal.nomAtelier = $event"
+      @update-slug="
+        systemAtelierModal.slugTouched = true;
+        systemAtelierModal.slug = normalizeAtelierSlugInput($event);
+      "
+      @update-proprietaire-nom="systemAtelierModal.proprietaireNom = $event"
+      @update-proprietaire-email="systemAtelierModal.proprietaireEmail = $event"
+      @update-proprietaire-mot-de-passe="systemAtelierModal.proprietaireMotDePasse = $event"
+    />
 
   <div v-if="factureEmission.open" class="modal-backdrop" @click.self="closeFactureEmission">
       <div class="modal-card">

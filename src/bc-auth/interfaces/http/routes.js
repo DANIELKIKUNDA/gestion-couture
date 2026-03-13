@@ -142,6 +142,81 @@ function summarizeAtelier(atelier) {
   };
 }
 
+function mapSystemAtelierRow(row) {
+  return {
+    idAtelier: row.id_atelier,
+    nom: row.nom,
+    slug: row.slug,
+    actif: row.actif !== false,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+    proprietaire: row.proprietaire_id
+      ? {
+          id: row.proprietaire_id,
+          nom: row.proprietaire_nom || "",
+          email: row.proprietaire_email || ""
+        }
+      : null,
+    nombreUtilisateurs: Number(row.total_utilisateurs || 0)
+  };
+}
+
+function mapSystemAtelierDetailRow(row) {
+  if (!row) return null;
+  return {
+    idAtelier: row.id_atelier,
+    nom: row.nom,
+    slug: row.slug,
+    actif: row.actif !== false,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+    proprietaire: row.proprietaire_id
+      ? {
+          id: row.proprietaire_id,
+          nom: row.proprietaire_nom || "",
+          email: row.proprietaire_email || "",
+          actif: row.proprietaire_actif !== false,
+          etatCompte: normalizeAccountState(row.proprietaire_etat_compte || (row.proprietaire_actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE))
+        }
+      : null,
+    stats: {
+      totalUtilisateurs: Number(row.total_utilisateurs || 0),
+      utilisateursActifs: Number(row.utilisateurs_actifs || 0),
+      utilisateursInactifs: Number(row.utilisateurs_inactifs || 0)
+    },
+    health: {
+      signal: row.actif === false ? "warning" : "idle",
+      message: row.actif === false ? "Atelier inactif: acces bloque pour les utilisateurs atelier." : "Aucune activite auditee recente.",
+      lastEventAt: null,
+      eventsLast7Days: 0,
+      eventsLast30Days: 0
+    },
+    recentActivity: []
+  };
+}
+
+function mapAtelierActivityRow(row) {
+  return {
+    idEvenement: row.id_evenement,
+    utilisateurId: row.utilisateur_id || null,
+    utilisateurNom: row.utilisateur_nom || row.payload?.utilisateurNom || null,
+    utilisateurEmail: row.utilisateur_email || null,
+    role: row.role || null,
+    action: row.action || "",
+    entite: row.entite || "",
+    entiteId: row.entite_id || null,
+    payload: row.payload || {},
+    dateEvenement: row.date_evenement || null
+  };
+}
+
+const SYSTEM_ATELIER_SORT_MAP = {
+  createdAt: "a.created_at",
+  nom: "LOWER(a.nom)",
+  slug: "LOWER(a.slug)",
+  utilisateurs: "COALESCE(stats.total_utilisateurs, 0)"
+};
+
 function defaultRolePermissionEntriesForAtelier(atelierId = LEGACY_ATELIER_ID) {
   const normalizedAtelierId = String(atelierId || LEGACY_ATELIER_ID).trim().toUpperCase();
   return Object.entries(DEFAULT_ROLE_PERMISSIONS).filter(([role]) => {
@@ -530,10 +605,244 @@ router.post("/system/bootstrap-manager", async (req, res) => {
   }
 });
 
-router.get("/system/ateliers", requireSystemManager, async (_req, res) => {
+router.get("/system/ateliers", requireSystemManager, async (req, res) => {
   try {
-    const rows = await atelierRepo.listAll();
-    res.json(rows.filter((row) => !isSystemAtelier(row)).map(summarizeAtelier));
+    const schema = z
+      .object({
+        search: z.string().trim().max(120).optional(),
+        status: z.enum(["ALL", "ACTIVE", "INACTIVE"]).optional(),
+        sortBy: z.enum(["createdAt", "nom", "slug", "utilisateurs"]).optional(),
+        sortDir: z.enum(["asc", "desc"]).optional(),
+        page: z.coerce.number().int().min(1).optional(),
+        pageSize: z.coerce.number().int().min(1).max(100).optional()
+      })
+      .passthrough();
+    const parsed = validateSchema(schema, req.query || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const requestedSearch = String(parsed.data.search || "").trim().toLowerCase();
+    const requestedStatus = String(parsed.data.status || "ALL").trim().toUpperCase();
+    const requestedSortBy = String(parsed.data.sortBy || "createdAt").trim();
+    const requestedSortDir = String(parsed.data.sortDir || "desc").trim().toLowerCase();
+    const requestedPage = Number(parsed.data.page || 1);
+    const requestedPageSize = Number(parsed.data.pageSize || 10);
+    const hasPaginatedQuery =
+      Object.prototype.hasOwnProperty.call(req.query || {}, "search") ||
+      Object.prototype.hasOwnProperty.call(req.query || {}, "status") ||
+      Object.prototype.hasOwnProperty.call(req.query || {}, "sortBy") ||
+      Object.prototype.hasOwnProperty.call(req.query || {}, "sortDir") ||
+      Object.prototype.hasOwnProperty.call(req.query || {}, "page") ||
+      Object.prototype.hasOwnProperty.call(req.query || {}, "pageSize");
+
+    const params = [SYSTEM_ATELIER_ID];
+    const filters = ["a.id_atelier <> $1"];
+
+    if (requestedSearch) {
+      params.push(`%${requestedSearch}%`);
+      const searchParamIndex = params.length;
+      filters.push(
+        `(LOWER(a.nom) LIKE $${searchParamIndex}
+          OR LOWER(a.slug) LIKE $${searchParamIndex}
+          OR LOWER(a.id_atelier) LIKE $${searchParamIndex}
+          OR LOWER(COALESCE(owner.nom, '')) LIKE $${searchParamIndex}
+          OR LOWER(COALESCE(owner.email, '')) LIKE $${searchParamIndex})`
+      );
+    }
+
+    if (requestedStatus === "ACTIVE") {
+      filters.push("a.actif = true");
+    }
+    if (requestedStatus === "INACTIVE") {
+      filters.push("a.actif = false");
+    }
+
+    const sortColumn = SYSTEM_ATELIER_SORT_MAP[requestedSortBy] || SYSTEM_ATELIER_SORT_MAP.createdAt;
+    const sortDirection = requestedSortDir === "asc" ? "ASC" : "DESC";
+    const orderByClause = `ORDER BY ${sortColumn} ${sortDirection}, a.created_at DESC`;
+
+    const fromClause = `
+      FROM ateliers a
+      LEFT JOIN LATERAL (
+        SELECT u.id_utilisateur, u.nom, u.email
+        FROM utilisateurs u
+        WHERE u.atelier_id = a.id_atelier
+          AND UPPER(u.role_id) = 'PROPRIETAIRE'
+        ORDER BY u.date_creation ASC
+        LIMIT 1
+      ) owner ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS total_utilisateurs
+        FROM utilisateurs u
+        WHERE u.atelier_id = a.id_atelier
+      ) stats ON true
+      WHERE ${filters.join("\n        AND ")}
+    `;
+
+    const selectClause = `
+      SELECT a.id_atelier,
+             a.nom,
+             a.slug,
+             a.actif,
+             a.created_at,
+             a.updated_at,
+             owner.id_utilisateur AS proprietaire_id,
+             owner.nom AS proprietaire_nom,
+             owner.email AS proprietaire_email,
+             COALESCE(stats.total_utilisateurs, 0)::int AS total_utilisateurs
+    `;
+
+    if (!hasPaginatedQuery) {
+      const result = await pool.query(`${selectClause} ${fromClause} ORDER BY a.created_at DESC`, params);
+      return res.json(result.rows.map(mapSystemAtelierRow));
+    }
+
+    const totalResult = await pool.query(`SELECT COUNT(*)::int AS total ${fromClause}`, params);
+    const total = Number(totalResult.rows[0]?.total || 0);
+    const totalPages = Math.max(1, Math.ceil(total / requestedPageSize));
+    const page = Math.min(requestedPage, totalPages);
+
+    const pagedParams = [...params, requestedPageSize, (page - 1) * requestedPageSize];
+    const limitParamIndex = params.length + 1;
+    const offsetParamIndex = params.length + 2;
+
+    const result = await pool.query(
+      `${selectClause}
+       ${fromClause}
+       ${orderByClause}
+       LIMIT $${limitParamIndex}
+       OFFSET $${offsetParamIndex}`,
+      pagedParams
+    );
+
+    const summaryResult = await pool.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE a.actif = true)::int AS actifs,
+              COUNT(*) FILTER (WHERE a.actif = false)::int AS inactifs,
+              COALESCE(SUM(stats.total_utilisateurs), 0)::int AS utilisateurs
+       FROM ateliers a
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*)::int AS total_utilisateurs
+         FROM utilisateurs u
+         WHERE u.atelier_id = a.id_atelier
+       ) stats ON true
+       WHERE a.id_atelier <> $1`,
+      [SYSTEM_ATELIER_ID]
+    );
+
+    res.json({
+      items: result.rows.map(mapSystemAtelierRow),
+      pagination: {
+        page,
+        pageSize: requestedPageSize,
+        total,
+        totalPages
+      },
+      summary: {
+        total: Number(summaryResult.rows[0]?.total || 0),
+        actifs: Number(summaryResult.rows[0]?.actifs || 0),
+        inactifs: Number(summaryResult.rows[0]?.inactifs || 0),
+        utilisateurs: Number(summaryResult.rows[0]?.utilisateurs || 0)
+      },
+      filters: {
+        search: requestedSearch,
+        status: requestedStatus,
+        sortBy: requestedSortBy,
+        sortDir: requestedSortDir
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/system/ateliers/:id", requireSystemManager, async (req, res) => {
+  try {
+    const atelierId = String(req.params.id || "").trim();
+    if (!atelierId) return res.status(400).json({ error: "Atelier introuvable" });
+    if (atelierId.toUpperCase() === SYSTEM_ATELIER_ID) {
+      return res.status(400).json({ error: "Atelier reserve" });
+    }
+
+    const result = await pool.query(
+      `SELECT a.id_atelier,
+              a.nom,
+              a.slug,
+              a.actif,
+              a.created_at,
+              a.updated_at,
+              owner.id_utilisateur AS proprietaire_id,
+              owner.nom AS proprietaire_nom,
+              owner.email AS proprietaire_email,
+              owner.actif AS proprietaire_actif,
+              owner.etat_compte AS proprietaire_etat_compte,
+              COALESCE(stats.total_utilisateurs, 0)::int AS total_utilisateurs,
+              COALESCE(stats.utilisateurs_actifs, 0)::int AS utilisateurs_actifs,
+              COALESCE(stats.utilisateurs_inactifs, 0)::int AS utilisateurs_inactifs
+       FROM ateliers a
+       LEFT JOIN LATERAL (
+         SELECT u.id_utilisateur, u.nom, u.email, u.actif, u.etat_compte
+         FROM utilisateurs u
+         WHERE u.atelier_id = a.id_atelier
+           AND UPPER(u.role_id) = 'PROPRIETAIRE'
+         ORDER BY u.date_creation ASC
+         LIMIT 1
+       ) owner ON true
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*)::int AS total_utilisateurs,
+                COUNT(*) FILTER (
+                  WHERE u.actif = true
+                    AND UPPER(COALESCE(u.etat_compte, 'ACTIVE')) = 'ACTIVE'
+                )::int AS utilisateurs_actifs,
+                COUNT(*) FILTER (
+                  WHERE u.actif = false
+                     OR UPPER(COALESCE(u.etat_compte, 'ACTIVE')) <> 'ACTIVE'
+                )::int AS utilisateurs_inactifs
+         FROM utilisateurs u
+         WHERE u.atelier_id = a.id_atelier
+       ) stats ON true
+       WHERE a.id_atelier = $1
+       LIMIT 1`,
+      [atelierId]
+    );
+
+    const detail = mapSystemAtelierDetailRow(result.rows[0] || null);
+    if (!detail) return res.status(404).json({ error: "Atelier introuvable" });
+    await ensureEvenementAuditSchema();
+    const activityResult = await pool.query(
+      `SELECT ea.id_evenement, ea.utilisateur_id, ea.role, ea.action, ea.entite, ea.entite_id, ea.payload, ea.date_evenement,
+              u.nom AS utilisateur_nom, u.email AS utilisateur_email
+       FROM evenement_audit ea
+       LEFT JOIN utilisateurs u ON u.id_utilisateur = ea.utilisateur_id
+       WHERE ea.atelier_id = $1
+       ORDER BY ea.date_evenement DESC
+      LIMIT 8`,
+      [atelierId]
+    );
+    detail.recentActivity = activityResult.rows.map(mapAtelierActivityRow);
+    const healthResult = await pool.query(
+      `SELECT MAX(ea.date_evenement) AS last_event_at,
+              COUNT(*) FILTER (WHERE ea.date_evenement >= NOW() - INTERVAL '7 days')::int AS events_last_7_days,
+              COUNT(*) FILTER (WHERE ea.date_evenement >= NOW() - INTERVAL '30 days')::int AS events_last_30_days
+       FROM evenement_audit ea
+       WHERE ea.atelier_id = $1`,
+      [atelierId]
+    );
+    const healthRow = healthResult.rows[0] || {};
+    const lastEventAt = healthRow.last_event_at || null;
+    const eventsLast7Days = Number(healthRow.events_last_7_days || 0);
+    const eventsLast30Days = Number(healthRow.events_last_30_days || 0);
+    detail.health = {
+      signal: detail.actif ? (lastEventAt ? "ok" : "idle") : "warning",
+      message: detail.actif
+        ? lastEventAt
+          ? "Atelier actif avec activite auditee recente."
+          : "Atelier actif mais aucune activite auditee n'a encore ete detectee."
+        : "Atelier inactif: acces bloque pour les utilisateurs atelier.",
+      lastEventAt,
+      eventsLast7Days,
+      eventsLast30Days
+    };
+    res.json(detail);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -563,6 +872,20 @@ router.post("/system/ateliers", requireSystemManager, async (req, res) => {
       ownerPassword: parsed.data.proprietaire?.motDePasse,
       createdBy: req.auth?.utilisateurId || "system"
     });
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: out.atelier?.idAtelier || null,
+      action: "SYSTEM_ATELIER_CREATED",
+      entite: "system/ateliers",
+      entiteId: out.atelier?.idAtelier || null,
+      succes: true,
+      details: {
+        nomAtelier: out.atelier?.nom || parsed.data.nomAtelier,
+        slug: out.atelier?.slug || parsed.data.slug,
+        proprietaireEmail: out.proprietaire?.email || parsed.data.proprietaire?.email || null
+      }
+    });
     res.status(201).json({
       atelier: summarizeAtelier(out.atelier),
       proprietaire: out.proprietaire
@@ -584,6 +907,19 @@ router.patch("/system/ateliers/:id/activation", requireSystemManager, async (req
     }
     const updated = await atelierRepo.setActive(req.params.id, parsed.data.actif);
     if (!updated) return res.status(404).json({ error: "Atelier introuvable" });
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: updated.idAtelier || req.params.id,
+      action: parsed.data.actif ? "SYSTEM_ATELIER_ACTIVATED" : "SYSTEM_ATELIER_DEACTIVATED",
+      entite: "system/ateliers",
+      entiteId: updated.idAtelier || req.params.id,
+      succes: true,
+      details: {
+        actif: updated.actif !== false,
+        slug: updated.slug || null
+      }
+    });
     res.json(summarizeAtelier(updated));
   } catch (err) {
     res.status(400).json({ error: err.message });
