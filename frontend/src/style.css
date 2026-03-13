@@ -804,6 +804,67 @@ body {
   gap: 14px;
 }
 
+.system-overview-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.system-overview-grid {
+  margin-top: 12px;
+}
+
+.system-overview-summary-line {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.system-overview-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.system-alert-list,
+.system-recent-list {
+  display: grid;
+  gap: 10px;
+}
+
+.system-alert-item,
+.system-recent-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.system-alert-item {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+}
+
+.system-alert-body {
+  display: grid;
+  gap: 4px;
+}
+
+.system-recent-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.system-recent-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
 .system-ateliers-toolbar-actions {
   display: flex;
   align-items: center;
@@ -1891,10 +1952,12 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .system-overview-columns,
   .system-atelier-detail-grid {
     grid-template-columns: 1fr;
   }
 
+  .system-recent-meta,
   .system-atelier-health-grid {
     grid-template-columns: 1fr;
   }

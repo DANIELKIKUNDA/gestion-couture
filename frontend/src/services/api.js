@@ -380,6 +380,10 @@ export const atelierApi = {
     });
   },
 
+  getSystemDashboard() {
+    return request("/system/dashboard", { method: "GET" });
+  },
+
   listSystemAteliers({ search = "", status = "", sortBy = "", sortDir = "", page = null, pageSize = null } = {}) {
     const query = new URLSearchParams();
     assignIfPresent(

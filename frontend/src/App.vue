@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { atelierApi, ApiError, setAuthLostHandler } from "./services/api.js";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
 import SystemAtelierDetailPage from "./components/system/SystemAtelierDetailPage.vue";
+import SystemDashboardPage from "./components/system/SystemDashboardPage.vue";
 import SystemAteliersPage from "./components/system/SystemAteliersPage.vue";
 import { getPasswordPolicyError } from "./utils/password-policy.js";
 
@@ -30,6 +31,25 @@ function createClientSidePager(rowsComputed, pagination) {
     }
   );
   return { pages, paged };
+}
+
+function createEmptySystemDashboard() {
+  return {
+    summary: {
+      total: 0,
+      actifs: 0,
+      inactifs: 0,
+      utilisateurs: 0,
+      sansProprietaire: 0,
+      proprietairesInactifs: 0,
+      sansUtilisateur: 0,
+      nouveaux7J: 0,
+      nouveaux30J: 0,
+      ateliersActifsAvecActivite7J: 0
+    },
+    alerts: [],
+    recentAteliers: []
+  };
 }
 
 const AUTH_PORTAL_STORAGE_KEY = "atelier.auth.portal.v1";
@@ -79,6 +99,9 @@ const systemAtelierDetail = ref(null);
 const systemAtelierDetailLoading = ref(false);
 const systemAtelierDetailError = ref("");
 const systemAtelierDetailRequestId = ref(0);
+const systemDashboard = ref(createEmptySystemDashboard());
+const systemDashboardLoading = ref(false);
+const systemDashboardError = ref("");
 const systemAtelierModal = reactive({
   open: false,
   submitting: false,
@@ -2245,9 +2268,9 @@ function canAccessAuditPath(path = "/audit") {
 function canAccessModule(moduleId) {
   if (!isAuthenticated.value) return false;
   if (currentRole.value === "MANAGER_SYSTEME") {
-    return moduleId === "systemAteliers" && hasPermission(PERMISSIONS.GERER_ATELIERS);
+    return ["systemDashboard", "systemAteliers"].includes(moduleId) && hasPermission(PERMISSIONS.GERER_ATELIERS);
   }
-  if (currentRole.value === "PROPRIETAIRE") return moduleId !== "systemAteliers";
+  if (currentRole.value === "PROPRIETAIRE") return !["systemDashboard", "systemAteliers"].includes(moduleId);
   return hasModuleAccessPermissions(moduleId);
 }
 
@@ -2272,7 +2295,10 @@ const atelierMenuItems = [
   { id: "audit", label: "Historique & Audit", icon: "history" }
 ];
 
-const systemMenuItems = [{ id: "systemAteliers", label: "Ateliers", icon: "users" }];
+const systemMenuItems = [
+  { id: "systemDashboard", label: "Vue globale", icon: "dashboard" },
+  { id: "systemAteliers", label: "Ateliers", icon: "users" }
+];
 const menuItems = computed(() => (isSystemManager.value ? systemMenuItems : atelierMenuItems));
 const visibleMenuItems = computed(() => menuItems.value.filter((item) => canAccessModule(item.id)));
 
@@ -2520,6 +2546,7 @@ const stockArticleMap = computed(() => {
 });
 
 const currentTitle = computed(() => {
+  if (currentRoute.value === "systemDashboard") return "Vue Globale";
   if (currentRoute.value === "systemAteliers") return "Ateliers";
   if (currentRoute.value === "systemAtelierDetail") return "Detail Atelier";
   if (currentRoute.value === "commande-detail") return "Detail Commande";
@@ -3669,6 +3696,9 @@ async function submitLogout() {
   currentRoute.value = "dashboard";
   authAtelierContext.value = null;
   systemAteliers.value = [];
+  systemDashboard.value = createEmptySystemDashboard();
+  systemDashboardError.value = "";
+  systemDashboardLoading.value = false;
   closeSystemAtelierDetail();
   await detectAuthMode();
 }
@@ -4174,9 +4204,46 @@ async function loadSystemAteliers({ syncGlobalError = false, page = null, pageSi
   }
 }
 
-function refreshSystemAteliersList() {
+async function loadSystemDashboard({ syncGlobalError = false } = {}) {
+  systemDashboardLoading.value = true;
+  systemDashboardError.value = "";
+  try {
+    const payload = await atelierApi.getSystemDashboard();
+    systemDashboard.value = normalizeSystemDashboard(payload);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      try {
+        const fallbackPayload = await atelierApi.listSystemAteliers({
+          sortBy: "createdAt",
+          sortDir: "desc",
+          page: 1,
+          pageSize: 100
+        });
+        const normalized = normalizeSystemAtelierListPayload(fallbackPayload, {
+          page: 1,
+          pageSize: 100,
+          sortBy: "createdAt",
+          sortDir: "desc"
+        });
+        systemDashboard.value = buildSystemDashboardFallback(normalized.items, normalized.summary);
+        return;
+      } catch {
+        systemDashboard.value = buildSystemDashboardFallback(systemAteliers.value, systemAteliersSummary);
+        return;
+      }
+    }
+    systemDashboard.value = buildSystemDashboardFallback(systemAteliers.value, systemAteliersSummary);
+    systemDashboardError.value = readableError(err);
+    if (syncGlobalError) appendError(err);
+  } finally {
+    systemDashboardLoading.value = false;
+  }
+}
+
+async function refreshSystemAteliersList() {
   if (!canReloadSystemAteliers()) return;
-  void loadSystemAteliers({ scrollToTop: true });
+  await loadSystemAteliers({ scrollToTop: true });
+  await loadSystemDashboard();
 }
 
 function updateSystemAteliersSearch(value) {
@@ -4344,6 +4411,7 @@ async function submitSystemAtelierCreate() {
     });
     closeSystemAtelierModal();
     await loadSystemAteliers({ page: 1 });
+    await loadSystemDashboard();
     const createdAtelierId = String(created?.atelier?.idAtelier || "");
     if (createdAtelierId) {
       openSystemAtelierDetail(createdAtelierId);
@@ -4376,6 +4444,7 @@ async function toggleSystemAtelierActivation(atelier) {
   try {
     await atelierApi.setSystemAtelierActivation(idAtelier, nextActif);
     await loadSystemAteliers();
+    await loadSystemDashboard();
     if (systemAtelierDetailId.value === idAtelier) {
       await loadSystemAtelierDetail(idAtelier);
     }
@@ -4404,6 +4473,7 @@ async function reloadAll() {
     factures.value = [];
     caisseJour.value = null;
     await loadSystemAteliers({ syncGlobalError: true });
+    await loadSystemDashboard({ syncGlobalError: true });
     if (currentRoute.value === "systemAtelierDetail" && systemAtelierDetailId.value) {
       await loadSystemAtelierDetail(systemAtelierDetailId.value);
     }
@@ -4902,6 +4972,99 @@ function buildSystemAtelierDetailFallback(raw) {
   };
 }
 
+function buildSystemDashboardFallback(rows, summary = null) {
+  const items = Array.isArray(rows) ? rows.map(normalizeSystemAtelier) : [];
+  const baseSummary = summary
+    ? {
+        total: Number(summary.total || items.length),
+        actifs: Number(summary.actifs || 0),
+        inactifs: Number(summary.inactifs || 0),
+        utilisateurs: Number(summary.utilisateurs || 0)
+      }
+    : summarizeSystemAteliers(items);
+  const now = Date.now();
+  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+  const alerts = items
+    .flatMap((atelier) => {
+      const list = [];
+      if (!atelier.proprietaire) {
+        list.push({
+          code: "ATELIER_SANS_PROPRIETAIRE",
+          severity: "warning",
+          title: "Atelier sans proprietaire",
+          description: `${atelier.nom} n'a aucun proprietaire initialise.`,
+          atelierId: atelier.idAtelier,
+          atelierNom: atelier.nom,
+          createdAt: atelier.createdAt || ""
+        });
+      }
+      if (!atelier.actif) {
+        list.push({
+          code: "ATELIER_INACTIF",
+          severity: "info",
+          title: "Atelier desactive",
+          description: `${atelier.nom} est actuellement inactif.`,
+          atelierId: atelier.idAtelier,
+          atelierNom: atelier.nom,
+          createdAt: atelier.createdAt || ""
+        });
+      }
+      if (Number(atelier.nombreUtilisateurs || 0) === 0) {
+        list.push({
+          code: "ATELIER_SANS_UTILISATEUR",
+          severity: "info",
+          title: "Aucun utilisateur",
+          description: `${atelier.nom} n'a encore aucun utilisateur rattache.`,
+          atelierId: atelier.idAtelier,
+          atelierNom: atelier.nom,
+          createdAt: atelier.createdAt || ""
+        });
+      }
+      return list;
+    })
+    .slice(0, 8);
+
+  return {
+    summary: {
+      total: baseSummary.total,
+      actifs: baseSummary.actifs,
+      inactifs: baseSummary.inactifs,
+      utilisateurs: baseSummary.utilisateurs,
+      sansProprietaire: items.filter((atelier) => !atelier.proprietaire).length,
+      proprietairesInactifs: 0,
+      sansUtilisateur: items.filter((atelier) => Number(atelier.nombreUtilisateurs || 0) === 0).length,
+      nouveaux7J: items.filter((atelier) => {
+        const value = new Date(atelier.createdAt || "").getTime();
+        return Number.isFinite(value) && value >= sevenDaysAgo;
+      }).length,
+      nouveaux30J: items.filter((atelier) => {
+        const value = new Date(atelier.createdAt || "").getTime();
+        return Number.isFinite(value) && value >= thirtyDaysAgo;
+      }).length,
+      ateliersActifsAvecActivite7J: 0
+    },
+    alerts,
+    recentAteliers: items.slice(0, 6).map((atelier) => ({
+      idAtelier: atelier.idAtelier,
+      nom: atelier.nom,
+      slug: atelier.slug,
+      actif: atelier.actif,
+      createdAt: atelier.createdAt || "",
+      proprietaire: atelier.proprietaire
+        ? {
+            nom: atelier.proprietaire.nom || "",
+            email: atelier.proprietaire.email || ""
+          }
+        : null,
+      nombreUtilisateurs: Number(atelier.nombreUtilisateurs || 0),
+      lastEventAt: "",
+      eventsLast7Days: 0
+    }))
+  };
+}
+
 function summarizeSystemAteliers(rows) {
   const items = Array.isArray(rows) ? rows : [];
   return {
@@ -4909,6 +5072,55 @@ function summarizeSystemAteliers(rows) {
     actifs: items.filter((atelier) => atelier.actif).length,
     inactifs: items.filter((atelier) => !atelier.actif).length,
     utilisateurs: items.reduce((sum, atelier) => sum + Number(atelier.nombreUtilisateurs || 0), 0)
+  };
+}
+
+function normalizeSystemDashboard(payload) {
+  const fallback = createEmptySystemDashboard();
+  return {
+    summary: {
+      total: Number(payload?.summary?.total || fallback.summary.total),
+      actifs: Number(payload?.summary?.actifs || fallback.summary.actifs),
+      inactifs: Number(payload?.summary?.inactifs || fallback.summary.inactifs),
+      utilisateurs: Number(payload?.summary?.utilisateurs || fallback.summary.utilisateurs),
+      sansProprietaire: Number(payload?.summary?.sansProprietaire || fallback.summary.sansProprietaire),
+      proprietairesInactifs: Number(payload?.summary?.proprietairesInactifs || fallback.summary.proprietairesInactifs),
+      sansUtilisateur: Number(payload?.summary?.sansUtilisateur || fallback.summary.sansUtilisateur),
+      nouveaux7J: Number(payload?.summary?.nouveaux7J || fallback.summary.nouveaux7J),
+      nouveaux30J: Number(payload?.summary?.nouveaux30J || fallback.summary.nouveaux30J),
+      ateliersActifsAvecActivite7J: Number(
+        payload?.summary?.ateliersActifsAvecActivite7J || fallback.summary.ateliersActifsAvecActivite7J
+      )
+    },
+    alerts: Array.isArray(payload?.alerts)
+      ? payload.alerts.map((alert, index) => ({
+          code: String(alert?.code || `alert-${index}`).trim(),
+          severity: String(alert?.severity || "info").trim().toLowerCase(),
+          title: String(alert?.title || "Alerte systeme").trim(),
+          description: String(alert?.description || "").trim(),
+          atelierId: String(alert?.atelierId || "").trim(),
+          atelierNom: String(alert?.atelierNom || "").trim(),
+          createdAt: alert?.createdAt || ""
+        }))
+      : [],
+    recentAteliers: Array.isArray(payload?.recentAteliers)
+      ? payload.recentAteliers.map((atelier) => ({
+          idAtelier: String(atelier?.idAtelier || "").trim(),
+          nom: String(atelier?.nom || "").trim(),
+          slug: String(atelier?.slug || "").trim(),
+          actif: atelier?.actif !== false,
+          createdAt: atelier?.createdAt || "",
+          proprietaire: atelier?.proprietaire
+            ? {
+                nom: String(atelier.proprietaire.nom || "").trim(),
+                email: String(atelier.proprietaire.email || "").trim()
+              }
+            : null,
+          nombreUtilisateurs: Number(atelier?.nombreUtilisateurs || 0),
+          lastEventAt: atelier?.lastEventAt || "",
+          eventsLast7Days: Number(atelier?.eventsLast7Days || 0)
+        }))
+      : []
   };
 }
 
@@ -7073,6 +7285,16 @@ async function loadRetoucheDetail(idRetouche) {
           <strong>Erreur de synchronisation API</strong>
           <p>{{ errorMessage }}</p>
         </div>
+
+        <SystemDashboardPage
+          v-if="currentRoute === 'systemDashboard'"
+          :loading="systemDashboardLoading"
+          :error="systemDashboardError"
+          :overview="systemDashboard"
+          :stats="systemAteliersStats"
+          :format-date-time="formatDateTime"
+          @refresh="refreshSystemAteliersList"
+        />
 
         <SystemAteliersPage
           v-if="currentRoute === 'systemAteliers'"

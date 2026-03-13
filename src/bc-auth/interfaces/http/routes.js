@@ -210,6 +210,35 @@ function mapAtelierActivityRow(row) {
   };
 }
 
+function mapSystemDashboardAtelierRow(row) {
+  return {
+    ...mapSystemAtelierRow(row),
+    proprietaire: row.proprietaire_id
+      ? {
+          id: row.proprietaire_id,
+          nom: row.proprietaire_nom || "",
+          email: row.proprietaire_email || "",
+          actif: row.proprietaire_actif !== false,
+          etatCompte: normalizeAccountState(
+            row.proprietaire_etat_compte || (row.proprietaire_actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)
+          )
+        }
+      : null
+  };
+}
+
+function toTimeValue(value) {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function severityRank(level) {
+  if (level === "warning") return 0;
+  if (level === "info") return 1;
+  return 2;
+}
+
 const SYSTEM_ATELIER_SORT_MAP = {
   createdAt: "a.created_at",
   nom: "LOWER(a.nom)",
@@ -600,6 +629,216 @@ router.post("/system/bootstrap-manager", async (req, res) => {
     });
     await utilisateurRepo.save(user);
     res.status(201).json({ utilisateur: await withPermissions(user) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/system/dashboard", requireSystemManager, async (_req, res) => {
+  try {
+    const ateliersResult = await pool.query(
+      `SELECT a.id_atelier,
+              a.nom,
+              a.slug,
+              a.actif,
+              a.created_at,
+              a.updated_at,
+              owner.id_utilisateur AS proprietaire_id,
+              owner.nom AS proprietaire_nom,
+              owner.email AS proprietaire_email,
+              owner.actif AS proprietaire_actif,
+              owner.etat_compte AS proprietaire_etat_compte,
+              COALESCE(stats.total_utilisateurs, 0)::int AS total_utilisateurs
+       FROM ateliers a
+       LEFT JOIN LATERAL (
+         SELECT u.id_utilisateur, u.nom, u.email, u.actif, u.etat_compte
+         FROM utilisateurs u
+         WHERE u.atelier_id = a.id_atelier
+           AND UPPER(u.role_id) = 'PROPRIETAIRE'
+         ORDER BY u.date_creation ASC
+         LIMIT 1
+       ) owner ON true
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*)::int AS total_utilisateurs
+         FROM utilisateurs u
+         WHERE u.atelier_id = a.id_atelier
+       ) stats ON true
+       WHERE a.id_atelier <> $1
+       ORDER BY a.created_at DESC`,
+      [SYSTEM_ATELIER_ID]
+    );
+    const ateliers = ateliersResult.rows.map(mapSystemDashboardAtelierRow);
+
+    await ensureEvenementAuditSchema();
+    const activityResult = await pool.query(
+      `SELECT ea.atelier_id,
+              MAX(ea.date_evenement) AS last_event_at,
+              COUNT(*) FILTER (WHERE ea.date_evenement >= NOW() - INTERVAL '7 days')::int AS events_last_7_days,
+              COUNT(*) FILTER (WHERE ea.date_evenement >= NOW() - INTERVAL '30 days')::int AS events_last_30_days
+       FROM evenement_audit ea
+       WHERE ea.atelier_id <> $1
+       GROUP BY ea.atelier_id`,
+      [SYSTEM_ATELIER_ID]
+    );
+
+    const activityMap = new Map(
+      activityResult.rows.map((row) => [
+        row.atelier_id,
+        {
+          lastEventAt: row.last_event_at || null,
+          eventsLast7Days: Number(row.events_last_7_days || 0),
+          eventsLast30Days: Number(row.events_last_30_days || 0)
+        }
+      ])
+    );
+
+    const now = Date.now();
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+    const total = ateliers.length;
+    const actifs = ateliers.filter((atelier) => atelier.actif).length;
+    const inactifs = ateliers.filter((atelier) => !atelier.actif).length;
+    const utilisateurs = ateliers.reduce((sum, atelier) => sum + Number(atelier.nombreUtilisateurs || 0), 0);
+    const sansProprietaire = ateliers.filter((atelier) => !atelier.proprietaire).length;
+    const proprietairesInactifs = ateliers.filter(
+      (atelier) => atelier.proprietaire && (atelier.proprietaire.actif === false || atelier.proprietaire.etatCompte !== ACCOUNT_STATES.ACTIVE)
+    ).length;
+    const sansUtilisateur = ateliers.filter((atelier) => Number(atelier.nombreUtilisateurs || 0) === 0).length;
+    const nouveaux7J = ateliers.filter((atelier) => toTimeValue(atelier.createdAt) >= sevenDaysAgo).length;
+    const nouveaux30J = ateliers.filter((atelier) => toTimeValue(atelier.createdAt) >= thirtyDaysAgo).length;
+    const ateliersActifsAvecActivite7J = ateliers.filter((atelier) => {
+      const activity = activityMap.get(atelier.idAtelier);
+      return atelier.actif && Number(activity?.eventsLast7Days || 0) > 0;
+    }).length;
+
+    const alerts = ateliers
+      .flatMap((atelier) => {
+        const activity = activityMap.get(atelier.idAtelier) || {
+          lastEventAt: null,
+          eventsLast7Days: 0,
+          eventsLast30Days: 0
+        };
+        const items = [];
+
+        if (!atelier.proprietaire) {
+          items.push({
+            code: "ATELIER_SANS_PROPRIETAIRE",
+            severity: "warning",
+            title: "Atelier sans proprietaire",
+            description: `${atelier.nom} n'a aucun proprietaire initialise.`,
+            atelierId: atelier.idAtelier,
+            atelierNom: atelier.nom,
+            createdAt: atelier.createdAt || null
+          });
+        }
+
+        if (atelier.proprietaire && (atelier.proprietaire.actif === false || atelier.proprietaire.etatCompte !== ACCOUNT_STATES.ACTIVE)) {
+          items.push({
+            code: "PROPRIETAIRE_INACTIF",
+            severity: "warning",
+            title: "Proprietaire inactif",
+            description: `${atelier.proprietaire.nom || "Le proprietaire"} ne peut plus administrer ${atelier.nom}.`,
+            atelierId: atelier.idAtelier,
+            atelierNom: atelier.nom,
+            createdAt: atelier.createdAt || null
+          });
+        }
+
+        if (!atelier.actif) {
+          items.push({
+            code: "ATELIER_INACTIF",
+            severity: "info",
+            title: "Atelier desactive",
+            description: `${atelier.nom} est actuellement inactif.`,
+            atelierId: atelier.idAtelier,
+            atelierNom: atelier.nom,
+            createdAt: atelier.createdAt || null
+          });
+        }
+
+        if (Number(atelier.nombreUtilisateurs || 0) === 0) {
+          items.push({
+            code: "ATELIER_SANS_UTILISATEUR",
+            severity: "info",
+            title: "Aucun utilisateur",
+            description: `${atelier.nom} n'a encore aucun utilisateur rattache.`,
+            atelierId: atelier.idAtelier,
+            atelierNom: atelier.nom,
+            createdAt: atelier.createdAt || null
+          });
+        }
+
+        if (atelier.actif && !activity.lastEventAt) {
+          items.push({
+            code: "ATELIER_SANS_ACTIVITE",
+            severity: "info",
+            title: "Aucune activite detectee",
+            description: `${atelier.nom} est actif mais sans evenement audite.`,
+            atelierId: atelier.idAtelier,
+            atelierNom: atelier.nom,
+            createdAt: atelier.createdAt || null
+          });
+        } else if (atelier.actif && Number(activity.eventsLast30Days || 0) === 0) {
+          items.push({
+            code: "ATELIER_INACTIF_30J",
+            severity: "info",
+            title: "Aucune activite sur 30 jours",
+            description: `${atelier.nom} n'a aucune activite recente sur 30 jours.`,
+            atelierId: atelier.idAtelier,
+            atelierNom: atelier.nom,
+            createdAt: atelier.createdAt || null
+          });
+        }
+
+        return items;
+      })
+      .sort((left, right) => {
+        const rankGap = severityRank(left.severity) - severityRank(right.severity);
+        if (rankGap !== 0) return rankGap;
+        return toTimeValue(right.createdAt) - toTimeValue(left.createdAt);
+      })
+      .slice(0, 8);
+
+    const recentAteliers = ateliers.slice(0, 6).map((atelier) => {
+      const activity = activityMap.get(atelier.idAtelier) || {
+        lastEventAt: null,
+        eventsLast7Days: 0,
+        eventsLast30Days: 0
+      };
+      return {
+        idAtelier: atelier.idAtelier,
+        nom: atelier.nom,
+        slug: atelier.slug,
+        actif: atelier.actif,
+        createdAt: atelier.createdAt || null,
+        proprietaire: atelier.proprietaire
+          ? {
+              nom: atelier.proprietaire.nom || "",
+              email: atelier.proprietaire.email || ""
+            }
+          : null,
+        nombreUtilisateurs: Number(atelier.nombreUtilisateurs || 0),
+        lastEventAt: activity.lastEventAt,
+        eventsLast7Days: Number(activity.eventsLast7Days || 0)
+      };
+    });
+
+    res.json({
+      summary: {
+        total,
+        actifs,
+        inactifs,
+        utilisateurs,
+        sansProprietaire,
+        proprietairesInactifs,
+        sansUtilisateur,
+        nouveaux7J,
+        nouveaux30J,
+        ateliersActifsAvecActivite7J
+      },
+      alerts,
+      recentAteliers
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

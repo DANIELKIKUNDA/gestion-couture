@@ -115,6 +115,18 @@ async function run() {
   assert.equal(pagedSearch.body?.items?.[1]?.nom, "Atelier Manager Systeme Zeta", "tri systeme par nom asc incorrect");
   assert.equal(Number(pagedSearch.body?.summary?.total || 0) >= 1, true, "resume systeme pagine incorrect");
 
+  const dashboard = await withAuth(client.get("/api/system/dashboard"), managerToken);
+  assert.equal(dashboard.status, 200, "dashboard systeme doit repondre 200");
+  assert.equal(Number(dashboard.body?.summary?.total || 0) >= 2, true, "dashboard systeme total incorrect");
+  assert.equal(Number(dashboard.body?.summary?.nouveaux30J || 0) >= 2, true, "dashboard systeme nouveaux30J incorrect");
+  assert.equal(Array.isArray(dashboard.body?.alerts), true, "dashboard systeme doit exposer alerts");
+  assert.equal(Array.isArray(dashboard.body?.recentAteliers), true, "dashboard systeme doit exposer recentAteliers");
+  assert.equal(
+    dashboard.body?.recentAteliers?.some((row) => row.idAtelier === atelierId || row.idAtelier === atelierIdTwo),
+    true,
+    "dashboard systeme doit exposer les ateliers recents"
+  );
+
   const detail = await withAuth(client.get(`/api/system/ateliers/${encodeURIComponent(atelierId)}`), managerToken);
   assert.equal(detail.status, 200, "detail atelier systeme doit repondre 200");
   assert.equal(detail.body?.idAtelier, atelierId, "detail atelier systeme id incorrect");
@@ -137,6 +149,8 @@ async function run() {
 
   const ownerSystemList = await withAuth(client.get("/api/system/ateliers"), ownerToken);
   assert.equal(ownerSystemList.status, 403, "owner tenant ne doit pas acceder aux routes systeme");
+  const ownerSystemDashboard = await withAuth(client.get("/api/system/dashboard"), ownerToken);
+  assert.equal(ownerSystemDashboard.status, 403, "owner tenant ne doit pas acceder au dashboard systeme");
   const ownerSystemDetail = await withAuth(client.get(`/api/system/ateliers/${encodeURIComponent(atelierId)}`), ownerToken);
   assert.equal(ownerSystemDetail.status, 403, "owner tenant ne doit pas acceder au detail systeme");
 
