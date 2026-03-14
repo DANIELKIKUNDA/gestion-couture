@@ -7634,7 +7634,14 @@ async function saveCommandeMediaNote({ media, note = "" }) {
 
 async function deleteCommandeMedia(item) {
   if (!detailCommande.value?.idCommande || !item?.idMedia) return;
-  if (!window.confirm("Supprimer cette photo de reference ?")) return;
+  const confirmed = await openActionModal({
+    title: "Supprimer la photo",
+    message: "Cette photo de reference sera retiree de la commande. Confirmer la suppression ?",
+    confirmLabel: "Supprimer",
+    cancelLabel: "Annuler",
+    tone: "red"
+  });
+  if (!confirmed) return;
   detailCommandeMediaActionId.value = item.idMedia;
   detailCommandeMediaError.value = "";
   try {
