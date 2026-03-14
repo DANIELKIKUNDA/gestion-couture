@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 
 const props = defineProps({
   items: {
@@ -37,8 +37,18 @@ const uploadNote = ref("");
 const galleryInputRef = ref(null);
 const cameraInputRef = ref(null);
 const noteDrafts = reactive({});
+const prefersMobileCapture = ref(false);
+let mobileCaptureMediaQuery = null;
+let mobileCaptureListener = null;
 
 const canAddMore = computed(() => props.items.length < 3);
+
+function detectMobileCapturePreference() {
+  if (typeof window === "undefined") return false;
+  const coarsePointer = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+  const narrowViewport = typeof window.matchMedia === "function" && window.matchMedia("(max-width: 768px)").matches;
+  return coarsePointer || narrowViewport;
+}
 
 watch(
   () => props.items,
@@ -84,6 +94,36 @@ function saveNote(item) {
     note: String(noteDrafts[item.idMedia] || "")
   });
 }
+
+onMounted(() => {
+  prefersMobileCapture.value = detectMobileCapturePreference();
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+  mobileCaptureMediaQuery = window.matchMedia("(pointer: coarse)");
+  mobileCaptureListener = () => {
+    prefersMobileCapture.value = detectMobileCapturePreference();
+  };
+  if (typeof mobileCaptureMediaQuery.addEventListener === "function") {
+    mobileCaptureMediaQuery.addEventListener("change", mobileCaptureListener);
+  } else if (typeof mobileCaptureMediaQuery.addListener === "function") {
+    mobileCaptureMediaQuery.addListener(mobileCaptureListener);
+  }
+  window.addEventListener("resize", mobileCaptureListener);
+});
+
+onUnmounted(() => {
+  if (typeof window !== "undefined" && mobileCaptureListener) {
+    window.removeEventListener("resize", mobileCaptureListener);
+  }
+  if (mobileCaptureMediaQuery && mobileCaptureListener) {
+    if (typeof mobileCaptureMediaQuery.removeEventListener === "function") {
+      mobileCaptureMediaQuery.removeEventListener("change", mobileCaptureListener);
+    } else if (typeof mobileCaptureMediaQuery.removeListener === "function") {
+      mobileCaptureMediaQuery.removeListener(mobileCaptureListener);
+    }
+  }
+  mobileCaptureMediaQuery = null;
+  mobileCaptureListener = null;
+});
 </script>
 
 <template>
@@ -102,8 +142,10 @@ function saveNote(item) {
         <input v-model="uploadNote" type="text" maxlength="500" placeholder="Ex: refaire le col, manches plus longues" />
       </label>
       <div class="row-actions">
-        <button class="mini-btn" :disabled="!canAddMore || uploading" @click="triggerGalleryUpload">Ajouter depuis galerie</button>
-        <button class="mini-btn" :disabled="!canAddMore || uploading" @click="triggerCameraUpload">Prendre une photo</button>
+        <button class="mini-btn" :disabled="!canAddMore || uploading" @click="triggerGalleryUpload">
+          {{ prefersMobileCapture ? "Ajouter depuis galerie" : "Ajouter une photo" }}
+        </button>
+        <button v-if="prefersMobileCapture" class="mini-btn" :disabled="!canAddMore || uploading" @click="triggerCameraUpload">Prendre une photo</button>
         <span class="helper" v-if="uploading">Upload en cours...</span>
       </div>
       <input
