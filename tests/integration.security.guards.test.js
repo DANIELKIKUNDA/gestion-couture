@@ -58,7 +58,31 @@ async function run() {
     .set("Authorization", `Bearer ${token}`)
     .send({ permissions: [PERMISSIONS.MODIFIER_PARAMETRES] });
   assert.equal(removeOwnerManagePermission.status, 400, "suppression permission critique du proprietaire doit etre refusee");
-  assert.equal(removeOwnerManagePermission.body?.error, "Le role proprietaire doit conserver la permission GERER_UTILISATEURS");
+  assert.equal(
+    removeOwnerManagePermission.body?.error,
+    "Le role proprietaire doit conserver les permissions critiques: GERER_UTILISATEURS"
+  );
+
+  const removeOwnerSettingsPermission = await client
+    .put(`/api/auth/role-permissions/${encodeURIComponent(ROLES.PROPRIETAIRE)}`)
+    .set("Authorization", `Bearer ${token}`)
+    .send({ permissions: [PERMISSIONS.GERER_UTILISATEURS] });
+  assert.equal(removeOwnerSettingsPermission.status, 400, "retrait permission parametres du proprietaire doit etre refuse");
+  assert.equal(
+    removeOwnerSettingsPermission.body?.error,
+    "Le role proprietaire doit conserver les permissions critiques: MODIFIER_PARAMETRES"
+  );
+
+  const keepOnlyCriticalOwnerPermissions = await client
+    .put(`/api/auth/role-permissions/${encodeURIComponent(ROLES.PROPRIETAIRE)}`)
+    .set("Authorization", `Bearer ${token}`)
+    .send({ permissions: [PERMISSIONS.MODIFIER_PARAMETRES, PERMISSIONS.GERER_UTILISATEURS] });
+  assert.equal(keepOnlyCriticalOwnerPermissions.status, 200, "les permissions critiques seules doivent rester autorisees");
+  assert.deepEqual(
+    keepOnlyCriticalOwnerPermissions.body?.permissions || [],
+    [PERMISSIONS.MODIFIER_PARAMETRES, PERMISSIONS.GERER_UTILISATEURS],
+    "les autres permissions du proprietaire doivent rester configurables"
+  );
 }
 
 run()

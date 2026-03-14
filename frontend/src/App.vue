@@ -1869,18 +1869,32 @@ function getRolePermissionSet(roleId) {
   return new Set(Array.isArray(raw) ? raw : []);
 }
 
+function normalizeSecurityRolePermissions(roleId, permissions = []) {
+  const role = String(roleId || "").toUpperCase();
+  const normalized = new Set((permissions || []).map((permission) => String(permission || "").toUpperCase()).filter(Boolean));
+  if (role === "PROPRIETAIRE") {
+    for (const permission of OWNER_CRITICAL_PERMISSIONS) normalized.add(permission);
+  }
+  return [...normalized];
+}
+
+function isRolePermissionLocked(roleId, permission) {
+  return String(roleId || "").toUpperCase() === "PROPRIETAIRE" && OWNER_CRITICAL_PERMISSIONS.includes(String(permission || "").toUpperCase());
+}
+
 function roleHasPermission(roleId, permission) {
   return getRolePermissionSet(roleId).has(permission);
 }
 
 function setRolePermission(roleId, permission, enabled) {
   const role = String(roleId || "").toUpperCase();
+  if (isRolePermissionLocked(role, permission) && enabled === false) return;
   const next = getRolePermissionSet(role);
   if (enabled) next.add(permission);
   else next.delete(permission);
   securityRolePermissions.value = {
     ...securityRolePermissions.value,
-    [role]: [...next]
+    [role]: normalizeSecurityRolePermissions(role, [...next])
   };
 }
 
@@ -1904,8 +1918,9 @@ async function loadSecurityModule() {
     for (const row of roleRows || []) {
       const role = String(row.role || "").toUpperCase();
       if (!Object.prototype.hasOwnProperty.call(map, role)) continue;
-      map[role] = Array.from(new Set((row.permissions || []).map((p) => String(p || "").toUpperCase())));
+      map[role] = normalizeSecurityRolePermissions(role, row.permissions || []);
     }
+    map.PROPRIETAIRE = normalizeSecurityRolePermissions("PROPRIETAIRE", map.PROPRIETAIRE || []);
     securityRolePermissions.value = map;
   } catch (err) {
     securityError.value = readableError(err);
@@ -1994,10 +2009,17 @@ function confirmActionModal() {
 async function saveRolePermissions(roleId) {
   if (!canAccessSecurityModule.value) return;
   const role = String(roleId || "").toUpperCase();
-  const nextPermissions = Array.from(new Set((securityRolePermissions.value[role] || []).map((p) => String(p || "").toUpperCase())));
-  if (role === "PROPRIETAIRE" && !nextPermissions.includes(PERMISSIONS.GERER_UTILISATEURS)) {
-    securityError.value = "Le role proprietaire doit garder la permission de gestion des utilisateurs.";
-    return;
+  const nextPermissions = normalizeSecurityRolePermissions(role, securityRolePermissions.value[role] || []);
+  if (role === "PROPRIETAIRE") {
+    const missingCriticalPermissions = OWNER_CRITICAL_PERMISSIONS.filter((permission) => !nextPermissions.includes(permission));
+    if (missingCriticalPermissions.length > 0) {
+      securityError.value = `Le role proprietaire doit garder les permissions critiques: ${missingCriticalPermissions.join(", ")}.`;
+      return;
+    }
+    securityRolePermissions.value = {
+      ...securityRolePermissions.value,
+      [role]: nextPermissions
+    };
   }
   const confirmed = await openActionModal({
     title: "Confirmer permissions",
@@ -2146,6 +2168,7 @@ const PERMISSIONS = {
   GERER_UTILISATEURS: "GERER_UTILISATEURS",
   GERER_ATELIERS: "GERER_ATELIERS"
 };
+const OWNER_CRITICAL_PERMISSIONS = Object.freeze([PERMISSIONS.MODIFIER_PARAMETRES, PERMISSIONS.GERER_UTILISATEURS]);
 
 function normalizeSessionPayload(payload) {
   return atelierApi.normalizeSession(payload);
@@ -9730,14 +9753,18 @@ async function loadRetoucheDetail(idRetouche) {
               <div class="settings-grid">
                 <article class="panel nested-panel" v-for="role in securityRoleOptions" :key="`role-perm-${role.value}`">
                   <h4>{{ role.label }}</h4>
+                  <p v-if="role.value === 'PROPRIETAIRE'" class="helper">
+                    Les permissions critiques restent verrouillees pour garantir la reprise en main de l'atelier.
+                  </p>
                   <div class="settings-roles">
                     <label class="helper" v-for="perm in securityPermissionOptions" :key="`perm-${role.value}-${perm}`">
                       <input
                         type="checkbox"
                         :checked="roleHasPermission(role.value, perm)"
+                        :disabled="securitySaving || isRolePermissionLocked(role.value, perm)"
                         @change="setRolePermission(role.value, perm, $event.target.checked)"
                       />
-                      {{ securityPermissionLabels[perm] }}
+                      {{ securityPermissionLabels[perm] }}{{ isRolePermissionLocked(role.value, perm) ? " (critique verrouillee)" : "" }}
                     </label>
                   </div>
                   <div class="row-actions">

@@ -306,6 +306,18 @@ const SYSTEM_ATELIER_SORT_MAP = {
   slug: "LOWER(a.slug)",
   utilisateurs: "COALESCE(stats.total_utilisateurs, 0)"
 };
+// Le role proprietaire est partage par tous les proprietaires de l'atelier:
+// ces permissions ne doivent donc jamais disparaitre de ce role.
+const OWNER_CRITICAL_PERMISSIONS = Object.freeze([PERMISSIONS.MODIFIER_PARAMETRES, PERMISSIONS.GERER_UTILISATEURS]);
+
+function normalizePermissionCodes(permissions = []) {
+  return Array.from(new Set((permissions || []).map((item) => String(item || "").trim().toUpperCase()).filter(Boolean)));
+}
+
+function getMissingOwnerCriticalPermissions(permissions = []) {
+  const granted = new Set(normalizePermissionCodes(permissions));
+  return OWNER_CRITICAL_PERMISSIONS.filter((permission) => !granted.has(permission));
+}
 
 function defaultRolePermissionEntriesForAtelier(atelierId = LEGACY_ATELIER_ID) {
   const normalizedAtelierId = String(atelierId || LEGACY_ATELIER_ID).trim().toUpperCase();
@@ -1601,9 +1613,12 @@ router.put("/auth/role-permissions/:role", requirePermission(PERMISSIONS.GERER_U
     if (!ALLOWED_ROLES.includes(role)) {
       return res.status(400).json({ error: "Role invalide" });
     }
-    const normalizedPermissions = Array.from(new Set((parsed.data.permissions || []).map((p) => String(p || "").toUpperCase())));
-    if (role === ROLES.PROPRIETAIRE && !normalizedPermissions.includes(PERMISSIONS.GERER_UTILISATEURS)) {
-      return res.status(400).json({ error: "Le role proprietaire doit conserver la permission GERER_UTILISATEURS" });
+    const normalizedPermissions = normalizePermissionCodes(parsed.data.permissions || []);
+    const missingOwnerCriticalPermissions = role === ROLES.PROPRIETAIRE ? getMissingOwnerCriticalPermissions(normalizedPermissions) : [];
+    if (missingOwnerCriticalPermissions.length > 0) {
+      return res.status(400).json({
+        error: `Le role proprietaire doit conserver les permissions critiques: ${missingOwnerCriticalPermissions.join(", ")}`
+      });
     }
     const row = await rolePermissionRepo.save({
       atelierId: req.auth?.atelierId || LEGACY_ATELIER_ID,
