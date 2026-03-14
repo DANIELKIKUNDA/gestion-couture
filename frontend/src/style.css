@@ -1059,9 +1059,10 @@ body {
 
 .system-recovery-user-item {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 0.8fr));
+  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(120px, 0.7fr));
+  align-items: center;
   gap: 10px;
-  padding: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--stroke);
   border-radius: 10px;
   background: #fbfdff;
@@ -1070,6 +1071,12 @@ body {
 .system-recovery-user-item > div {
   display: grid;
   gap: 4px;
+}
+
+.system-recovery-user-name strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .system-owner-sessions {
@@ -2064,5 +2071,101 @@ textarea:focus-visible {
 
   .measure-preview {
     gap: 8px;
+  }
+}
+
+.commande-media-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.commande-media-header {
+  align-items: flex-start;
+}
+
+.commande-media-upload {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed var(--stroke);
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
+.commande-media-input-hidden {
+  display: none;
+}
+
+.commande-media-empty {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.commande-media-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.commande-media-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.commande-media-thumb {
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: #f6f9ff;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.commande-media-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.commande-media-meta {
+  display: grid;
+  gap: 8px;
+}
+
+.commande-media-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.commande-media-actions {
+  gap: 8px;
+}
+
+.commande-media-error {
+  color: #8d2f25;
+}
+
+@media (max-width: 960px) {
+  .commande-media-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .commande-media-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -1,4 +1,6 @@
 <script setup>
+import { computed, ref, watch } from "vue";
+
 function formatActivityAction(value) {
   const key = String(value || "").trim().toUpperCase();
   const labels = {
@@ -56,7 +58,7 @@ function recoveryUsers(detail, predicate) {
   return users.filter((user) => (typeof predicate === "function" ? predicate(user) : true));
 }
 
-defineProps({
+const props = defineProps({
   selectedAtelierId: { type: String, default: "" },
   detail: { type: Object, default: null },
   detailLoading: { type: Boolean, default: false },
@@ -81,6 +83,40 @@ const emit = defineEmits([
   "create-owner",
   "demote-owner"
 ]);
+
+const recoveryExpanded = ref(false);
+const activityExpanded = ref(false);
+
+const detailUsers = computed(() => (Array.isArray(props.detail?.utilisateurs) ? props.detail.utilisateurs : []));
+const recoveryOwnersCount = computed(() => recoveryUsers(props.detail, (user) => user.roleId === "PROPRIETAIRE").length);
+const recoveryInactiveUsersCount = computed(() =>
+  recoveryUsers(props.detail, (user) => user.actif !== true || user.etatCompte !== "ACTIVE").length
+);
+const recentActivity = computed(() => (Array.isArray(props.detail?.recentActivity) ? props.detail.recentActivity : []));
+const hiddenRecentActivityCount = computed(() => Math.max(0, recentActivity.value.length - 5));
+const visibleRecentActivity = computed(() => (activityExpanded.value ? recentActivity.value : recentActivity.value.slice(0, 5)));
+
+watch(
+  () => props.detail?.idAtelier,
+  () => {
+    recoveryExpanded.value = false;
+    activityExpanded.value = false;
+  }
+);
+
+watch(
+  () => props.recoveryActionError,
+  (value) => {
+    if (value) recoveryExpanded.value = true;
+  }
+);
+
+watch(
+  () => props.recoveryActionKey,
+  (value) => {
+    if (value) recoveryExpanded.value = true;
+  }
+);
 </script>
 
 <template>
@@ -262,52 +298,59 @@ const emit = defineEmits([
               <h4>Recuperation atelier</h4>
               <p class="helper">Secours minimal pour reprendre la main sur l'atelier sans quitter ce detail.</p>
             </div>
-            <span class="status-pill" data-tone="ok">Manager systeme</span>
+            <div class="row-actions">
+              <span class="status-pill" data-tone="ok">Manager systeme</span>
+              <button class="mini-btn" @click="recoveryExpanded = !recoveryExpanded">
+                {{ recoveryExpanded ? "Masquer" : "Afficher" }}
+              </button>
+            </div>
           </div>
 
           <div class="system-owner-admin-grid">
             <div>
               <span class="helper">Utilisateurs atelier</span>
-              <strong>{{ Array.isArray(detail.utilisateurs) ? detail.utilisateurs.length : 0 }}</strong>
+              <strong>{{ detailUsers.length }}</strong>
             </div>
             <div>
               <span class="helper">Proprietaires</span>
-              <strong>{{ recoveryUsers(detail, (user) => user.roleId === "PROPRIETAIRE").length }}</strong>
+              <strong>{{ recoveryOwnersCount }}</strong>
             </div>
             <div>
               <span class="helper">Utilisateurs inactifs</span>
-              <strong>{{ recoveryUsers(detail, (user) => user.actif !== true || user.etatCompte !== "ACTIVE").length }}</strong>
+              <strong>{{ recoveryInactiveUsersCount }}</strong>
             </div>
           </div>
 
-          <div class="row-actions">
-            <button class="mini-btn" :disabled="recoveryActionKey === 'promote'" @click="emit('promote-user-to-owner')">
-              {{ recoveryActionKey === "promote" ? "Traitement..." : "Promouvoir en proprietaire" }}
-            </button>
-            <button class="mini-btn" :disabled="recoveryActionKey === 'reactivate'" @click="emit('reactivate-user')">
-              {{ recoveryActionKey === "reactivate" ? "Traitement..." : "Reactiver un utilisateur" }}
-            </button>
-            <button class="mini-btn" :disabled="recoveryActionKey === 'create-owner'" @click="emit('create-owner')">
-              {{ recoveryActionKey === "create-owner" ? "Traitement..." : "Creer un proprietaire" }}
-            </button>
-            <button class="mini-btn" :disabled="recoveryActionKey === 'demote'" @click="emit('demote-owner')">
-              {{ recoveryActionKey === "demote" ? "Traitement..." : "Retrograder un proprietaire" }}
-            </button>
-          </div>
+          <p v-if="!recoveryExpanded" class="helper">Bloc replie par defaut pour garder la page d'intervention plus compacte.</p>
 
           <p v-if="recoveryActionError" class="auth-error">{{ recoveryActionError }}</p>
 
-          <div v-if="Array.isArray(detail.utilisateurs)" class="system-recovery-users">
+          <template v-if="recoveryExpanded">
+            <div class="row-actions">
+              <button class="mini-btn" :disabled="recoveryActionKey === 'promote'" @click="emit('promote-user-to-owner')">
+                {{ recoveryActionKey === "promote" ? "Traitement..." : "Promouvoir en proprietaire" }}
+              </button>
+              <button class="mini-btn" :disabled="recoveryActionKey === 'reactivate'" @click="emit('reactivate-user')">
+                {{ recoveryActionKey === "reactivate" ? "Traitement..." : "Reactiver un utilisateur" }}
+              </button>
+              <button class="mini-btn" :disabled="recoveryActionKey === 'create-owner'" @click="emit('create-owner')">
+                {{ recoveryActionKey === "create-owner" ? "Traitement..." : "Creer un proprietaire" }}
+              </button>
+              <button class="mini-btn" :disabled="recoveryActionKey === 'demote'" @click="emit('demote-owner')">
+                {{ recoveryActionKey === "demote" ? "Traitement..." : "Retrograder un proprietaire" }}
+              </button>
+            </div>
+
+            <div class="system-recovery-users">
             <div class="detail-panel-header">
               <h4>Utilisateurs atelier</h4>
-              <span class="helper">{{ detail.utilisateurs.length }} compte(s)</span>
+              <span class="helper">{{ detailUsers.length }} compte(s)</span>
             </div>
-            <div v-if="detail.utilisateurs.length === 0" class="helper">Aucun utilisateur rattache a cet atelier.</div>
+            <div v-if="detailUsers.length === 0" class="helper">Aucun utilisateur rattache a cet atelier.</div>
             <div v-else class="system-recovery-user-list">
-              <article v-for="user in detail.utilisateurs" :key="user.id" class="system-recovery-user-item">
-                <div>
+              <article v-for="user in detailUsers" :key="user.id" class="system-recovery-user-item" :title="user.email || ''">
+                <div class="system-recovery-user-name">
                   <strong>{{ user.nom || "Utilisateur" }}</strong>
-                  <span class="helper" v-if="user.email">{{ user.email }}</span>
                 </div>
                 <div>
                   <span class="helper">Role</span>
@@ -319,7 +362,8 @@ const emit = defineEmits([
                 </div>
               </article>
             </div>
-          </div>
+            </div>
+          </template>
         </div>
 
         <div v-if="Array.isArray(detail.recentActivity)" class="system-atelier-activity">
@@ -327,9 +371,9 @@ const emit = defineEmits([
             <h4>Activite recente</h4>
             <span class="helper">{{ detail.recentActivity.length }} evenement(s)</span>
           </div>
-          <div v-if="detail.recentActivity.length === 0" class="helper">Aucune activite recente pour cet atelier.</div>
+          <div v-if="recentActivity.length === 0" class="helper">Aucune activite recente pour cet atelier.</div>
           <div v-else class="system-activity-list">
-            <article v-for="row in detail.recentActivity" :key="row.idEvenement" class="system-activity-item">
+            <article v-for="row in visibleRecentActivity" :key="row.idEvenement" class="system-activity-item">
               <div class="system-activity-main">
                 <strong>{{ formatActivityAction(row.action) }}</strong>
                 <span class="helper">
@@ -342,6 +386,15 @@ const emit = defineEmits([
                 <span>{{ formatDateTime(row.dateEvenement) }}</span>
               </div>
             </article>
+            <div v-if="hiddenRecentActivityCount > 0" class="row-actions">
+              <button class="mini-btn" @click="activityExpanded = !activityExpanded">
+                {{
+                  activityExpanded
+                    ? "Afficher moins"
+                    : `Voir ${hiddenRecentActivityCount} evenement(s) de plus`
+                }}
+              </button>
+            </div>
           </div>
         </div>
       </template>

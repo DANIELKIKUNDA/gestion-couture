@@ -1,6 +1,7 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { atelierApi, ApiError, setAuthLostHandler } from "./services/api.js";
+import CommandeMediaGallery from "./components/commandes/CommandeMediaGallery.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
 import SystemAtelierDetailPage from "./components/system/SystemAtelierDetailPage.vue";
 import SystemDashboardPage from "./components/system/SystemDashboardPage.vue";
@@ -279,11 +280,16 @@ const selectedCommandeId = ref("");
 const detailCommande = ref(null);
 const detailPaiements = ref([]);
 const detailCommandeEvents = ref([]);
+const detailCommandeMedia = ref([]);
 const detailPaiementsPagination = createPagination(10);
 const detailCommandeEventsPagination = createPagination(10);
 const detailLoading = ref(false);
 const detailPaiementsLoading = ref(false);
 const detailCommandeEventsLoading = ref(false);
+const detailCommandeMediaLoading = ref(false);
+const detailCommandeMediaUploading = ref(false);
+const detailCommandeMediaActionId = ref("");
+const detailCommandeMediaError = ref("");
 const detailError = ref("");
 
 const selectedRetoucheId = ref("");
@@ -3760,6 +3766,7 @@ onUnmounted(() => {
   window.removeEventListener("beforeunload", onBeforeUnload);
   if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
   clearSystemAteliersSearchDebounce();
+  revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
 });
 
 function scheduleDetectAuthMode(delay = 240) {
@@ -4144,6 +4151,11 @@ async function openRoute(routeId) {
   }
   if (currentRoute.value === "systemAtelierDetail" && routeId !== "systemAtelierDetail") {
     closeSystemAtelierDetail();
+  }
+  if (currentRoute.value === "commande-detail" && routeId !== "commande-detail") {
+    revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
+    detailCommandeMedia.value = [];
+    detailCommandeMediaError.value = "";
   }
   currentRoute.value = routeId;
   if (routeId === "clientsMesures" && selectedClientConsultationId.value) {
@@ -5639,6 +5651,27 @@ function normalizeCommande(raw) {
   };
 }
 
+function normalizeCommandeMedia(raw) {
+  return {
+    idMedia: raw.idMedia || raw.id_media || raw.id || "",
+    idCommande: raw.idCommande || raw.id_commande || "",
+    typeMedia: raw.typeMedia || raw.type_media || "IMAGE",
+    sourceType: raw.sourceType || raw.source_type || "UPLOAD",
+    nomFichierOriginal: raw.nomFichierOriginal || raw.nom_fichier_original || "",
+    mimeType: raw.mimeType || raw.mime_type || "image/webp",
+    extensionStockage: raw.extensionStockage || raw.extension_stockage || "webp",
+    tailleOriginaleBytes: Number(raw.tailleOriginaleBytes ?? raw.taille_originale_bytes ?? 0),
+    largeur: raw.largeur === null || raw.largeur === undefined ? null : Number(raw.largeur),
+    hauteur: raw.hauteur === null || raw.hauteur === undefined ? null : Number(raw.hauteur),
+    note: raw.note || "",
+    position: Number(raw.position || 1),
+    isPrimary: raw.isPrimary === true || raw.is_primary === true,
+    dateCreation: raw.dateCreation || raw.date_creation || "",
+    thumbnailBlobUrl: "",
+    fileBlobUrl: ""
+  };
+}
+
 function normalizeRetouche(raw) {
   return {
     idRetouche: raw.idRetouche || raw.id_retouche || raw.id,
@@ -5801,7 +5834,11 @@ function formatWorkflowEventType(value) {
     RETOUCHE_LIVREE: "Retouche livree",
     COMMANDE_ANNULEE: "Commande annulee",
     RETOUCHE_ANNULEE: "Retouche annulee",
-    REMBOURSEMENT_COMMANDE_ANNULEE: "Remboursement commande annulee"
+    REMBOURSEMENT_COMMANDE_ANNULEE: "Remboursement commande annulee",
+    MEDIA_COMMANDE_AJOUTEE: "Photo ajoutee",
+    MEDIA_COMMANDE_SUPPRIMEE: "Photo supprimee",
+    MEDIA_COMMANDE_PRINCIPALE_DEFINIE: "Photo principale definie",
+    MEDIA_COMMANDE_MISE_A_JOUR: "Photo mise a jour"
   };
   return labels[type] || type || "-";
 }
@@ -5826,6 +5863,27 @@ function normalizeWorkflowEvent(raw) {
     utilisateurNom: utilisateurNom || "Systeme",
     role: role || "-"
   };
+}
+
+function revokeCommandeMediaObjectUrls(items = []) {
+  for (const item of items || []) {
+    if (item?.thumbnailBlobUrl) URL.revokeObjectURL(item.thumbnailBlobUrl);
+    if (item?.fileBlobUrl) URL.revokeObjectURL(item.fileBlobUrl);
+  }
+}
+
+async function hydrateCommandeMediaThumbnails(idCommande, items = []) {
+  const hydrated = [];
+  for (const item of items) {
+    const row = { ...item };
+    try {
+      row.thumbnailBlobUrl = await atelierApi.getCommandeMediaThumbnailBlobUrl(idCommande, item.idMedia);
+    } catch {
+      row.thumbnailBlobUrl = "";
+    }
+    hydrated.push(row);
+  }
+  return hydrated;
 }
 
 function toIsoDate(input) {
@@ -7421,6 +7479,10 @@ async function loadCommandeDetail(idCommande) {
   detailLoading.value = true;
   detailError.value = "";
   detailCommandeActions.value = null;
+  detailCommandeMediaLoading.value = true;
+  detailCommandeMediaError.value = "";
+  revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
+  detailCommandeMedia.value = [];
   try {
     const detail = await atelierApi.getCommande(idCommande);
     detailCommande.value = normalizeCommande(detail);
@@ -7428,6 +7490,10 @@ async function loadCommandeDetail(idCommande) {
   } catch (err) {
     detailCommande.value = null;
     detailCommandeActions.value = null;
+    revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
+    detailCommandeMedia.value = [];
+    detailCommandeMediaError.value = "";
+    detailCommandeMediaLoading.value = false;
     detailPaiements.value = [];
     detailCommandeEvents.value = [];
     detailError.value = readableError(err);
@@ -7435,6 +7501,24 @@ async function loadCommandeDetail(idCommande) {
     return;
   }
   detailLoading.value = false;
+
+  detailCommandeMediaLoading.value = true;
+  detailCommandeMediaError.value = "";
+  try {
+    const mediaRows = await atelierApi.listCommandeMedia(idCommande);
+    const normalizedMedia = (mediaRows || [])
+      .map(normalizeCommandeMedia)
+      .sort((a, b) => a.position - b.position);
+    const hydratedMedia = await hydrateCommandeMediaThumbnails(idCommande, normalizedMedia);
+    revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
+    detailCommandeMedia.value = hydratedMedia;
+  } catch (err) {
+    revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
+    detailCommandeMedia.value = [];
+    detailCommandeMediaError.value = readableError(err);
+  } finally {
+    detailCommandeMediaLoading.value = false;
+  }
 
   detailPaiementsLoading.value = true;
   try {
@@ -7458,6 +7542,109 @@ async function loadCommandeDetail(idCommande) {
     detailError.value = detailError.value ? `${detailError.value} | ${readableError(err)}` : readableError(err);
   } finally {
     detailCommandeEventsLoading.value = false;
+  }
+}
+
+async function openCommandeMedia(item) {
+  if (!detailCommande.value?.idCommande || !item?.idMedia) return;
+  let blobUrl = item.fileBlobUrl || "";
+  try {
+    if (!blobUrl) {
+      detailCommandeMediaActionId.value = item.idMedia;
+      blobUrl = await atelierApi.getCommandeMediaFileBlobUrl(detailCommande.value.idCommande, item.idMedia);
+      const index = detailCommandeMedia.value.findIndex((row) => row.idMedia === item.idMedia);
+      if (index >= 0) {
+        detailCommandeMedia.value[index] = {
+          ...detailCommandeMedia.value[index],
+          fileBlobUrl: blobUrl
+        };
+      }
+    }
+    window.open(blobUrl, "_blank");
+  } catch (err) {
+    notify(readableError(err));
+  } finally {
+    detailCommandeMediaActionId.value = "";
+  }
+}
+
+async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD" }) {
+  if (!detailCommande.value?.idCommande || !file) return;
+  detailCommandeMediaUploading.value = true;
+  detailCommandeMediaError.value = "";
+  try {
+    const formData = new FormData();
+    formData.append("photo", file);
+    if (note) formData.append("note", note);
+    if (sourceType) formData.append("sourceType", sourceType);
+    await atelierApi.uploadCommandeMedia(detailCommande.value.idCommande, formData);
+    await loadCommandeDetail(detailCommande.value.idCommande);
+    notify(`Photo ajoutee a ${detailCommande.value.idCommande}`);
+  } catch (err) {
+    detailCommandeMediaError.value = readableError(err);
+  } finally {
+    detailCommandeMediaUploading.value = false;
+  }
+}
+
+async function setCommandeMediaPrimary(item) {
+  if (!detailCommande.value?.idCommande || !item?.idMedia) return;
+  detailCommandeMediaActionId.value = item.idMedia;
+  detailCommandeMediaError.value = "";
+  try {
+    await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, item.idMedia, { isPrimary: true });
+    await loadCommandeDetail(detailCommande.value.idCommande);
+    notify("Photo principale mise a jour");
+  } catch (err) {
+    detailCommandeMediaError.value = readableError(err);
+  } finally {
+    detailCommandeMediaActionId.value = "";
+  }
+}
+
+async function moveCommandeMedia({ media, direction = 0 }) {
+  if (!detailCommande.value?.idCommande || !media?.idMedia || !direction) return;
+  const nextPosition = Number(media.position || 1) + Number(direction || 0);
+  detailCommandeMediaActionId.value = media.idMedia;
+  detailCommandeMediaError.value = "";
+  try {
+    await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, media.idMedia, { position: nextPosition });
+    await loadCommandeDetail(detailCommande.value.idCommande);
+  } catch (err) {
+    detailCommandeMediaError.value = readableError(err);
+  } finally {
+    detailCommandeMediaActionId.value = "";
+  }
+}
+
+async function saveCommandeMediaNote({ media, note = "" }) {
+  if (!detailCommande.value?.idCommande || !media?.idMedia) return;
+  detailCommandeMediaActionId.value = media.idMedia;
+  detailCommandeMediaError.value = "";
+  try {
+    await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, media.idMedia, { note });
+    await loadCommandeDetail(detailCommande.value.idCommande);
+    notify("Note photo enregistree");
+  } catch (err) {
+    detailCommandeMediaError.value = readableError(err);
+  } finally {
+    detailCommandeMediaActionId.value = "";
+  }
+}
+
+async function deleteCommandeMedia(item) {
+  if (!detailCommande.value?.idCommande || !item?.idMedia) return;
+  if (!window.confirm("Supprimer cette photo de reference ?")) return;
+  detailCommandeMediaActionId.value = item.idMedia;
+  detailCommandeMediaError.value = "";
+  try {
+    await atelierApi.deleteCommandeMedia(detailCommande.value.idCommande, item.idMedia);
+    await loadCommandeDetail(detailCommande.value.idCommande);
+    notify("Photo supprimee");
+  } catch (err) {
+    detailCommandeMediaError.value = readableError(err);
+  } finally {
+    detailCommandeMediaActionId.value = "";
   }
 }
 
@@ -8786,6 +8973,20 @@ async function loadRetoucheDetail(idRetouche) {
               <p><strong>Solde restant:</strong> {{ formatCurrency(detailSoldeRestant) }}</p>
             </div>
           </article>
+
+          <CommandeMediaGallery
+            :items="detailCommandeMedia"
+            :loading="detailCommandeMediaLoading"
+            :error="detailCommandeMediaError"
+            :uploading="detailCommandeMediaUploading"
+            :action-id="detailCommandeMediaActionId"
+            @upload="uploadCommandeMedia"
+            @open="openCommandeMedia"
+            @remove="deleteCommandeMedia"
+            @set-primary="setCommandeMediaPrimary"
+            @move="moveCommandeMedia"
+            @save-note="saveCommandeMediaNote"
+          />
 
           <article class="panel">
             <div class="panel-header detail-panel-header">

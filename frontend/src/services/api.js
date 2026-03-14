@@ -177,6 +177,11 @@ async function fetchBlobWithAuthRetry(path, options = {}) {
   }
 }
 
+async function fetchBlobObjectUrl(path, options = {}) {
+  const blob = await fetchBlobWithAuthRetry(path, options);
+  return URL.createObjectURL(blob);
+}
+
 async function request(path, options = {}) {
   return requestWithRetry(path, options);
 }
@@ -194,7 +199,7 @@ async function requestWithRetry(path, options = {}) {
     path === "/auth/password/reset";
   const execute = async (tokenOverride = "") => {
     const baseHeaders = isAuthPublicEndpoint ? { ...(options.headers || {}) } : (await withAuthHeaders(path, options, tokenOverride)).headers;
-    if (hasBody && !baseHeaders["Content-Type"]) {
+    if (hasBody && !baseHeaders["Content-Type"] && !(options.body instanceof FormData)) {
       baseHeaders["Content-Type"] = "application/json";
     }
 
@@ -575,6 +580,50 @@ export const atelierApi = {
 
   listCommandeEvents(idCommande) {
     return request(`/commandes/${idCommande}/events`, { method: "GET" });
+  },
+
+  listCommandeMedia(idCommande) {
+    return request(`/commandes/${encodeURIComponent(idCommande)}/media`, { method: "GET" });
+  },
+
+  uploadCommandeMedia(idCommande, formData) {
+    return request(`/commandes/${encodeURIComponent(idCommande)}/media`, {
+      method: "POST",
+      body: formData
+    });
+  },
+
+  updateCommandeMedia(idCommande, idMedia, payload) {
+    return request(`/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload || {})
+    });
+  },
+
+  deleteCommandeMedia(idCommande, idMedia) {
+    return request(`/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}`, {
+      method: "DELETE"
+    });
+  },
+
+  getCommandeMediaFileUrl(idCommande, idMedia) {
+    return `${API_BASE_URL}/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}/fichier`;
+  },
+
+  getCommandeMediaThumbnailUrl(idCommande, idMedia) {
+    return `${API_BASE_URL}/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}/thumbnail`;
+  },
+
+  async getCommandeMediaFileBlobUrl(idCommande, idMedia) {
+    return fetchBlobObjectUrl(`/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}/fichier`, {
+      method: "GET"
+    });
+  },
+
+  async getCommandeMediaThumbnailBlobUrl(idCommande, idMedia) {
+    return fetchBlobObjectUrl(`/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}/thumbnail`, {
+      method: "GET"
+    });
   },
 
   listPaiementsCommande(idCommande) {

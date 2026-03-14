@@ -1,12 +1,18 @@
 import express from "express";
 import { pool } from "../../../shared/infrastructure/db.js";
 import { CommandeRepoPg } from "../../infrastructure/repositories/commande-repo-pg.js";
+import { CommandeMediaRepoPg } from "../../infrastructure/repositories/commande-media-repo-pg.js";
+import { CommandeMediaStorageLocal } from "../../infrastructure/storage/commande-media-storage-local.js";
 import { creerCommande } from "../../application/use-cases/creer-commande.js";
 import { terminerTravail } from "../../application/use-cases/terminer-travail.js";
 import { appliquerPaiement } from "../../application/use-cases/appliquer-paiement.js";
 import { enregistrerPaiementViaCaisse } from "../../application/use-cases/enregistrer-paiement-via-caisse.js";
 import { livrerCommande } from "../../application/use-cases/livrer-commande.js";
 import { annulerCommandeViaCaisse } from "../../application/use-cases/annuler-commande-via-caisse.js";
+import { listerCommandeMedia } from "../../application/use-cases/lister-commande-media.js";
+import { ajouterCommandeMedia } from "../../application/use-cases/ajouter-commande-media.js";
+import { supprimerCommandeMedia } from "../../application/use-cases/supprimer-commande-media.js";
+import { mettreAJourCommandeMedia } from "../../application/use-cases/mettre-a-jour-commande-media.js";
 import { CaisseRepoPg } from "../../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
 import { requireFields, requireNumber, validateSchema } from "../../../shared/interfaces/validation.js";
 import { generateCommandeId } from "../../../shared/domain/id-generator.js";
@@ -17,9 +23,13 @@ import { hasPermission, requireAnyPermission, requirePermission } from "../../..
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
 import { resolveCommandePolicy } from "../../domain/commande-policy.js";
+import { processCommandeMediaImage } from "../../infrastructure/storage/commande-media-image.js";
+import { cleanupCommandeMediaUpload, commandeMediaUploadSingle } from "./commande-media-upload.js";
 
 const router = express.Router();
 const commandeRepo = new CommandeRepoPg();
+const commandeMediaRepo = new CommandeMediaRepoPg();
+const commandeMediaStorage = new CommandeMediaStorageLocal();
 const parametresRepo = new AtelierParametresRepoPg();
 const requireCommandeReadAccess = requireAnyPermission([
   PERMISSIONS.VOIR_COMMANDES,
@@ -49,6 +59,10 @@ function atelierIdFromReq(req) {
 
 function scopedCommandeRepo(req) {
   return commandeRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedCommandeMediaRepo(req) {
+  return commandeMediaRepo.forAtelier(atelierIdFromReq(req));
 }
 
 function scopedParametresRepo(req) {
@@ -166,6 +180,26 @@ async function enregistrerEvenementCommande({
      VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
     [randomUUID(), atelierId, idCommande, typeEvent, JSON.stringify(eventPayload)]
   );
+}
+
+function mapCommandeMedia(row) {
+  if (!row) return null;
+  return {
+    idMedia: row.idMedia || row.id_media || "",
+    idCommande: row.idCommande || row.id_commande || "",
+    typeMedia: row.typeMedia || row.type_media || "IMAGE",
+    sourceType: row.sourceType || row.source_type || "UPLOAD",
+    nomFichierOriginal: row.nomFichierOriginal || row.nom_fichier_original || "",
+    mimeType: row.mimeType || row.mime_type || "image/webp",
+    extensionStockage: row.extensionStockage || row.extension_stockage || "webp",
+    tailleOriginaleBytes: Number(row.tailleOriginaleBytes ?? row.taille_originale_bytes ?? 0),
+    largeur: row.largeur === null || row.largeur === undefined ? null : Number(row.largeur),
+    hauteur: row.hauteur === null || row.hauteur === undefined ? null : Number(row.hauteur),
+    note: row.note || "",
+    position: Number(row.position || 1),
+    isPrimary: row.isPrimary === true || row.is_primary === true,
+    dateCreation: row.dateCreation || row.date_creation || ""
+  };
 }
 
 // List commandes
@@ -335,6 +369,210 @@ router.get("/commandes/:id/events", requireCommandeReadAccess, async (req, res) 
         dateEvent: row.date_event
       }))
     );
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/commandes/:id/media", requireCommandeReadAccess, async (req, res) => {
+  try {
+    const medias = await listerCommandeMedia({
+      idCommande: req.params.id,
+      mediaRepo: scopedCommandeMediaRepo(req)
+    });
+    res.json(medias.map(mapCommandeMedia).filter(Boolean));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/commandes/:id/media/:mediaId/fichier", requireCommandeReadAccess, async (req, res) => {
+  try {
+    const media = await scopedCommandeMediaRepo(req).getById(req.params.id, req.params.mediaId);
+    if (!media) return res.status(404).json({ error: "Media commande introuvable" });
+    const absolutePath = commandeMediaStorage.resolveStoredPath(media.cheminOriginal);
+    res.set("Cache-Control", "private, max-age=60");
+    res.type("image/webp");
+    res.sendFile(absolutePath);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/commandes/:id/media/:mediaId/thumbnail", requireCommandeReadAccess, async (req, res) => {
+  try {
+    const media = await scopedCommandeMediaRepo(req).getById(req.params.id, req.params.mediaId);
+    if (!media) return res.status(404).json({ error: "Media commande introuvable" });
+    const absolutePath = commandeMediaStorage.resolveStoredPath(media.cheminThumbnail);
+    res.set("Cache-Control", "private, max-age=300");
+    res.type("image/webp");
+    res.sendFile(absolutePath);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/commandes/:id/media", requireCommandeCreateAccess, async (req, res) => {
+  commandeMediaUploadSingle("photo")(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      await cleanupCommandeMediaUpload(req);
+      res.status(400).json({ error: uploadErr.message || "Upload photo impossible" });
+      return;
+    }
+
+    const schema = z
+      .object({
+        note: z.string().max(500).optional(),
+        sourceType: z.enum(["UPLOAD", "CAMERA"]).optional()
+      })
+      .passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) {
+      await cleanupCommandeMediaUpload(req);
+      return res.status(400).json({ error: parsed.error });
+    }
+
+    if (!req.file?.path) {
+      await cleanupCommandeMediaUpload(req);
+      return res.status(400).json({ error: "Photo obligatoire" });
+    }
+
+    try {
+      const acteur = resolveActeur(req);
+      const created = await ajouterCommandeMedia({
+        atelierId: atelierIdFromReq(req),
+        idCommande: req.params.id,
+        fichierUpload: req.file,
+        tempDir: req.commandeMediaUpload?.tempDir || "",
+        acteur,
+        mediaRepo: scopedCommandeMediaRepo(req),
+        storage: commandeMediaStorage,
+        processImage: processCommandeMediaImage,
+        note: parsed.data.note || "",
+        sourceType: parsed.data.sourceType || "UPLOAD"
+      });
+
+      await enregistrerEvenementCommande({
+        atelierId: atelierIdFromReq(req),
+        idCommande: req.params.id,
+        typeEvent: "MEDIA_COMMANDE_AJOUTEE",
+        utilisateur: acteur.utilisateur,
+        payload: {
+          utilisateurId: acteur.utilisateurId,
+          utilisateurNom: acteur.utilisateurNom,
+          role: acteur.role,
+          idMedia: created.idMedia,
+          position: created.position,
+          isPrimary: created.isPrimary
+        }
+      });
+      await enregistrerEvenementAudit({
+        utilisateurId: acteur.utilisateurId,
+        role: acteur.role,
+        atelierId: req.auth?.atelierId,
+        action: "AJOUTER_MEDIA_COMMANDE",
+        entite: "COMMANDE_MEDIA",
+        entiteId: created.idMedia,
+        payload: {
+          idCommande: req.params.id,
+          position: created.position,
+          isPrimary: created.isPrimary
+        }
+      });
+      res.status(201).json(mapCommandeMedia(created));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+});
+
+router.patch("/commandes/:id/media/:mediaId", requireCommandeCreateAccess, async (req, res) => {
+  const schema = z
+    .object({
+      note: z.string().max(500).optional(),
+      position: z.coerce.number().int().min(1).max(3).optional(),
+      isPrimary: z.boolean().optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+  try {
+    const acteur = resolveActeur(req);
+    const updated = await mettreAJourCommandeMedia({
+      atelierId: atelierIdFromReq(req),
+      idCommande: req.params.id,
+      idMedia: req.params.mediaId,
+      mediaRepo: scopedCommandeMediaRepo(req),
+      patch: parsed.data
+    });
+    await enregistrerEvenementCommande({
+      atelierId: atelierIdFromReq(req),
+      idCommande: req.params.id,
+      typeEvent: parsed.data.isPrimary === true ? "MEDIA_COMMANDE_PRINCIPALE_DEFINIE" : "MEDIA_COMMANDE_MISE_A_JOUR",
+      utilisateur: acteur.utilisateur,
+      payload: {
+        utilisateurId: acteur.utilisateurId,
+        utilisateurNom: acteur.utilisateurNom,
+        role: acteur.role,
+        idMedia: updated.idMedia,
+        position: updated.position,
+        isPrimary: updated.isPrimary
+      }
+    });
+    await enregistrerEvenementAudit({
+      utilisateurId: acteur.utilisateurId,
+      role: acteur.role,
+      atelierId: req.auth?.atelierId,
+      action: parsed.data.isPrimary === true ? "DEFINIR_MEDIA_PRINCIPAL_COMMANDE" : "METTRE_A_JOUR_MEDIA_COMMANDE",
+      entite: "COMMANDE_MEDIA",
+      entiteId: updated.idMedia,
+      payload: {
+        idCommande: req.params.id,
+        position: updated.position,
+        isPrimary: updated.isPrimary
+      }
+    });
+    res.json(mapCommandeMedia(updated));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete("/commandes/:id/media/:mediaId", requireCommandeCreateAccess, async (req, res) => {
+  try {
+    const acteur = resolveActeur(req);
+    const deleted = await supprimerCommandeMedia({
+      atelierId: atelierIdFromReq(req),
+      idCommande: req.params.id,
+      idMedia: req.params.mediaId,
+      mediaRepo: scopedCommandeMediaRepo(req),
+      storage: commandeMediaStorage
+    });
+    await enregistrerEvenementCommande({
+      atelierId: atelierIdFromReq(req),
+      idCommande: req.params.id,
+      typeEvent: "MEDIA_COMMANDE_SUPPRIMEE",
+      utilisateur: acteur.utilisateur,
+      payload: {
+        utilisateurId: acteur.utilisateurId,
+        utilisateurNom: acteur.utilisateurNom,
+        role: acteur.role,
+        idMedia: deleted.idMedia
+      }
+    });
+    await enregistrerEvenementAudit({
+      utilisateurId: acteur.utilisateurId,
+      role: acteur.role,
+      atelierId: req.auth?.atelierId,
+      action: "SUPPRIMER_MEDIA_COMMANDE",
+      entite: "COMMANDE_MEDIA",
+      entiteId: deleted.idMedia,
+      payload: {
+        idCommande: req.params.id
+      }
+    });
+    res.json({ ok: true, media: mapCommandeMedia(deleted) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
