@@ -99,6 +99,8 @@ const systemAtelierDetail = ref(null);
 const systemAtelierDetailLoading = ref(false);
 const systemAtelierDetailError = ref("");
 const systemAtelierDetailRequestId = ref(0);
+const systemOwnerActionKey = ref("");
+const systemOwnerActionError = ref("");
 const systemDashboard = ref(createEmptySystemDashboard());
 const systemDashboardLoading = ref(false);
 const systemDashboardError = ref("");
@@ -4296,6 +4298,8 @@ function closeSystemAtelierDetail() {
   systemAtelierDetail.value = null;
   systemAtelierDetailError.value = "";
   systemAtelierDetailLoading.value = false;
+  systemOwnerActionKey.value = "";
+  systemOwnerActionError.value = "";
 }
 
 async function loadSystemAtelierDetail(idAtelier, { syncGlobalError = false } = {}) {
@@ -4309,6 +4313,7 @@ async function loadSystemAtelierDetail(idAtelier, { syncGlobalError = false } = 
   systemAtelierDetailId.value = targetId;
   systemAtelierDetailLoading.value = true;
   systemAtelierDetailError.value = "";
+  systemOwnerActionError.value = "";
   try {
     const payload = await atelierApi.getSystemAtelierDetail(targetId);
     if (systemAtelierDetailRequestId.value !== requestId) return;
@@ -4453,6 +4458,106 @@ async function toggleSystemAtelierActivation(atelier) {
     systemAteliersError.value = readableError(err);
   } finally {
     systemAtelierActionId.value = "";
+  }
+}
+
+function canManageSystemAtelierOwner() {
+  return Boolean(systemAtelierDetail.value?.idAtelier && systemAtelierDetail.value?.proprietaire?.id);
+}
+
+async function toggleSystemAtelierOwnerActivation() {
+  if (!canManageSystemAtelierOwner() || systemOwnerActionKey.value) return;
+  const atelier = systemAtelierDetail.value;
+  const owner = atelier?.proprietaire;
+  const nextActif = owner?.actif !== true;
+  const confirmed = await openActionModal({
+    title: nextActif ? "Reactiver le proprietaire" : "Desactiver le proprietaire",
+    message: nextActif
+      ? `Voulez-vous reactiver ${owner?.nom || "le proprietaire"} pour ${atelier?.nom || "cet atelier"} ?`
+      : `Voulez-vous desactiver ${owner?.nom || "le proprietaire"} ? Ses sessions seront revoquees.`,
+    confirmLabel: nextActif ? "Reactiver" : "Desactiver",
+    cancelLabel: "Annuler",
+    tone: nextActif ? "green" : "red"
+  });
+  if (!confirmed) return;
+
+  systemOwnerActionKey.value = "activation";
+  systemOwnerActionError.value = "";
+  try {
+    await atelierApi.setSystemAtelierOwnerActivation(atelier.idAtelier, nextActif);
+    await loadSystemAtelierDetail(atelier.idAtelier);
+    await loadSystemDashboard();
+    notify(`Proprietaire ${nextActif ? "reactive" : "desactive"} pour ${atelier.nom}.`);
+  } catch (err) {
+    systemOwnerActionError.value = readableError(err);
+  } finally {
+    systemOwnerActionKey.value = "";
+  }
+}
+
+async function resetSystemAtelierOwnerPassword() {
+  if (!canManageSystemAtelierOwner() || systemOwnerActionKey.value) return;
+  const atelier = systemAtelierDetail.value;
+  const owner = atelier?.proprietaire;
+  const payload = await openActionModal({
+    title: "Reinitialiser le mot de passe",
+    message: `Definis un nouveau mot de passe pour ${owner?.nom || "le proprietaire"} de ${atelier?.nom || "cet atelier"}.`,
+    confirmLabel: "Reinitialiser",
+    cancelLabel: "Annuler",
+    tone: "blue",
+    fields: [
+      {
+        key: "motDePasse",
+        label: "Nouveau mot de passe",
+        type: "password",
+        required: true
+      }
+    ]
+  });
+  if (!payload) return;
+
+  const passwordError = getPasswordPolicyError(payload.motDePasse);
+  if (passwordError) {
+    systemOwnerActionError.value = passwordError;
+    return;
+  }
+
+  systemOwnerActionKey.value = "password";
+  systemOwnerActionError.value = "";
+  try {
+    await atelierApi.resetSystemAtelierOwnerPassword(atelier.idAtelier, payload.motDePasse);
+    await loadSystemAtelierDetail(atelier.idAtelier);
+    notify(`Mot de passe reinitialise pour ${owner?.nom || "le proprietaire"}.`);
+  } catch (err) {
+    systemOwnerActionError.value = readableError(err);
+  } finally {
+    systemOwnerActionKey.value = "";
+  }
+}
+
+async function revokeSystemAtelierOwnerSessions() {
+  if (!canManageSystemAtelierOwner() || systemOwnerActionKey.value) return;
+  const atelier = systemAtelierDetail.value;
+  const owner = atelier?.proprietaire;
+  const confirmed = await openActionModal({
+    title: "Revoquer les sessions",
+    message: `Voulez-vous couper les sessions actives de ${owner?.nom || "le proprietaire"} ?`,
+    confirmLabel: "Couper les sessions",
+    cancelLabel: "Annuler",
+    tone: "red"
+  });
+  if (!confirmed) return;
+
+  systemOwnerActionKey.value = "sessions";
+  systemOwnerActionError.value = "";
+  try {
+    const payload = await atelierApi.revokeSystemAtelierOwnerSessions(atelier.idAtelier);
+    await loadSystemAtelierDetail(atelier.idAtelier);
+    notify(`${Number(payload?.revokedSessions || 0)} session(s) revoquee(s) pour ${owner?.nom || "le proprietaire"}.`);
+  } catch (err) {
+    systemOwnerActionError.value = readableError(err);
+  } finally {
+    systemOwnerActionKey.value = "";
   }
 }
 
@@ -4867,7 +4972,17 @@ function normalizeSystemAtelierDetail(raw) {
           nom: String(raw.proprietaire.nom || "").trim(),
           email: String(raw.proprietaire.email || "").trim(),
           actif: raw.proprietaire.actif !== false,
-          etatCompte: String(raw.proprietaire.etatCompte || raw.proprietaire.etat_compte || "ACTIVE").trim().toUpperCase()
+          etatCompte: String(raw.proprietaire.etatCompte || raw.proprietaire.etat_compte || "ACTIVE").trim().toUpperCase(),
+          sessions: {
+            totalActives: Number(raw?.proprietaire?.sessions?.totalActives ?? raw?.proprietaire?.sessions?.total_actives ?? 0),
+            lastSessionAt: raw?.proprietaire?.sessions?.lastSessionAt || raw?.proprietaire?.sessions?.last_session_at || "",
+            recentSessions: Array.isArray(raw?.proprietaire?.sessions?.recentSessions)
+              ? raw.proprietaire.sessions.recentSessions.map((session) => ({
+                  createdAt: session?.createdAt || session?.created_at || "",
+                  expiresAt: session?.expiresAt || session?.expire_at || ""
+                }))
+              : []
+          }
         }
       : null,
     stats: {
@@ -4953,7 +5068,12 @@ function buildSystemAtelierDetailFallback(raw) {
           nom: atelier.proprietaire.nom || "",
           email: atelier.proprietaire.email || "",
           actif: true,
-          etatCompte: "ACTIVE"
+          etatCompte: "ACTIVE",
+          sessions: {
+            totalActives: 0,
+            lastSessionAt: "",
+            recentSessions: []
+          }
         }
       : null,
     stats: {
@@ -7331,10 +7451,15 @@ async function loadRetoucheDetail(idRetouche) {
           :detail-loading="systemAtelierDetailLoading"
           :detail-error="systemAtelierDetailError"
           :action-id="systemAtelierActionId"
+          :owner-action-key="systemOwnerActionKey"
+          :owner-action-error="systemOwnerActionError"
           :format-date-time="formatDateTime"
           @back="returnToSystemAteliers"
           @refresh="refreshSystemAtelierDetail"
           @toggle-activation="toggleSystemAtelierActivation"
+          @toggle-owner-activation="toggleSystemAtelierOwnerActivation"
+          @reset-owner-password="resetSystemAtelierOwnerPassword"
+          @revoke-owner-sessions="revokeSystemAtelierOwnerSessions"
         />
 
         <section v-if="currentRoute === 'dashboard'" class="dashboard classic-dashboard">

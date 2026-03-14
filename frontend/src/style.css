@@ -1008,6 +1008,55 @@ body {
   gap: 10px;
 }
 
+.system-owner-admin {
+  margin-top: 18px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.system-owner-admin-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.system-owner-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.system-owner-admin-grid > div,
+.system-owner-session-item > div {
+  display: grid;
+  gap: 4px;
+}
+
+.system-owner-sessions {
+  display: grid;
+  gap: 10px;
+}
+
+.system-owner-session-list {
+  display: grid;
+  gap: 10px;
+}
+
+.system-owner-session-item {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
 .system-activity-list {
   display: grid;
   gap: 10px;
@@ -1957,6 +2006,8 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .system-owner-admin-grid,
+  .system-owner-session-item,
   .system-recent-meta,
   .system-atelier-health-grid {
     grid-template-columns: 1fr;

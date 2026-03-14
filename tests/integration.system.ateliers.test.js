@@ -147,12 +147,68 @@ async function run() {
   const ownerToken = String(ownerLogin.body?.token || "");
   assert.ok(ownerToken, "token owner atelier cree manquant");
 
-  const ownerSystemList = await withAuth(client.get("/api/system/ateliers"), ownerToken);
+  const detailWithSessions = await withAuth(client.get(`/api/system/ateliers/${encodeURIComponent(atelierId)}`), managerToken);
+  assert.equal(detailWithSessions.status, 200, "detail atelier apres login owner doit repondre 200");
+  assert.equal(Number(detailWithSessions.body?.proprietaire?.sessions?.totalActives || 0) >= 1, true, "sessions proprietaire detail systeme incorrectes");
+  assert.equal(Array.isArray(detailWithSessions.body?.proprietaire?.sessions?.recentSessions), true, "recentSessions proprietaire detail systeme incorrect");
+
+  const revokeSessions = await withAuth(client.post(`/api/system/ateliers/${encodeURIComponent(atelierId)}/proprietaire/revoke-sessions`), managerToken);
+  assert.equal(revokeSessions.status, 200, "revocation sessions proprietaire doit repondre 200");
+  assert.equal(Number(revokeSessions.body?.revokedSessions || 0) >= 1, true, "revocation sessions proprietaire incorrecte");
+
+  const detailAfterSessionRevoke = await withAuth(client.get(`/api/system/ateliers/${encodeURIComponent(atelierId)}`), managerToken);
+  assert.equal(Number(detailAfterSessionRevoke.body?.proprietaire?.sessions?.totalActives || 0), 0, "sessions proprietaire doivent etre coupees");
+
+  const ownerPasswordV2 = "Passw0rd!OwnerTenantV2";
+  const resetOwnerPassword = await withAuth(
+    client.post(`/api/system/ateliers/${encodeURIComponent(atelierId)}/proprietaire/reset-password`),
+    managerToken
+  ).send({ motDePasse: ownerPasswordV2 });
+  assert.equal(resetOwnerPassword.status, 200, "reset mot de passe proprietaire doit repondre 200");
+
+  const ownerLoginWithOldPassword = await client.post("/api/auth/login").send({
+    email: ownerEmail,
+    motDePasse: ownerPassword,
+    atelierSlug: slug
+  });
+  assert.equal(ownerLoginWithOldPassword.status, 401, "ancien mot de passe proprietaire doit etre refuse");
+
+  const ownerLoginWithNewPassword = await client.post("/api/auth/login").send({
+    email: ownerEmail,
+    motDePasse: ownerPasswordV2,
+    atelierSlug: slug
+  });
+  assert.equal(ownerLoginWithNewPassword.status, 200, "nouveau mot de passe proprietaire doit fonctionner");
+  const ownerTokenAfterReset = String(ownerLoginWithNewPassword.body?.token || "");
+  assert.ok(ownerTokenAfterReset, "token proprietaire apres reset manquant");
+
+  const ownerSystemList = await withAuth(client.get("/api/system/ateliers"), ownerTokenAfterReset);
   assert.equal(ownerSystemList.status, 403, "owner tenant ne doit pas acceder aux routes systeme");
-  const ownerSystemDashboard = await withAuth(client.get("/api/system/dashboard"), ownerToken);
+  const ownerSystemDashboard = await withAuth(client.get("/api/system/dashboard"), ownerTokenAfterReset);
   assert.equal(ownerSystemDashboard.status, 403, "owner tenant ne doit pas acceder au dashboard systeme");
-  const ownerSystemDetail = await withAuth(client.get(`/api/system/ateliers/${encodeURIComponent(atelierId)}`), ownerToken);
+  const ownerSystemDetail = await withAuth(client.get(`/api/system/ateliers/${encodeURIComponent(atelierId)}`), ownerTokenAfterReset);
   assert.equal(ownerSystemDetail.status, 403, "owner tenant ne doit pas acceder au detail systeme");
+
+  const deactivateOwner = await withAuth(
+    client.patch(`/api/system/ateliers/${encodeURIComponent(atelierId)}/proprietaire/activation`),
+    managerToken
+  ).send({ actif: false });
+  assert.equal(deactivateOwner.status, 200, "desactivation proprietaire par manager systeme doit repondre 200");
+  assert.equal(deactivateOwner.body?.proprietaire?.actif, false, "etat proprietaire desactive incorrect");
+
+  const detailAfterOwnerDeactivate = await withAuth(client.get(`/api/system/ateliers/${encodeURIComponent(atelierId)}`), managerToken);
+  assert.equal(detailAfterOwnerDeactivate.body?.proprietaire?.actif, false, "detail proprietaire desactive incorrect");
+  assert.equal(detailAfterOwnerDeactivate.body?.proprietaire?.etatCompte, ACCOUNT_STATES.DISABLED, "etat compte proprietaire desactive incorrect");
+
+  const meAfterOwnerDeactivate = await client.get("/api/auth/me").set("Authorization", `Bearer ${ownerTokenAfterReset}`);
+  assert.equal(meAfterOwnerDeactivate.status, 401, "session proprietaire desactive doit etre refusee");
+
+  const reactivateOwner = await withAuth(
+    client.patch(`/api/system/ateliers/${encodeURIComponent(atelierId)}/proprietaire/activation`),
+    managerToken
+  ).send({ actif: true });
+  assert.equal(reactivateOwner.status, 200, "reactivation proprietaire par manager systeme doit repondre 200");
+  assert.equal(reactivateOwner.body?.proprietaire?.actif, true, "etat proprietaire reactive incorrect");
 
   const deactivateSystemAtelier = await withAuth(client.patch("/api/system/ateliers/SYSTEME/activation"), managerToken).send({ actif: false });
   assert.equal(deactivateSystemAtelier.status, 400, "atelier systeme reserve ne doit pas etre desactivable");
@@ -187,20 +243,13 @@ async function run() {
   assert.equal(meAfterDeactivate.status, 401, "session owner atelier inactif doit etre refusee");
   assert.equal(meAfterDeactivate.body?.error, "Atelier inactif");
 
-  const ownerLoginAfterDeactivate = await client.post("/api/auth/login").send({
-    email: ownerEmail,
-    motDePasse: ownerPassword,
-    atelierSlug: slug
-  });
-  assert.equal(ownerLoginAfterDeactivate.status, 401, "login atelier inactif doit etre refuse");
-
   const reactivate = await withAuth(client.patch(`/api/system/ateliers/${encodeURIComponent(atelierId)}/activation`), managerToken).send({ actif: true });
   assert.equal(reactivate.status, 200, "reactivation atelier doit repondre 200");
   assert.equal(reactivate.body?.actif, true, "etat atelier reactive incorrect");
 
   const ownerLoginAfterReactivate = await client.post("/api/auth/login").send({
     email: ownerEmail,
-    motDePasse: ownerPassword,
+    motDePasse: ownerPasswordV2,
     atelierSlug: slug
   });
   assert.equal(ownerLoginAfterReactivate.status, 200, "login atelier reactive doit repondre 200");

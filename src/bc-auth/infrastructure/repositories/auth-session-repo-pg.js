@@ -69,4 +69,54 @@ export class AuthSessionRepoPg {
       [token]
     );
   }
+
+  async listActiveByUtilisateurId(utilisateurId, { limit = 5 } = {}) {
+    const userId = String(utilisateurId || "");
+    const safeLimit = Math.max(1, Math.min(20, Number(limit || 5)));
+    await ensureSchema();
+    const result = await pool.query(
+      `SELECT refresh_token, utilisateur_id, expire_at, revoked_at, date_creation
+       FROM auth_session
+       WHERE utilisateur_id = $1
+         AND revoked_at IS NULL
+         AND expire_at > NOW()
+       ORDER BY date_creation DESC
+       LIMIT $2`,
+      [userId, safeLimit]
+    );
+    return result.rows.map((row) => ({
+      refreshToken: row.refresh_token,
+      utilisateurId: row.utilisateur_id,
+      expiresAt: new Date(row.expire_at).toISOString(),
+      revokedAt: row.revoked_at ? new Date(row.revoked_at).toISOString() : null,
+      createdAt: row.date_creation ? new Date(row.date_creation).toISOString() : null
+    }));
+  }
+
+  async countActiveByUtilisateurId(utilisateurId) {
+    const userId = String(utilisateurId || "");
+    await ensureSchema();
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS total
+       FROM auth_session
+       WHERE utilisateur_id = $1
+         AND revoked_at IS NULL
+         AND expire_at > NOW()`,
+      [userId]
+    );
+    return Number(result.rows[0]?.total || 0);
+  }
+
+  async revokeByUtilisateurId(utilisateurId) {
+    const userId = String(utilisateurId || "");
+    await ensureSchema();
+    const result = await pool.query(
+      `UPDATE auth_session
+       SET revoked_at = NOW()
+       WHERE utilisateur_id = $1
+         AND revoked_at IS NULL`,
+      [userId]
+    );
+    return Number(result.rowCount || 0);
+  }
 }

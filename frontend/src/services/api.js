@@ -443,6 +443,26 @@ export const atelierApi = {
     return request(`/system/ateliers/${encodeURIComponent(idAtelier)}`, { method: "GET" });
   },
 
+  setSystemAtelierOwnerActivation(idAtelier, actif) {
+    return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/proprietaire/activation`, {
+      method: "PATCH",
+      body: JSON.stringify({ actif: actif !== false })
+    });
+  },
+
+  resetSystemAtelierOwnerPassword(idAtelier, motDePasse) {
+    return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/proprietaire/reset-password`, {
+      method: "POST",
+      body: JSON.stringify({ motDePasse: String(motDePasse || "") })
+    });
+  },
+
+  revokeSystemAtelierOwnerSessions(idAtelier) {
+    return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/proprietaire/revoke-sessions`, {
+      method: "POST"
+    });
+  },
+
   setSystemAtelierActivation(idAtelier, actif) {
     return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/activation`, {
       method: "PATCH",

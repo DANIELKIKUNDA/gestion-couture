@@ -50,10 +50,12 @@ defineProps({
   detailLoading: { type: Boolean, default: false },
   detailError: { type: String, default: "" },
   actionId: { type: String, default: "" },
+  ownerActionKey: { type: String, default: "" },
+  ownerActionError: { type: String, default: "" },
   formatDateTime: { type: Function, required: true }
 });
 
-const emit = defineEmits(["back", "refresh", "toggle-activation"]);
+const emit = defineEmits(["back", "refresh", "toggle-activation", "toggle-owner-activation", "reset-owner-password", "revoke-owner-sessions"]);
 </script>
 
 <template>
@@ -152,6 +154,79 @@ const emit = defineEmits(["back", "refresh", "toggle-activation"]);
             <div>
               <span class="helper">Evenements 30 jours</span>
               <strong>{{ detail.health.eventsLast30Days ?? 0 }}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="detail.proprietaire" class="system-owner-admin">
+          <div class="system-owner-admin-head">
+            <div>
+              <h4>Administration proprietaire</h4>
+              <p class="helper">{{ detail.proprietaire.nom || "Proprietaire" }} <span v-if="detail.proprietaire.email">/ {{ detail.proprietaire.email }}</span></p>
+            </div>
+            <span class="status-pill" :data-tone="detail.proprietaire.actif ? 'ok' : 'due'">
+              {{ detail.proprietaire.actif ? "Compte actif" : "Compte inactif" }}
+            </span>
+          </div>
+
+          <div class="system-owner-admin-grid">
+            <div>
+              <span class="helper">Etat du compte</span>
+              <strong>{{ detail.proprietaire.etatCompte || "ACTIVE" }}</strong>
+            </div>
+            <div>
+              <span class="helper">Sessions actives</span>
+              <strong>{{ detail.proprietaire.sessions?.totalActives ?? 0 }}</strong>
+            </div>
+            <div>
+              <span class="helper">Derniere session connue</span>
+              <strong>{{ detail.proprietaire.sessions?.lastSessionAt ? formatDateTime(detail.proprietaire.sessions.lastSessionAt) : "Aucune" }}</strong>
+            </div>
+          </div>
+
+          <div class="row-actions">
+            <button class="mini-btn" :disabled="ownerActionKey === 'activation'" @click="emit('toggle-owner-activation')">
+              {{
+                ownerActionKey === "activation"
+                  ? "Traitement..."
+                  : detail.proprietaire.actif
+                    ? "Desactiver le proprietaire"
+                    : "Reactiver le proprietaire"
+              }}
+            </button>
+            <button class="mini-btn" :disabled="ownerActionKey === 'password'" @click="emit('reset-owner-password')">
+              {{ ownerActionKey === "password" ? "Traitement..." : "Reinitialiser le mot de passe" }}
+            </button>
+            <button class="mini-btn" :disabled="ownerActionKey === 'sessions'" @click="emit('revoke-owner-sessions')">
+              {{ ownerActionKey === "sessions" ? "Traitement..." : "Couper les sessions" }}
+            </button>
+          </div>
+
+          <p v-if="ownerActionError" class="auth-error">{{ ownerActionError }}</p>
+
+          <div v-if="Array.isArray(detail.proprietaire.sessions?.recentSessions)" class="system-owner-sessions">
+            <div class="detail-panel-header">
+              <h4>Sessions recentes</h4>
+              <span class="helper">{{ detail.proprietaire.sessions?.recentSessions?.length || 0 }} session(s)</span>
+            </div>
+            <div v-if="detail.proprietaire.sessions.recentSessions.length === 0" class="helper">
+              Aucune session active connue pour ce proprietaire.
+            </div>
+            <div v-else class="system-owner-session-list">
+              <article
+                v-for="(session, index) in detail.proprietaire.sessions.recentSessions"
+                :key="`${session.createdAt || 'session'}-${index}`"
+                class="system-owner-session-item"
+              >
+                <div>
+                  <span class="helper">Ouverture</span>
+                  <strong>{{ session.createdAt ? formatDateTime(session.createdAt) : "Inconnue" }}</strong>
+                </div>
+                <div>
+                  <span class="helper">Expiration</span>
+                  <strong>{{ session.expiresAt ? formatDateTime(session.expiresAt) : "Inconnue" }}</strong>
+                </div>
+              </article>
             </div>
           </div>
         </div>

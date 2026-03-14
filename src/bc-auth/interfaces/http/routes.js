@@ -176,7 +176,12 @@ function mapSystemAtelierDetailRow(row) {
           nom: row.proprietaire_nom || "",
           email: row.proprietaire_email || "",
           actif: row.proprietaire_actif !== false,
-          etatCompte: normalizeAccountState(row.proprietaire_etat_compte || (row.proprietaire_actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE))
+          etatCompte: normalizeAccountState(row.proprietaire_etat_compte || (row.proprietaire_actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
+          sessions: {
+            totalActives: 0,
+            lastSessionAt: null,
+            recentSessions: []
+          }
         }
       : null,
     stats: {
@@ -192,6 +197,62 @@ function mapSystemAtelierDetailRow(row) {
       eventsLast30Days: 0
     },
     recentActivity: []
+  };
+}
+
+function mapAuthSessionRow(row) {
+  if (!row) return null;
+  return {
+    createdAt: row.createdAt || row.created_at || null,
+    expiresAt: row.expiresAt || row.expire_at || null
+  };
+}
+
+async function resolveSystemAtelierOwner(atelierId) {
+  const normalizedAtelierId = String(atelierId || "").trim();
+  if (!normalizedAtelierId) return null;
+  if (normalizedAtelierId.toUpperCase() === SYSTEM_ATELIER_ID) return null;
+
+  const result = await pool.query(
+    `SELECT a.id_atelier,
+            a.nom,
+            a.slug,
+            owner.id_utilisateur AS proprietaire_id,
+            owner.nom AS proprietaire_nom,
+            owner.email AS proprietaire_email,
+            owner.actif AS proprietaire_actif,
+            owner.etat_compte AS proprietaire_etat_compte
+     FROM ateliers a
+     LEFT JOIN LATERAL (
+       SELECT u.id_utilisateur, u.nom, u.email, u.actif, u.etat_compte, u.role_id
+       FROM utilisateurs u
+       WHERE u.atelier_id = a.id_atelier
+         AND UPPER(u.role_id) = 'PROPRIETAIRE'
+       ORDER BY u.date_creation ASC
+       LIMIT 1
+     ) owner ON true
+     WHERE a.id_atelier = $1
+       AND a.id_atelier <> $2
+     LIMIT 1`,
+    [normalizedAtelierId, SYSTEM_ATELIER_ID]
+  );
+
+  const row = result.rows[0] || null;
+  if (!row || !row.proprietaire_id) return null;
+
+  return {
+    atelierId: row.id_atelier,
+    atelierNom: row.nom || "",
+    atelierSlug: row.slug || "",
+    proprietaire: {
+      id: row.proprietaire_id,
+      nom: row.proprietaire_nom || "",
+      email: row.proprietaire_email || "",
+      actif: row.proprietaire_actif !== false,
+      etatCompte: normalizeAccountState(
+        row.proprietaire_etat_compte || (row.proprietaire_actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)
+      )
+    }
   };
 }
 
@@ -1070,6 +1131,17 @@ router.get("/system/ateliers/:id", requireSystemManager, async (req, res) => {
     const lastEventAt = healthRow.last_event_at || null;
     const eventsLast7Days = Number(healthRow.events_last_7_days || 0);
     const eventsLast30Days = Number(healthRow.events_last_30_days || 0);
+    if (detail.proprietaire?.id) {
+      const [activeSessions, totalActives] = await Promise.all([
+        authSessionRepo.listActiveByUtilisateurId(detail.proprietaire.id, { limit: 5 }),
+        authSessionRepo.countActiveByUtilisateurId(detail.proprietaire.id)
+      ]);
+      detail.proprietaire.sessions = {
+        totalActives,
+        lastSessionAt: activeSessions[0]?.createdAt || null,
+        recentSessions: activeSessions.map(mapAuthSessionRow).filter(Boolean)
+      };
+    }
     detail.health = {
       signal: detail.actif ? (lastEventAt ? "ok" : "idle") : "warning",
       message: detail.actif
@@ -1082,6 +1154,126 @@ router.get("/system/ateliers/:id", requireSystemManager, async (req, res) => {
       eventsLast30Days
     };
     res.json(detail);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch("/system/ateliers/:id/proprietaire/activation", requireSystemManager, async (req, res) => {
+  try {
+    const schema = z.object({ actif: z.boolean() }).passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const ownerContext = await resolveSystemAtelierOwner(req.params.id);
+    if (!ownerContext) return res.status(404).json({ error: "Proprietaire introuvable" });
+
+    const targetState = parsed.data.actif ? ACCOUNT_STATES.ACTIVE : ACCOUNT_STATES.DISABLED;
+    const user = await changerStatutUtilisateur({
+      utilisateurRepo,
+      id: ownerContext.proprietaire.id,
+      etatCompte: targetState
+    });
+
+    let revokedSessions = 0;
+    if (parsed.data.actif === false) {
+      revokedSessions = await authSessionRepo.revokeByUtilisateurId(user.id);
+    }
+
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: ownerContext.atelierId,
+      action: parsed.data.actif ? "SYSTEM_OWNER_ACTIVATED" : "SYSTEM_OWNER_DEACTIVATED",
+      entite: "system/ateliers/proprietaire",
+      entiteId: user.id,
+      succes: true,
+      details: {
+        atelierNom: ownerContext.atelierNom,
+        proprietaireEmail: user.email || ownerContext.proprietaire.email || null,
+        revokedSessions
+      }
+    });
+
+    res.json({
+      proprietaire: await withPermissions(user),
+      revokedSessions
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/system/ateliers/:id/proprietaire/reset-password", requireSystemManager, async (req, res) => {
+  try {
+    const schema = z.object({ motDePasse: z.string().min(8) }).passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const ownerContext = await resolveSystemAtelierOwner(req.params.id);
+    if (!ownerContext) return res.status(404).json({ error: "Proprietaire introuvable" });
+
+    validatePasswordPolicy(parsed.data.motDePasse);
+    const current = await utilisateurRepo.getById(ownerContext.proprietaire.id);
+    if (!current) return res.status(404).json({ error: "Proprietaire introuvable" });
+
+    const updated = await utilisateurRepo.save({
+      ...current,
+      motDePasseHash: hashPassword(parsed.data.motDePasse),
+      tokenVersion: Number(current.tokenVersion || 1) + 1
+    });
+    const revokedSessions = await authSessionRepo.revokeByUtilisateurId(updated.id);
+
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: ownerContext.atelierId,
+      action: "SYSTEM_OWNER_PASSWORD_RESET",
+      entite: "system/ateliers/proprietaire/password",
+      entiteId: updated.id,
+      succes: true,
+      details: {
+        atelierNom: ownerContext.atelierNom,
+        proprietaireEmail: updated.email || ownerContext.proprietaire.email || null,
+        revokedSessions
+      }
+    });
+
+    res.json({
+      proprietaire: await withPermissions(updated),
+      revokedSessions
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/system/ateliers/:id/proprietaire/revoke-sessions", requireSystemManager, async (req, res) => {
+  try {
+    const ownerContext = await resolveSystemAtelierOwner(req.params.id);
+    if (!ownerContext) return res.status(404).json({ error: "Proprietaire introuvable" });
+
+    const revokedSessions = await authSessionRepo.revokeByUtilisateurId(ownerContext.proprietaire.id);
+
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: ownerContext.atelierId,
+      action: "SYSTEM_OWNER_SESSIONS_REVOKED",
+      entite: "system/ateliers/proprietaire/sessions",
+      entiteId: ownerContext.proprietaire.id,
+      succes: true,
+      details: {
+        atelierNom: ownerContext.atelierNom,
+        proprietaireEmail: ownerContext.proprietaire.email || null,
+        revokedSessions
+      }
+    });
+
+    res.json({
+      proprietaireId: ownerContext.proprietaire.id,
+      revokedSessions
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
