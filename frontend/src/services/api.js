@@ -463,6 +463,26 @@ export const atelierApi = {
     });
   },
 
+  setSystemAtelierUserRole(idAtelier, userId, roleId) {
+    return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/utilisateurs/${encodeURIComponent(userId)}/role`, {
+      method: "PATCH",
+      body: JSON.stringify({ roleId: String(roleId || "") })
+    });
+  },
+
+  reactivateSystemAtelierUser(idAtelier, userId) {
+    return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/utilisateurs/${encodeURIComponent(userId)}/reactivation`, {
+      method: "POST"
+    });
+  },
+
+  createSystemAtelierOwner(idAtelier, input) {
+    return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/proprietaires`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  },
+
   setSystemAtelierActivation(idAtelier, actif) {
     return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/activation`, {
       method: "PATCH",

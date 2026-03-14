@@ -5,6 +5,10 @@ function formatActivityAction(value) {
     SYSTEM_ATELIER_CREATED: "Atelier cree",
     SYSTEM_ATELIER_ACTIVATED: "Atelier reactive",
     SYSTEM_ATELIER_DEACTIVATED: "Atelier desactive",
+    SYSTEM_USER_REACTIVATED: "Utilisateur reactive",
+    SYSTEM_USER_PROMOTED_TO_OWNER: "Promotion en proprietaire",
+    SYSTEM_OWNER_DEMOTED: "Retrogradation proprietaire",
+    SYSTEM_OWNER_CREATED: "Proprietaire cree",
     CREER_COMMANDE: "Commande creee",
     TERMINER_COMMANDE: "Commande terminee",
     PAYER_COMMANDE: "Paiement commande",
@@ -28,7 +32,10 @@ function formatActivityEntity(value) {
     COMMANDE: "Commande",
     RETOUCHE: "Retouche",
     CAISSE_JOUR: "Caisse",
-    "SYSTEM/ATELIERS": "Administration systeme"
+    "SYSTEM/ATELIERS": "Administration systeme",
+    "SYSTEM/ATELIERS/UTILISATEURS/ROLE": "Recuperation atelier",
+    "SYSTEM/ATELIERS/UTILISATEURS/REACTIVATION": "Recuperation atelier",
+    "SYSTEM/ATELIERS/PROPRIETAIRES": "Recuperation atelier"
   };
   return labels[key] || String(value || "Activite");
 }
@@ -44,6 +51,11 @@ function healthSignalLabel(value) {
   return "A surveiller";
 }
 
+function recoveryUsers(detail, predicate) {
+  const users = Array.isArray(detail?.utilisateurs) ? detail.utilisateurs : [];
+  return users.filter((user) => (typeof predicate === "function" ? predicate(user) : true));
+}
+
 defineProps({
   selectedAtelierId: { type: String, default: "" },
   detail: { type: Object, default: null },
@@ -52,10 +64,23 @@ defineProps({
   actionId: { type: String, default: "" },
   ownerActionKey: { type: String, default: "" },
   ownerActionError: { type: String, default: "" },
+  recoveryActionKey: { type: String, default: "" },
+  recoveryActionError: { type: String, default: "" },
   formatDateTime: { type: Function, required: true }
 });
 
-const emit = defineEmits(["back", "refresh", "toggle-activation", "toggle-owner-activation", "reset-owner-password", "revoke-owner-sessions"]);
+const emit = defineEmits([
+  "back",
+  "refresh",
+  "toggle-activation",
+  "toggle-owner-activation",
+  "reset-owner-password",
+  "revoke-owner-sessions",
+  "promote-user-to-owner",
+  "reactivate-user",
+  "create-owner",
+  "demote-owner"
+]);
 </script>
 
 <template>
@@ -225,6 +250,72 @@ const emit = defineEmits(["back", "refresh", "toggle-activation", "toggle-owner-
                 <div>
                   <span class="helper">Expiration</span>
                   <strong>{{ session.expiresAt ? formatDateTime(session.expiresAt) : "Inconnue" }}</strong>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+
+        <div class="system-recovery-admin">
+          <div class="system-owner-admin-head">
+            <div>
+              <h4>Recuperation atelier</h4>
+              <p class="helper">Secours minimal pour reprendre la main sur l'atelier sans quitter ce detail.</p>
+            </div>
+            <span class="status-pill" data-tone="ok">Manager systeme</span>
+          </div>
+
+          <div class="system-owner-admin-grid">
+            <div>
+              <span class="helper">Utilisateurs atelier</span>
+              <strong>{{ Array.isArray(detail.utilisateurs) ? detail.utilisateurs.length : 0 }}</strong>
+            </div>
+            <div>
+              <span class="helper">Proprietaires</span>
+              <strong>{{ recoveryUsers(detail, (user) => user.roleId === "PROPRIETAIRE").length }}</strong>
+            </div>
+            <div>
+              <span class="helper">Utilisateurs inactifs</span>
+              <strong>{{ recoveryUsers(detail, (user) => user.actif !== true || user.etatCompte !== "ACTIVE").length }}</strong>
+            </div>
+          </div>
+
+          <div class="row-actions">
+            <button class="mini-btn" :disabled="recoveryActionKey === 'promote'" @click="emit('promote-user-to-owner')">
+              {{ recoveryActionKey === "promote" ? "Traitement..." : "Promouvoir en proprietaire" }}
+            </button>
+            <button class="mini-btn" :disabled="recoveryActionKey === 'reactivate'" @click="emit('reactivate-user')">
+              {{ recoveryActionKey === "reactivate" ? "Traitement..." : "Reactiver un utilisateur" }}
+            </button>
+            <button class="mini-btn" :disabled="recoveryActionKey === 'create-owner'" @click="emit('create-owner')">
+              {{ recoveryActionKey === "create-owner" ? "Traitement..." : "Creer un proprietaire" }}
+            </button>
+            <button class="mini-btn" :disabled="recoveryActionKey === 'demote'" @click="emit('demote-owner')">
+              {{ recoveryActionKey === "demote" ? "Traitement..." : "Retrograder un proprietaire" }}
+            </button>
+          </div>
+
+          <p v-if="recoveryActionError" class="auth-error">{{ recoveryActionError }}</p>
+
+          <div v-if="Array.isArray(detail.utilisateurs)" class="system-recovery-users">
+            <div class="detail-panel-header">
+              <h4>Utilisateurs atelier</h4>
+              <span class="helper">{{ detail.utilisateurs.length }} compte(s)</span>
+            </div>
+            <div v-if="detail.utilisateurs.length === 0" class="helper">Aucun utilisateur rattache a cet atelier.</div>
+            <div v-else class="system-recovery-user-list">
+              <article v-for="user in detail.utilisateurs" :key="user.id" class="system-recovery-user-item">
+                <div>
+                  <strong>{{ user.nom || "Utilisateur" }}</strong>
+                  <span class="helper" v-if="user.email">{{ user.email }}</span>
+                </div>
+                <div>
+                  <span class="helper">Role</span>
+                  <strong>{{ user.roleId || "-" }}</strong>
+                </div>
+                <div>
+                  <span class="helper">Statut</span>
+                  <strong>{{ user.actif ? user.etatCompte || "ACTIVE" : "DISABLED" }}</strong>
                 </div>
               </article>
             </div>

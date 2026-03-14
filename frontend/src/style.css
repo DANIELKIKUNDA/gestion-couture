@@ -1037,6 +1037,41 @@ body {
   gap: 4px;
 }
 
+.system-recovery-admin {
+  margin-top: 18px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.system-recovery-users {
+  display: grid;
+  gap: 10px;
+}
+
+.system-recovery-user-list {
+  display: grid;
+  gap: 10px;
+}
+
+.system-recovery-user-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 0.8fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
+.system-recovery-user-item > div {
+  display: grid;
+  gap: 4px;
+}
+
 .system-owner-sessions {
   display: grid;
   gap: 10px;
@@ -2007,6 +2042,7 @@ textarea:focus-visible {
   }
 
   .system-owner-admin-grid,
+  .system-recovery-user-item,
   .system-owner-session-item,
   .system-recent-meta,
   .system-atelier-health-grid {

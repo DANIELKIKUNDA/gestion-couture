@@ -101,6 +101,8 @@ const systemAtelierDetailError = ref("");
 const systemAtelierDetailRequestId = ref(0);
 const systemOwnerActionKey = ref("");
 const systemOwnerActionError = ref("");
+const systemRecoveryActionKey = ref("");
+const systemRecoveryActionError = ref("");
 const systemDashboard = ref(createEmptySystemDashboard());
 const systemDashboardLoading = ref(false);
 const systemDashboardError = ref("");
@@ -4323,6 +4325,8 @@ function closeSystemAtelierDetail() {
   systemAtelierDetailLoading.value = false;
   systemOwnerActionKey.value = "";
   systemOwnerActionError.value = "";
+  systemRecoveryActionKey.value = "";
+  systemRecoveryActionError.value = "";
 }
 
 async function loadSystemAtelierDetail(idAtelier, { syncGlobalError = false } = {}) {
@@ -4337,6 +4341,7 @@ async function loadSystemAtelierDetail(idAtelier, { syncGlobalError = false } = 
   systemAtelierDetailLoading.value = true;
   systemAtelierDetailError.value = "";
   systemOwnerActionError.value = "";
+  systemRecoveryActionError.value = "";
   try {
     const payload = await atelierApi.getSystemAtelierDetail(targetId);
     if (systemAtelierDetailRequestId.value !== requestId) return;
@@ -4488,6 +4493,23 @@ function canManageSystemAtelierOwner() {
   return Boolean(systemAtelierDetail.value?.idAtelier && systemAtelierDetail.value?.proprietaire?.id);
 }
 
+function getSystemAtelierRecoveryUsers() {
+  return Array.isArray(systemAtelierDetail.value?.utilisateurs) ? systemAtelierDetail.value.utilisateurs : [];
+}
+
+function getSystemAtelierUserOptionLabel(user) {
+  const parts = [user?.nom || "Utilisateur"];
+  if (user?.email) parts.push(user.email);
+  if (user?.roleId) parts.push(user.roleId);
+  return parts.join(" / ");
+}
+
+async function refreshSystemAtelierRecoveryContext(idAtelier) {
+  await loadSystemAteliers();
+  await loadSystemDashboard();
+  await loadSystemAtelierDetail(idAtelier);
+}
+
 async function toggleSystemAtelierOwnerActivation() {
   if (!canManageSystemAtelierOwner() || systemOwnerActionKey.value) return;
   const atelier = systemAtelierDetail.value;
@@ -4515,6 +4537,185 @@ async function toggleSystemAtelierOwnerActivation() {
     systemOwnerActionError.value = readableError(err);
   } finally {
     systemOwnerActionKey.value = "";
+  }
+}
+
+async function promoteSystemAtelierUserToOwner() {
+  if (!systemAtelierDetail.value?.idAtelier || systemRecoveryActionKey.value) return;
+  const atelier = systemAtelierDetail.value;
+  const candidates = getSystemAtelierRecoveryUsers().filter((user) => user?.id && user.roleId !== "PROPRIETAIRE");
+  if (candidates.length === 0) {
+    systemRecoveryActionError.value = "Aucun utilisateur atelier disponible pour une promotion proprietaire.";
+    return;
+  }
+
+  const payload = await openActionModal({
+    title: "Promouvoir en proprietaire",
+    message: `Choisis l'utilisateur a promouvoir pour ${atelier.nom}.`,
+    confirmLabel: "Promouvoir",
+    cancelLabel: "Annuler",
+    tone: "blue",
+    fields: [
+      {
+        key: "userId",
+        label: "Utilisateur",
+        type: "select",
+        required: true,
+        options: candidates.map((user) => ({
+          value: user.id,
+          label: getSystemAtelierUserOptionLabel(user)
+        }))
+      }
+    ]
+  });
+  if (!payload) return;
+
+  const targetUser = candidates.find((user) => user.id === payload.userId);
+  systemRecoveryActionKey.value = "promote";
+  systemRecoveryActionError.value = "";
+  try {
+    await atelierApi.setSystemAtelierUserRole(atelier.idAtelier, payload.userId, "PROPRIETAIRE");
+    await refreshSystemAtelierRecoveryContext(atelier.idAtelier);
+    notify(`${targetUser?.nom || "L'utilisateur"} est maintenant proprietaire de ${atelier.nom}.`);
+  } catch (err) {
+    systemRecoveryActionError.value = readableError(err);
+  } finally {
+    systemRecoveryActionKey.value = "";
+  }
+}
+
+async function reactivateSystemAtelierRecoveryUser() {
+  if (!systemAtelierDetail.value?.idAtelier || systemRecoveryActionKey.value) return;
+  const atelier = systemAtelierDetail.value;
+  const candidates = getSystemAtelierRecoveryUsers().filter((user) => user?.id && (user.actif !== true || user.etatCompte !== "ACTIVE"));
+  if (candidates.length === 0) {
+    systemRecoveryActionError.value = "Aucun utilisateur inactif a reactiver dans cet atelier.";
+    return;
+  }
+
+  const payload = await openActionModal({
+    title: "Reactiver un utilisateur",
+    message: `Choisis le compte a reactiver pour ${atelier.nom}.`,
+    confirmLabel: "Reactiver",
+    cancelLabel: "Annuler",
+    tone: "green",
+    fields: [
+      {
+        key: "userId",
+        label: "Utilisateur",
+        type: "select",
+        required: true,
+        options: candidates.map((user) => ({
+          value: user.id,
+          label: getSystemAtelierUserOptionLabel(user)
+        }))
+      }
+    ]
+  });
+  if (!payload) return;
+
+  const targetUser = candidates.find((user) => user.id === payload.userId);
+  systemRecoveryActionKey.value = "reactivate";
+  systemRecoveryActionError.value = "";
+  try {
+    await atelierApi.reactivateSystemAtelierUser(atelier.idAtelier, payload.userId);
+    await refreshSystemAtelierRecoveryContext(atelier.idAtelier);
+    notify(`${targetUser?.nom || "Le compte"} a ete reactive pour ${atelier.nom}.`);
+  } catch (err) {
+    systemRecoveryActionError.value = readableError(err);
+  } finally {
+    systemRecoveryActionKey.value = "";
+  }
+}
+
+async function createSystemAtelierRecoveryOwner() {
+  if (!systemAtelierDetail.value?.idAtelier || systemRecoveryActionKey.value) return;
+  const atelier = systemAtelierDetail.value;
+  const payload = await openActionModal({
+    title: "Creer un proprietaire",
+    message: `Creer un nouveau proprietaire de secours pour ${atelier.nom}.`,
+    confirmLabel: "Creer le proprietaire",
+    cancelLabel: "Annuler",
+    tone: "blue",
+    fields: [
+      { key: "nom", label: "Nom", type: "text", required: true },
+      { key: "email", label: "Email", type: "email", required: true },
+      { key: "motDePasse", label: "Mot de passe", type: "password", required: true }
+    ]
+  });
+  if (!payload) return;
+
+  const passwordError = getPasswordPolicyError(payload.motDePasse);
+  if (passwordError) {
+    systemRecoveryActionError.value = passwordError;
+    return;
+  }
+
+  systemRecoveryActionKey.value = "create-owner";
+  systemRecoveryActionError.value = "";
+  try {
+    await atelierApi.createSystemAtelierOwner(atelier.idAtelier, payload);
+    await refreshSystemAtelierRecoveryContext(atelier.idAtelier);
+    notify(`Nouveau proprietaire cree pour ${atelier.nom}.`);
+  } catch (err) {
+    systemRecoveryActionError.value = readableError(err);
+  } finally {
+    systemRecoveryActionKey.value = "";
+  }
+}
+
+async function demoteSystemAtelierOwner() {
+  if (!systemAtelierDetail.value?.idAtelier || systemRecoveryActionKey.value) return;
+  const atelier = systemAtelierDetail.value;
+  const candidates = getSystemAtelierRecoveryUsers().filter((user) => user?.id && user.roleId === "PROPRIETAIRE");
+  if (candidates.length === 0) {
+    systemRecoveryActionError.value = "Aucun proprietaire atelier disponible pour une retrogradation.";
+    return;
+  }
+
+  const payload = await openActionModal({
+    title: "Retrograder un proprietaire",
+    message: "Action sensible. Le dernier proprietaire actif restera bloque par le serveur.",
+    confirmLabel: "Retrograder",
+    cancelLabel: "Annuler",
+    tone: "red",
+    fields: [
+      {
+        key: "userId",
+        label: "Proprietaire",
+        type: "select",
+        required: true,
+        options: candidates.map((user) => ({
+          value: user.id,
+          label: getSystemAtelierUserOptionLabel(user)
+        }))
+      },
+      {
+        key: "roleId",
+        label: "Nouveau role",
+        type: "select",
+        required: true,
+        defaultValue: "COUTURIER",
+        options: [
+          { value: "COUTURIER", label: "Couturier" },
+          { value: "CAISSIER", label: "Caissier" }
+        ]
+      }
+    ]
+  });
+  if (!payload) return;
+
+  const targetUser = candidates.find((user) => user.id === payload.userId);
+  systemRecoveryActionKey.value = "demote";
+  systemRecoveryActionError.value = "";
+  try {
+    await atelierApi.setSystemAtelierUserRole(atelier.idAtelier, payload.userId, payload.roleId);
+    await refreshSystemAtelierRecoveryContext(atelier.idAtelier);
+    notify(`${targetUser?.nom || "Le proprietaire"} a ete retrograde pour ${atelier.nom}.`);
+  } catch (err) {
+    systemRecoveryActionError.value = readableError(err);
+  } finally {
+    systemRecoveryActionKey.value = "";
   }
 }
 
@@ -5013,6 +5214,19 @@ function normalizeSystemAtelierDetail(raw) {
       utilisateursActifs: Number(raw?.stats?.utilisateursActifs ?? raw?.stats?.utilisateurs_actifs ?? 0),
       utilisateursInactifs: Number(raw?.stats?.utilisateursInactifs ?? raw?.stats?.utilisateurs_inactifs ?? 0)
     },
+    utilisateurs: Array.isArray(raw?.utilisateurs)
+      ? raw.utilisateurs.map((user) => ({
+          id: user?.id || user?.id_utilisateur || "",
+          nom: String(user?.nom || "").trim(),
+          email: String(user?.email || "").trim(),
+          roleId: String(user?.roleId || user?.role_id || "").trim().toUpperCase(),
+          actif: user?.actif !== false,
+          etatCompte: String(user?.etatCompte || user?.etat_compte || (user?.actif === false ? "DISABLED" : "ACTIVE"))
+            .trim()
+            .toUpperCase(),
+          tokenVersion: Number(user?.tokenVersion ?? user?.token_version ?? 1)
+        }))
+      : [],
     health: {
       signal: String(raw?.health?.signal || "idle").trim().toLowerCase(),
       message: String(raw?.health?.message || "").trim(),
@@ -5104,6 +5318,19 @@ function buildSystemAtelierDetailFallback(raw) {
       utilisateursActifs: atelier.actif ? totalUtilisateurs : 0,
       utilisateursInactifs: atelier.actif ? 0 : totalUtilisateurs
     },
+    utilisateurs: atelier.proprietaire
+      ? [
+          {
+            id: atelier.proprietaire.id || "",
+            nom: atelier.proprietaire.nom || "",
+            email: atelier.proprietaire.email || "",
+            roleId: "PROPRIETAIRE",
+            actif: true,
+            etatCompte: "ACTIVE",
+            tokenVersion: 1
+          }
+        ]
+      : [],
     health: {
       signal: atelier.actif ? "idle" : "warning",
       message: "Details avances indisponibles sur ce serveur. Affichage du resume atelier.",
@@ -7476,6 +7703,8 @@ async function loadRetoucheDetail(idRetouche) {
           :action-id="systemAtelierActionId"
           :owner-action-key="systemOwnerActionKey"
           :owner-action-error="systemOwnerActionError"
+          :recovery-action-key="systemRecoveryActionKey"
+          :recovery-action-error="systemRecoveryActionError"
           :format-date-time="formatDateTime"
           @back="returnToSystemAteliers"
           @refresh="refreshSystemAtelierDetail"
@@ -7483,6 +7712,10 @@ async function loadRetoucheDetail(idRetouche) {
           @toggle-owner-activation="toggleSystemAtelierOwnerActivation"
           @reset-owner-password="resetSystemAtelierOwnerPassword"
           @revoke-owner-sessions="revokeSystemAtelierOwnerSessions"
+          @promote-user-to-owner="promoteSystemAtelierUserToOwner"
+          @reactivate-user="reactivateSystemAtelierRecoveryUser"
+          @create-owner="createSystemAtelierRecoveryOwner"
+          @demote-owner="demoteSystemAtelierOwner"
         />
 
         <section v-if="currentRoute === 'dashboard'" class="dashboard classic-dashboard">

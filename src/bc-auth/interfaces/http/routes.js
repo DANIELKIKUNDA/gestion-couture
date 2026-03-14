@@ -189,6 +189,7 @@ function mapSystemAtelierDetailRow(row) {
       utilisateursActifs: Number(row.utilisateurs_actifs || 0),
       utilisateursInactifs: Number(row.utilisateurs_inactifs || 0)
     },
+    utilisateurs: [],
     health: {
       signal: row.actif === false ? "warning" : "idle",
       message: row.actif === false ? "Atelier inactif: acces bloque pour les utilisateurs atelier." : "Aucune activite auditee recente.",
@@ -256,6 +257,24 @@ async function resolveSystemAtelierOwner(atelierId) {
   };
 }
 
+async function resolveSystemAtelierContext(atelierId) {
+  const normalizedAtelierId = String(atelierId || "").trim();
+  if (!normalizedAtelierId) return null;
+  if (normalizedAtelierId.toUpperCase() === SYSTEM_ATELIER_ID) return null;
+  return atelierRepo.getById(normalizedAtelierId);
+}
+
+async function resolveSystemAtelierUserContext(atelierId, utilisateurId) {
+  const atelier = await resolveSystemAtelierContext(atelierId);
+  if (!atelier) return null;
+  const user = await utilisateurRepo.getByIdAndAtelier(utilisateurId, atelier.idAtelier);
+  if (!user) return null;
+  return {
+    atelier,
+    utilisateur: user
+  };
+}
+
 function mapAtelierActivityRow(row) {
   return {
     idEvenement: row.id_evenement,
@@ -268,6 +287,20 @@ function mapAtelierActivityRow(row) {
     entiteId: row.entite_id || null,
     payload: row.payload || {},
     dateEvenement: row.date_evenement || null
+  };
+}
+
+function mapSystemAtelierUserRow(row) {
+  if (!row) return null;
+  const etatCompte = normalizeAccountState(row.etat_compte || (row.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
+  return {
+    id: row.id_utilisateur,
+    nom: row.nom || "",
+    email: row.email || "",
+    roleId: String(row.role_id || "").trim().toUpperCase(),
+    actif: row.actif !== false,
+    etatCompte,
+    tokenVersion: Number(row.token_version || 1)
   };
 }
 
@@ -1139,10 +1172,20 @@ router.get("/system/ateliers/:id", requireSystemManager, async (req, res) => {
        WHERE ea.atelier_id = $1`,
       [atelierId]
     );
+    const usersResult = await pool.query(
+      `SELECT u.id_utilisateur, u.nom, u.email, u.role_id, u.actif, u.etat_compte, u.token_version
+       FROM utilisateurs u
+       WHERE u.atelier_id = $1
+       ORDER BY
+         CASE WHEN UPPER(u.role_id) = 'PROPRIETAIRE' THEN 0 ELSE 1 END,
+         u.date_creation ASC`,
+      [atelierId]
+    );
     const healthRow = healthResult.rows[0] || {};
     const lastEventAt = healthRow.last_event_at || null;
     const eventsLast7Days = Number(healthRow.events_last_7_days || 0);
     const eventsLast30Days = Number(healthRow.events_last_30_days || 0);
+    detail.utilisateurs = usersResult.rows.map(mapSystemAtelierUserRow).filter(Boolean);
     if (detail.proprietaire?.id) {
       const [activeSessions, totalActives] = await Promise.all([
         authSessionRepo.listActiveByUtilisateurId(detail.proprietaire.id, { limit: 5 }),
@@ -1287,6 +1330,190 @@ router.post("/system/ateliers/:id/proprietaire/revoke-sessions", requireSystemMa
       revokedSessions
     });
   } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch("/system/ateliers/:id/utilisateurs/:userId/role", requireSystemManager, async (req, res) => {
+  try {
+    const schema = z.object({ roleId: z.enum(ALLOWED_ROLES) }).passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const atelierId = String(req.params.id || "").trim();
+    if (!atelierId) return res.status(400).json({ error: "Atelier introuvable" });
+    if (atelierId.toUpperCase() === SYSTEM_ATELIER_ID) return res.status(400).json({ error: "Atelier reserve" });
+
+    const context = await resolveSystemAtelierUserContext(atelierId, req.params.userId);
+    if (!context) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const current = context.utilisateur;
+    const nextRole = String(parsed.data.roleId || "").toUpperCase();
+    const currentRole = String(current.roleId || "").toUpperCase();
+    const promotesToOwner = currentRole !== ROLES.PROPRIETAIRE && nextRole === ROLES.PROPRIETAIRE;
+    const demotesOwner = currentRole === ROLES.PROPRIETAIRE && nextRole !== ROLES.PROPRIETAIRE;
+
+    if (!promotesToOwner && !demotesOwner) {
+      return res.status(400).json({ error: "Operation limitee a la promotion ou a la retrogradation du proprietaire" });
+    }
+
+    const currentState = normalizeAccountState(current.etatCompte || (current.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
+    const isActiveOwner = currentRole === ROLES.PROPRIETAIRE && currentState === ACCOUNT_STATES.ACTIVE;
+    if (demotesOwner && isActiveOwner) {
+      const activeOwners = await utilisateurRepo.countActiveOwners(context.atelier.idAtelier);
+      if (activeOwners <= 1) {
+        return res.status(400).json({ error: "Operation refusee: dernier proprietaire actif" });
+      }
+    }
+
+    const updated = await utilisateurRepo.save({
+      ...current,
+      roleId: nextRole
+    });
+
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: context.atelier.idAtelier,
+      action: promotesToOwner ? "SYSTEM_USER_PROMOTED_TO_OWNER" : "SYSTEM_OWNER_DEMOTED",
+      entite: "system/ateliers/utilisateurs/role",
+      entiteId: updated.id,
+      succes: true,
+      details: {
+        atelierNom: context.atelier.nom || "",
+        before: summarizeUser(current),
+        after: summarizeUser(updated)
+      }
+    });
+
+    res.json({
+      utilisateur: await withPermissions(updated)
+    });
+  } catch (err) {
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: String(req.params?.id || "").trim() || null,
+      action: "SYSTEM_USER_ROLE_UPDATE_FAILED",
+      entite: "system/ateliers/utilisateurs/role",
+      entiteId: req.params?.userId || null,
+      succes: false,
+      raison: err.message || "erreur_inconnue"
+    });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/system/ateliers/:id/utilisateurs/:userId/reactivation", requireSystemManager, async (req, res) => {
+  try {
+    const atelierId = String(req.params.id || "").trim();
+    if (!atelierId) return res.status(400).json({ error: "Atelier introuvable" });
+    if (atelierId.toUpperCase() === SYSTEM_ATELIER_ID) return res.status(400).json({ error: "Atelier reserve" });
+
+    const context = await resolveSystemAtelierUserContext(atelierId, req.params.userId);
+    if (!context) return res.status(404).json({ error: "Utilisateur introuvable" });
+
+    const current = context.utilisateur;
+    const updated = await changerStatutUtilisateur({
+      utilisateurRepo,
+      id: current.id,
+      etatCompte: ACCOUNT_STATES.ACTIVE
+    });
+
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: context.atelier.idAtelier,
+      action: "SYSTEM_USER_REACTIVATED",
+      entite: "system/ateliers/utilisateurs/reactivation",
+      entiteId: updated.id,
+      succes: true,
+      details: {
+        atelierNom: context.atelier.nom || "",
+        before: summarizeUser(current),
+        after: summarizeUser(updated)
+      }
+    });
+
+    res.json({
+      utilisateur: await withPermissions(updated)
+    });
+  } catch (err) {
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: String(req.params?.id || "").trim() || null,
+      action: "SYSTEM_USER_REACTIVATION_FAILED",
+      entite: "system/ateliers/utilisateurs/reactivation",
+      entiteId: req.params?.userId || null,
+      succes: false,
+      raison: err.message || "erreur_inconnue"
+    });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/system/ateliers/:id/proprietaires", requireSystemManager, async (req, res) => {
+  try {
+    const schema = z
+      .object({
+        nom: z.string().min(1),
+        email: z.string().email(),
+        motDePasse: z.string().min(8)
+      })
+      .passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const atelierId = String(req.params.id || "").trim();
+    if (!atelierId) return res.status(400).json({ error: "Atelier introuvable" });
+    if (atelierId.toUpperCase() === SYSTEM_ATELIER_ID) return res.status(400).json({ error: "Atelier reserve" });
+
+    const atelier = await resolveSystemAtelierContext(atelierId);
+    if (!atelier) return res.status(404).json({ error: "Atelier introuvable" });
+
+    const created = await gererUtilisateurs({
+      utilisateurRepo,
+      input: {
+        action: "create",
+        nom: parsed.data.nom,
+        email: parsed.data.email,
+        motDePasse: parsed.data.motDePasse,
+        roleId: ROLES.PROPRIETAIRE,
+        atelierId: atelier.idAtelier,
+        actif: true
+      }
+    });
+
+    await ensureRolePermissionsForAtelier(atelier.idAtelier);
+
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: atelier.idAtelier,
+      action: "SYSTEM_OWNER_CREATED",
+      entite: "system/ateliers/proprietaires",
+      entiteId: created.id,
+      succes: true,
+      details: {
+        atelierNom: atelier.nom || "",
+        createdUser: summarizeUser(created)
+      }
+    });
+
+    res.status(201).json({
+      proprietaire: await withPermissions(created)
+    });
+  } catch (err) {
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: String(req.params?.id || "").trim() || null,
+      action: "SYSTEM_OWNER_CREATE_FAILED",
+      entite: "system/ateliers/proprietaires",
+      succes: false,
+      raison: err.message || "erreur_inconnue"
+    });
     res.status(400).json({ error: err.message });
   }
 });
