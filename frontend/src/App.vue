@@ -1,6 +1,23 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { atelierApi, ApiError, setAuthLostHandler } from "./services/api.js";
+import {
+  OFFLINE_READ_MESSAGES,
+  loadCommandeDetailLocalFirst,
+  loadMainListsLocalFirst,
+  loadRetoucheDetailLocalFirst
+} from "./services/offline-read-service.js";
+import {
+  addCommandePhotoOffline,
+  deleteCommandePhotoOffline,
+  loadCommandeMediaLocalFirst,
+  moveCommandePhotoOffline,
+  saveCommandePhotoNoteOffline,
+  setCommandePhotoPrimaryOffline
+} from "./services/media-local-store.js";
+import { createOfflineClient, createOfflineCommande, createOfflineRetouche } from "./services/offline-write-service.js";
+import { getNetworkState, subscribeToNetworkState } from "./services/network-service.js";
+import { requestSync, setSyncEngineAtelierContext, subscribeToSyncEvents } from "./services/sync-engine.js";
 import CommandeMediaGallery from "./components/commandes/CommandeMediaGallery.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
 import SystemAtelierDetailPage from "./components/system/SystemAtelierDetailPage.vue";
@@ -79,6 +96,12 @@ const authPermissions = ref([]);
 const bootstrapInitializing = ref(false);
 let authModeDetectionTimer = null;
 let systemAteliersSearchTimer = null;
+let unsubscribeNetworkState = null;
+let unsubscribeSyncEvents = null;
+let lastKnownNetworkOnline = true;
+let reconnectRefreshPromise = null;
+let syncUiRefreshTimer = null;
+let commandeMediaRenderSequence = 0;
 
 const systemAteliers = ref([]);
 const systemAteliersLoading = ref(false);
@@ -2184,6 +2207,7 @@ function normalizeSessionPayload(payload) {
 
 const isAuthenticated = computed(() => Boolean(authUser.value));
 const currentRole = computed(() => String(authUser.value?.roleId || "").toUpperCase());
+const currentAtelierId = computed(() => String(authUser.value?.atelierId || "").trim());
 const atelierNomConnexion = computed(() => {
   return authCardTitle.value;
 });
@@ -2467,13 +2491,19 @@ function resetRetoucheClientInsight() {
 }
 
 async function loadWizardClientInsight(idClient) {
+  const requestId = wizardClientInsightRequestId.value + 1;
+  wizardClientInsightRequestId.value = requestId;
   if (!idClient) {
     resetWizardClientInsight();
     return;
   }
 
-  const requestId = wizardClientInsightRequestId.value + 1;
-  wizardClientInsightRequestId.value = requestId;
+  if (!getNetworkState().online || !isRemoteEntityId(idClient)) {
+    wizardClientInsight.value = null;
+    wizardClientInsightLoading.value = false;
+    wizardClientInsightError.value = OFFLINE_READ_MESSAGES.CLIENT_CONSULTATION;
+    return;
+  }
   wizardClientInsightLoading.value = true;
   wizardClientInsightError.value = "";
 
@@ -2502,13 +2532,19 @@ async function loadWizardClientInsight(idClient) {
 }
 
 async function loadRetoucheClientInsight(idClient) {
+  const requestId = retoucheClientInsightRequestId.value + 1;
+  retoucheClientInsightRequestId.value = requestId;
   if (!idClient) {
     resetRetoucheClientInsight();
     return;
   }
 
-  const requestId = retoucheClientInsightRequestId.value + 1;
-  retoucheClientInsightRequestId.value = requestId;
+  if (!getNetworkState().online || !isRemoteEntityId(idClient)) {
+    retoucheClientInsight.value = null;
+    retoucheClientInsightLoading.value = false;
+    retoucheClientInsightError.value = OFFLINE_READ_MESSAGES.CLIENT_CONSULTATION;
+    return;
+  }
   retoucheClientInsightLoading.value = true;
   retoucheClientInsightError.value = "";
 
@@ -3364,6 +3400,11 @@ function normalizeActionFlags(payload) {
 async function loadCommandeActionsForId(idCommande, { force = false, detail = false } = {}) {
   const id = String(idCommande || "");
   if (!id) return null;
+  if (!isRemoteEntityId(id)) {
+    commandeActionsById.value = { ...commandeActionsById.value, [id]: null };
+    if (detail) detailCommandeActions.value = null;
+    return null;
+  }
   if (!force && hasActionEntry(commandeActionsById, id)) {
     const cached = readActionEntry(commandeActionsById, id);
     if (detail) detailCommandeActions.value = cached;
@@ -3385,6 +3426,11 @@ async function loadCommandeActionsForId(idCommande, { force = false, detail = fa
 async function loadRetoucheActionsForId(idRetouche, { force = false, detail = false } = {}) {
   const id = String(idRetouche || "");
   if (!id) return null;
+  if (!isRemoteEntityId(id)) {
+    retoucheActionsById.value = { ...retoucheActionsById.value, [id]: null };
+    if (detail) detailRetoucheActions.value = null;
+    return null;
+  }
   if (!force && hasActionEntry(retoucheActionsById, id)) {
     const cached = readActionEntry(retoucheActionsById, id);
     if (detail) detailRetoucheActions.value = cached;
@@ -3738,6 +3784,23 @@ async function submitLogout() {
 
 onMounted(async () => {
   loadAtelierSettingsLocal();
+  lastKnownNetworkOnline = getNetworkState().online;
+  unsubscribeNetworkState = subscribeToNetworkState((state) => {
+    const reconnected = lastKnownNetworkOnline === false && state.online === true;
+    lastKnownNetworkOnline = state.online;
+    if (!reconnected) return;
+    void refreshVisibleDataAfterReconnect();
+  });
+  unsubscribeSyncEvents = subscribeToSyncEvents((event) => {
+    if (!event || event.atelierId !== currentAtelierId.value) return;
+    if (event.type === "job-blocked") {
+      scheduleSyncUiRefresh();
+      return;
+    }
+    if (event.type === "cycle-complete" && (Number(event.syncedCount || 0) > 0 || Number(event.blockedCount || 0) > 0)) {
+      scheduleSyncUiRefresh();
+    }
+  });
   setAuthLostHandler((context) => {
     if (!isAuthenticated.value) return;
     const reason = String(context?.reason || "").trim();
@@ -3761,13 +3824,34 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (unsubscribeNetworkState) {
+    unsubscribeNetworkState();
+    unsubscribeNetworkState = null;
+  }
+  if (unsubscribeSyncEvents) {
+    unsubscribeSyncEvents();
+    unsubscribeSyncEvents = null;
+  }
   setAuthLostHandler(null);
   window.removeEventListener("popstate", onBrowserNavigation);
   window.removeEventListener("beforeunload", onBeforeUnload);
   if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
+  if (syncUiRefreshTimer) window.clearTimeout(syncUiRefreshTimer);
   clearSystemAteliersSearchDebounce();
   revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
 });
+
+watch(
+  [isAuthenticated, currentAtelierId, currentRole],
+  ([authenticated, atelierId, roleId]) => {
+    if (!authenticated || !atelierId || roleId === "MANAGER_SYSTEME") {
+      void setSyncEngineAtelierContext("");
+      return;
+    }
+    void setSyncEngineAtelierContext(atelierId);
+  },
+  { immediate: true }
+);
 
 function scheduleDetectAuthMode(delay = 240) {
   if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
@@ -4153,8 +4237,7 @@ async function openRoute(routeId) {
     closeSystemAtelierDetail();
   }
   if (currentRoute.value === "commande-detail" && routeId !== "commande-detail") {
-    revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
-    detailCommandeMedia.value = [];
+    await setDetailCommandeMediaRows([]);
     detailCommandeMediaError.value = "";
   }
   currentRoute.value = routeId;
@@ -4813,6 +4896,11 @@ async function reloadAll() {
     ventes.value = [];
     factures.value = [];
     caisseJour.value = null;
+    if (!getNetworkState().online) {
+      appendUiMessage("Donnees systeme indisponibles hors ligne.");
+      loading.value = false;
+      return;
+    }
     await loadSystemAteliers({ syncGlobalError: true });
     await loadSystemDashboard({ syncGlobalError: true });
     if (currentRoute.value === "systemAtelierDetail" && systemAtelierDetailId.value) {
@@ -4830,35 +4918,71 @@ async function reloadAll() {
   const shouldLoadVentes = canReadVentes.value;
   const shouldLoadFactures = canAccessModule("facturation");
   const shouldLoadCaisse = canAccessModule("caisse");
+  const atelierId = currentAtelierId.value;
+  if (!atelierId) {
+    appendUiMessage("Atelier courant introuvable pour la lecture offline.");
+    loading.value = false;
+    return;
+  }
 
-  const [clientsResult, commandesResult, retouchesResult, retoucheTypesResult, stockResult, ventesResult, facturesResult, caisseDaysResult] =
-    await Promise.allSettled([
-    shouldLoadClients ? atelierApi.listClients() : Promise.resolve([]),
-    shouldLoadCommandes ? atelierApi.listCommandes() : Promise.resolve([]),
-    shouldLoadRetouches ? atelierApi.listRetouches() : Promise.resolve([]),
+  const localFirst = await loadMainListsLocalFirst({
+    atelierId,
+    loadClients: shouldLoadClients,
+    loadCommandes: shouldLoadCommandes,
+    loadRetouches: shouldLoadRetouches
+  });
+
+  if (shouldLoadClients) applyClientsRows(localFirst.cached.clients);
+  if (shouldLoadCommandes) applyCommandesRows(localFirst.cached.commandes);
+  if (shouldLoadRetouches) applyRetouchesRows(localFirst.cached.retouches);
+
+  if (!localFirst.online) {
+    if (!localFirst.hasCachedData && (shouldLoadClients || shouldLoadCommandes || shouldLoadRetouches)) {
+      appendUiMessage(OFFLINE_READ_MESSAGES.NO_LOCAL_DATA);
+    }
+
+    retoucheTypeDefinitions.value = [];
+    stockArticles.value = [];
+    ventes.value = [];
+    factures.value = [];
+    caisseJour.value = null;
+
+    if (shouldLoadRetoucheTypes) appendUiMessage(OFFLINE_READ_MESSAGES.RETOUCHE_TYPES);
+    if (shouldLoadStock) appendUiMessage(OFFLINE_READ_MESSAGES.STOCK);
+    if (shouldLoadVentes) appendUiMessage(OFFLINE_READ_MESSAGES.VENTES);
+    if (shouldLoadFactures) appendUiMessage(OFFLINE_READ_MESSAGES.FACTURES);
+    if (shouldLoadCaisse) appendUiMessage(OFFLINE_READ_MESSAGES.CAISSE);
+    if (shouldLoadClients && currentRoute.value === "clientsMesures" && selectedClientConsultationId.value) {
+      clientConsultation.value = null;
+      clientConsultationLoading.value = false;
+      clientConsultationError.value = OFFLINE_READ_MESSAGES.CLIENT_CONSULTATION;
+    }
+
+    loading.value = false;
+    return;
+  }
+
+  const refreshedMain = await localFirst.refreshPromise;
+  if (shouldLoadClients) {
+    if (refreshedMain?.clients) applyClientsRows(refreshedMain.clients);
+    else if (refreshedMain?.errors?.clients) appendError(refreshedMain.errors.clients);
+  }
+  if (shouldLoadCommandes) {
+    if (refreshedMain?.commandes) applyCommandesRows(refreshedMain.commandes);
+    else if (refreshedMain?.errors?.commandes) appendError(refreshedMain.errors.commandes);
+  }
+  if (shouldLoadRetouches) {
+    if (refreshedMain?.retouches) applyRetouchesRows(refreshedMain.retouches);
+    else if (refreshedMain?.errors?.retouches) appendError(refreshedMain.errors.retouches);
+  }
+
+  const [retoucheTypesResult, stockResult, ventesResult, facturesResult, caisseDaysResult] = await Promise.allSettled([
     shouldLoadRetoucheTypes ? atelierApi.listRetoucheTypes() : Promise.resolve([]),
     shouldLoadStock ? atelierApi.listStockArticles() : Promise.resolve([]),
     shouldLoadVentes ? atelierApi.listVentes() : Promise.resolve([]),
     shouldLoadFactures ? atelierApi.listFactures() : Promise.resolve([]),
     shouldLoadCaisse ? atelierApi.listCaisseJours() : Promise.resolve([])
-    ]);
-
-  if (clientsResult.status === "fulfilled") {
-    clients.value = clientsResult.value.map(normalizeClient);
-    if (!selectedClientConsultationId.value && clients.value.length > 0) {
-      selectedClientConsultationId.value = clients.value[0].idClient;
-    }
-    if (selectedClientConsultationId.value && !clients.value.some((item) => item.idClient === selectedClientConsultationId.value)) {
-      selectedClientConsultationId.value = clients.value[0]?.idClient || "";
-      clientConsultation.value = null;
-    }
-  } else if (shouldLoadClients) appendError(clientsResult.reason);
-
-  if (commandesResult.status === "fulfilled") commandes.value = commandesResult.value.map(normalizeCommande);
-  else if (shouldLoadCommandes) appendError(commandesResult.reason);
-
-  if (retouchesResult.status === "fulfilled") retouches.value = retouchesResult.value.map(normalizeRetouche);
-  else if (shouldLoadRetouches) appendError(retouchesResult.reason);
+  ]);
 
   if (retoucheTypesResult.status === "fulfilled") {
     retoucheTypeDefinitions.value = (retoucheTypesResult.value || [])
@@ -4908,6 +5032,12 @@ async function loadClientConsultation(idClient, force = false) {
   if (!idClient) {
     clientConsultation.value = null;
     clientConsultationError.value = "";
+    return;
+  }
+  if (!getNetworkState().online || !isRemoteEntityId(idClient)) {
+    clientConsultation.value = null;
+    clientConsultationLoading.value = false;
+    clientConsultationError.value = OFFLINE_READ_MESSAGES.CLIENT_CONSULTATION;
     return;
   }
   if (!force && clientConsultation.value?.client?.idClient === idClient && !clientConsultationError.value) return;
@@ -5104,6 +5234,146 @@ function appendError(err) {
   }
   parts.push(msg);
   errorMessage.value = parts.join(" | ");
+}
+
+function appendUiMessage(message) {
+  const normalized = String(message || "").trim();
+  if (!normalized) return;
+  appendError(new Error(normalized));
+}
+
+function applyClientsRows(rows = []) {
+  clients.value = (rows || []).map(normalizeClient);
+  if (!selectedClientConsultationId.value && clients.value.length > 0) {
+    selectedClientConsultationId.value = clients.value[0].idClient;
+  }
+  if (selectedClientConsultationId.value && !clients.value.some((item) => item.idClient === selectedClientConsultationId.value)) {
+    selectedClientConsultationId.value = clients.value[0]?.idClient || "";
+    clientConsultation.value = null;
+  }
+}
+
+function applyCommandesRows(rows = []) {
+  commandes.value = (rows || []).map(normalizeCommande);
+}
+
+function applyRetouchesRows(rows = []) {
+  retouches.value = (rows || []).map(normalizeRetouche);
+}
+
+function upsertClientRow(row) {
+  const normalized = normalizeClient(row);
+  clients.value = [...clients.value.filter((item) => item.idClient !== normalized.idClient), normalized];
+}
+
+function prependCommandeRow(row) {
+  const normalized = normalizeCommande(row);
+  commandes.value = [normalized, ...commandes.value.filter((item) => item.idCommande !== normalized.idCommande)];
+}
+
+function prependRetoucheRow(row) {
+  const normalized = normalizeRetouche(row);
+  retouches.value = [normalized, ...retouches.value.filter((item) => item.idRetouche !== normalized.idRetouche)];
+}
+
+function mediaActionKey(item) {
+  return String(item?.localId || item?.idMedia || item?.serverId || "").trim();
+}
+
+async function buildCommandeMediaUiRows(rows = [], commande = detailCommande.value) {
+  const commandeServerId = String(
+    commande?.serverId || commande?.idCommandeServerId || (isRemoteEntityId(commande?.idCommande) ? commande.idCommande : "")
+  ).trim();
+  const canHydrateRemoteMedia = getNetworkState().online && Boolean(commandeServerId);
+  const nextRows = [];
+
+  for (const item of Array.isArray(rows) ? rows : []) {
+    const nextItem = {
+      ...item,
+      thumbnailBlobUrl: "",
+      fileBlobUrl: ""
+    };
+
+    if (item?.blob instanceof Blob) {
+      const objectUrl = URL.createObjectURL(item.blob);
+      nextItem.thumbnailBlobUrl = objectUrl;
+      nextItem.fileBlobUrl = objectUrl;
+      nextRows.push(nextItem);
+      continue;
+    }
+
+    const mediaServerId = String(item?.serverId || item?.idMedia || "").trim();
+    if (canHydrateRemoteMedia && mediaServerId) {
+      try {
+        const thumbnailBlob = await atelierApi.getCommandeMediaThumbnailBlob(commandeServerId, mediaServerId);
+        nextItem.thumbnailBlobUrl = URL.createObjectURL(thumbnailBlob);
+      } catch {
+        nextItem.thumbnailBlobUrl = "";
+      }
+    }
+
+    nextRows.push(nextItem);
+  }
+
+  return nextRows;
+}
+
+async function setDetailCommandeMediaRows(rows = [], commande = detailCommande.value) {
+  const renderToken = ++commandeMediaRenderSequence;
+  const nextRows = await buildCommandeMediaUiRows(rows, commande);
+  if (renderToken !== commandeMediaRenderSequence) {
+    revokeCommandeMediaObjectUrls(nextRows);
+    return;
+  }
+
+  revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
+  detailCommandeMedia.value = nextRows;
+}
+
+function isLocalEntity(id) {
+  const normalized = String(id || "").trim();
+  return Boolean(normalized) && normalized.startsWith("loc_");
+}
+
+function notifyEntityRequiresSync(label = "Cette entite") {
+  notify(`${label} doit d'abord etre synchronisee avant cette action.`);
+}
+
+function isRemoteEntityId(value) {
+  const normalized = String(value || "").trim();
+  return Boolean(normalized) && !isLocalEntity(normalized) && !normalized.startsWith("cache_");
+}
+
+async function refreshVisibleDataAfterReconnect() {
+  if (reconnectRefreshPromise) return reconnectRefreshPromise;
+  if (!authReady.value || !isAuthenticated.value || isSystemManager.value || !currentAtelierId.value) return null;
+
+  reconnectRefreshPromise = (async () => {
+    await reloadAll();
+    if (currentRoute.value === "commande-detail" && selectedCommandeId.value) {
+      await loadCommandeDetail(selectedCommandeId.value);
+      return;
+    }
+    if (currentRoute.value === "retouche-detail" && selectedRetoucheId.value) {
+      await loadRetoucheDetail(selectedRetoucheId.value);
+    }
+  })();
+
+  try {
+    return await reconnectRefreshPromise;
+  } finally {
+    reconnectRefreshPromise = null;
+  }
+}
+
+function scheduleSyncUiRefresh() {
+  if (syncUiRefreshTimer) {
+    window.clearTimeout(syncUiRefreshTimer);
+  }
+  syncUiRefreshTimer = window.setTimeout(() => {
+    syncUiRefreshTimer = null;
+    void refreshVisibleDataAfterReconnect();
+  }, 250);
 }
 
 function appendAuditError(message) {
@@ -5551,8 +5821,14 @@ function normalizeSystemAtelierListPayload(payload, { page, pageSize, search = "
 }
 
 function normalizeClient(raw) {
+  const idClient = raw.idClient || raw.id_client || raw.id || raw.localId || raw.local_id || "";
   return {
-    idClient: raw.idClient || raw.id_client || raw.id,
+    localId: raw.localId || raw.local_id || (isRemoteEntityId(idClient) ? "" : idClient),
+    serverId: raw.serverId || raw.server_id || (isRemoteEntityId(idClient) ? idClient : ""),
+    syncStatus: raw.syncStatus || raw.sync_status || "synced",
+    updatedAt: raw.updatedAt || raw.updated_at || "",
+    lastSyncedAt: raw.lastSyncedAt || raw.last_synced_at || "",
+    idClient,
     nom: raw.nom || "",
     prenom: raw.prenom || "",
     telephone: raw.telephone || "",
@@ -5636,9 +5912,18 @@ function normalizeClientConsultation(raw) {
 }
 
 function normalizeCommande(raw) {
+  const idCommande = raw.idCommande || raw.id_commande || raw.id || raw.localId || raw.local_id || "";
+  const idClient = raw.idClient || raw.id_client || raw.clientId || raw.client_id || "";
   return {
-    idCommande: raw.idCommande || raw.id_commande || raw.id,
-    idClient: raw.idClient || raw.id_client || raw.clientId,
+    localId: raw.localId || raw.local_id || (isRemoteEntityId(idCommande) ? "" : idCommande),
+    serverId: raw.serverId || raw.server_id || (isRemoteEntityId(idCommande) ? idCommande : ""),
+    syncStatus: raw.syncStatus || raw.sync_status || "synced",
+    updatedAt: raw.updatedAt || raw.updated_at || "",
+    lastSyncedAt: raw.lastSyncedAt || raw.last_synced_at || "",
+    idCommande,
+    idClient,
+    clientLocalId: raw.clientLocalId || raw.client_local_id || "",
+    clientServerId: raw.clientServerId || raw.client_server_id || (isRemoteEntityId(idClient) ? idClient : ""),
     descriptionCommande: raw.descriptionCommande || raw.description || "",
     montantTotal: Number(raw.montantTotal ?? raw.montant_total ?? 0),
     montantPaye: Number(raw.montantPaye ?? raw.montant_paye ?? 0),
@@ -5652,9 +5937,19 @@ function normalizeCommande(raw) {
 }
 
 function normalizeCommandeMedia(raw) {
+  const idMedia = raw.idMedia || raw.id_media || raw.id || raw.localId || raw.local_id || "";
+  const idCommande = raw.idCommande || raw.id_commande || raw.idCommandeServerId || raw.idCommandeLocalId || "";
   return {
-    idMedia: raw.idMedia || raw.id_media || raw.id || "",
-    idCommande: raw.idCommande || raw.id_commande || "",
+    localId: raw.localId || raw.local_id || (isRemoteEntityId(idMedia) ? "" : idMedia),
+    serverId: raw.serverId || raw.server_id || (isRemoteEntityId(idMedia) ? idMedia : ""),
+    syncStatus: raw.syncStatus || raw.sync_status || "synced",
+    updatedAt: raw.updatedAt || raw.updated_at || "",
+    lastSyncedAt: raw.lastSyncedAt || raw.last_synced_at || "",
+    pendingDelete: raw.pendingDelete === true || raw.pending_delete === true,
+    idMedia,
+    idCommande,
+    idCommandeLocalId: raw.idCommandeLocalId || raw.id_commande_local_id || "",
+    idCommandeServerId: raw.idCommandeServerId || raw.id_commande_server_id || (isRemoteEntityId(idCommande) ? idCommande : ""),
     typeMedia: raw.typeMedia || raw.type_media || "IMAGE",
     sourceType: raw.sourceType || raw.source_type || "UPLOAD",
     nomFichierOriginal: raw.nomFichierOriginal || raw.nom_fichier_original || "",
@@ -5673,9 +5968,18 @@ function normalizeCommandeMedia(raw) {
 }
 
 function normalizeRetouche(raw) {
+  const idRetouche = raw.idRetouche || raw.id_retouche || raw.id || raw.localId || raw.local_id || "";
+  const idClient = raw.idClient || raw.id_client || "";
   return {
-    idRetouche: raw.idRetouche || raw.id_retouche || raw.id,
-    idClient: raw.idClient || raw.id_client,
+    localId: raw.localId || raw.local_id || (isRemoteEntityId(idRetouche) ? "" : idRetouche),
+    serverId: raw.serverId || raw.server_id || (isRemoteEntityId(idRetouche) ? idRetouche : ""),
+    syncStatus: raw.syncStatus || raw.sync_status || "synced",
+    updatedAt: raw.updatedAt || raw.updated_at || "",
+    lastSyncedAt: raw.lastSyncedAt || raw.last_synced_at || "",
+    idRetouche,
+    idClient,
+    clientLocalId: raw.clientLocalId || raw.client_local_id || "",
+    clientServerId: raw.clientServerId || raw.client_server_id || (isRemoteEntityId(idClient) ? idClient : ""),
     descriptionRetouche: raw.descriptionRetouche || raw.description || "",
     typeRetouche: raw.typeRetouche || raw.type_retouche || "",
     montantTotal: Number(raw.montantTotal ?? raw.montant_total ?? 0),
@@ -5867,23 +6171,11 @@ function normalizeWorkflowEvent(raw) {
 
 function revokeCommandeMediaObjectUrls(items = []) {
   for (const item of items || []) {
-    if (item?.thumbnailBlobUrl) URL.revokeObjectURL(item.thumbnailBlobUrl);
-    if (item?.fileBlobUrl) URL.revokeObjectURL(item.fileBlobUrl);
-  }
-}
-
-async function hydrateCommandeMediaThumbnails(idCommande, items = []) {
-  const hydrated = [];
-  for (const item of items) {
-    const row = { ...item };
-    try {
-      row.thumbnailBlobUrl = await atelierApi.getCommandeMediaThumbnailBlobUrl(idCommande, item.idMedia);
-    } catch {
-      row.thumbnailBlobUrl = "";
+    const urls = new Set([item?.thumbnailBlobUrl, item?.fileBlobUrl].filter(Boolean));
+    for (const url of urls) {
+      URL.revokeObjectURL(url);
     }
-    hydrated.push(row);
   }
-  return hydrated;
 }
 
 function toIsoDate(input) {
@@ -6142,6 +6434,7 @@ function soldeRestant(commande) {
 function canPayer(commande) {
   if (!commande) return false;
   const id = String(commande.idCommande || "");
+  if (isLocalEntity(id)) return false;
   const fromApi = readActionEntry(commandeActionsById, id);
   if (fromApi && typeof fromApi.payer === "boolean") return fromApi.payer;
   if (commande.statutCommande === "LIVREE" || commande.statutCommande === "ANNULEE") return false;
@@ -6176,6 +6469,7 @@ function canAnnuler(commande) {
 function canPayerRetouche(retouche) {
   if (!retouche) return false;
   const id = String(retouche.idRetouche || "");
+  if (isLocalEntity(id)) return false;
   const fromApi = readActionEntry(retoucheActionsById, id);
   if (fromApi && typeof fromApi.payer === "boolean") return fromApi.payer;
   if (retouche.statutRetouche === "LIVREE" || retouche.statutRetouche === "ANNULEE") return false;
@@ -6407,6 +6701,8 @@ async function onWizardStep1() {
       wizard.resolvedClientId = wizard.existingClientId;
     } else {
       if (!canCreateClient.value) throw new Error("Creation de client non autorisee.");
+      const atelierId = currentAtelierId.value;
+      if (!atelierId) throw new Error("Atelier offline introuvable.");
       const payload = {
         nom: wizard.newClient.nom,
         prenom: wizard.newClient.prenom,
@@ -6414,9 +6710,19 @@ async function onWizardStep1() {
       };
       if (!payload.nom || !payload.prenom || !payload.telephone) throw new Error("Completez nom, prenom et telephone.");
 
-      const created = await atelierApi.createClient(payload);
-      const normalized = normalizeClient(created.client || created);
-      clients.value.push(normalized);
+      let normalized = null;
+      if (getNetworkState().online) {
+        const created = await atelierApi.createClient(payload);
+        normalized = normalizeClient(created.client || created);
+      } else {
+        const created = await createOfflineClient({
+          atelierId,
+          client: payload
+        });
+        normalized = normalizeClient(created.client);
+        void requestSync(atelierId);
+      }
+      upsertClientRow(normalized);
       wizard.resolvedClientId = normalized.idClient;
     }
 
@@ -6433,6 +6739,8 @@ async function onWizardStep2() {
   try {
     if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
     if (!wizard.resolvedClientId) throw new Error("Client non resolu.");
+    const atelierId = currentAtelierId.value;
+    if (!atelierId) throw new Error("Atelier offline introuvable.");
 
     const montant = Number(wizard.commande.montantTotal);
     if (!wizard.commande.descriptionCommande || Number.isNaN(montant) || montant <= 0) {
@@ -6461,14 +6769,28 @@ async function onWizardStep2() {
 
     if (wizard.commande.datePrevue) payload.datePrevue = `${wizard.commande.datePrevue}T00:00:00.000Z`;
 
-    const created = await atelierApi.createCommande(payload);
-    const normalized = normalizeCommande(created);
+    const useOfflinePath = !getNetworkState().online || !isRemoteEntityId(wizard.resolvedClientId);
+    let normalized = null;
+    if (useOfflinePath) {
+      const created = await createOfflineCommande({
+        atelierId,
+        clientId: wizard.resolvedClientId,
+        commande: payload
+      });
+      normalized = normalizeCommande(created.commande);
+      void requestSync(atelierId);
+    } else {
+      const created = await atelierApi.createCommande(payload);
+      normalized = normalizeCommande(created);
+    }
     wizard.createdCommandeId = normalized.idCommande;
     wizard.createdFactureId = "";
-    commandes.value.unshift(normalized);
-    if (wizard.commande.emettreFacture === true) {
+    prependCommandeRow(normalized);
+    if (!useOfflinePath && wizard.commande.emettreFacture === true) {
       const facture = await emettreFactureDepuisOrigine("COMMANDE", normalized.idCommande, { ouvrirDetail: false });
       wizard.createdFactureId = facture.idFacture || facture.id_facture || "";
+    } else if (useOfflinePath && wizard.commande.emettreFacture === true) {
+      notify("Facture indisponible hors ligne. La commande reste en attente de synchronisation.");
     }
     wizard.step = 3;
   } catch (err) {
@@ -6507,6 +6829,8 @@ async function onRetoucheWizardStep2() {
   retoucheWizard.submitting = true;
   try {
     if (!canCreateRetouche.value) throw new Error("Creation de retouche non autorisee.");
+    const atelierId = currentAtelierId.value;
+    if (!atelierId) throw new Error("Atelier offline introuvable.");
     const montant = Number(retoucheWizard.retouche.montantTotal);
     if (Number.isNaN(montant) || montant <= 0) throw new Error("Montant total invalide.");
     if (!retoucheWizard.retouche.typeHabit) throw new Error("Type d'habit obligatoire.");
@@ -6552,21 +6876,41 @@ async function onRetoucheWizardStep2() {
 
     if (retoucheWizard.retouche.datePrevue) payload.datePrevue = `${retoucheWizard.retouche.datePrevue}T00:00:00.000Z`;
 
-    const created = await atelierApi.createRetoucheWizard(payload);
-    if (created?.client) {
-      const normalizedClient = normalizeClient(created.client);
-      if (!clients.value.some((row) => row.idClient === normalizedClient.idClient)) {
-        clients.value.push(normalizedClient);
+    const useOfflinePath =
+      !getNetworkState().online || (retoucheWizard.mode === "existing" && !isRemoteEntityId(retoucheWizard.resolvedClientId));
+
+    let normalized = null;
+    if (useOfflinePath) {
+      const created = await createOfflineRetouche({
+        atelierId,
+        clientId: retoucheWizard.mode === "existing" ? retoucheWizard.resolvedClientId : "",
+        newClient: retoucheWizard.mode === "new" ? payload.nouveauClient : null,
+        retouche: payload
+      });
+      if (created?.client) {
+        const normalizedClient = normalizeClient(created.client);
+        upsertClientRow(normalizedClient);
+        retoucheWizard.resolvedClientId = normalizedClient.idClient;
       }
-      retoucheWizard.resolvedClientId = normalizedClient.idClient;
+      normalized = normalizeRetouche(created.retouche);
+      void requestSync(atelierId);
+    } else {
+      const created = await atelierApi.createRetoucheWizard(payload);
+      if (created?.client) {
+        const normalizedClient = normalizeClient(created.client);
+        upsertClientRow(normalizedClient);
+        retoucheWizard.resolvedClientId = normalizedClient.idClient;
+      }
+      normalized = normalizeRetouche(created.retouche || created);
     }
-    const normalized = normalizeRetouche(created.retouche || created);
     retoucheWizard.createdRetoucheId = normalized.idRetouche;
     retoucheWizard.createdFactureId = "";
-    retouches.value.unshift(normalized);
-    if (retoucheWizard.retouche.emettreFacture === true) {
+    prependRetoucheRow(normalized);
+    if (!useOfflinePath && retoucheWizard.retouche.emettreFacture === true) {
       const facture = await emettreFactureDepuisOrigine("RETOUCHE", normalized.idRetouche, { ouvrirDetail: false });
       retoucheWizard.createdFactureId = facture.idFacture || facture.id_facture || "";
+    } else if (useOfflinePath && retoucheWizard.retouche.emettreFacture === true) {
+      notify("Facture indisponible hors ligne. La retouche reste en attente de synchronisation.");
     }
     retoucheWizard.step = 3;
   } catch (err) {
@@ -6893,6 +7237,10 @@ async function onModifierArticleStock(article) {
 }
 
 async function onPaiementCommande(commande) {
+  if (isLocalEntity(commande?.idCommande)) {
+    notifyEntityRequiresSync("Cette commande");
+    return;
+  }
   const payload = await openActionModal({
     title: "Confirmer le paiement",
     message: `Enregistrer un paiement pour la commande ${commande.idCommande}.`,
@@ -6918,6 +7266,10 @@ async function onPaiementCommande(commande) {
 
 async function onPaiementDetail() {
   if (!detailCommande.value) return;
+  if (isLocalEntity(detailCommande.value.idCommande)) {
+    notifyEntityRequiresSync("Cette commande");
+    return;
+  }
   const payload = await openActionModal({
     title: "Confirmer le paiement",
     message: `Enregistrer un paiement pour la commande ${detailCommande.value.idCommande}.`,
@@ -7007,6 +7359,10 @@ async function onAnnulerDetail() {
 }
 
 async function onPaiementRetouche(retouche) {
+  if (isLocalEntity(retouche?.idRetouche)) {
+    notifyEntityRequiresSync("Cette retouche");
+    return;
+  }
   const payload = await openActionModal({
     title: "Confirmer le paiement",
     message: `Enregistrer un paiement pour la retouche ${retouche.idRetouche}.`,
@@ -7032,6 +7388,10 @@ async function onPaiementRetouche(retouche) {
 
 async function onPaiementRetoucheDetail() {
   if (!detailRetouche.value) return;
+  if (isLocalEntity(detailRetouche.value.idRetouche)) {
+    notifyEntityRequiresSync("Cette retouche");
+    return;
+  }
   const payload = await openActionModal({
     title: "Confirmer le paiement",
     message: `Enregistrer un paiement pour la retouche ${detailRetouche.value.idRetouche}.`,
@@ -7481,48 +7841,132 @@ async function loadCommandeDetail(idCommande) {
   detailCommandeActions.value = null;
   detailCommandeMediaLoading.value = true;
   detailCommandeMediaError.value = "";
-  revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
-  detailCommandeMedia.value = [];
-  try {
-    const detail = await atelierApi.getCommande(idCommande);
-    detailCommande.value = normalizeCommande(detail);
-    void loadCommandeActionsForId(idCommande, { force: true, detail: true });
-  } catch (err) {
+  await setDetailCommandeMediaRows([]);
+
+  const atelierId = currentAtelierId.value;
+  if (!atelierId) {
     detailCommande.value = null;
-    detailCommandeActions.value = null;
-    revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
-    detailCommandeMedia.value = [];
-    detailCommandeMediaError.value = "";
-    detailCommandeMediaLoading.value = false;
     detailPaiements.value = [];
     detailCommandeEvents.value = [];
-    detailError.value = readableError(err);
+    detailPaiementsLoading.value = false;
+    detailCommandeEventsLoading.value = false;
+    detailError.value = "Atelier courant introuvable pour la lecture offline.";
+    detailCommandeMediaLoading.value = false;
     detailLoading.value = false;
     return;
+  }
+
+  let activeCommandeId = String(idCommande || "").trim();
+  let hasCachedDetail = false;
+
+  const localFirst = await loadCommandeDetailLocalFirst({
+    atelierId,
+    idCommande: activeCommandeId
+  });
+
+  if (localFirst.cached) {
+    detailCommande.value = normalizeCommande(localFirst.cached);
+    activeCommandeId = detailCommande.value?.idCommande || activeCommandeId;
+    hasCachedDetail = true;
+    detailLoading.value = false;
+  }
+
+  if (!localFirst.online) {
+    if (!hasCachedDetail) {
+      detailCommande.value = null;
+      detailCommandeActions.value = null;
+      await setDetailCommandeMediaRows([]);
+      detailCommandeMediaError.value = "";
+      detailPaiements.value = [];
+      detailCommandeEvents.value = [];
+      detailPaiementsLoading.value = false;
+      detailCommandeEventsLoading.value = false;
+      detailError.value = OFFLINE_READ_MESSAGES.COMMANDE_DETAIL;
+      detailCommandeMediaLoading.value = false;
+      detailLoading.value = false;
+      return;
+    }
+
+    detailPaiements.value = [];
+    detailCommandeEvents.value = [];
+    detailPaiementsLoading.value = false;
+    detailCommandeEventsLoading.value = false;
+    detailError.value = OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL;
+  } else {
+    try {
+      const refreshed = await localFirst.refreshPromise;
+      if (refreshed?.row) {
+        detailCommande.value = normalizeCommande(refreshed.row);
+        activeCommandeId = detailCommande.value?.idCommande || activeCommandeId;
+      } else if (!hasCachedDetail) {
+        throw new Error("Commande introuvable");
+      }
+      if (isRemoteEntityId(activeCommandeId)) {
+        void loadCommandeActionsForId(activeCommandeId, { force: true, detail: true });
+      }
+    } catch (err) {
+      if (hasCachedDetail) {
+        detailError.value = readableError(err);
+      } else {
+        detailCommande.value = null;
+        detailCommandeActions.value = null;
+        await setDetailCommandeMediaRows([]);
+        detailCommandeMediaError.value = "";
+        detailCommandeMediaLoading.value = false;
+        detailPaiements.value = [];
+        detailCommandeEvents.value = [];
+        detailPaiementsLoading.value = false;
+        detailCommandeEventsLoading.value = false;
+        detailError.value = readableError(err);
+        detailLoading.value = false;
+        return;
+      }
+    }
   }
   detailLoading.value = false;
 
   detailCommandeMediaLoading.value = true;
   detailCommandeMediaError.value = "";
   try {
-    const mediaRows = await atelierApi.listCommandeMedia(idCommande);
-    const normalizedMedia = (mediaRows || [])
-      .map(normalizeCommandeMedia)
-      .sort((a, b) => a.position - b.position);
-    const hydratedMedia = await hydrateCommandeMediaThumbnails(idCommande, normalizedMedia);
-    revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
-    detailCommandeMedia.value = hydratedMedia;
+    const mediaLocalFirst = await loadCommandeMediaLocalFirst({
+      atelierId,
+      commande: detailCommande.value || {
+        idCommande: activeCommandeId
+      }
+    });
+
+    await setDetailCommandeMediaRows(mediaLocalFirst.cached || [], detailCommande.value);
+
+    if (mediaLocalFirst.online && isRemoteEntityId(activeCommandeId) && mediaLocalFirst.refreshPromise) {
+      const mediaRows = await atelierApi.listCommandeMedia(activeCommandeId);
+      const normalizedMedia = (mediaRows || []).map(normalizeCommandeMedia).sort((a, b) => a.position - b.position);
+      await setDetailCommandeMediaRows(normalizedMedia, detailCommande.value);
+    } else if (!mediaLocalFirst.hasCachedData && !mediaLocalFirst.online && isRemoteEntityId(activeCommandeId)) {
+      detailCommandeMediaError.value = OFFLINE_READ_MESSAGES.COMMANDE_MEDIA;
+    }
   } catch (err) {
-    revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
-    detailCommandeMedia.value = [];
+    await setDetailCommandeMediaRows([]);
     detailCommandeMediaError.value = readableError(err);
   } finally {
     detailCommandeMediaLoading.value = false;
   }
 
+  if (!localFirst.online || !isRemoteEntityId(activeCommandeId)) {
+    detailPaiements.value = [];
+    detailCommandeEvents.value = [];
+    detailPaiementsLoading.value = false;
+    detailCommandeEventsLoading.value = false;
+    if (!String(detailError.value || "").includes(OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL)) {
+      detailError.value = detailError.value
+        ? `${detailError.value} | ${OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL}`
+        : OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL;
+    }
+    return;
+  }
+
   detailPaiementsLoading.value = true;
   try {
-    const paiements = await atelierApi.listPaiementsCommande(idCommande);
+    const paiements = await atelierApi.listPaiementsCommande(activeCommandeId);
     detailPaiements.value = (paiements || []).map(normalizePaiement);
   } catch (err) {
     detailPaiements.value = [];
@@ -7533,7 +7977,7 @@ async function loadCommandeDetail(idCommande) {
 
   detailCommandeEventsLoading.value = true;
   try {
-    const events = await atelierApi.listCommandeEvents(idCommande);
+    const events = await atelierApi.listCommandeEvents(activeCommandeId);
     detailCommandeEvents.value = (events || [])
       .map(normalizeWorkflowEvent)
       .sort((a, b) => new Date(b.dateEvent).getTime() - new Date(a.dateEvent).getTime());
@@ -7547,12 +7991,23 @@ async function loadCommandeDetail(idCommande) {
 
 async function openCommandeMedia(item) {
   if (!detailCommande.value?.idCommande || !item?.idMedia) return;
+  if (item?.fileBlobUrl) {
+    window.open(item.fileBlobUrl, "_blank");
+    return;
+  }
+
+  if (!getNetworkState().online || !isRemoteEntityId(detailCommande.value.idCommande) || !String(item?.serverId || item?.idMedia || "").trim()) {
+    notify("Fichier photo indisponible hors ligne tant que la version serveur n'est pas accessible.");
+    return;
+  }
+
   let blobUrl = item.fileBlobUrl || "";
   try {
     if (!blobUrl) {
-      detailCommandeMediaActionId.value = item.idMedia;
-      blobUrl = await atelierApi.getCommandeMediaFileBlobUrl(detailCommande.value.idCommande, item.idMedia);
-      const index = detailCommandeMedia.value.findIndex((row) => row.idMedia === item.idMedia);
+      detailCommandeMediaActionId.value = mediaActionKey(item);
+      const fileBlob = await atelierApi.getCommandeMediaFileBlob(detailCommande.value.idCommande, item.serverId || item.idMedia);
+      blobUrl = URL.createObjectURL(fileBlob);
+      const index = detailCommandeMedia.value.findIndex((row) => mediaActionKey(row) === mediaActionKey(item));
       if (index >= 0) {
         detailCommandeMedia.value[index] = {
           ...detailCommandeMedia.value[index],
@@ -7573,6 +8028,31 @@ async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD" }) {
   detailCommandeMediaUploading.value = true;
   detailCommandeMediaError.value = "";
   try {
+    const useOfflinePath = !getNetworkState().online || !isRemoteEntityId(detailCommande.value.idCommande);
+    if (useOfflinePath) {
+      const atelierId = currentAtelierId.value;
+      if (!atelierId) {
+        throw new Error("Atelier courant introuvable pour l'ajout offline de photo.");
+      }
+      await addCommandePhotoOffline({
+        atelierId,
+        commande: detailCommande.value,
+        file,
+        note,
+        sourceType,
+        existingCount: detailCommandeMedia.value.length
+      });
+      const refreshed = await loadCommandeMediaLocalFirst({
+        atelierId,
+        commande: detailCommande.value
+      });
+      await setDetailCommandeMediaRows(refreshed.cached || [], detailCommande.value);
+      detailCommandeMediaError.value = "";
+      void requestSync(atelierId);
+      notify(`Photo enregistree hors ligne pour ${detailCommande.value.idCommande}`);
+      return;
+    }
+
     const formData = new FormData();
     formData.append("photo", file);
     if (note) formData.append("note", note);
@@ -7589,10 +8069,34 @@ async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD" }) {
 
 async function setCommandeMediaPrimary(item) {
   if (!detailCommande.value?.idCommande || !item?.idMedia) return;
-  detailCommandeMediaActionId.value = item.idMedia;
+  detailCommandeMediaActionId.value = mediaActionKey(item);
   detailCommandeMediaError.value = "";
   try {
-    await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, item.idMedia, { isPrimary: true });
+    const useOfflinePath =
+      !getNetworkState().online ||
+      !isRemoteEntityId(detailCommande.value.idCommande) ||
+      isLocalEntity(mediaActionKey(item)) ||
+      item?.syncStatus === "pending" ||
+      item?.syncStatus === "blocked";
+
+    if (useOfflinePath) {
+      const atelierId = currentAtelierId.value;
+      if (!atelierId) {
+        throw new Error("Atelier courant introuvable pour la photo offline.");
+      }
+      const items = await setCommandePhotoPrimaryOffline({
+        atelierId,
+        commande: detailCommande.value,
+        media: item
+      });
+      await setDetailCommandeMediaRows(items || [], detailCommande.value);
+      detailCommandeMediaError.value = "";
+      void requestSync(atelierId);
+      notify("Photo principale mise a jour hors ligne");
+      return;
+    }
+
+    await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, item.serverId || item.idMedia, { isPrimary: true });
     await loadCommandeDetail(detailCommande.value.idCommande);
     notify("Photo principale mise a jour");
   } catch (err) {
@@ -7605,10 +8109,34 @@ async function setCommandeMediaPrimary(item) {
 async function moveCommandeMedia({ media, direction = 0 }) {
   if (!detailCommande.value?.idCommande || !media?.idMedia || !direction) return;
   const nextPosition = Number(media.position || 1) + Number(direction || 0);
-  detailCommandeMediaActionId.value = media.idMedia;
+  detailCommandeMediaActionId.value = mediaActionKey(media);
   detailCommandeMediaError.value = "";
   try {
-    await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, media.idMedia, { position: nextPosition });
+    const useOfflinePath =
+      !getNetworkState().online ||
+      !isRemoteEntityId(detailCommande.value.idCommande) ||
+      isLocalEntity(mediaActionKey(media)) ||
+      media?.syncStatus === "pending" ||
+      media?.syncStatus === "blocked";
+
+    if (useOfflinePath) {
+      const atelierId = currentAtelierId.value;
+      if (!atelierId) {
+        throw new Error("Atelier courant introuvable pour le reordonnancement offline.");
+      }
+      const items = await moveCommandePhotoOffline({
+        atelierId,
+        commande: detailCommande.value,
+        media,
+        direction
+      });
+      await setDetailCommandeMediaRows(items || [], detailCommande.value);
+      detailCommandeMediaError.value = "";
+      void requestSync(atelierId);
+      return;
+    }
+
+    await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, media.serverId || media.idMedia, { position: nextPosition });
     await loadCommandeDetail(detailCommande.value.idCommande);
   } catch (err) {
     detailCommandeMediaError.value = readableError(err);
@@ -7619,10 +8147,35 @@ async function moveCommandeMedia({ media, direction = 0 }) {
 
 async function saveCommandeMediaNote({ media, note = "" }) {
   if (!detailCommande.value?.idCommande || !media?.idMedia) return;
-  detailCommandeMediaActionId.value = media.idMedia;
+  detailCommandeMediaActionId.value = mediaActionKey(media);
   detailCommandeMediaError.value = "";
   try {
-    await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, media.idMedia, { note });
+    const useOfflinePath =
+      !getNetworkState().online ||
+      !isRemoteEntityId(detailCommande.value.idCommande) ||
+      isLocalEntity(mediaActionKey(media)) ||
+      media?.syncStatus === "pending" ||
+      media?.syncStatus === "blocked";
+
+    if (useOfflinePath) {
+      const atelierId = currentAtelierId.value;
+      if (!atelierId) {
+        throw new Error("Atelier courant introuvable pour la note photo offline.");
+      }
+      const items = await saveCommandePhotoNoteOffline({
+        atelierId,
+        commande: detailCommande.value,
+        media,
+        note
+      });
+      await setDetailCommandeMediaRows(items || [], detailCommande.value);
+      detailCommandeMediaError.value = "";
+      void requestSync(atelierId);
+      notify("Note photo enregistree hors ligne");
+      return;
+    }
+
+    await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, media.serverId || media.idMedia, { note });
     await loadCommandeDetail(detailCommande.value.idCommande);
     notify("Note photo enregistree");
   } catch (err) {
@@ -7642,10 +8195,34 @@ async function deleteCommandeMedia(item) {
     tone: "red"
   });
   if (!confirmed) return;
-  detailCommandeMediaActionId.value = item.idMedia;
+  detailCommandeMediaActionId.value = mediaActionKey(item);
   detailCommandeMediaError.value = "";
   try {
-    await atelierApi.deleteCommandeMedia(detailCommande.value.idCommande, item.idMedia);
+    const useOfflinePath =
+      !getNetworkState().online ||
+      !isRemoteEntityId(detailCommande.value.idCommande) ||
+      isLocalEntity(mediaActionKey(item)) ||
+      item?.syncStatus === "pending" ||
+      item?.syncStatus === "blocked";
+
+    if (useOfflinePath) {
+      const atelierId = currentAtelierId.value;
+      if (!atelierId) {
+        throw new Error("Atelier courant introuvable pour la suppression photo offline.");
+      }
+      const items = await deleteCommandePhotoOffline({
+        atelierId,
+        commande: detailCommande.value,
+        media: item
+      });
+      await setDetailCommandeMediaRows(items || [], detailCommande.value);
+      detailCommandeMediaError.value = "";
+      void requestSync(atelierId);
+      notify("Photo supprimee hors ligne");
+      return;
+    }
+
+    await atelierApi.deleteCommandeMedia(detailCommande.value.idCommande, item.serverId || item.idMedia);
     await loadCommandeDetail(detailCommande.value.idCommande);
     notify("Photo supprimee");
   } catch (err) {
@@ -7660,24 +8237,97 @@ async function loadRetoucheDetail(idRetouche) {
   detailRetoucheLoading.value = true;
   detailRetoucheError.value = "";
   detailRetoucheActions.value = null;
-  try {
-    const detail = await atelierApi.getRetouche(idRetouche);
-    detailRetouche.value = normalizeRetouche(detail);
-    void loadRetoucheActionsForId(idRetouche, { force: true, detail: true });
-  } catch (err) {
+
+  const atelierId = currentAtelierId.value;
+  if (!atelierId) {
     detailRetouche.value = null;
-    detailRetoucheActions.value = null;
     detailRetouchePaiements.value = [];
     detailRetoucheEvents.value = [];
-    detailRetoucheError.value = readableError(err);
+    detailRetouchePaiementsLoading.value = false;
+    detailRetoucheEventsLoading.value = false;
+    detailRetoucheError.value = "Atelier courant introuvable pour la lecture offline.";
     detailRetoucheLoading.value = false;
     return;
   }
+
+  let activeRetoucheId = String(idRetouche || "").trim();
+  let hasCachedDetail = false;
+
+  const localFirst = await loadRetoucheDetailLocalFirst({
+    atelierId,
+    idRetouche: activeRetoucheId
+  });
+
+  if (localFirst.cached) {
+    detailRetouche.value = normalizeRetouche(localFirst.cached);
+    activeRetoucheId = detailRetouche.value?.idRetouche || activeRetoucheId;
+    hasCachedDetail = true;
+    detailRetoucheLoading.value = false;
+  }
+
+  if (!localFirst.online) {
+    if (!hasCachedDetail) {
+      detailRetouche.value = null;
+      detailRetoucheActions.value = null;
+      detailRetouchePaiements.value = [];
+      detailRetoucheEvents.value = [];
+      detailRetouchePaiementsLoading.value = false;
+      detailRetoucheEventsLoading.value = false;
+      detailRetoucheError.value = OFFLINE_READ_MESSAGES.RETOUCHE_DETAIL;
+      detailRetoucheLoading.value = false;
+      return;
+    }
+
+    detailRetouchePaiements.value = [];
+    detailRetoucheEvents.value = [];
+    detailRetouchePaiementsLoading.value = false;
+    detailRetoucheEventsLoading.value = false;
+    detailRetoucheError.value = OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL;
+    return;
+  }
+
+  try {
+    const refreshed = await localFirst.refreshPromise;
+    if (refreshed?.row) {
+      detailRetouche.value = normalizeRetouche(refreshed.row);
+      activeRetoucheId = detailRetouche.value?.idRetouche || activeRetoucheId;
+    } else if (!hasCachedDetail) {
+      throw new Error("Retouche introuvable");
+    }
+    if (isRemoteEntityId(activeRetoucheId)) {
+      void loadRetoucheActionsForId(activeRetoucheId, { force: true, detail: true });
+    }
+  } catch (err) {
+    if (hasCachedDetail) {
+      detailRetoucheError.value = readableError(err);
+    } else {
+      detailRetouche.value = null;
+      detailRetoucheActions.value = null;
+      detailRetouchePaiements.value = [];
+      detailRetoucheEvents.value = [];
+      detailRetouchePaiementsLoading.value = false;
+      detailRetoucheEventsLoading.value = false;
+      detailRetoucheError.value = readableError(err);
+      detailRetoucheLoading.value = false;
+      return;
+    }
+  }
   detailRetoucheLoading.value = false;
+
+  if (!isRemoteEntityId(activeRetoucheId)) {
+    detailRetouchePaiements.value = [];
+    detailRetoucheEvents.value = [];
+    detailRetouchePaiementsLoading.value = false;
+    detailRetoucheEventsLoading.value = false;
+    detailRetoucheError.value = detailRetoucheError.value
+      ? `${detailRetoucheError.value} | ${OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL}`
+      : OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL;
+    return;
+  }
 
   detailRetouchePaiementsLoading.value = true;
   try {
-    const paiements = await atelierApi.listPaiementsRetouche(idRetouche);
+    const paiements = await atelierApi.listPaiementsRetouche(activeRetoucheId);
     detailRetouchePaiements.value = (paiements || []).map(normalizePaiement);
   } catch (err) {
     detailRetouchePaiements.value = [];
@@ -7688,7 +8338,7 @@ async function loadRetoucheDetail(idRetouche) {
 
   detailRetoucheEventsLoading.value = true;
   try {
-    const events = await atelierApi.listRetoucheEvents(idRetouche);
+    const events = await atelierApi.listRetoucheEvents(activeRetoucheId);
     detailRetoucheEvents.value = (events || [])
       .map(normalizeWorkflowEvent)
       .sort((a, b) => new Date(b.dateEvent).getTime() - new Date(a.dateEvent).getTime());

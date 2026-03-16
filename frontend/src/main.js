@@ -1,5 +1,8 @@
 import { createApp } from "vue";
 import App from "./App.vue";
+import { initializeLocalDb } from "./services/local-db.js";
+import { initializeNetworkService } from "./services/network-service.js";
+import { initializeSyncEngine } from "./services/sync-engine.js";
 import "./style.css";
 
 function renderStartupError(error) {
@@ -25,6 +28,9 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 try {
+  initializeNetworkService();
+  void initializeLocalDb();
+  initializeSyncEngine();
   createApp(App).mount("#app");
 } catch (error) {
   renderStartupError(error);

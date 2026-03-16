@@ -614,14 +614,14 @@ export const atelierApi = {
     return `${API_BASE_URL}/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}/thumbnail`;
   },
 
-  async getCommandeMediaFileBlobUrl(idCommande, idMedia) {
-    return fetchBlobObjectUrl(`/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}/fichier`, {
+  async getCommandeMediaFileBlob(idCommande, idMedia) {
+    return fetchBlobWithAuthRetry(`/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}/fichier`, {
       method: "GET"
     });
   },
 
-  async getCommandeMediaThumbnailBlobUrl(idCommande, idMedia) {
-    return fetchBlobObjectUrl(`/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}/thumbnail`, {
+  async getCommandeMediaThumbnailBlob(idCommande, idMedia) {
+    return fetchBlobWithAuthRetry(`/commandes/${encodeURIComponent(idCommande)}/media/${encodeURIComponent(idMedia)}/thumbnail`, {
       method: "GET"
     });
   },

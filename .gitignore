@@ -16,6 +16,7 @@ backend*.log
 /dist/
 /build/
 frontend/dist/
+storage/
 
 # Vite
 .vite/
