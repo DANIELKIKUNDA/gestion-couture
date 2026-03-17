@@ -92,6 +92,19 @@ function sortByDate(caisses = []) {
   return [...caisses].sort((a, b) => String(a?.date || "").localeCompare(String(b?.date || "")));
 }
 
+function getPreviousMonthParts(parts) {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, 1));
+  date.setUTCMonth(date.getUTCMonth() - 1);
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return {
+    year,
+    month,
+    day: lastDay
+  };
+}
+
 export async function creerBilanHebdoSiFinSemaine({
   caisseRepo,
   bilanRepo,
@@ -158,15 +171,15 @@ export async function creerBilanMensuelSiFinMois({
     ? parseDateJour(caisseCloturee.date)
     : getKinshasaParts(now, timeZone);
 
-  if (!isEndOfMonth(parts)) return null;
-
-  const dateFin = endOfMonth(parts);
-  const dateDebut = startOfMonth(parts);
+  const target = isEndOfMonth(parts) ? parts : getPreviousMonthParts(parts);
+  const dateFin = endOfMonth(target);
+  const dateDebut = startOfMonth(target);
   const exists = await bilanRepo.getByPeriod(TypeBilan.MENSUEL, dateDebut, dateFin);
   if (exists) return exists;
 
   const caissesRange = await caisseRepo.listByDateRange(dateDebut, dateFin);
   const caisses = (caissesRange || []).filter((caisse) => caisse?.statutCaisse === "CLOTUREE");
+  if (caisses.length === 0) return null;
   const soldeDebut = await resolveSoldeDebut(caisseRepo, dateDebut);
 
   const bilan = calculerBilanCaisse({
@@ -181,8 +194,8 @@ export async function creerBilanMensuelSiFinMois({
   const payload = {
     ...bilan,
     soldeCloture: soldeFinPeriode,
-    mois: parts.month,
-    annee: parts.year,
+    mois: target.month,
+    annee: target.year,
     semaine: null,
     idBilan: generateBilanCaisseId(),
     creePar: utilisateur,

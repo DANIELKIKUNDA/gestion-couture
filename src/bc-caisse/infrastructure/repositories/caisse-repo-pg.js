@@ -1,6 +1,18 @@
 ﻿import { pool } from "../../../shared/infrastructure/db.js";
 import { CaisseJour } from "../../domain/caisse-jour.js";
 
+function normalizePgDateOnly(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  const text = String(value || "").trim();
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(text);
+  return match ? match[1] : text;
+}
+
 export class CaisseRepoPg {
   constructor(atelierId = "ATELIER") {
     this.atelierId = String(atelierId || "ATELIER");
@@ -25,7 +37,7 @@ export class CaisseRepoPg {
     const row = res.rows[0];
     return new CaisseJour({
       idCaisseJour: row.id_caisse_jour,
-      date: row.date_jour,
+      date: normalizePgDateOnly(row.date_jour),
       statutCaisse: row.statut,
       soldeOuverture: Number(row.solde_ouverture),
       soldeCloture: row.solde_cloture === null ? null : Number(row.solde_cloture),
