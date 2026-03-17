@@ -365,6 +365,7 @@ const clientPagination = reactive({
 
 const bilanHebdo = ref([]);
 const bilanMensuel = ref([]);
+const bilanAnnuel = ref([]);
 const auditCaisseJournalier = ref([]);
 const auditOperations = ref([]);
 const auditCommandes = ref([]);
@@ -374,6 +375,7 @@ const auditFactures = ref([]);
 const auditCaisseJournalierPagination = createPagination(10);
 const bilanHebdoPagination = createPagination(10);
 const bilanMensuelPagination = createPagination(10);
+const bilanAnnuelPagination = createPagination(10);
 const auditOperationsPagination = createPagination(20);
 const auditCommandesPagination = createPagination(10);
 const auditRetouchesPagination = createPagination(10);
@@ -402,6 +404,7 @@ const auditSubRoute = ref("/audit");
 const { pages: auditCaisseJournalierPages, paged: auditCaisseJournalierPaged } = createClientSidePager(auditCaisseJournalier, auditCaisseJournalierPagination);
 const { pages: bilanHebdoPages, paged: bilanHebdoPaged } = createClientSidePager(bilanHebdo, bilanHebdoPagination);
 const { pages: bilanMensuelPages, paged: bilanMensuelPaged } = createClientSidePager(bilanMensuel, bilanMensuelPagination);
+const { pages: bilanAnnuelPages, paged: bilanAnnuelPaged } = createClientSidePager(bilanAnnuel, bilanAnnuelPagination);
 const { pages: auditOperationsPages, paged: auditOperationsPaged } = createClientSidePager(auditOperations, auditOperationsPagination);
 const { pages: auditCommandesPages, paged: auditCommandesPaged } = createClientSidePager(auditCommandes, auditCommandesPagination);
 const { pages: auditRetouchesPages, paged: auditRetouchesPaged } = createClientSidePager(auditRetouches, auditRetouchesPagination);
@@ -2392,7 +2395,7 @@ const auditRoutes = [
   { path: "/audit/stock-ventes", title: "Audit Stock & Ventes", subtitle: "Ventes, sorties stock et lien caisse" },
   { path: "/audit/factures", title: "Audit des Factures", subtitle: "Factures emises en lecture seule" },
   { path: "/audit/utilisateurs", title: "Audit Utilisateurs", subtitle: "Journal des actions de securite et gestion utilisateurs" },
-  { path: "/audit/annuel", title: "Audit Annuel", subtitle: "Prevu: consolidation annuelle" }
+  { path: "/audit/annuel", title: "Audit Annuel", subtitle: "Consolidation annuelle des bilans de caisse" }
 ];
 
 const clientMap = computed(() => {
@@ -5142,10 +5145,11 @@ async function loadAuditHub() {
 }
 
 async function loadAuditCaisse() {
-  const [journalierResult, hebdoResult, mensuelResult] = await Promise.allSettled([
+  const [journalierResult, hebdoResult, mensuelResult, annuelResult] = await Promise.allSettled([
     atelierApi.listCaisseAuditJournalier(),
     atelierApi.listBilansCaisse("HEBDO", 100),
-    atelierApi.listBilansCaisse("MENSUEL", 60)
+    atelierApi.listBilansCaisse("MENSUEL", 60),
+    atelierApi.listBilansCaisse("ANNUEL", 20)
   ]);
 
   if (journalierResult.status === "fulfilled") auditCaisseJournalier.value = journalierResult.value || [];
@@ -5156,6 +5160,9 @@ async function loadAuditCaisse() {
 
   if (mensuelResult.status === "fulfilled") bilanMensuel.value = mensuelResult.value || [];
   else appendAuditError(readableError(mensuelResult.reason));
+
+  if (annuelResult.status === "fulfilled") bilanAnnuel.value = annuelResult.value || [];
+  else appendAuditError(readableError(annuelResult.reason));
 }
 
 async function loadAuditUtilisateurs() {
@@ -5177,6 +5184,8 @@ async function loadAuditPage(path = "/audit") {
     if (path === "/audit") {
       await loadAuditHub();
     } else if (path === "/audit/caisse") {
+      await loadAuditCaisse();
+    } else if (path === "/audit/annuel") {
       await loadAuditCaisse();
     } else if (path === "/audit/operations") {
       auditOperations.value = await atelierApi.listCaisseAuditOperations();
@@ -11513,8 +11522,42 @@ async function loadRetoucheDetail(idRetouche) {
           </article>
 
           <article class="panel">
-            <h3>Bilans annuels (prevu)</h3>
-            <p class="helper">Structure prevue, non active.</p>
+            <h3>Bilans annuels</h3>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Annee</th>
+                  <th>Periode</th>
+                  <th>Solde debut</th>
+                  <th>Entrees</th>
+                  <th>Sorties</th>
+                  <th>Solde fin</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in bilanAnnuelPaged" :key="row.id_bilan">
+                  <td>{{ row.annee || "-" }}</td>
+                  <td>{{ row.date_debut }} -> {{ row.date_fin }}</td>
+                  <td>{{ formatCurrency(row.solde_ouverture) }}</td>
+                  <td>{{ formatCurrency(row.total_entrees) }}</td>
+                  <td>{{ formatCurrency(row.total_sorties) }}</td>
+                  <td>{{ formatCurrency(row.solde_cloture) }}</td>
+                </tr>
+                <tr v-if="bilanAnnuel.length === 0">
+                  <td colspan="6">Aucun bilan annuel.</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="bilanAnnuelPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="bilanAnnuelPagination.page <= 1" @click="bilanAnnuelPagination.page -= 1">Precedent</button>
+              <span>Page {{ bilanAnnuelPagination.page }} / {{ bilanAnnuelPages }}</span>
+              <button class="mini-btn" :disabled="bilanAnnuelPagination.page >= bilanAnnuelPages" @click="bilanAnnuelPagination.page += 1">Suivant</button>
+            </div>
           </article>
         </template>
 
@@ -11882,8 +11925,47 @@ async function loadRetoucheDetail(idRetouche) {
 
         <template v-else-if="auditSubRoute === '/audit/annuel'">
           <article class="panel">
-            <h3>Audit Annuel (prevu futur)</h3>
-            <p class="helper">Cette route est reservee pour la consolidation annuelle.</p>
+            <h3>Consolidation annuelle</h3>
+            <p class="helper">Vue consolidee des bilans annuels de caisse.</p>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Annee</th>
+                  <th>Periode</th>
+                  <th>Solde debut</th>
+                  <th>Total entrees</th>
+                  <th>Total sorties</th>
+                  <th>Solde fin</th>
+                  <th>Jours clotures</th>
+                  <th>Operations</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in bilanAnnuelPaged" :key="row.id_bilan">
+                  <td>{{ row.annee || "-" }}</td>
+                  <td>{{ row.date_debut }} -> {{ row.date_fin }}</td>
+                  <td>{{ formatCurrency(row.solde_ouverture) }}</td>
+                  <td>{{ formatCurrency(row.total_entrees) }}</td>
+                  <td>{{ formatCurrency(row.total_sorties) }}</td>
+                  <td>{{ formatCurrency(row.solde_cloture) }}</td>
+                  <td>{{ row.nombre_jours || 0 }}</td>
+                  <td>{{ row.nombre_operations || 0 }}</td>
+                </tr>
+                <tr v-if="bilanAnnuel.length === 0">
+                  <td colspan="8">Aucun bilan annuel disponible.</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="panel-footer table-pagination">
+              <select v-model.number="bilanAnnuelPagination.pageSize">
+                <option :value="10">10 / page</option>
+                <option :value="20">20 / page</option>
+                <option :value="50">50 / page</option>
+              </select>
+              <button class="mini-btn" :disabled="bilanAnnuelPagination.page <= 1" @click="bilanAnnuelPagination.page -= 1">Precedent</button>
+              <span>Page {{ bilanAnnuelPagination.page }} / {{ bilanAnnuelPages }}</span>
+              <button class="mini-btn" :disabled="bilanAnnuelPagination.page >= bilanAnnuelPages" @click="bilanAnnuelPagination.page += 1">Suivant</button>
+            </div>
           </article>
         </template>
       </section>

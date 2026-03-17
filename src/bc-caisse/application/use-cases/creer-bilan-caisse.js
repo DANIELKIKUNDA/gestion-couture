@@ -105,6 +105,14 @@ function getPreviousMonthParts(parts) {
   };
 }
 
+function getPreviousYearParts(parts) {
+  return {
+    year: parts.year - 1,
+    month: 12,
+    day: 31
+  };
+}
+
 export async function creerBilanHebdoSiFinSemaine({
   caisseRepo,
   bilanRepo,
@@ -216,21 +224,20 @@ export async function creerBilanAnnuelSiFinAnnee({
   const parts = caisseCloturee?.date
     ? parseDateJour(caisseCloturee.date)
     : getKinshasaParts(now, timeZone);
-
-  if (!isEndOfYear(parts)) return null;
-
-  const dateDebut = startOfYear(parts);
-  const dateFin = endOfYear(parts);
+  const target = isEndOfYear(parts) ? parts : getPreviousYearParts(parts);
+  const dateDebut = startOfYear(target);
+  const dateFin = endOfYear(target);
   const exists = await bilanRepo.getByPeriod(TypeBilan.ANNUEL, dateDebut, dateFin);
   if (exists) return exists;
 
-  const previousYearStart = formatDate(parts.year - 1, 1, 1);
-  const previousYearEnd = formatDate(parts.year - 1, 12, 31);
+  const previousYearStart = formatDate(target.year - 1, 1, 1);
+  const previousYearEnd = formatDate(target.year - 1, 12, 31);
   const previousAnnual = await bilanRepo.getByPeriod(TypeBilan.ANNUEL, previousYearStart, previousYearEnd);
   const previousAnnualSolde = previousAnnual?.solde_cloture ?? previousAnnual?.soldeCloture ?? null;
 
   const allYearCaisses = sortByDate(await caisseRepo.listByDateRange(dateDebut, dateFin));
   const closedCaisses = allYearCaisses.filter((caisse) => caisse?.statutCaisse === "CLOTUREE");
+  if (closedCaisses.length === 0) return null;
 
   const fallbackSoldeDebut = allYearCaisses[0] ? Number(allYearCaisses[0].soldeOuverture || 0) : 0;
   const soldeDebutAnnee = previousAnnualSolde !== undefined && previousAnnualSolde !== null
@@ -251,7 +258,7 @@ export async function creerBilanAnnuelSiFinAnnee({
     soldeCloture: soldeFinAnnee,
     mois: null,
     semaine: null,
-    annee: parts.year,
+    annee: target.year,
     idBilan: generateBilanCaisseId(),
     creePar: utilisateur,
     dateCreation: now.toISOString()
