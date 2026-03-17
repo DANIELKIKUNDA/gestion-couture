@@ -1,0 +1,14 @@
+.git
+.github
+node_modules
+frontend/node_modules
+frontend/dist
+storage
+logs
+backups
+deploy/.env.production
+deploy/certbot
+*.log
+.env
+.DS_Store
+Thumbs.db

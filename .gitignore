@@ -11,12 +11,15 @@ backend*.log
 
 # Env
 .env
+deploy/.env.production
 
 # Build
 /dist/
 /build/
 frontend/dist/
 storage/
+backups/
+deploy/certbot/
 
 # Vite
 .vite/

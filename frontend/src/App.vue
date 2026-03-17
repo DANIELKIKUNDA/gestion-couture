@@ -17,6 +17,14 @@ import {
 } from "./services/media-local-store.js";
 import { createOfflineClient, createOfflineCommande, createOfflineRetouche } from "./services/offline-write-service.js";
 import { getNetworkState, subscribeToNetworkState } from "./services/network-service.js";
+import {
+  applyPwaUpdate,
+  dismissPwaOfflineReady,
+  isPwaInstallAvailable,
+  isPwaOfflineReady,
+  isPwaUpdateAvailable,
+  promptPwaInstall
+} from "./services/pwa-service.js";
 import { requestSync, setSyncEngineAtelierContext, subscribeToSyncEvents } from "./services/sync-engine.js";
 import CommandeMediaGallery from "./components/commandes/CommandeMediaGallery.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
@@ -4214,11 +4222,45 @@ watch(
   }
 );
 
+watch(isPwaOfflineReady, (ready) => {
+  if (!ready) return;
+  notify("Interface hors ligne prete.");
+  dismissPwaOfflineReady();
+});
+
+watch(isPwaUpdateAvailable, (available) => {
+  if (!available) return;
+  notify("Nouvelle version disponible.");
+});
+
 function notify(message) {
   toast.value = message;
   setTimeout(() => {
     if (toast.value === message) toast.value = "";
   }, 2600);
+}
+
+async function installApplication() {
+  const installed = await promptPwaInstall();
+  if (installed) {
+    notify("Application installee sur cet appareil.");
+    return;
+  }
+  if (isPwaInstallAvailable.value) {
+    notify("Installation annulee.");
+  }
+}
+
+async function reloadApplicationForUpdate() {
+  try {
+    notify("Mise a jour de l'application...");
+    const triggered = await applyPwaUpdate();
+    if (!triggered) {
+      notify("Aucune mise a jour en attente.");
+    }
+  } catch (err) {
+    notify(readableError(err));
+  }
 }
 
 function resetRetoucheFilters() {
@@ -8719,6 +8761,12 @@ async function loadRetoucheDetail(idRetouche) {
           <p class="date-label">{{ workspaceName }}</p>
         </div>
         <div class="topbar-actions">
+          <button v-if="isPwaInstallAvailable" class="mini-btn pwa-topbar-btn" @click="installApplication">
+            Installer l'application
+          </button>
+          <button v-if="isPwaUpdateAvailable" class="mini-btn pwa-topbar-btn pwa-topbar-btn-update" @click="reloadApplicationForUpdate">
+            Mettre a jour
+          </button>
           <button class="mini-btn" @click="reloadAll" :disabled="loading">Actualiser</button>
           <div class="toast" :class="{ visible: toast }">{{ toast || "Pret" }}</div>
         </div>
