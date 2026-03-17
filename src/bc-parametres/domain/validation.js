@@ -22,6 +22,12 @@ function assertTime(value, label) {
   }
 }
 
+function assertOneOf(value, label, allowedValues) {
+  if (!allowedValues.includes(value)) {
+    throw new Error(`${label} invalide`);
+  }
+}
+
 export function validateParametresPayload(payload) {
   if (!payload || typeof payload !== "object") throw new Error("Payload invalide");
 
@@ -139,6 +145,8 @@ export function validateParametresPayload(payload) {
   const caisse = payload.caisse || {};
   assertTime(caisse.ouvertureAuto, "Caisse.ouvertureAuto");
   assertTime(caisse.ouvertureDimanche, "Caisse.ouvertureDimanche");
+  assertString(caisse.finSemaineComptable, "Caisse.finSemaineComptable");
+  assertOneOf(caisse.finSemaineComptable, "Caisse.finSemaineComptable", ["SAMEDI", "DIMANCHE"]);
   if (caisse.clotureAutoMinuit !== undefined) assertBoolean(caisse.clotureAutoMinuit, "Caisse.clotureAutoMinuit");
   assertBoolean(caisse.clotureAutoActive, "Caisse.clotureAutoActive");
   assertTime(caisse.heureClotureAuto, "Caisse.heureClotureAuto");

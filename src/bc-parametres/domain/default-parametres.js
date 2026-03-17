@@ -89,6 +89,7 @@ export function buildDefaultAtelierParametresPayload({ nomAtelier = "Atelier", o
     caisse: {
       ouvertureAuto: "07:30",
       ouvertureDimanche: "08:00",
+      finSemaineComptable: "DIMANCHE",
       clotureAutoMinuit: true,
       clotureAutoActive: true,
       heureClotureAuto: "00:00",

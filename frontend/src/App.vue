@@ -764,6 +764,7 @@ const atelierSettingsDefault = {
   caisse: {
     ouvertureAuto: "07:30",
     ouvertureDimanche: "08:00",
+    finSemaineComptable: "DIMANCHE",
     clotureAutoActive: true,
     heureClotureAuto: "00:00",
     clotureAutoMinuit: true,
@@ -802,6 +803,8 @@ function applySettings(target, source) {
 
 function normalizeCaisseSettings(caisse) {
   if (!caisse || typeof caisse !== "object") return;
+  const finSemaine = String(caisse.finSemaineComptable || caisse.finSemaine || "").trim().toUpperCase();
+  caisse.finSemaineComptable = finSemaine === "SAMEDI" ? "SAMEDI" : "DIMANCHE";
   if (typeof caisse.clotureAutoActive !== "boolean") {
     caisse.clotureAutoActive = typeof caisse.clotureAutoMinuit === "boolean" ? caisse.clotureAutoMinuit : true;
   }
@@ -10912,6 +10915,13 @@ async function loadRetoucheDetail(idRetouche) {
               <label>Heure ouverture dimanche</label>
               <input v-model="atelierSettings.caisse.ouvertureDimanche" type="time" :disabled="!settingsCanEdit" />
             </div>
+            <div class="stack-form">
+              <label>Fin de semaine comptable</label>
+              <select v-model="atelierSettings.caisse.finSemaineComptable" :disabled="!settingsCanEdit">
+                <option value="DIMANCHE">Dimanche</option>
+                <option value="SAMEDI">Samedi</option>
+              </select>
+            </div>
             <label class="helper">
               <input v-model="atelierSettings.caisse.clotureAutoActive" type="checkbox" :disabled="!settingsCanEdit" />
               Activer la cloture automatique
@@ -10923,7 +10933,7 @@ async function loadRetoucheDetail(idRetouche) {
           </div>
           <p class="helper">
             Les horaires d'ouverture et de cloture automatique sont geres ici. Les regles de livraison restent pilotees dans les modules metier
-            Commandes et Retouches.
+            Commandes et Retouches. La fin de semaine comptable pilote la generation du bilan hebdomadaire selon votre atelier.
           </p>
         </article>
 

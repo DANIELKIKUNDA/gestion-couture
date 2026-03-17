@@ -81,6 +81,18 @@ function resolveEndWeekday(payload = null) {
   return raw === "SAMEDI" ? 6 : 0;
 }
 
+function getLatestCompletedWeekEndParts(parts, endWeekday) {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  const diff = (parts.weekday - endWeekday + 7) % 7;
+  date.setUTCDate(date.getUTCDate() - diff);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+    weekday: endWeekday
+  };
+}
+
 async function resolveSoldeDebut(caisseRepo, dateDebut) {
   if (!caisseRepo || typeof caisseRepo.listBeforeDate !== "function") return null;
   const before = await caisseRepo.listBeforeDate(dateDebut, 120);
@@ -130,18 +142,17 @@ export async function creerBilanHebdoSiFinSemaine({
   const parts = caisseCloturee?.date
     ? parseDateJour(caisseCloturee.date)
     : getKinshasaParts(now, timeZone);
-
-  if (parts.weekday !== endWeekday) return null;
-
-  const dateFin = buildDateJour(parts);
-  const dateDebut = startOfWeek(parts, endWeekday);
+  const target = getLatestCompletedWeekEndParts(parts, endWeekday);
+  const dateFin = buildDateJour(target);
+  const dateDebut = startOfWeek(target, endWeekday);
   const exists = await bilanRepo.getByPeriod(TypeBilan.HEBDO, dateDebut, dateFin);
   if (exists) return exists;
 
   const caissesRange = await caisseRepo.listByDateRange(dateDebut, dateFin);
   const caisses = (caissesRange || []).filter((caisse) => caisse?.statutCaisse === "CLOTUREE");
+  if (caisses.length === 0) return null;
   const soldeDebut = await resolveSoldeDebut(caisseRepo, dateDebut);
-  const periode = toIsoWeekYear(parts);
+  const periode = toIsoWeekYear(target);
 
   const bilan = calculerBilanCaisse({
     caisses,
