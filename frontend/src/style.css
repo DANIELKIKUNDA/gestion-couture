@@ -492,6 +492,19 @@ body {
   font-size: 20px;
 }
 
+.facture-atelier-logo {
+  display: block;
+  width: 88px;
+  max-width: 100%;
+  height: 88px;
+  object-fit: contain;
+  margin-bottom: 12px;
+  border: 1px solid #d8e1eb;
+  border-radius: 10px;
+  background: #fff;
+  padding: 6px;
+}
+
 .caisse-summary-grid {
   display: grid;
   grid-template-columns: minmax(260px, 1.3fr) minmax(240px, 1fr) minmax(260px, 1.1fr);

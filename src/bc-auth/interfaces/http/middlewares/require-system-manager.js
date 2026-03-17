@@ -8,6 +8,7 @@ function normalizeRole(value) {
 export function requireSystemManager(req, res, next) {
   if (!req.auth) {
     logSecurityAudit({
+      atelierId: req.auth?.atelierId || null,
       action: "SYSTEM_MANAGER_REFUS",
       entite: req.path,
       succes: false,
@@ -20,6 +21,7 @@ export function requireSystemManager(req, res, next) {
     logSecurityAudit({
       utilisateurId: req.auth.utilisateurId,
       role: req.auth.roleId || req.auth.role,
+      atelierId: req.auth.atelierId || null,
       action: "SYSTEM_MANAGER_REFUS",
       entite: req.path,
       succes: false,

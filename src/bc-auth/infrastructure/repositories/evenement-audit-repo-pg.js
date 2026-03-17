@@ -16,7 +16,7 @@ export class EvenementAuditRepoPg {
     await enregistrerEvenementAudit({
       utilisateurId: event?.utilisateurId || null,
       role: event?.role || null,
-      atelierId: event?.atelierId || "ATELIER",
+      atelierId: event?.atelierId || null,
       action: event?.action || "SECURITY_ACTION",
       entite: event?.entite || "auth",
       entiteId: event?.entiteId || null,

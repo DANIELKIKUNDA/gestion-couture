@@ -39,6 +39,7 @@ export async function securityPolicy(req, res, next) {
     await logSecurityAudit({
       utilisateurId: req.auth.utilisateurId,
       role: req.auth.roleId || req.auth.role,
+      atelierId: req.auth.atelierId || null,
       action: "TOKEN_REVOQUE_REFUS",
       entite: req.path,
       succes: false,
@@ -52,6 +53,7 @@ export async function securityPolicy(req, res, next) {
     await logSecurityAudit({
       utilisateurId: req.auth.utilisateurId,
       role: req.auth.roleId || req.auth.role,
+      atelierId: req.auth.atelierId || null,
       action: "UTILISATEUR_INTROUVABLE_REFUS",
       entite: req.path,
       succes: false,
@@ -65,6 +67,7 @@ export async function securityPolicy(req, res, next) {
     await logSecurityAudit({
       utilisateurId: user.id,
       role: user.roleId,
+      atelierId: user.atelierId || null,
       action: "COMPTE_INACTIF_REFUS",
       entite: req.path,
       succes: false,
@@ -81,6 +84,7 @@ export async function securityPolicy(req, res, next) {
       await logSecurityAudit({
         utilisateurId: user.id,
         role: user.roleId,
+        atelierId: user.atelierId || null,
         action: "ATELIER_INACTIF_REFUS",
         entite: req.path,
         succes: false,

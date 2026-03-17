@@ -26,6 +26,7 @@ export function hasAnyPermission(auth, permissions = []) {
 function withPermissionGuard({ req, res, permissions = [], mode = "all" }) {
   if (!req.auth) {
     logSecurityAudit({
+      atelierId: req.auth?.atelierId || null,
       action: "AUTH_REFUS",
       entite: req.path,
       succes: false,
@@ -40,6 +41,7 @@ function withPermissionGuard({ req, res, permissions = [], mode = "all" }) {
     logSecurityAudit({
       utilisateurId: req.auth.utilisateurId,
       role: req.auth.roleId || req.auth.role,
+      atelierId: req.auth.atelierId || null,
       action: "PERMISSION_REFUS",
       entite: req.path,
       succes: false,
@@ -55,6 +57,7 @@ function withPermissionGuard({ req, res, permissions = [], mode = "all" }) {
     logSecurityAudit({
       utilisateurId: req.auth.utilisateurId,
       role: req.auth.roleId || req.auth.role,
+      atelierId: req.auth.atelierId || null,
       action: "PERMISSION_REFUS",
       entite: req.path,
       succes: false,
@@ -69,6 +72,7 @@ function withPermissionGuard({ req, res, permissions = [], mode = "all" }) {
     logSecurityAudit({
       utilisateurId: req.auth.utilisateurId,
       role: req.auth.roleId || req.auth.role,
+      atelierId: req.auth.atelierId || null,
       action: "PERMISSION_AUTORISEE",
       entite: req.path,
       succes: true,

@@ -21,6 +21,7 @@ export async function ensureEvenementAuditSchema() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_evenement_audit_date ON evenement_audit (date_evenement DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_evenement_audit_action ON evenement_audit (action)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_evenement_audit_entite ON evenement_audit (entite)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_evenement_audit_atelier_date ON evenement_audit (atelier_id, date_evenement DESC)`);
   auditSchemaReady = true;
 }
 
@@ -34,6 +35,7 @@ export async function enregistrerEvenementAudit({
   payload = {}
 }) {
   try {
+    const normalizedAtelierId = String(atelierId || "").trim() || null;
     await ensureEvenementAuditSchema();
     await pool.query(
       `INSERT INTO evenement_audit (
@@ -51,7 +53,7 @@ export async function enregistrerEvenementAudit({
         randomUUID(),
         utilisateurId,
         role,
-        atelierId,
+        normalizedAtelierId,
         action || "UNKNOWN_ACTION",
         entite,
         entiteId,

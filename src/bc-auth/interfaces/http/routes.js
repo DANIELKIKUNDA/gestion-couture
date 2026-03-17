@@ -2115,17 +2115,23 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
 router.get("/audit/utilisateurs", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX), async (req, res) => {
   try {
     await ensureEvenementAuditSchema();
+    const currentAtelierId = String(req.auth?.atelierId || "").trim();
+    if (!currentAtelierId) return res.status(400).json({ error: "Atelier courant introuvable" });
     const q = String(req.query?.q || "").trim().toLowerCase();
     const action = String(req.query?.action || "").trim().toUpperCase();
     const statut = String(req.query?.statut || "ALL").trim().toUpperCase();
     const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 200)));
 
+    const params = [currentAtelierId];
     const clauses = ["(entite LIKE 'auth/%' OR action LIKE 'USER_%' OR action LIKE 'ROLE_%' OR action LIKE 'COMPTE_%')"];
-    const params = [];
+    clauses.push(`COALESCE(ea.atelier_id, u.atelier_id, '') = $1`);
     if (q) {
       params.push(`%${q}%`);
       clauses.push(`(
-        LOWER(COALESCE(utilisateur_id, '')) LIKE $${params.length}
+        LOWER(COALESCE(ea.atelier_id, u.atelier_id, '')) LIKE $${params.length}
+        OR LOWER(COALESCE(u.nom, '')) LIKE $${params.length}
+        OR LOWER(COALESCE(u.email, '')) LIKE $${params.length}
+        OR LOWER(COALESCE(utilisateur_id, '')) LIKE $${params.length}
         OR LOWER(COALESCE(role, '')) LIKE $${params.length}
         OR LOWER(COALESCE(action, '')) LIKE $${params.length}
         OR LOWER(COALESCE(entite, '')) LIKE $${params.length}
@@ -2144,6 +2150,7 @@ router.get("/audit/utilisateurs", requirePermission(PERMISSIONS.VOIR_BILANS_GLOB
 
     const result = await pool.query(
       `SELECT ea.id_evenement, ea.utilisateur_id, ea.role, ea.action, ea.entite, ea.entite_id, ea.payload, ea.date_evenement,
+              COALESCE(ea.atelier_id, u.atelier_id) AS atelier_id,
               u.nom AS utilisateur_nom, u.email AS utilisateur_email
        FROM evenement_audit ea
        LEFT JOIN utilisateurs u ON u.id_utilisateur = ea.utilisateur_id
@@ -2156,14 +2163,26 @@ router.get("/audit/utilisateurs", requirePermission(PERMISSIONS.VOIR_BILANS_GLOB
     res.json(
       result.rows.map((row) => ({
         idEvenement: row.id_evenement,
+        atelierId: row.atelier_id || currentAtelierId,
+        userId: row.utilisateur_id,
+        userName: row.utilisateur_nom || null,
+        userEmail: row.utilisateur_email || null,
+        role: row.role,
+        actionType: row.action,
+        entityType: row.entite,
+        entityId: row.entite_id,
+        entityLabel: null,
+        success: row.payload?.succes === true,
+        reason: row.payload?.raison || null,
+        createdAt: row.date_evenement,
+        metadata: row.payload?.details || null,
+        payload: row.payload || {},
         utilisateurId: row.utilisateur_id,
         utilisateurNom: row.utilisateur_nom || null,
         utilisateurEmail: row.utilisateur_email || null,
-        role: row.role,
         action: row.action,
         entite: row.entite,
         entiteId: row.entite_id,
-        payload: row.payload || {},
         dateEvenement: row.date_evenement
       }))
     );

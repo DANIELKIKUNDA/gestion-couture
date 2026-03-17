@@ -72,6 +72,8 @@ function createEmptySystemDashboard() {
 
 const AUTH_PORTAL_STORAGE_KEY = "atelier.auth.portal.v1";
 const AUTH_ATELIER_SLUG_STORAGE_KEY = "atelier.auth.slug.v1";
+const AUTH_INVALID_CREDENTIALS_MESSAGE = "Email ou mot de passe incorrect";
+const AUTH_DISABLED_ATELIER_MESSAGE = "Votre atelier est désactivé. Veuillez contacter l’administrateur.";
 
 const currentRoute = ref("dashboard");
 const contentScrollRef = ref(null);
@@ -1006,6 +1008,23 @@ const atelierDevise = computed(() => {
   const value = String(atelierSettings.identite?.devise || "").trim().toUpperCase();
   return value || "FC";
 });
+const factureAtelierProfile = computed(() => {
+  const identite = atelierSettings.identite || {};
+  const facturation = atelierSettings.facturation || {};
+  return {
+    nomAtelier: String(identite.nomAtelier || "").trim(),
+    adresse: String(identite.adresse || "").trim(),
+    telephone: String(identite.telephone || "").trim(),
+    email: String(identite.email || "").trim(),
+    devise: String(identite.devise || "").trim().toUpperCase(),
+    logo: String(identite.logoUrl || "").trim(),
+    mentions: String(facturation.mentions || "").trim(),
+    afficherLogo: facturation.afficherLogo === true
+  };
+});
+const factureAtelierContactLine = computed(() =>
+  [factureAtelierProfile.value.telephone, factureAtelierProfile.value.email].filter(Boolean).join(" • ")
+);
 const settingsSnapshotParsed = computed(() => {
   if (!settingsSnapshot.value) return cloneSettings(atelierSettingsDefault);
   try {
@@ -2809,18 +2828,32 @@ const facturesKpi = computed(() => ({
   montantTotal: facturesFiltered.value.reduce((sum, row) => sum + Number(row.montantTotal || 0), 0)
 }));
 const auditUtilisateursActions = computed(() => {
-  const dynamic = Array.from(new Set(auditUtilisateurs.value.map((row) => String(row.action || "").toUpperCase()).filter(Boolean)));
+  const dynamic = Array.from(new Set(auditUtilisateurs.value.map((row) => String(row.actionType || "").toUpperCase()).filter(Boolean)));
   return ["ALL", ...dynamic];
 });
 const auditUtilisateursFiltered = computed(() => {
   const query = auditUtilisateursFiltres.recherche.trim().toLowerCase();
   return auditUtilisateurs.value.filter((row) => {
-    if (auditUtilisateursFiltres.action !== "ALL" && String(row.action || "").toUpperCase() !== auditUtilisateursFiltres.action) return false;
-    const succes = row.payload?.succes === true;
-    if (auditUtilisateursFiltres.statut === "SUCCES" && !succes) return false;
-    if (auditUtilisateursFiltres.statut === "ECHEC" && succes) return false;
+    if (currentAtelierId.value && String(row.atelierId || "").trim() !== currentAtelierId.value) return false;
+    if (auditUtilisateursFiltres.action !== "ALL" && String(row.actionType || "").toUpperCase() !== auditUtilisateursFiltres.action) return false;
+    if (auditUtilisateursFiltres.statut === "SUCCES" && !row.success) return false;
+    if (auditUtilisateursFiltres.statut === "ECHEC" && row.success) return false;
     if (!query) return true;
-    const haystack = `${row.utilisateurId || ""} ${row.role || ""} ${row.action || ""} ${row.entite || ""} ${row.entiteId || ""} ${JSON.stringify(row.payload || {})}`.toLowerCase();
+    const haystack = [
+      row.atelierId,
+      row.userId,
+      row.userName,
+      row.userEmail,
+      formatRoleLabel(row.role),
+      row.actionType,
+      formatAuditAction(row),
+      row.entityType,
+      formatAuditEntity(row),
+      row.reason,
+      JSON.stringify(row.metadata || {})
+    ]
+      .join(" ")
+      .toLowerCase();
     return haystack.includes(query);
   });
 });
@@ -3637,6 +3670,10 @@ async function submitLogin() {
   if (authPortal.value === "atelier" && !authAtelierSlug.value) {
     authMode.value = "slug-required";
     authError.value = "Renseigne d'abord le slug de l'atelier.";
+    return;
+  }
+  if (authPortal.value === "atelier" && (authMode.value === "atelier-inactive" || authAtelierContext.value?.actif === false)) {
+    authError.value = AUTH_DISABLED_ATELIER_MESSAGE;
     return;
   }
   authError.value = "";
@@ -5123,7 +5160,15 @@ async function loadAuditCaisse() {
 }
 
 async function loadAuditUtilisateurs() {
-  auditUtilisateurs.value = await atelierApi.listAuditUtilisateurs({ limit: 500 });
+  const atelierId = currentAtelierId.value;
+  if (!atelierId) {
+    auditUtilisateurs.value = [];
+    return;
+  }
+  const rows = await atelierApi.listAuditUtilisateurs({ limit: 500 });
+  auditUtilisateurs.value = (rows || [])
+    .map(normalizeAuditUtilisateurEvent)
+    .filter((row) => String(row.atelierId || "").trim() === atelierId);
 }
 
 async function loadAuditPage(path = "/audit") {
@@ -5176,13 +5221,46 @@ function depenseTypeLabel(value) {
   return upper === "EXCEPTIONNELLE" ? "Exceptionnelle" : "Quotidienne";
 }
 
-function auditEntiteLabel(value) {
+function formatRoleLabel(value) {
+  const key = String(value || "").trim().toUpperCase();
+  const labels = {
+    PROPRIETAIRE: "Proprietaire",
+    MANAGER_SYSTEME: "Manager systeme",
+    COUTURIER: "Couturier",
+    CAISSIER: "Caissier"
+  };
+  return labels[key] || (key ? key.replaceAll("_", " ") : "-");
+}
+
+function formatAccountStateLabel(value) {
+  const key = String(value || "").trim().toUpperCase();
+  if (key === "ACTIVE") return "Actif";
+  if (key === "SUSPENDED") return "Suspendu";
+  if (key === "DISABLED") return "Desactive";
+  return key || "-";
+}
+
+function formatAuditCodeLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "-";
+  return raw
+    .split(/[_/]+/)
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
+function baseAuditEntityLabel(value) {
   const key = String(value || "").trim().toLowerCase();
   if (key === "auth/users") return "Gestion des utilisateurs";
   if (key === "auth/users/activation") return "Activation des comptes";
   if (key === "auth/role-permissions") return "Permissions des roles";
   if (key === "/auth/logout") return "Deconnexion";
   if (key === "auth") return "Authentification";
+  if (key.startsWith("system/ateliers")) return "Atelier";
   return "Autre action de securite";
 }
 
@@ -5201,8 +5279,116 @@ function auditUserFieldLabel(key) {
 function auditDetailValue(value) {
   if (value === null || value === undefined || value === "") return "-";
   if (typeof value === "boolean") return value ? "Oui" : "Non";
+  if (Array.isArray(value)) return value.map((item) => auditDetailValue(item)).join(", ");
+  if (typeof value === "string") {
+    if (keyLooksLikeRole(value)) return formatRoleLabel(value);
+    if (keyLooksLikeAccountState(value)) return formatAccountStateLabel(value);
+  }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function keyLooksLikeRole(value) {
+  const key = String(value || "").trim().toUpperCase();
+  return ["PROPRIETAIRE", "MANAGER_SYSTEME", "COUTURIER", "CAISSIER"].includes(key);
+}
+
+function keyLooksLikeAccountState(value) {
+  const key = String(value || "").trim().toUpperCase();
+  return ["ACTIVE", "SUSPENDED", "DISABLED"].includes(key);
+}
+
+function normalizeAuditUtilisateurEvent(raw) {
+  const payload = raw?.payload && typeof raw.payload === "object" ? raw.payload : {};
+  return {
+    idEvenement: raw?.idEvenement || raw?.id_evenement || "",
+    atelierId: String(raw?.atelierId || raw?.atelier_id || "").trim(),
+    userId: String(raw?.userId || raw?.utilisateurId || raw?.utilisateur_id || "").trim(),
+    userName: String(raw?.userName || raw?.utilisateurNom || raw?.utilisateur_nom || "").trim(),
+    userEmail: String(raw?.userEmail || raw?.utilisateurEmail || raw?.utilisateur_email || "").trim(),
+    role: String(raw?.role || "").trim(),
+    actionType: String(raw?.actionType || raw?.action || "").trim().toUpperCase(),
+    entityType: String(raw?.entityType || raw?.entite || "").trim(),
+    entityId: String(raw?.entityId || raw?.entiteId || raw?.entite_id || "").trim(),
+    entityLabel: String(raw?.entityLabel || raw?.entiteLabel || "").trim(),
+    success: raw?.success === true || payload?.succes === true,
+    reason: String(raw?.reason || payload?.raison || "").trim() || null,
+    createdAt: raw?.createdAt || raw?.dateEvenement || raw?.date_evenement || "",
+    metadata: raw?.metadata !== undefined ? raw.metadata : payload?.details || null,
+    payload
+  };
+}
+
+function formatAuditEntity(event) {
+  if (!event) return "-";
+  if (event.entityLabel) return event.entityLabel;
+  const entityType = String(event.entityType || "").trim().toLowerCase();
+  const entityId = String(event.entityId || "").trim();
+  const metadata = event.metadata && typeof event.metadata === "object" ? event.metadata : {};
+  if (entityType === "auth/role-permissions") {
+    const roleValue = String(metadata.role || entityId || "").trim();
+    return roleValue ? `Role : ${formatRoleLabel(roleValue)}` : "Permissions des roles";
+  }
+  if (entityType === "auth/users" || entityType === "auth/users/activation") {
+    const userLabel = metadata?.createdUser?.email || metadata?.after?.email || metadata?.before?.email || event.userEmail || entityId;
+    return userLabel ? `Utilisateur : ${userLabel}` : "Compte utilisateur";
+  }
+  if (entityType === "/auth/logout") return "Session utilisateur";
+  if (entityType === "auth") return "Authentification";
+  if (entityType.startsWith("system/ateliers")) {
+    const atelierLabel = String(metadata.atelierNom || entityId || "").trim();
+    return atelierLabel ? `Atelier : ${atelierLabel}` : "Atelier";
+  }
+  const base = baseAuditEntityLabel(entityType);
+  return entityId ? `${base} : ${entityId}` : base;
+}
+
+function formatAuditAction(event) {
+  const actionType = String(event?.actionType || "").trim().toUpperCase();
+  const metadata = event?.metadata && typeof event.metadata === "object" ? event.metadata : {};
+  const roleValue = String(metadata.role || event?.entityId || "").trim();
+  if (actionType === "ROLE_PERMISSIONS_UPDATED") {
+    return roleValue ? `Modification des permissions du role '${formatRoleLabel(roleValue)}'` : "Modification des permissions d'un role";
+  }
+  if (actionType === "ROLE_PERMISSIONS_UPDATE_FAILED") {
+    return roleValue ? `Echec de modification des permissions du role '${formatRoleLabel(roleValue)}'` : "Echec de modification des permissions d'un role";
+  }
+  if (actionType === "USER_CREATED") return "Creation d'un compte utilisateur";
+  if (actionType === "USER_CREATE_FAILED") return "Echec de creation d'un compte utilisateur";
+  if (actionType === "USER_UPDATED") return "Mise a jour du compte utilisateur";
+  if (actionType === "USER_UPDATE_FAILED") return "Echec de mise a jour du compte utilisateur";
+  if (actionType === "USER_ACTIVATION_UPDATED") {
+    const nextState = String(metadata?.after?.etatCompte || "").trim().toUpperCase();
+    return nextState === "DISABLED" ? "Desactivation du compte utilisateur" : "Activation du compte utilisateur";
+  }
+  if (actionType === "USER_ACTIVATION_UPDATE_FAILED") return "Echec de mise a jour du statut du compte utilisateur";
+  if (actionType === "AUTH_REFUS" || actionType === "TOKEN_REVOQUE_REFUS" || actionType === "UTILISATEUR_INTROUVABLE_REFUS") {
+    return "Tentative de connexion echouee";
+  }
+  if (actionType === "COMPTE_INACTIF_REFUS") return "Connexion refusee: compte utilisateur inactif";
+  if (actionType === "ATELIER_INACTIF_REFUS") return "Connexion refusee: atelier desactive";
+  if (actionType === "PERMISSION_REFUS") return "Tentative d'acces refusee";
+  if (actionType === "PERMISSION_AUTORISEE") return "Acces autorise apres controle des permissions";
+  if (actionType === "SYSTEM_MANAGER_REFUS") return "Tentative d'acces a l'administration systeme refusee";
+  if (actionType === "LOGOUT") return "Deconnexion du compte utilisateur";
+  if (actionType === "SYSTEM_OWNER_ACTIVATED") return "Reactivation du compte proprietaire de l'atelier";
+  if (actionType === "SYSTEM_OWNER_DEACTIVATED") return "Desactivation du compte proprietaire de l'atelier";
+  if (actionType === "SYSTEM_OWNER_PASSWORD_RESET") return "Reinitialisation du mot de passe du proprietaire";
+  if (actionType === "SYSTEM_OWNER_SESSIONS_REVOKED") return "Revocation des sessions du proprietaire";
+  return formatAuditCodeLabel(actionType);
+}
+
+function formatAuditStatus(event) {
+  return event?.success ? "✔ Succes" : "❌ Echec";
+}
+
+function hasAuditMetadata(event) {
+  return event?.metadata !== null && event?.metadata !== undefined && event?.metadata !== "";
+}
+
+function auditMetadataJson(event) {
+  if (!hasAuditMetadata(event)) return "";
+  return JSON.stringify(event.metadata, null, 2);
 }
 
 function auditUserDiffRows(details) {
@@ -5436,12 +5622,25 @@ function translateErrorMessage(message) {
 }
 
 function loginErrorMessage(err) {
+  if (authMode.value === "atelier-inactive" || authAtelierContext.value?.actif === false) {
+    return AUTH_DISABLED_ATELIER_MESSAGE;
+  }
+  const rawMessage = err instanceof ApiError ? err.message : err instanceof Error ? err.message : "";
+  const loweredRaw = String(rawMessage || "").toLowerCase();
   const message = readableError(err);
   const lowered = message.toLowerCase();
-  if (lowered.includes("utilisateur inexistant")) return "Cet utilisateur n'existe pas.";
-  if (lowered.includes("mot de passe incorrect")) return "Mot de passe incorrect.";
-  if (lowered.includes("identifiants invalides")) return "Adresse email ou mot de passe incorrect.";
-  if (lowered.includes("compte inactif")) return "Compte desactive ou suspendu. Contactez le proprietaire.";
+  if (lowered.includes("adresse email invalide") || loweredRaw.includes("invalid email")) return "Adresse email invalide.";
+  if (
+    lowered.includes("utilisateur inexistant") ||
+    lowered.includes("mot de passe incorrect") ||
+    lowered.includes("identifiants invalides") ||
+    lowered === "valeur invalide." ||
+    loweredRaw.includes("identifiants invalides")
+  ) {
+    return AUTH_INVALID_CREDENTIALS_MESSAGE;
+  }
+  if (lowered.includes("atelier desactive")) return AUTH_DISABLED_ATELIER_MESSAGE;
+  if (lowered.includes("compte inactif")) return "Votre compte est désactivé. Veuillez contacter l’administrateur.";
   return message;
 }
 
@@ -6180,7 +6379,12 @@ function revokeCommandeMediaObjectUrls(items = []) {
 
 function toIsoDate(input) {
   if (!input) return "";
-  return String(input).slice(0, 10);
+  const raw = String(input).trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw.slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
 }
 
 function setClientPage(section, next) {
@@ -6253,7 +6457,24 @@ function formatDateShort(input) {
   if (!input) return "-";
   const date = new Date(input);
   if (Number.isNaN(date.getTime())) return String(input);
-  return new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "long", year: "numeric" }).format(date);
+  const moisFr = [
+    "janvier",
+    "fevrier",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "aout",
+    "septembre",
+    "octobre",
+    "novembre",
+    "decembre"
+  ];
+  const jour = String(date.getDate()).padStart(2, "0");
+  const mois = moisFr[date.getMonth()] || "";
+  const annee = date.getFullYear();
+  return `${jour} ${mois} ${annee}`;
 }
 
 function capitalize(value) {
@@ -6283,6 +6504,11 @@ function addDays(isoDate, days) {
 
 function formatCurrency(value) {
   return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} ${atelierDevise.value}`;
+}
+
+function formatFactureCurrency(value) {
+  const amount = new Intl.NumberFormat("fr-FR").format(Number(value || 0));
+  return factureAtelierProfile.value.devise ? `${amount} ${factureAtelierProfile.value.devise}` : amount;
 }
 
 function formatPercent(value) {
@@ -8408,7 +8634,7 @@ async function loadRetoucheDetail(idRetouche) {
         <p>Aucun atelier ne correspond a ce slug.</p>
       </div>
       <div v-else-if="authMode === 'atelier-inactive'" class="auth-message">
-        <p>Cet atelier est actuellement desactive. Contacte l'administration systeme.</p>
+        <p>{{ AUTH_DISABLED_ATELIER_MESSAGE }}</p>
       </div>
       <div v-else-if="authMode === 'bootstrap'" class="auth-message">
         <p>Aucun compte proprietaire n'existe encore pour cet atelier.</p>
@@ -9098,8 +9324,8 @@ async function loadRetoucheDetail(idRetouche) {
             <h3>Identite client</h3>
             <p><strong>Nom complet:</strong> {{ clientConsultationClient.nomComplet || "-" }}</p>
             <p><strong>Contact:</strong> {{ clientConsultationClient.telephone || "-" }}</p>
-            <p><strong>Premier passage:</strong> {{ clientConsultationClient.datePremierPassage || "-" }}</p>
-            <p><strong>Dernier passage:</strong> {{ clientConsultationClient.dateDernierPassage || clientConsultationSynthese.dateDerniereActivite || "-" }}</p>
+            <p><strong>Premier passage:</strong> {{ formatDateShort(clientConsultationClient.datePremierPassage) }}</p>
+            <p><strong>Dernier passage:</strong> {{ formatDateShort(clientConsultationClient.dateDernierPassage || clientConsultationSynthese.dateDerniereActivite) }}</p>
             <p>
               <strong>Statut:</strong>
               <span
@@ -9124,7 +9350,7 @@ async function loadRetoucheDetail(idRetouche) {
               </div>
               <div class="kpi-card legacy-kpi" data-tone="slate">
                 <div class="kpi-head"><span>Derniere activite</span></div>
-                <strong>{{ clientConsultationSynthese.dateDerniereActivite || "-" }}</strong>
+                <strong>{{ formatDateShort(clientConsultationSynthese.dateDerniereActivite) }}</strong>
               </div>
               <div class="kpi-card legacy-kpi" data-tone="amber">
                 <div class="kpi-head"><span>Total depense</span></div>
@@ -9197,7 +9423,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </thead>
                 <tbody>
                   <tr v-for="row in clientCommandesPaged" :key="`cc-${row.idCommande}`">
-                    <td>{{ row.date || "-" }}</td>
+                    <td>{{ formatDateShort(row.date) }}</td>
                     <td>{{ row.typeHabit || "-" }}</td>
                     <td>{{ row.statut || "-" }}</td>
                     <td>{{ formatCurrency(row.montant) }}</td>
@@ -9232,7 +9458,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </thead>
                 <tbody>
                   <tr v-for="row in clientRetouchesPaged" :key="`cr-${row.idRetouche}`">
-                    <td>{{ row.date || "-" }}</td>
+                    <td>{{ formatDateShort(row.date) }}</td>
                     <td>{{ row.typeHabit || "-" }}</td>
                     <td>{{ row.typeRetouche || "-" }}</td>
                     <td>{{ row.statut || "-" }}</td>
@@ -9267,7 +9493,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </thead>
                 <tbody>
                   <tr v-for="(row, index) in clientMesuresPaged" :key="`cm-${row.source}-${row.idOrigine}-${index}`">
-                    <td>{{ row.datePrise || "-" }}</td>
+                    <td>{{ formatDateShort(row.datePrise) }}</td>
                     <td>{{ row.typeHabit || "-" }}</td>
                     <td>{{ row.source || "-" }}</td>
                     <td>
@@ -10067,7 +10293,7 @@ async function loadRetoucheDetail(idRetouche) {
             </div>
             <div class="kpi-card legacy-kpi" data-tone="slate">
               <div class="kpi-head"><span>Montant total</span></div>
-              <strong>{{ formatCurrency(facturesKpi.montantTotal) }}</strong>
+              <strong>{{ formatFactureCurrency(facturesKpi.montantTotal) }}</strong>
             </div>
           </div>
         </article>
@@ -10101,10 +10327,10 @@ async function loadRetoucheDetail(idRetouche) {
                   <td>{{ facture.numeroFacture }}</td>
                   <td>{{ facture.client?.nom || "-" }}</td>
                   <td>{{ facture.typeOrigine }} / {{ facture.idOrigine }}</td>
-                  <td>{{ formatDateTime(facture.dateEmission) }}</td>
-                  <td>{{ formatCurrency(facture.montantTotal) }}</td>
-                  <td>{{ formatCurrency(facture.montantPaye) }}</td>
-                  <td>{{ formatCurrency(facture.solde) }}</td>
+                  <td>{{ formatDateShort(facture.dateEmission) }}</td>
+                  <td>{{ formatFactureCurrency(facture.montantTotal) }}</td>
+                  <td>{{ formatFactureCurrency(facture.montantPaye) }}</td>
+                  <td>{{ formatFactureCurrency(facture.solde) }}</td>
                   <td>{{ facture.statut }}</td>
                   <td class="actions-cell">
                     <button class="mini-btn" @click="onVoirFacture(facture)">Voir</button>
@@ -10910,9 +11136,23 @@ async function loadRetoucheDetail(idRetouche) {
         <template v-else-if="detailFacture">
           <article class="panel detail-grid">
             <div>
+              <h4>Atelier</h4>
+              <img
+                v-if="factureAtelierProfile.afficherLogo && factureAtelierProfile.logo"
+                :src="factureAtelierProfile.logo"
+                alt="Logo atelier"
+                class="facture-atelier-logo"
+              />
+              <p><strong>{{ factureAtelierProfile.nomAtelier || "-" }}</strong></p>
+              <p v-if="factureAtelierProfile.adresse">{{ factureAtelierProfile.adresse }}</p>
+              <p v-if="factureAtelierContactLine">{{ factureAtelierContactLine }}</p>
+              <p><strong>Devise:</strong> {{ factureAtelierProfile.devise || "-" }}</p>
+              <p v-if="factureAtelierProfile.mentions"><strong>Mentions:</strong> {{ factureAtelierProfile.mentions }}</p>
+            </div>
+            <div>
               <h4>En-tete</h4>
               <p><strong>Numero:</strong> {{ detailFacture.numeroFacture }}</p>
-              <p><strong>Date emission:</strong> {{ formatDateTime(detailFacture.dateEmission) }}</p>
+              <p><strong>Date emission:</strong> {{ formatDateShort(detailFacture.dateEmission) }}</p>
               <p><strong>Client:</strong> {{ detailFacture.client?.nom || "-" }}</p>
               <p><strong>Contact:</strong> {{ detailFacture.client?.contact || "-" }}</p>
               <p><strong>Origine:</strong> {{ detailFacture.typeOrigine }} / {{ detailFacture.idOrigine }}</p>
@@ -10920,9 +11160,9 @@ async function loadRetoucheDetail(idRetouche) {
             </div>
             <div>
               <h4>Resume financier</h4>
-              <p><strong>Total:</strong> {{ formatCurrency(detailFacture.montantTotal) }}</p>
-              <p><strong>Paye:</strong> {{ formatCurrency(detailFacture.montantPaye) }}</p>
-              <p><strong>Solde:</strong> {{ formatCurrency(detailFacture.solde) }}</p>
+              <p><strong>Total:</strong> {{ formatFactureCurrency(detailFacture.montantTotal) }}</p>
+              <p><strong>Paye:</strong> {{ formatFactureCurrency(detailFacture.montantPaye) }}</p>
+              <p><strong>Solde:</strong> {{ formatFactureCurrency(detailFacture.solde) }}</p>
               <p><strong>Statut:</strong> {{ detailFacture.statut }}</p>
             </div>
           </article>
@@ -10945,8 +11185,8 @@ async function loadRetoucheDetail(idRetouche) {
                 <tr v-for="(ligne, index) in detailFacture.lignes" :key="`${detailFacture.idFacture}-${index}`">
                   <td>{{ ligne.description }}</td>
                   <td>{{ ligne.quantite }}</td>
-                  <td>{{ formatCurrency(ligne.prix) }}</td>
-                  <td>{{ formatCurrency(ligne.montant) }}</td>
+                  <td>{{ formatFactureCurrency(ligne.prix) }}</td>
+                  <td>{{ formatFactureCurrency(ligne.montant) }}</td>
                 </tr>
                 <tr v-if="detailFacture.lignes.length === 0">
                   <td colspan="4">Aucune ligne.</td>
@@ -11520,10 +11760,10 @@ async function loadRetoucheDetail(idRetouche) {
                   <td>{{ row.numeroFacture }}</td>
                   <td>{{ row.client?.nom || "-" }}</td>
                   <td>{{ row.typeOrigine }} / {{ row.idOrigine }}</td>
-                  <td>{{ formatDateTime(row.dateEmission) }}</td>
-                  <td>{{ formatCurrency(row.montantTotal) }}</td>
-                  <td>{{ formatCurrency(row.montantPaye) }}</td>
-                  <td>{{ formatCurrency(row.solde) }}</td>
+                  <td>{{ formatDateShort(row.dateEmission) }}</td>
+                  <td>{{ formatFactureCurrency(row.montantTotal) }}</td>
+                  <td>{{ formatFactureCurrency(row.montantPaye) }}</td>
+                  <td>{{ formatFactureCurrency(row.solde) }}</td>
                   <td>{{ row.statut }}</td>
                 </tr>
                 <tr v-if="auditFactures.length === 0">
@@ -11556,7 +11796,7 @@ async function loadRetoucheDetail(idRetouche) {
                 <label>Action</label>
                 <select v-model="auditUtilisateursFiltres.action">
                   <option v-for="action in auditUtilisateursActions" :key="`audit-user-action-${action}`" :value="action">
-                    {{ action === "ALL" ? "Toutes les actions" : action }}
+                    {{ action === "ALL" ? "Toutes les actions" : formatAuditAction({ actionType: action, entityId: "", metadata: null }) }}
                   </option>
                 </select>
               </div>
@@ -11573,35 +11813,35 @@ async function loadRetoucheDetail(idRetouche) {
               <thead>
                 <tr>
                   <th>Date</th>
-                  <th>Action</th>
+                  <th>Description</th>
                   <th>Utilisateur</th>
                   <th>Role</th>
-                  <th>Entite</th>
-                  <th>Succes</th>
+                  <th>Cible</th>
+                  <th>Statut</th>
                   <th>Raison</th>
                   <th>Details</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="row in auditUtilisateursPaged" :key="row.idEvenement">
-                  <td>{{ formatDateTime(row.dateEvenement) }}</td>
-                  <td>{{ row.action || "-" }}</td>
+                  <td>{{ formatDateTime(row.createdAt) }}</td>
+                  <td>{{ formatAuditAction(row) }}</td>
                   <td>
-                    <div>{{ row.utilisateurNom || row.utilisateurId || "-" }}</div>
-                    <small class="helper" v-if="row.utilisateurEmail">{{ row.utilisateurEmail }}</small>
+                    <div>{{ row.userName || row.userId || "-" }}</div>
+                    <small class="helper" v-if="row.userEmail">{{ row.userEmail }}</small>
                   </td>
-                  <td>{{ row.role || "-" }}</td>
+                  <td>{{ formatRoleLabel(row.role) }}</td>
                   <td>
-                    <div>{{ auditEntiteLabel(row.entite) }}<span v-if="row.entiteId"> / {{ row.entiteId }}</span></div>
-                    <small class="helper" v-if="row.entite">{{ row.entite }}</small>
+                    <div>{{ formatAuditEntity(row) }}</div>
+                    <small class="helper" v-if="row.entityType">{{ row.entityType }}</small>
                   </td>
-                  <td>{{ row.payload?.succes === true ? "Oui" : "Non" }}</td>
-                  <td>{{ row.payload?.raison || "-" }}</td>
+                  <td>{{ formatAuditStatus(row) }}</td>
+                  <td>{{ row.success ? "-" : (row.reason || "-") }}</td>
                   <td>
                     <details>
-                      <summary>Voir</summary>
+                      <summary>Voir details</summary>
                       <div class="audit-user-details">
-                        <template v-if="auditUserDiffRows(row.payload?.details).length > 0">
+                        <template v-if="auditUserDiffRows(row.metadata).length > 0">
                           <table class="data-table compact">
                             <thead>
                               <tr>
@@ -11611,7 +11851,7 @@ async function loadRetoucheDetail(idRetouche) {
                               </tr>
                             </thead>
                             <tbody>
-                              <tr v-for="item in auditUserDiffRows(row.payload?.details)" :key="`${row.idEvenement}-${item.key}`">
+                              <tr v-for="item in auditUserDiffRows(row.metadata)" :key="`${row.idEvenement}-${item.key}`">
                                 <td>{{ item.label }}</td>
                                 <td>{{ item.before }}</td>
                                 <td>{{ item.after }}</td>
@@ -11619,8 +11859,11 @@ async function loadRetoucheDetail(idRetouche) {
                             </tbody>
                           </table>
                         </template>
+                        <template v-else-if="hasAuditMetadata(row)">
+                          <pre>{{ auditMetadataJson(row) }}</pre>
+                        </template>
                         <template v-else>
-                          <pre>{{ JSON.stringify(row.payload?.details || {}, null, 2) }}</pre>
+                          <p class="helper">Aucun detail technique pour cet evenement.</p>
                         </template>
                       </div>
                     </details>

@@ -106,6 +106,15 @@ function formatCurrency(value, devise = "FC") {
   return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} ${escapeHtml(devise)}`;
 }
 
+function formatDateFr(value) {
+  if (!value) return "-";
+  const raw = String(value).trim();
+  if (!raw) return "-";
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T00:00:00`) : new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return escapeHtml(raw);
+  return escapeHtml(new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "long", year: "numeric" }).format(parsed));
+}
+
 function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelierConfigFallback) {
   const client = payload.client || {};
   const synthese = payload.synthese || {};
@@ -114,7 +123,7 @@ function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelier
   const commandesRows = (historique.commandes || [])
     .map(
       (row) => `<tr>
-        <td>${escapeHtml(toIsoDate(row.date) || "-")}</td>
+        <td>${formatDateFr(row.date)}</td>
         <td>${escapeHtml(row.typeHabit || "-")}</td>
         <td>${escapeHtml(row.statut || "-")}</td>
         <td style="text-align:right">${formatCurrency(row.montant, atelierConfig.devise)}</td>
@@ -125,7 +134,7 @@ function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelier
   const retouchesRows = (historique.retouches || [])
     .map(
       (row) => `<tr>
-        <td>${escapeHtml(toIsoDate(row.date) || "-")}</td>
+        <td>${formatDateFr(row.date)}</td>
         <td>${escapeHtml(row.typeHabit || "-")}</td>
         <td>${escapeHtml(row.typeRetouche || "-")}</td>
         <td>${escapeHtml(row.statut || "-")}</td>
@@ -143,7 +152,7 @@ function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelier
             .join(" | ")
         : "Aucune mesure";
       return `<tr>
-        <td>${escapeHtml(toIsoDate(row.datePrise) || "-")}</td>
+        <td>${formatDateFr(row.datePrise)}</td>
         <td>${escapeHtml(row.typeHabit || "-")}</td>
         <td>${escapeHtml(row.source || "-")}</td>
         <td>${lines}</td>
@@ -180,8 +189,8 @@ function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelier
         <div class="meta">
           <div><strong>Client:</strong> ${escapeHtml(client.nomComplet || "-")}</div>
           <div><strong>Contact:</strong> ${escapeHtml(client.telephone || "-")}</div>
-          <div><strong>Premier passage:</strong> ${escapeHtml(toIsoDate(client.datePremierPassage) || "-")}</div>
-          <div><strong>Dernier passage:</strong> ${escapeHtml(toIsoDate(client.dateDernierPassage) || "-")}</div>
+          <div><strong>Premier passage:</strong> ${formatDateFr(client.datePremierPassage)}</div>
+          <div><strong>Dernier passage:</strong> ${formatDateFr(client.dateDernierPassage)}</div>
           <div><strong>Statut:</strong> ${escapeHtml(client.statutVisuel || "-")}</div>
           <div><strong>Total depense:</strong> ${formatCurrency(synthese.montantTotalDepense, atelierConfig.devise)}</div>
         </div>

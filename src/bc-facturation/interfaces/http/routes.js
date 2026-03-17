@@ -13,17 +13,22 @@ const router = express.Router();
 const factureRepo = new FactureRepoPg();
 const origineReader = new OrigineFactureReaderPg();
 const parametresRepo = new AtelierParametresRepoPg();
-const atelierConfigFallback = {
-  nom: process.env.ATELIER_NOM || "Atelier de Couture",
-  adresse: process.env.ATELIER_ADRESSE || "Adresse atelier",
-  telephone: process.env.ATELIER_TELEPHONE || "Telephone atelier",
-  email: process.env.ATELIER_EMAIL || "contact@atelier.local",
-  logoUrl: "",
-  devise: "FC",
-  prefixeNumero: "FAC",
-  mentions: "",
-  afficherLogo: true
-};
+
+function buildAtelierConfig(payload = {}) {
+  const identite = payload?.identite || {};
+  const facturation = payload?.facturation || {};
+  return {
+    nom: String(identite.nomAtelier || "").trim(),
+    adresse: String(identite.adresse || "").trim(),
+    telephone: String(identite.telephone || "").trim(),
+    email: String(identite.email || "").trim(),
+    logoUrl: String(identite.logoUrl || "").trim(),
+    devise: String(identite.devise || "").trim().toUpperCase(),
+    prefixeNumero: String(facturation.prefixeNumero || "").trim().toUpperCase() || "FAC",
+    mentions: String(facturation.mentions || "").trim(),
+    afficherLogo: facturation.afficherLogo === true
+  };
+}
 
 function atelierIdFromReq(req) {
   return String(req.auth?.atelierId || "ATELIER");
@@ -44,21 +49,9 @@ function scopedParametresRepo(req) {
 async function resolveAtelierConfig(req = null) {
   try {
     const current = await (req ? scopedParametresRepo(req) : parametresRepo).getCurrent();
-    const identite = current?.payload?.identite || {};
-    const facturation = current?.payload?.facturation || {};
-    return {
-      nom: String(identite.nomAtelier || atelierConfigFallback.nom),
-      adresse: String(identite.adresse || atelierConfigFallback.adresse),
-      telephone: String(identite.telephone || atelierConfigFallback.telephone),
-      email: String(identite.email || atelierConfigFallback.email),
-      logoUrl: String(identite.logoUrl || atelierConfigFallback.logoUrl),
-      devise: String(identite.devise || atelierConfigFallback.devise).toUpperCase(),
-      prefixeNumero: String(facturation.prefixeNumero || atelierConfigFallback.prefixeNumero).toUpperCase(),
-      mentions: String(facturation.mentions || atelierConfigFallback.mentions),
-      afficherLogo: facturation.afficherLogo !== false
-    };
+    return buildAtelierConfig(current?.payload || {});
   } catch {
-    return atelierConfigFallback;
+    return buildAtelierConfig();
   }
 }
 
@@ -71,13 +64,39 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-function formatCurrency(value, devise = "FC") {
-  return `${new Intl.NumberFormat("fr-FR").format(Number(value || 0))} ${escapeHtml(devise)}`;
+function formatCurrency(value, devise = "") {
+  const amount = new Intl.NumberFormat("fr-FR").format(Number(value || 0));
+  return devise ? `${amount} ${escapeHtml(devise)}` : amount;
 }
 
-function facturePdfHtml(facture, autoPrint = false, atelierConfig = atelierConfigFallback) {
+function formatFactureDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return escapeHtml(String(value));
+  const moisFr = [
+    "janvier",
+    "fevrier",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "aout",
+    "septembre",
+    "octobre",
+    "novembre",
+    "decembre"
+  ];
+  const jour = String(date.getDate()).padStart(2, "0");
+  const mois = moisFr[date.getMonth()] || "";
+  const annee = date.getFullYear();
+  return escapeHtml(`${jour} ${mois} ${annee}`);
+}
+
+function facturePdfHtml(facture, autoPrint = false, atelierConfig = buildAtelierConfig()) {
   const shouldShowLogo = atelierConfig.afficherLogo === true && String(atelierConfig.logoUrl || "").trim() !== "";
   const mentions = String(atelierConfig.mentions || "").trim();
+  const atelierContactLine = [atelierConfig.telephone, atelierConfig.email].filter(Boolean).join(" | ");
   const lignes = facture.lignes
     .map(
       (ligne) => `
@@ -121,12 +140,12 @@ function facturePdfHtml(facture, autoPrint = false, atelierConfig = atelierConfi
         <div class="brand">
           ${shouldShowLogo ? `<p><img class="logo" src="${escapeHtml(atelierConfig.logoUrl)}" alt="Logo atelier" /></p>` : ""}
           <h1>FACTURE ${escapeHtml(facture.numeroFacture)}</h1>
-          <p><strong>${escapeHtml(atelierConfig.nom)}</strong></p>
-          <p>${escapeHtml(atelierConfig.adresse)}</p>
-          <p>${escapeHtml(atelierConfig.telephone)} | ${escapeHtml(atelierConfig.email)}</p>
+          ${atelierConfig.nom ? `<p><strong>${escapeHtml(atelierConfig.nom)}</strong></p>` : ""}
+          ${atelierConfig.adresse ? `<p>${escapeHtml(atelierConfig.adresse)}</p>` : ""}
+          ${atelierContactLine ? `<p>${escapeHtml(atelierContactLine)}</p>` : ""}
         </div>
         <div class="meta">
-          <div><strong>Date emission:</strong> ${escapeHtml(String(facture.dateEmission).slice(0, 10))}</div>
+          <div><strong>Date emission:</strong> ${formatFactureDate(facture.dateEmission)}</div>
           <div><strong>Origine:</strong> ${escapeHtml(facture.typeOrigine)} / ${escapeHtml(facture.idOrigine)}</div>
           <div><strong>Reference caisse:</strong> ${escapeHtml(facture.referenceCaisse || "-")}</div>
         </div>
@@ -158,7 +177,6 @@ function facturePdfHtml(facture, autoPrint = false, atelierConfig = atelierConfi
         </tbody>
       </table>
       ${mentions ? `<p class="foot"><strong>Mentions:</strong> ${escapeHtml(mentions)}</p>` : ""}
-      <p class="foot">Facture generee automatiquement</p>
       ${autoPrint ? "<script>window.addEventListener('load', () => window.print());</script>" : ""}
     </body>
   </html>`;
