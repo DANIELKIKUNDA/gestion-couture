@@ -2834,7 +2834,6 @@ const auditUtilisateursActions = computed(() => {
 const auditUtilisateursFiltered = computed(() => {
   const query = auditUtilisateursFiltres.recherche.trim().toLowerCase();
   return auditUtilisateurs.value.filter((row) => {
-    if (currentAtelierId.value && String(row.atelierId || "").trim() !== currentAtelierId.value) return false;
     if (auditUtilisateursFiltres.action !== "ALL" && String(row.actionType || "").toUpperCase() !== auditUtilisateursFiltres.action) return false;
     if (auditUtilisateursFiltres.statut === "SUCCES" && !row.success) return false;
     if (auditUtilisateursFiltres.statut === "ECHEC" && row.success) return false;
@@ -5160,15 +5159,8 @@ async function loadAuditCaisse() {
 }
 
 async function loadAuditUtilisateurs() {
-  const atelierId = currentAtelierId.value;
-  if (!atelierId) {
-    auditUtilisateurs.value = [];
-    return;
-  }
   const rows = await atelierApi.listAuditUtilisateurs({ limit: 500 });
-  auditUtilisateurs.value = (rows || [])
-    .map(normalizeAuditUtilisateurEvent)
-    .filter((row) => String(row.atelierId || "").trim() === atelierId);
+  auditUtilisateurs.value = (rows || []).map(normalizeAuditUtilisateurEvent);
 }
 
 async function loadAuditPage(path = "/audit") {

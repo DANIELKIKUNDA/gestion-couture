@@ -1856,6 +1856,7 @@ router.put("/auth/role-permissions/:role", requirePermission(PERMISSIONS.GERER_U
     await logSecurityAudit({
       utilisateurId: req.auth.utilisateurId,
       role: req.auth.roleId || req.auth.role,
+      atelierId: req.auth?.atelierId || LEGACY_ATELIER_ID,
       action: "ROLE_PERMISSIONS_UPDATED",
       entite: "auth/role-permissions",
       entiteId: role,
@@ -1867,6 +1868,7 @@ router.put("/auth/role-permissions/:role", requirePermission(PERMISSIONS.GERER_U
     await logSecurityAudit({
       utilisateurId: req.auth?.utilisateurId || null,
       role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: req.auth?.atelierId || LEGACY_ATELIER_ID,
       action: "ROLE_PERMISSIONS_UPDATE_FAILED",
       entite: "auth/role-permissions",
       entiteId: req.params?.role || null,
@@ -1932,6 +1934,7 @@ router.post("/auth/users", requirePermission(PERMISSIONS.GERER_UTILISATEURS), as
     await logSecurityAudit({
       utilisateurId: req.auth.utilisateurId,
       role: req.auth.roleId || req.auth.role,
+      atelierId: req.auth?.atelierId || user.atelierId || LEGACY_ATELIER_ID,
       action: "USER_CREATED",
       entite: "auth/users",
       entiteId: user.id,
@@ -2010,6 +2013,7 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
     await logSecurityAudit({
       utilisateurId: req.auth.utilisateurId,
       role: req.auth.roleId || req.auth.role,
+      atelierId: req.auth?.atelierId || user.atelierId || LEGACY_ATELIER_ID,
       action: "USER_UPDATED",
       entite: "auth/users",
       entiteId: user.id,
@@ -2038,6 +2042,7 @@ router.patch("/auth/users/:id", requirePermission(PERMISSIONS.GERER_UTILISATEURS
     await logSecurityAudit({
       utilisateurId: req.auth?.utilisateurId || null,
       role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: req.auth?.atelierId || LEGACY_ATELIER_ID,
       action: "USER_UPDATE_FAILED",
       entite: "auth/users",
       entiteId: req.params?.id || null,
@@ -2078,6 +2083,7 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
     await logSecurityAudit({
       utilisateurId: req.auth.utilisateurId,
       role: req.auth.roleId || req.auth.role,
+      atelierId: req.auth?.atelierId || user.atelierId || LEGACY_ATELIER_ID,
       action: "USER_ACTIVATION_UPDATED",
       entite: "auth/users/activation",
       entiteId: user.id,
@@ -2102,6 +2108,7 @@ router.patch("/auth/users/:id/activation", requirePermission(PERMISSIONS.GERER_U
     await logSecurityAudit({
       utilisateurId: req.auth?.utilisateurId || null,
       role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: req.auth?.atelierId || LEGACY_ATELIER_ID,
       action: "USER_ACTIVATION_UPDATE_FAILED",
       entite: "auth/users/activation",
       entiteId: req.params?.id || null,
@@ -2122,13 +2129,36 @@ router.get("/audit/utilisateurs", requirePermission(PERMISSIONS.VOIR_BILANS_GLOB
     const statut = String(req.query?.statut || "ALL").trim().toUpperCase();
     const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 200)));
 
+    const resolvedAtelierSql = `COALESCE(
+      ea.atelier_id,
+      u.atelier_id,
+      ea.payload->'details'->'after'->>'atelierId',
+      ea.payload->'details'->'before'->>'atelierId',
+      ea.payload->'details'->'createdUser'->>'atelierId',
+      ''
+    )`;
     const params = [currentAtelierId];
-    const clauses = ["(entite LIKE 'auth/%' OR action LIKE 'USER_%' OR action LIKE 'ROLE_%' OR action LIKE 'COMPTE_%')"];
-    clauses.push(`COALESCE(ea.atelier_id, u.atelier_id, '') = $1`);
+    const clauses = [
+      `(
+        COALESCE(ea.entite, '') LIKE 'auth/%'
+        OR COALESCE(ea.entite, '') LIKE '/auth/%'
+        OR COALESCE(ea.entite, '') LIKE 'system/ateliers%'
+        OR COALESCE(ea.action, '') LIKE 'USER_%'
+        OR COALESCE(ea.action, '') LIKE 'ROLE_%'
+        OR COALESCE(ea.action, '') LIKE 'COMPTE_%'
+        OR COALESCE(ea.action, '') LIKE 'AUTH_%'
+        OR COALESCE(ea.action, '') LIKE 'PERMISSION_%'
+        OR COALESCE(ea.action, '') LIKE 'TOKEN_%'
+        OR COALESCE(ea.action, '') LIKE 'SYSTEM_%'
+        OR COALESCE(ea.action, '') LIKE 'ATELIER_%'
+        OR COALESCE(ea.action, '') = 'LOGOUT'
+      )`
+    ];
+    clauses.push(`${resolvedAtelierSql} = $1`);
     if (q) {
       params.push(`%${q}%`);
       clauses.push(`(
-        LOWER(COALESCE(ea.atelier_id, u.atelier_id, '')) LIKE $${params.length}
+        LOWER(${resolvedAtelierSql}) LIKE $${params.length}
         OR LOWER(COALESCE(u.nom, '')) LIKE $${params.length}
         OR LOWER(COALESCE(u.email, '')) LIKE $${params.length}
         OR LOWER(COALESCE(utilisateur_id, '')) LIKE $${params.length}
@@ -2150,7 +2180,7 @@ router.get("/audit/utilisateurs", requirePermission(PERMISSIONS.VOIR_BILANS_GLOB
 
     const result = await pool.query(
       `SELECT ea.id_evenement, ea.utilisateur_id, ea.role, ea.action, ea.entite, ea.entite_id, ea.payload, ea.date_evenement,
-              COALESCE(ea.atelier_id, u.atelier_id) AS atelier_id,
+              ${resolvedAtelierSql} AS atelier_id,
               u.nom AS utilisateur_nom, u.email AS utilisateur_email
        FROM evenement_audit ea
        LEFT JOIN utilisateurs u ON u.id_utilisateur = ea.utilisateur_id
