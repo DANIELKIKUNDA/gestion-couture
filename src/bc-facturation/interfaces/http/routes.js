@@ -1,10 +1,12 @@
 import express from "express";
+import fs from "node:fs/promises";
 import { requireFields, validateSchema } from "../../../shared/interfaces/validation.js";
 import { emettreFacture } from "../../application/use-cases/emettre-facture.js";
 import { listerFactures, obtenirFacture } from "../../application/use-cases/lister-factures.js";
 import { FactureRepoPg } from "../../infrastructure/repositories/facture-repo-pg.js";
 import { OrigineFactureReaderPg } from "../../infrastructure/repositories/origine-facture-reader-pg.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
+import { AtelierLogoStorageLocal } from "../../../bc-parametres/infrastructure/storage/atelier-logo-storage-local.js";
 import { z } from "zod";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
 import { requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
@@ -13,6 +15,7 @@ const router = express.Router();
 const factureRepo = new FactureRepoPg();
 const origineReader = new OrigineFactureReaderPg();
 const parametresRepo = new AtelierParametresRepoPg();
+const atelierLogoStorage = new AtelierLogoStorageLocal();
 
 function buildAtelierConfig(payload = {}) {
   const identite = payload?.identite || {};
@@ -53,6 +56,37 @@ async function resolveAtelierConfig(req = null) {
   } catch {
     return buildAtelierConfig();
   }
+}
+
+function mimeTypeFromLogoUrl(logoUrl = "") {
+  const value = String(logoUrl || "").trim().toLowerCase();
+  if (value.endsWith(".png")) return "image/png";
+  if (value.endsWith(".jpg") || value.endsWith(".jpeg")) return "image/jpeg";
+  return "";
+}
+
+async function resolveFactureLogoSrc(logoUrl = "") {
+  const value = String(logoUrl || "").trim();
+  if (!value || /^data:/i.test(value)) return value;
+  if (!value.startsWith("/media/ateliers/")) return value;
+  const mimeType = mimeTypeFromLogoUrl(value);
+  if (!mimeType) return value;
+  try {
+    const absolutePath = atelierLogoStorage.resolvePublicUrlToAbsolutePath(value);
+    if (!absolutePath) return value;
+    const buffer = await fs.readFile(absolutePath);
+    return `data:${mimeType};base64,${buffer.toString("base64")}`;
+  } catch {
+    return value;
+  }
+}
+
+async function buildFactureRenderConfig(atelierConfig = buildAtelierConfig()) {
+  const resolvedLogoUrl = await resolveFactureLogoSrc(atelierConfig.logoUrl);
+  return {
+    ...atelierConfig,
+    logoUrl: resolvedLogoUrl
+  };
 }
 
 function escapeHtml(value) {
@@ -232,7 +266,7 @@ router.post("/factures/emettre", async (req, res) => {
 router.get("/factures/:id/pdf", async (req, res) => {
   try {
     const facture = await obtenirFacture({ idFacture: req.params.id, factureRepo: scopedFactureRepo(req) });
-    const atelierConfig = await resolveAtelierConfig(req);
+    const atelierConfig = await buildFactureRenderConfig(await resolveAtelierConfig(req));
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(facturePdfHtml(facture, req.query.autoprint === "1", atelierConfig));
   } catch (err) {

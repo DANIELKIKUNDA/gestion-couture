@@ -941,6 +941,14 @@ function persistAtelierSettings() {
   window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
 }
 
+function withVersionedUrl(url, versionToken = "") {
+  const value = String(url || "").trim();
+  const token = String(versionToken || "").trim();
+  if (!value || !token) return value;
+  const separator = value.includes("?") ? "&" : "?";
+  return `${value}${separator}v=${encodeURIComponent(token)}`;
+}
+
 function revokeSettingsLogoPreviewUrl() {
   if (settingsLogoLocalPreviewUrl.value) {
     URL.revokeObjectURL(settingsLogoLocalPreviewUrl.value);
@@ -1036,10 +1044,12 @@ const visibleSettingsTabs = computed(() =>
   settingsTabs.filter((tab) => tab.id !== "securite" || canAccessSecurityModule.value)
 );
 const settingsLogoPreview = computed(() => (atelierSettings.identite.logoUrl || "").trim());
-const settingsCurrentLogoPreview = computed(() => resolveMediaUrl(settingsLogoPreview.value));
+const settingsLogoVersionToken = computed(() => String(atelierSettings.meta?.lastSavedAt || atelierSettings.meta?.version || "").trim());
+const settingsCurrentLogoPreview = computed(() => withVersionedUrl(resolveMediaUrl(settingsLogoPreview.value), settingsLogoVersionToken.value));
 const settingsDisplayedLogoPreview = computed(() => settingsLogoLocalPreviewUrl.value || settingsCurrentLogoPreview.value);
 const canUploadAtelierLogo = computed(() => settingsCanEdit.value && currentRole.value === "PROPRIETAIRE" && Boolean(currentAtelierId.value));
-const atelierLogoUrl = computed(() => settingsCurrentLogoPreview.value);
+const authAtelierLogoUrl = computed(() => withVersionedUrl(resolveMediaUrl(String(authAtelierContext.value?.logoUrl || "").trim()), ""));
+const atelierLogoUrl = computed(() => settingsCurrentLogoPreview.value || authAtelierLogoUrl.value);
 const atelierNomAffichage = computed(() => {
   const value = String(atelierSettings.identite?.nomAtelier || "").trim();
   return value || "Atelier de Couture";
@@ -1072,7 +1082,7 @@ const factureAtelierProfile = computed(() => {
     telephone: String(identite.telephone || "").trim(),
     email: String(identite.email || "").trim(),
     devise: String(identite.devise || "").trim().toUpperCase(),
-    logo: resolveMediaUrl(String(identite.logoUrl || "").trim()),
+    logo: withVersionedUrl(resolveMediaUrl(String(identite.logoUrl || "").trim()), settingsLogoVersionToken.value),
     mentions: String(facturation.mentions || "").trim(),
     afficherLogo: facturation.afficherLogo === true
   };

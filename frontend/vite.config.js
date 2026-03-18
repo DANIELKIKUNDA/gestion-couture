@@ -47,6 +47,10 @@ export default defineConfig({
             handler: "NetworkOnly"
           },
           {
+            urlPattern: /^https?:\/\/[^/]+\/media\/.*$/i,
+            handler: "NetworkOnly"
+          },
+          {
             urlPattern: ({ request, sameOrigin }) => sameOrigin && request.destination === "document",
             handler: "NetworkFirst",
             options: {
@@ -98,7 +102,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:3000"
+      "/api": "http://localhost:3000",
+      "/media": "http://localhost:3000"
     }
   }
 });

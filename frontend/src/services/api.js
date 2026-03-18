@@ -29,10 +29,29 @@ function resolveApiOrigin() {
   return "";
 }
 
+function resolveMediaOrigin() {
+  const apiOrigin = resolveApiOrigin();
+  if (apiOrigin && !apiOrigin.endsWith(":5173")) return apiOrigin;
+  if (typeof window !== "undefined" && window.location) {
+    const protocol = window.location.protocol || "http:";
+    const hostname = window.location.hostname || "localhost";
+    const port = window.location.port || "";
+    if (port === "5173") {
+      return `${protocol}//${hostname}:3000`;
+    }
+    return window.location.origin || "";
+  }
+  return apiOrigin;
+}
+
 export function resolveMediaUrl(path = "") {
   const value = String(path || "").trim();
   if (!value) return "";
   if (/^(blob:|data:|https?:\/\/)/i.test(value)) return value;
+  if (value.startsWith("/media/")) {
+    const mediaOrigin = resolveMediaOrigin();
+    return mediaOrigin ? `${mediaOrigin}${value}` : value;
+  }
   if (!value.startsWith("/")) return value;
   const apiOrigin = resolveApiOrigin();
   return apiOrigin ? `${apiOrigin}${value}` : value;

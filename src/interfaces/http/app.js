@@ -54,7 +54,15 @@ export function createApp() {
   app.use(cors(resolveCorsOptions()));
   app.use(express.json({ limit: "2mb" }));
   app.use(morgan("dev"));
-  app.use("/media", express.static(resolveMediaStorageRoot()));
+  app.use(
+    "/media",
+    express.static(resolveMediaStorageRoot(), {
+      setHeaders(res) {
+        // Allow frontend dev server to display public media while keeping API auth separated.
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      }
+    })
+  );
   app.use(authGuard);
   app.use(securityPolicy);
 

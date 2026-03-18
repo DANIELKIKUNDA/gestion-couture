@@ -136,6 +136,7 @@ function summarizeAtelier(atelier) {
     idAtelier: atelier.idAtelier,
     nom: atelier.nom,
     slug: atelier.slug,
+    logoUrl: atelier.logoUrl || "",
     actif: atelier.actif !== false,
     createdAt: atelier.createdAt || null,
     updatedAt: atelier.updatedAt || null
