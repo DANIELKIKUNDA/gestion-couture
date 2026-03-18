@@ -1,4 +1,5 @@
-﻿import express from "express";
+import path from "node:path";
+import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
@@ -42,6 +43,10 @@ function resolveCorsOptions() {
   };
 }
 
+function resolveMediaStorageRoot() {
+  return path.resolve(process.cwd(), process.env.MEDIA_STORAGE_ROOT || "./storage");
+}
+
 export function createApp() {
   const app = express();
 
@@ -49,6 +54,7 @@ export function createApp() {
   app.use(cors(resolveCorsOptions()));
   app.use(express.json({ limit: "2mb" }));
   app.use(morgan("dev"));
+  app.use("/media", express.static(resolveMediaStorageRoot()));
   app.use(authGuard);
   app.use(securityPolicy);
 

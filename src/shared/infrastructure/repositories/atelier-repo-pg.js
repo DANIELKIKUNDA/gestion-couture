@@ -6,6 +6,7 @@ function mapRow(row) {
     idAtelier: row.id_atelier,
     nom: row.nom,
     slug: row.slug,
+    logoUrl: row.logo_url || "",
     actif: row.actif !== false,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null
@@ -27,11 +28,13 @@ async function ensureSchema(db = pool) {
       id_atelier TEXT PRIMARY KEY,
       nom TEXT NOT NULL,
       slug TEXT NOT NULL UNIQUE,
+      logo_url TEXT NULL,
       actif BOOLEAN NOT NULL DEFAULT true,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await db.query(`ALTER TABLE ateliers ADD COLUMN IF NOT EXISTS logo_url TEXT NULL`);
   await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ateliers_slug_lower ON ateliers ((LOWER(slug)))`);
   schemaReadyByConnection.add(db);
 }
@@ -44,7 +47,7 @@ export class AtelierRepoPg {
   async listAll() {
     await ensureSchema(this.db);
     const result = await this.db.query(
-      `SELECT id_atelier, nom, slug, actif, created_at, updated_at
+      `SELECT id_atelier, nom, slug, logo_url, actif, created_at, updated_at
        FROM ateliers
        ORDER BY created_at DESC`
     );
@@ -54,7 +57,7 @@ export class AtelierRepoPg {
   async getById(idAtelier) {
     await ensureSchema(this.db);
     const result = await this.db.query(
-      `SELECT id_atelier, nom, slug, actif, created_at, updated_at
+      `SELECT id_atelier, nom, slug, logo_url, actif, created_at, updated_at
        FROM ateliers
        WHERE id_atelier = $1
        LIMIT 1`,
@@ -66,7 +69,7 @@ export class AtelierRepoPg {
   async getBySlug(slug) {
     await ensureSchema(this.db);
     const result = await this.db.query(
-      `SELECT id_atelier, nom, slug, actif, created_at, updated_at
+      `SELECT id_atelier, nom, slug, logo_url, actif, created_at, updated_at
        FROM ateliers
        WHERE LOWER(slug) = $1
        LIMIT 1`,
@@ -92,8 +95,21 @@ export class AtelierRepoPg {
          slug = EXCLUDED.slug,
          actif = EXCLUDED.actif,
          updated_at = NOW()
-       RETURNING id_atelier, nom, slug, actif, created_at, updated_at`,
+       RETURNING id_atelier, nom, slug, logo_url, actif, created_at, updated_at`,
       [payload.idAtelier, payload.nom, payload.slug, payload.actif]
+    );
+    return mapRow(result.rows[0] || null);
+  }
+
+  async setLogoUrl(idAtelier, logoUrl = null) {
+    await ensureSchema(this.db);
+    const result = await this.db.query(
+      `UPDATE ateliers
+       SET logo_url = $2,
+           updated_at = NOW()
+       WHERE id_atelier = $1
+       RETURNING id_atelier, nom, slug, logo_url, actif, created_at, updated_at`,
+      [String(idAtelier || "").trim(), logoUrl ? String(logoUrl).trim() : null]
     );
     return mapRow(result.rows[0] || null);
   }
@@ -105,7 +121,7 @@ export class AtelierRepoPg {
        SET actif = $2,
            updated_at = NOW()
        WHERE id_atelier = $1
-       RETURNING id_atelier, nom, slug, actif, created_at, updated_at`,
+       RETURNING id_atelier, nom, slug, logo_url, actif, created_at, updated_at`,
       [String(idAtelier || ""), actif !== false]
     );
     return mapRow(result.rows[0] || null);

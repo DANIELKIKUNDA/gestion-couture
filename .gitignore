@@ -18,6 +18,8 @@ deploy/.env.production
 /build/
 frontend/dist/
 storage/
+!src/**/infrastructure/storage/
+!src/**/infrastructure/storage/*.js
 backups/
 deploy/certbot/
 

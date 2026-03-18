@@ -9,16 +9,17 @@ export class ConflitVersionParametresError extends Error {
 }
 
 export class AtelierParametresRepoPg {
-  constructor(atelierId = "ATELIER") {
+  constructor(atelierId = "ATELIER", db = pool) {
     this.atelierId = String(atelierId || "ATELIER");
+    this.db = db;
   }
 
-  forAtelier(atelierId) {
-    return new AtelierParametresRepoPg(atelierId);
+  forAtelier(atelierId, db = this.db) {
+    return new AtelierParametresRepoPg(atelierId, db);
   }
 
   async getCurrent() {
-    const res = await pool.query("SELECT payload, version, updated_at, updated_by FROM atelier_parametres WHERE atelier_id = $1 LIMIT 1", [this.atelierId]);
+    const res = await this.db.query("SELECT payload, version, updated_at, updated_by FROM atelier_parametres WHERE atelier_id = $1 LIMIT 1", [this.atelierId]);
     if (res.rowCount === 0) return null;
     const row = res.rows[0];
     return {
@@ -30,7 +31,7 @@ export class AtelierParametresRepoPg {
   }
 
   async save({ payload, expectedVersion = null, updatedBy = null }) {
-    const res = await pool.query(
+    const res = await this.db.query(
       `INSERT INTO atelier_parametres (id, atelier_id, payload, version, updated_at, updated_by)
        VALUES (COALESCE((SELECT MAX(ap.id) + 1 FROM atelier_parametres ap), 1), $1, $2, 1, NOW(), $3)
        ON CONFLICT (atelier_id)

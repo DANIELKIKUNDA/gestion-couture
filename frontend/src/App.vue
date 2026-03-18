@@ -1,6 +1,6 @@
 ﻿<script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { atelierApi, ApiError, setAuthLostHandler } from "./services/api.js";
+import { atelierApi, ApiError, resolveMediaUrl, setAuthLostHandler } from "./services/api.js";
 import {
   OFFLINE_READ_MESSAGES,
   loadCommandeDetailLocalFirst,
@@ -426,6 +426,10 @@ const settingsAuditNote = ref("");
 const settingsLoading = ref(false);
 const settingsSaving = ref(false);
 const settingsError = ref("");
+const settingsLogoUploading = ref(false);
+const settingsLogoLocalPreviewUrl = ref("");
+const settingsLogoSelectedFile = ref(null);
+const settingsLogoInputRef = ref(null);
 const settingsActiveTab = ref("identite");
 const settingsSnapshot = ref("");
 const settingsUserSnapshot = ref("");
@@ -937,6 +941,40 @@ function persistAtelierSettings() {
   window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
 }
 
+function revokeSettingsLogoPreviewUrl() {
+  if (settingsLogoLocalPreviewUrl.value) {
+    URL.revokeObjectURL(settingsLogoLocalPreviewUrl.value);
+    settingsLogoLocalPreviewUrl.value = "";
+  }
+}
+
+function clearSelectedAtelierLogo({ resetInput = true } = {}) {
+  settingsLogoSelectedFile.value = null;
+  revokeSettingsLogoPreviewUrl();
+  if (resetInput && settingsLogoInputRef.value) {
+    settingsLogoInputRef.value.value = "";
+  }
+}
+
+function onAtelierLogoFileChange(event) {
+  const file = event?.target?.files?.[0] || null;
+  clearSelectedAtelierLogo({ resetInput: false });
+  if (!file) return;
+  const mimeType = String(file.type || "").trim().toLowerCase();
+  if (!["image/png", "image/jpeg"].includes(mimeType)) {
+    if (event?.target) event.target.value = "";
+    notify("Le logo doit etre un fichier PNG ou JPG.");
+    return;
+  }
+  if (Number(file.size || 0) > 2 * 1024 * 1024) {
+    if (event?.target) event.target.value = "";
+    notify("Le logo ne doit pas depasser 2 MB.");
+    return;
+  }
+  settingsLogoSelectedFile.value = file;
+  settingsLogoLocalPreviewUrl.value = URL.createObjectURL(file);
+}
+
 function normalizeAtelierSlugInput(value) {
   return String(value || "")
     .normalize("NFD")
@@ -998,7 +1036,10 @@ const visibleSettingsTabs = computed(() =>
   settingsTabs.filter((tab) => tab.id !== "securite" || canAccessSecurityModule.value)
 );
 const settingsLogoPreview = computed(() => (atelierSettings.identite.logoUrl || "").trim());
-const atelierLogoUrl = computed(() => settingsLogoPreview.value);
+const settingsCurrentLogoPreview = computed(() => resolveMediaUrl(settingsLogoPreview.value));
+const settingsDisplayedLogoPreview = computed(() => settingsLogoLocalPreviewUrl.value || settingsCurrentLogoPreview.value);
+const canUploadAtelierLogo = computed(() => settingsCanEdit.value && currentRole.value === "PROPRIETAIRE" && Boolean(currentAtelierId.value));
+const atelierLogoUrl = computed(() => settingsCurrentLogoPreview.value);
 const atelierNomAffichage = computed(() => {
   const value = String(atelierSettings.identite?.nomAtelier || "").trim();
   return value || "Atelier de Couture";
@@ -1031,7 +1072,7 @@ const factureAtelierProfile = computed(() => {
     telephone: String(identite.telephone || "").trim(),
     email: String(identite.email || "").trim(),
     devise: String(identite.devise || "").trim().toUpperCase(),
-    logo: String(identite.logoUrl || "").trim(),
+    logo: resolveMediaUrl(String(identite.logoUrl || "").trim()),
     mentions: String(facturation.mentions || "").trim(),
     afficherLogo: facturation.afficherLogo === true
   };
@@ -1907,6 +1948,47 @@ async function saveAtelierSettings() {
     notify(message);
   } finally {
     settingsSaving.value = false;
+  }
+}
+
+async function uploadAtelierLogo() {
+  if (!canUploadAtelierLogo.value) {
+    notify("Seul le proprietaire de l'atelier peut modifier le logo.");
+    return;
+  }
+  if (!settingsLogoSelectedFile.value) {
+    notify("Selectionne d'abord une image PNG ou JPG.");
+    return;
+  }
+  if (settingsHasUnsavedChanges.value) {
+    notify("Sauvegarde ou annule d'abord les autres modifications avant de changer le logo.");
+    return;
+  }
+  const atelierId = currentAtelierId.value;
+  if (!atelierId) {
+    notify("Atelier introuvable pour l'upload du logo.");
+    return;
+  }
+
+  try {
+    settingsLogoUploading.value = true;
+    settingsError.value = "";
+    const formData = new FormData();
+    formData.append("logo", settingsLogoSelectedFile.value);
+    const response = await atelierApi.uploadAtelierLogo(atelierId, formData);
+    if (response?.logoUrl) {
+      atelierSettings.identite.logoUrl = String(response.logoUrl || "").trim();
+      persistAtelierSettings();
+      await loadAtelierSettings();
+    }
+    clearSelectedAtelierLogo();
+    notify("Logo atelier mis a jour.");
+  } catch (err) {
+    const message = err instanceof ApiError ? err.message : String(err?.message || "Erreur lors de l'upload du logo.");
+    settingsError.value = message;
+    notify(message);
+  } finally {
+    settingsLogoUploading.value = false;
   }
 }
 
@@ -3889,6 +3971,7 @@ onUnmounted(() => {
   if (syncUiRefreshTimer) window.clearTimeout(syncUiRefreshTimer);
   clearSystemAteliersSearchDebounce();
   revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
+  revokeSettingsLogoPreviewUrl();
 });
 
 watch(
@@ -10495,12 +10578,28 @@ async function loadRetoucheDetail(idRetouche) {
               </select>
             </div>
             <div class="stack-form">
-              <label>Logo (URL optionnelle)</label>
-              <input v-model="atelierSettings.identite.logoUrl" type="text" :disabled="!settingsCanEdit" />
+              <label>Logo atelier</label>
+              <input
+                ref="settingsLogoInputRef"
+                type="file"
+                accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                :disabled="!canUploadAtelierLogo || settingsLogoUploading"
+                @change="onAtelierLogoFileChange"
+              />
+              <small class="helper">PNG ou JPG, 2 MB maximum. Seul le proprietaire peut remplacer le logo.</small>
+              <small class="helper" v-if="atelierSettings.identite.logoUrl">Chemin actuel : {{ atelierSettings.identite.logoUrl }}</small>
+              <div class="row-actions">
+                <button class="mini-btn" type="button" :disabled="!settingsLogoSelectedFile || settingsLogoUploading" @click="clearSelectedAtelierLogo()">
+                  Annuler
+                </button>
+                <button class="action-btn blue" type="button" :disabled="!canUploadAtelierLogo || !settingsLogoSelectedFile || settingsLogoUploading" @click="uploadAtelierLogo">
+                  {{ settingsLogoUploading ? "Upload..." : "Envoyer le logo" }}
+                </button>
+              </div>
             </div>
-            <div class="settings-logo-preview" v-if="settingsLogoPreview">
+            <div class="settings-logo-preview" v-if="settingsDisplayedLogoPreview">
               <label>Previsualisation logo</label>
-              <img :src="settingsLogoPreview" alt="Logo atelier" />
+              <img :src="settingsDisplayedLogoPreview" alt="Logo atelier" />
             </div>
           </div>
         </article>

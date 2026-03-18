@@ -13,6 +13,31 @@ function assignIfPresent(target, key, value) {
   }
 }
 
+function resolveApiOrigin() {
+  const value = String(API_BASE_URL || "").trim();
+  if (!value) return "";
+  try {
+    if (/^https?:\/\//i.test(value)) {
+      return new URL(value).origin;
+    }
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return window.location.origin;
+    }
+  } catch {
+    // fallback below
+  }
+  return "";
+}
+
+export function resolveMediaUrl(path = "") {
+  const value = String(path || "").trim();
+  if (!value) return "";
+  if (/^(blob:|data:|https?:\/\/)/i.test(value)) return value;
+  if (!value.startsWith("/")) return value;
+  const apiOrigin = resolveApiOrigin();
+  return apiOrigin ? `${apiOrigin}${value}` : value;
+}
+
 export class ApiError extends Error {
   constructor(message, status, payload) {
     super(message);
@@ -913,6 +938,13 @@ export const atelierApi = {
     return request("/parametres-atelier", {
       method: "PUT",
       body: JSON.stringify({ payload, updatedBy, expectedVersion: resolvedExpectedVersion })
+    });
+  },
+
+  uploadAtelierLogo(idAtelier, formData) {
+    return request(`/ateliers/${encodeURIComponent(idAtelier)}/logo`, {
+      method: "POST",
+      body: formData
     });
   },
 
