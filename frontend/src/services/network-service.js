@@ -1,3 +1,5 @@
+import { computed, readonly, ref } from "vue";
+
 const TAB_ID_STORAGE_KEY = "atelier.offline.tab_id.v1";
 
 function createRandomId() {
@@ -39,6 +41,8 @@ let currentState = {
   offline: !resolveOnlineState(),
   tabId
 };
+const onlineRef = ref(currentState.online);
+const networkStateRef = ref({ ...currentState });
 
 function emitState() {
   currentState = {
@@ -46,6 +50,8 @@ function emitState() {
     offline: !resolveOnlineState(),
     tabId
   };
+  onlineRef.value = currentState.online;
+  networkStateRef.value = { ...currentState };
 
   for (const listener of listeners) {
     try {
@@ -105,4 +111,13 @@ export function subscribeToNetworkState(listener) {
 
 export function getTabId() {
   return tabId;
+}
+
+export function useNetwork() {
+  return {
+    isOnline: readonly(onlineRef),
+    isOffline: computed(() => !onlineRef.value),
+    state: readonly(networkStateRef),
+    tabId
+  };
 }

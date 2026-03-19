@@ -13,18 +13,18 @@ const PROTECTED_LOCAL_STATUSES = new Set([
 ]);
 
 export const OFFLINE_READ_MESSAGES = Object.freeze({
-  NO_LOCAL_DATA: "Aucune donnee locale disponible hors ligne.",
-  CLIENT_CONSULTATION: "Consultation client indisponible hors ligne.",
-  RETOUCHE_TYPES: "Types de retouche indisponibles hors ligne.",
-  STOCK: "Stock indisponible hors ligne.",
-  VENTES: "Ventes indisponibles hors ligne.",
-  FACTURES: "Factures indisponibles hors ligne.",
-  CAISSE: "Caisse indisponible hors ligne.",
-  COMMANDE_DETAIL: "Commande indisponible hors ligne.",
-  COMMANDE_SUPPLEMENTAL: "Paiements et historique de commande indisponibles hors ligne.",
-  COMMANDE_MEDIA: "References photo indisponibles hors ligne.",
-  RETOUCHE_DETAIL: "Retouche indisponible hors ligne.",
-  RETOUCHE_SUPPLEMENTAL: "Paiements et historique de retouche indisponibles hors ligne."
+  NO_LOCAL_DATA: "Aucune donnee disponible hors ligne.",
+  CLIENT_CONSULTATION: "Aucun detail client disponible hors ligne.",
+  RETOUCHE_TYPES: "",
+  STOCK: "",
+  VENTES: "",
+  FACTURES: "",
+  CAISSE: "Aucune caisse disponible hors ligne.",
+  COMMANDE_DETAIL: "Aucune commande disponible hors ligne.",
+  COMMANDE_SUPPLEMENTAL: "Certaines informations sont limitees hors ligne.",
+  COMMANDE_MEDIA: "",
+  RETOUCHE_DETAIL: "Aucune retouche disponible hors ligne.",
+  RETOUCHE_SUPPLEMENTAL: "Certaines informations sont limitees hors ligne."
 });
 
 const ENTITY_DESCRIPTORS = Object.freeze({

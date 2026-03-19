@@ -16,7 +16,7 @@ import {
   setCommandePhotoPrimaryOffline
 } from "./services/media-local-store.js";
 import { createOfflineClient, createOfflineCommande, createOfflineRetouche } from "./services/offline-write-service.js";
-import { getNetworkState, subscribeToNetworkState } from "./services/network-service.js";
+import { getNetworkState, subscribeToNetworkState, useNetwork } from "./services/network-service.js";
 import {
   applyPwaUpdate,
   dismissPwaOfflineReady,
@@ -27,6 +27,7 @@ import {
 } from "./services/pwa-service.js";
 import { requestSync, setSyncEngineAtelierContext, subscribeToSyncEvents } from "./services/sync-engine.js";
 import CommandeMediaGallery from "./components/commandes/CommandeMediaGallery.vue";
+import OfflineBanner from "./components/OfflineBanner.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
 import SystemAtelierDetailPage from "./components/system/SystemAtelierDetailPage.vue";
 import SystemDashboardPage from "./components/system/SystemDashboardPage.vue";
@@ -1069,6 +1070,7 @@ const authCardSubtitle = computed(() => {
 const workspaceName = computed(() => (isSystemManager.value ? "Administration systeme" : atelierNomAffichage.value));
 const workspaceSubtitle = computed(() => (isSystemManager.value ? "Console multi-tenant" : "Gestion metier"));
 const workspaceLogoText = computed(() => (isSystemManager.value || authPortal.value === "system" ? "MS" : "AT"));
+const { isOnline: networkIsOnline } = useNetwork();
 const atelierDevise = computed(() => {
   const value = String(atelierSettings.identite?.devise || "").trim().toUpperCase();
   return value || "FC";
@@ -5074,7 +5076,6 @@ async function reloadAll() {
     factures.value = [];
     caisseJour.value = null;
     if (!getNetworkState().online) {
-      appendUiMessage("Donnees systeme indisponibles hors ligne.");
       loading.value = false;
       return;
     }
@@ -5097,7 +5098,6 @@ async function reloadAll() {
   const shouldLoadCaisse = canAccessModule("caisse");
   const atelierId = currentAtelierId.value;
   if (!atelierId) {
-    appendUiMessage("Atelier courant introuvable pour la lecture offline.");
     loading.value = false;
     return;
   }
@@ -5713,13 +5713,23 @@ function appendAuditError(message) {
 
 function readableError(err) {
   const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : "";
+  const lowered = String(message || "").toLowerCase();
+  if (!getNetworkState().online) return "";
+  if (
+    lowered.includes("failed to fetch") ||
+    lowered.includes("networkerror") ||
+    lowered.includes("load failed") ||
+    lowered.includes("offline")
+  ) {
+    return "";
+  }
   if (message) return translateErrorMessage(message);
-  return "Erreur API inconnue";
+  return "";
 }
 
 function translateErrorMessage(message) {
   const value = String(message || "").trim();
-  if (!value) return "Erreur API inconnue";
+  if (!value) return "";
 
   return value
     .split(";")
@@ -5751,6 +5761,7 @@ function translateErrorMessage(message) {
       if (lower.includes("operation not found")) return "Operation introuvable.";
       if (lower.includes("operation already cancelled")) return "Operation deja annulee.";
       if (lower.includes("advance is insufficient")) return "L'avance est insuffisante pour demarrer le travail.";
+      if (lower.includes("erreur api")) return "";
       if (lower.startsWith("missing fields:")) {
         const fields = part.split(":")[1] || "";
         return `Champs obligatoires manquants: ${fields.trim()}`;
@@ -7155,7 +7166,7 @@ async function onWizardStep2() {
       const facture = await emettreFactureDepuisOrigine("COMMANDE", normalized.idCommande, { ouvrirDetail: false });
       wizard.createdFactureId = facture.idFacture || facture.id_facture || "";
     } else if (useOfflinePath && wizard.commande.emettreFacture === true) {
-      notify("Facture indisponible hors ligne. La commande reste en attente de synchronisation.");
+      notify("La facture sera disponible apres la synchronisation de la commande.");
     }
     wizard.step = 3;
   } catch (err) {
@@ -7275,7 +7286,7 @@ async function onRetoucheWizardStep2() {
       const facture = await emettreFactureDepuisOrigine("RETOUCHE", normalized.idRetouche, { ouvrirDetail: false });
       retoucheWizard.createdFactureId = facture.idFacture || facture.id_facture || "";
     } else if (useOfflinePath && retoucheWizard.retouche.emettreFacture === true) {
-      notify("Facture indisponible hors ligne. La retouche reste en attente de synchronisation.");
+      notify("La facture sera disponible apres la synchronisation de la retouche.");
     }
     retoucheWizard.step = 3;
   } catch (err) {
@@ -8215,7 +8226,7 @@ async function loadCommandeDetail(idCommande) {
     detailCommandeEvents.value = [];
     detailPaiementsLoading.value = false;
     detailCommandeEventsLoading.value = false;
-    detailError.value = "Atelier courant introuvable pour la lecture offline.";
+    detailError.value = OFFLINE_READ_MESSAGES.COMMANDE_DETAIL;
     detailCommandeMediaLoading.value = false;
     detailLoading.value = false;
     return;
@@ -8362,7 +8373,7 @@ async function openCommandeMedia(item) {
   }
 
   if (!getNetworkState().online || !isRemoteEntityId(detailCommande.value.idCommande) || !String(item?.serverId || item?.idMedia || "").trim()) {
-    notify("Fichier photo indisponible hors ligne tant que la version serveur n'est pas accessible.");
+    notify("Cette photo sera disponible une fois la connexion retablie.");
     return;
   }
 
@@ -8610,7 +8621,7 @@ async function loadRetoucheDetail(idRetouche) {
     detailRetoucheEvents.value = [];
     detailRetouchePaiementsLoading.value = false;
     detailRetoucheEventsLoading.value = false;
-    detailRetoucheError.value = "Atelier courant introuvable pour la lecture offline.";
+    detailRetoucheError.value = OFFLINE_READ_MESSAGES.RETOUCHE_DETAIL;
     detailRetoucheLoading.value = false;
     return;
   }
@@ -8717,6 +8728,8 @@ async function loadRetoucheDetail(idRetouche) {
 </script>
 
 <template>
+  <OfflineBanner />
+
   <div v-if="!authReady" class="auth-shell">
     <article class="auth-card">
       <header class="auth-card-head">
@@ -8854,6 +8867,9 @@ async function loadRetoucheDetail(idRetouche) {
           <p class="date-label">{{ workspaceName }}</p>
         </div>
         <div class="topbar-actions">
+          <span class="status-pill" :data-tone="networkIsOnline ? 'ok' : 'due'">
+            {{ networkIsOnline ? "ONLINE" : "OFFLINE" }}
+          </span>
           <button v-if="isPwaInstallAvailable" class="mini-btn pwa-topbar-btn" @click="installApplication">
             Installer l'application
           </button>
@@ -8867,7 +8883,7 @@ async function loadRetoucheDetail(idRetouche) {
 
       <div ref="contentScrollRef" class="content-scroll">
         <div v-if="errorMessage" class="panel error-panel">
-          <strong>Erreur de synchronisation API</strong>
+          <strong>Information</strong>
           <p>{{ errorMessage }}</p>
         </div>
 
@@ -9445,7 +9461,7 @@ async function loadRetoucheDetail(idRetouche) {
           <div class="filters compact client-consultation-picker" style="min-width: 320px;">
             <input v-model.trim="clientConsultationQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
             <select v-model="selectedClientConsultationId">
-              <option value="" v-if="clients.length === 0">Aucun client disponible</option>
+              <option value="" v-if="clients.length === 0">{{ networkIsOnline ? "Aucun client disponible" : "Aucun client disponible hors ligne" }}</option>
               <option value="" v-else-if="clientConsultationClientOptions.length === 0">Aucun resultat</option>
               <option v-for="client in clientConsultationClientOptions" :key="`consult-${client.idClient}`" :value="client.idClient">
                 {{ `${client.nom} ${client.prenom}`.trim() }} - {{ client.telephone }}
@@ -9460,7 +9476,7 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <article class="panel error-panel" v-else-if="clientConsultationError">
-          <strong>Erreur de consultation client</strong>
+          <strong>Consultation client</strong>
           <p>{{ clientConsultationError }}</p>
         </article>
 
@@ -9801,7 +9817,7 @@ async function loadRetoucheDetail(idRetouche) {
                   </td>
                 </tr>
                 <tr v-if="stockArticles.length === 0">
-                  <td colspan="6">Aucun article en stock.</td>
+                  <td colspan="6">{{ networkIsOnline ? "Aucun article en stock." : "Aucun article disponible hors ligne." }}</td>
                 </tr>
               </tbody>
             </table></article>
@@ -9965,7 +9981,7 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <article v-if="detailError" class="panel error-panel">
-          <strong>Erreur detail commande</strong>
+          <strong>Detail commande</strong>
           <p>{{ detailError }}</p>
         </article>
 
@@ -10148,7 +10164,7 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <article v-if="detailRetoucheError" class="panel error-panel">
-          <strong>Erreur detail retouche</strong>
+          <strong>Detail retouche</strong>
           <p>{{ detailRetoucheError }}</p>
         </article>
 
@@ -11391,8 +11407,8 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <article v-if="!caisseJour" class="panel error-panel">
-          <strong>Caisse indisponible</strong>
-          <p>Aucune caisse du jour n'a ete chargee.</p>
+          <strong>Caisse</strong>
+          <p>{{ networkIsOnline ? "Aucune caisse du jour n'a ete chargee." : "Aucune caisse disponible hors ligne." }}</p>
         </article>
 
         <template v-else>
