@@ -26,6 +26,8 @@ import {
   promptPwaInstall
 } from "./services/pwa-service.js";
 import { requestSync, setSyncEngineAtelierContext, subscribeToSyncEvents } from "./services/sync-engine.js";
+import { pendingActions, syncInProgress } from "./services/sync-status-service.js";
+import { showToast } from "./services/toast-service.js";
 import CommandeMediaGallery from "./components/commandes/CommandeMediaGallery.vue";
 import OfflineBanner from "./components/OfflineBanner.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
@@ -1071,6 +1073,18 @@ const workspaceName = computed(() => (isSystemManager.value ? "Administration sy
 const workspaceSubtitle = computed(() => (isSystemManager.value ? "Console multi-tenant" : "Gestion metier"));
 const workspaceLogoText = computed(() => (isSystemManager.value || authPortal.value === "system" ? "MS" : "AT"));
 const { isOnline: networkIsOnline } = useNetwork();
+const syncStatusLabel = computed(() => {
+  if (syncInProgress.value) return "🔄 Synchronisation...";
+  if (pendingActions.value > 0) {
+    return `⏳ ${pendingActions.value} action${pendingActions.value > 1 ? "s" : ""} en attente`;
+  }
+  return "✅ Synchronisé";
+});
+const syncStatusTone = computed(() => {
+  if (syncInProgress.value) return "blue";
+  if (pendingActions.value > 0) return "amber";
+  return "ok";
+});
 const atelierDevise = computed(() => {
   const value = String(atelierSettings.identite?.devise || "").trim().toUpperCase();
   return value || "FC";
@@ -7090,12 +7104,14 @@ async function onWizardStep1() {
       if (getNetworkState().online) {
         const created = await atelierApi.createClient(payload);
         normalized = normalizeClient(created.client || created);
+        showToast("✅ Enregistré");
       } else {
         const created = await createOfflineClient({
           atelierId,
           client: payload
         });
         normalized = normalizeClient(created.client);
+        showToast("⏳ Enregistré hors ligne");
         void requestSync(atelierId);
       }
       upsertClientRow(normalized);
@@ -7154,10 +7170,12 @@ async function onWizardStep2() {
         commande: payload
       });
       normalized = normalizeCommande(created.commande);
+      showToast("⏳ Enregistré hors ligne");
       void requestSync(atelierId);
     } else {
       const created = await atelierApi.createCommande(payload);
       normalized = normalizeCommande(created);
+      showToast("✅ Enregistré");
     }
     wizard.createdCommandeId = normalized.idCommande;
     wizard.createdFactureId = "";
@@ -7269,6 +7287,7 @@ async function onRetoucheWizardStep2() {
         retoucheWizard.resolvedClientId = normalizedClient.idClient;
       }
       normalized = normalizeRetouche(created.retouche);
+      showToast("⏳ Enregistré hors ligne");
       void requestSync(atelierId);
     } else {
       const created = await atelierApi.createRetoucheWizard(payload);
@@ -7278,6 +7297,7 @@ async function onRetoucheWizardStep2() {
         retoucheWizard.resolvedClientId = normalizedClient.idClient;
       }
       normalized = normalizeRetouche(created.retouche || created);
+      showToast("✅ Enregistré");
     }
     retoucheWizard.createdRetoucheId = normalized.idRetouche;
     retoucheWizard.createdFactureId = "";
@@ -7629,6 +7649,7 @@ async function onPaiementCommande(commande) {
   try {
     await atelierApi.enregistrerPaiementViaCaisse({ idCommande: commande.idCommande, montant, utilisateur: "frontend" });
     await reloadAll();
+    showToast("✅ Enregistré");
     notify(`Paiement enregistre via la caisse pour ${commande.idCommande}`);
   } catch (err) {
     const message = readableError(err);
@@ -7659,6 +7680,7 @@ async function onPaiementDetail() {
     await atelierApi.enregistrerPaiementViaCaisse({ idCommande: detailCommande.value.idCommande, montant, utilisateur: "frontend" });
     await loadCommandeDetail(detailCommande.value.idCommande);
     await reloadAll();
+    showToast("✅ Enregistré");
     notify(`Paiement enregistre via la caisse pour ${detailCommande.value.idCommande}`);
   } catch (err) {
     const message = readableError(err);
@@ -7751,6 +7773,7 @@ async function onPaiementRetouche(retouche) {
   try {
     await atelierApi.enregistrerPaiementRetoucheViaCaisse({ idRetouche: retouche.idRetouche, montant, utilisateur: "frontend" });
     await reloadAll();
+    showToast("✅ Enregistré");
     notify(`Paiement enregistre via la caisse pour ${retouche.idRetouche}`);
   } catch (err) {
     const message = readableError(err);
@@ -7781,6 +7804,7 @@ async function onPaiementRetoucheDetail() {
     await atelierApi.enregistrerPaiementRetoucheViaCaisse({ idRetouche: detailRetouche.value.idRetouche, montant, utilisateur: "frontend" });
     await loadRetoucheDetail(detailRetouche.value.idRetouche);
     await reloadAll();
+    showToast("✅ Enregistré");
     notify(`Paiement enregistre via la caisse pour ${detailRetouche.value.idRetouche}`);
   } catch (err) {
     const message = readableError(err);
@@ -8869,6 +8893,9 @@ async function loadRetoucheDetail(idRetouche) {
         <div class="topbar-actions">
           <span class="status-pill" :data-tone="networkIsOnline ? 'ok' : 'due'">
             {{ networkIsOnline ? "ONLINE" : "OFFLINE" }}
+          </span>
+          <span class="status-pill" :data-tone="syncStatusTone">
+            {{ syncStatusLabel }}
           </span>
           <button v-if="isPwaInstallAvailable" class="mini-btn pwa-topbar-btn" @click="installApplication">
             Installer l'application

@@ -5,6 +5,7 @@ import { OFFLINE_MEDIA_ACTIONS } from "./media-local-store.js";
 import { getQueueEntry, listPending } from "./sync-queue.js";
 import { getTabId, isOnline, subscribeToNetworkState } from "./network-service.js";
 import { OFFLINE_WRITE_ACTIONS } from "./offline-write-service.js";
+import { setPendingActions, setSyncInProgress } from "./sync-status-service.js";
 
 const SYNC_CHANNEL_NAME = "atelier.offline.sync.v1";
 const SYNC_LOCK_KEY = "syncWorkerLock";
@@ -426,6 +427,17 @@ async function claimNextQueueEntry(atelierId) {
   return null;
 }
 
+async function refreshPendingActionsCount(atelierId) {
+  const scopedAtelierId = normalizeString(atelierId);
+  if (!scopedAtelierId) {
+    setPendingActions(0);
+    return [];
+  }
+  const pendingEntries = await listPending(scopedAtelierId);
+  setPendingActions(pendingEntries.length);
+  return pendingEntries;
+}
+
 async function resolveClientServerId(atelierId, payload = {}, localRecord = null) {
   const directServerId =
     normalizeString(payload.clientServerId) ||
@@ -775,6 +787,8 @@ async function blockJob(atelierId, entry, error) {
 }
 
 async function processQueueCycle(atelierId) {
+  const pendingEntries = await refreshPendingActionsCount(atelierId);
+  setSyncInProgress(pendingEntries.length > 0);
   const summary = {
     processedCount: 0,
     syncedCount: 0,
@@ -825,6 +839,8 @@ async function processQueueCycle(atelierId) {
     }
   }
 
+  setSyncInProgress(false);
+  setPendingActions(0);
   emitSyncEvent({ type: "cycle-complete", atelierId, ...summary });
   postChannelMessage({ type: "cycle-complete", atelierId, ...summary });
   return summary;
@@ -859,6 +875,8 @@ async function scheduleRun() {
       try {
         await runSyncLoop();
       } catch (error) {
+        setSyncInProgress(false);
+        await refreshPendingActionsCount(currentAtelierId);
         emitSyncEvent({
           type: "cycle-error",
           atelierId: currentAtelierId,
@@ -930,6 +948,8 @@ export async function setSyncEngineAtelierContext(atelierId = "") {
   rerunRequested = Boolean(nextAtelierId);
 
   if (!nextAtelierId) {
+    setSyncInProgress(false);
+    setPendingActions(0);
     if (!runningPromise) {
       await releaseWorkerLock({ silent: true });
     }
@@ -958,6 +978,7 @@ export async function requestSync(atelierId = currentAtelierId, options = {}) {
     postChannelMessage({ type: "request-sync", atelierId: targetAtelierId });
   }
 
+  await refreshPendingActionsCount(targetAtelierId);
   return scheduleRun();
 }
 
