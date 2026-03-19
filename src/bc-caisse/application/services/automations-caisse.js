@@ -5,6 +5,7 @@ import { genererBilansApresCloture } from "../use-cases/creer-bilan-caisse.js";
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
 
 export async function executerAutomationsCaisse({
+  atelierId = "",
   caisseRepo,
   bilanRepo,
   parametresRepo = null,
@@ -12,18 +13,52 @@ export async function executerAutomationsCaisse({
   timeZone = TIMEZONE_KINSHASA,
   utilisateur = "system-auto"
 }) {
-  const caisseOuverte = await ouvrirCaisseAutomatique({ caisseRepo, parametresRepo, now, timeZone, utilisateur });
+  const resolvedAtelierId =
+    String(atelierId || "").trim() ||
+    String(caisseRepo?.atelierId || "").trim() ||
+    String(parametresRepo?.atelierId || "").trim() ||
+    "ATELIER";
+
+  const logAutomation = (phase, details = {}) => {
+    const suffix = Object.entries(details)
+      .filter(([, value]) => value !== undefined && value !== null && value !== "")
+      .map(([key, value]) => `${key}=${value}`)
+      .join(" ");
+    console.log(`[AUTO-CAISSE] atelier=${resolvedAtelierId} phase=${phase}${suffix ? ` ${suffix}` : ""}`);
+  };
+
+  const caisseOuverte = await ouvrirCaisseAutomatique({
+    atelierId: resolvedAtelierId,
+    caisseRepo,
+    parametresRepo,
+    now,
+    timeZone,
+    utilisateur,
+    logAutomation
+  });
   if (caisseOuverte) {
-    console.log(
-      `[AUTO-OPEN] id=${caisseOuverte.idCaisseJour} dateJour=${caisseOuverte.date} openedAt=${now.toISOString()} timeZone=${timeZone}`
-    );
+    logAutomation("open-success", {
+      idCaisseJour: caisseOuverte.idCaisseJour,
+      dateJour: caisseOuverte.date,
+      openedAt: now.toISOString(),
+      timeZone
+    });
   }
-  const caisseCloturee = await cloturerCaisseAutomatique({ caisseRepo, parametresRepo, now, timeZone, utilisateur });
+  const caisseCloturee = await cloturerCaisseAutomatique({
+    atelierId: resolvedAtelierId,
+    caisseRepo,
+    parametresRepo,
+    now,
+    timeZone,
+    utilisateur,
+    logAutomation
+  });
   if (caisseCloturee) {
     const iso = String(caisseCloturee.dateCloture || now.toISOString());
     await enregistrerEvenementAudit({
       utilisateurId: null,
       role: "SYSTEME",
+      atelierId: resolvedAtelierId,
       action: "CLOTURE_AUTO",
       entite: "CAISSE_JOUR",
       entiteId: caisseCloturee.idCaisseJour,

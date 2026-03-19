@@ -2,12 +2,23 @@ import { buildDateJour, getKinshasaParts } from "../../domain/horloge-kinshasa.j
 import { resolveClotureAutoConfig, selectionnerCaisseACloturer } from "../../domain/cloture-automatique-policy.js";
 
 export async function cloturerCaisseAutomatique({
+  atelierId = "",
   caisseRepo,
   parametresRepo = null,
   utilisateur = "system",
   now = new Date(),
-  timeZone
+  timeZone,
+  logAutomation = null
 }) {
+  const scopedAtelierId =
+    String(atelierId || "").trim() ||
+    String(caisseRepo?.atelierId || "").trim() ||
+    String(parametresRepo?.atelierId || "").trim() ||
+    "ATELIER";
+  const log = (reason, details = {}) => {
+    if (typeof logAutomation !== "function") return;
+    logAutomation(reason, { atelierId: scopedAtelierId, ...details });
+  };
   const parts = getKinshasaParts(now, timeZone);
   const dateJour = buildDateJour(parts);
   const parametres = parametresRepo && typeof parametresRepo.getCurrent === "function"
@@ -24,9 +35,25 @@ export async function cloturerCaisseAutomatique({
     caissesAnterieures,
     clotureAuto
   });
-  if (!caisse) return null;
+  if (!caisse) {
+    const retardOuvert = (caissesAnterieures || []).find((item) => item?.statutCaisse === "OUVERTE");
+    log("close-skip", {
+      reason: clotureAuto?.active === false ? "cloture-auto-desactivee" : "aucune-caisse-a-cloturer",
+      dateJour,
+      heureCloture: `${String(clotureAuto?.hour ?? "").padStart(2, "0")}:${String(clotureAuto?.minute ?? "").padStart(2, "0")}`,
+      heureCourante: `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`,
+      caisseDuJourStatut: caisseDuJour?.statutCaisse || "AUCUNE",
+      caisseRetardId: retardOuvert?.idCaisseJour || null
+    });
+    return null;
+  }
 
   caisse.cloturerCaisse({ utilisateur, dateCloture: now.toISOString() });
   await caisseRepo.save(caisse);
+  log("close-success", {
+    idCaisseJour: caisse.idCaisseJour,
+    dateJour: caisse.date,
+    closedAt: now.toISOString()
+  });
   return caisse;
 }
