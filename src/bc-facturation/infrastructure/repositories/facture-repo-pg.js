@@ -93,7 +93,7 @@ export class FactureRepoPg {
               ) AS lignes_json,
               ${OPERATIONS_SQL}
        FROM factures f
-       LEFT JOIN clients cl ON cl.id_client = f.id_client
+       LEFT JOIN clients cl ON cl.id_client = f.id_client AND cl.atelier_id = f.atelier_id
        WHERE f.type_origine = $1 AND f.id_origine = $2 AND f.atelier_id = $3
        LIMIT 1`,
       [typeOrigine, idOrigine, this.atelierId]
@@ -124,7 +124,7 @@ export class FactureRepoPg {
               ) AS lignes_json,
               ${OPERATIONS_SQL}
        FROM factures f
-       LEFT JOIN clients cl ON cl.id_client = f.id_client
+       LEFT JOIN clients cl ON cl.id_client = f.id_client AND cl.atelier_id = f.atelier_id
        WHERE f.id_facture = $1 AND f.atelier_id = $2`,
       [idFacture, this.atelierId]
     );
@@ -154,7 +154,7 @@ export class FactureRepoPg {
               ) AS lignes_json,
               ${OPERATIONS_SQL}
        FROM factures f
-       LEFT JOIN clients cl ON cl.id_client = f.id_client
+       LEFT JOIN clients cl ON cl.id_client = f.id_client AND cl.atelier_id = f.atelier_id
        WHERE f.atelier_id = $1
          AND COALESCE(f.type_origine, f.type_reference) IN ('COMMANDE', 'RETOUCHE', 'VENTE')
        ORDER BY f.date_emission DESC, f.numero_facture DESC`,

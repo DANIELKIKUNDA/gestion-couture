@@ -26,7 +26,7 @@ export class OrigineFactureReaderPg {
               cl.nom || ' ' || cl.prenom AS client_nom,
               cl.telephone AS client_contact
        FROM commandes c
-       LEFT JOIN clients cl ON cl.id_client = c.id_client
+       LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
        WHERE c.id_commande = $1 AND c.atelier_id = $2`,
       [idCommande, this.atelierId]
     );
@@ -56,7 +56,7 @@ export class OrigineFactureReaderPg {
               cl.nom || ' ' || cl.prenom AS client_nom,
               cl.telephone AS client_contact
        FROM retouches r
-       LEFT JOIN clients cl ON cl.id_client = r.id_client
+       LEFT JOIN clients cl ON cl.id_client = r.id_client AND cl.atelier_id = r.atelier_id
        WHERE r.id_retouche = $1 AND r.atelier_id = $2`,
       [idRetouche, this.atelierId]
     );

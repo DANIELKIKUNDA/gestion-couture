@@ -219,7 +219,7 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
               cl.nom,
               cl.prenom
        FROM commandes c
-       LEFT JOIN clients cl ON cl.id_client = c.id_client
+       LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
        WHERE c.atelier_id = $1
        ORDER BY c.date_creation DESC`,
       [atelierIdFromReq(req)]
@@ -265,8 +265,8 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
         COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' THEN op.montant ELSE 0 END), 0) AS total_paiements,
         COALESCE(COUNT(op.id_operation), 0) AS nombre_paiements
       FROM commandes c
-      LEFT JOIN clients cl ON cl.id_client = c.id_client
-      LEFT JOIN caisse_operation op ON op.reference_metier = c.id_commande AND op.motif = 'PAIEMENT_COMMANDE'
+      LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
+      LEFT JOIN caisse_operation op ON op.reference_metier = c.id_commande AND op.motif = 'PAIEMENT_COMMANDE' AND op.atelier_id = c.atelier_id
       WHERE c.atelier_id = $1
       GROUP BY c.id_commande, cl.nom, cl.prenom
       ORDER BY c.date_creation DESC`,
@@ -312,7 +312,7 @@ router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
               cl.nom,
               cl.prenom
        FROM commandes c
-       LEFT JOIN clients cl ON cl.id_client = c.id_client
+       LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
        WHERE c.id_commande = $1 AND c.atelier_id = $2`,
       [req.params.id, atelierIdFromReq(req)]
     );
@@ -594,7 +594,7 @@ router.get("/commandes/:id/paiements", requireCommandeReadAccess, async (req, re
               op.statut_operation,
               cj.date_jour
        FROM caisse_operation op
-       LEFT JOIN caisse_jour cj ON cj.id_caisse_jour = op.id_caisse_jour
+       LEFT JOIN caisse_jour cj ON cj.id_caisse_jour = op.id_caisse_jour AND cj.atelier_id = op.atelier_id
        WHERE op.reference_metier = $1 AND op.atelier_id = $2
        ORDER BY op.date_operation DESC`,
       [req.params.id, atelierIdFromReq(req)]

@@ -240,7 +240,7 @@ router.get("/caisse/audit/journalier", requirePermission(PERMISSIONS.VOIR_BILANS
           - COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' AND op.type_operation = 'SORTIE' AND (op.type_depense = 'QUOTIDIENNE' OR op.type_depense IS NULL) THEN op.montant ELSE 0 END), 0) AS solde_journalier_restant,
         COALESCE(COUNT(op.id_operation), 0) AS nombre_operations
       FROM caisse_jour cj
-      LEFT JOIN caisse_operation op ON op.id_caisse_jour = cj.id_caisse_jour
+      LEFT JOIN caisse_operation op ON op.id_caisse_jour = cj.id_caisse_jour AND op.atelier_id = cj.atelier_id
       WHERE cj.statut = 'CLOTUREE' AND cj.atelier_id = $1
       GROUP BY cj.id_caisse_jour
       ORDER BY cj.date_jour DESC`,

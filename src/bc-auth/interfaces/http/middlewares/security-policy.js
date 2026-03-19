@@ -77,30 +77,56 @@ export async function securityPolicy(req, res, next) {
   }
 
   req.isReadOnly = false;
+  const userAtelierId = String(user.atelierId || "").trim();
 
-  if (String(user.atelierId || "").trim().toUpperCase() !== SYSTEM_ATELIER_ID) {
-    const atelier = await atelierRepo.getById(user.atelierId || "ATELIER");
+  if (!userAtelierId) {
+    await logSecurityAudit({
+      utilisateurId: user.id,
+      role: user.roleId,
+      atelierId: null,
+      action: "ATELIER_MANQUANT_REFUS",
+      entite: req.path,
+      succes: false,
+      raison: "atelier_manquant"
+    });
+    return authError(res, "Session invalide");
+  }
+
+  if (userAtelierId.toUpperCase() !== SYSTEM_ATELIER_ID) {
+    const atelier = await atelierRepo.getById(userAtelierId);
+    if (!atelier) {
+      await logSecurityAudit({
+        utilisateurId: user.id,
+        role: user.roleId,
+        atelierId: userAtelierId,
+        action: "ATELIER_INTROUVABLE_REFUS",
+        entite: req.path,
+        succes: false,
+        raison: "atelier_introuvable"
+      });
+      return authError(res, "Session invalide");
+    }
     if (atelier && atelier.actif === false) {
       await logSecurityAudit({
         utilisateurId: user.id,
         role: user.roleId,
-        atelierId: user.atelierId || null,
+        atelierId: userAtelierId,
         action: "ATELIER_INACTIF_REFUS",
         entite: req.path,
         succes: false,
-        raison: `atelier_${String(user.atelierId || "").trim().toUpperCase()}_inactif`
+        raison: `atelier_${userAtelierId.toUpperCase()}_inactif`
       });
       return authError(res, "Atelier inactif");
     }
   }
 
-  const rolePerm = await rolePermissionRepo.get(user.atelierId || "ATELIER", user.roleId);
+  const rolePerm = await rolePermissionRepo.get(userAtelierId, user.roleId);
   req.auth = {
     ...req.auth,
     nom: user.nom,
     role: user.roleId,
     roleId: user.roleId,
-    atelierId: user.atelierId || "ATELIER",
+    atelierId: userAtelierId,
     etatCompte,
     permissions: resolveGrantedPermissions(user.roleId, rolePerm?.permissions || [])
   };

@@ -46,12 +46,13 @@ const MOVEMENT_SELECT = `SELECT
   op.id_caisse_jour,
   op.montant AS montant_encaisse
 FROM mouvements_stock m
-INNER JOIN articles a ON a.id_article = m.id_article
-LEFT JOIN fournisseurs f ON f.id_fournisseur = m.fournisseur_id
+INNER JOIN articles a ON a.id_article = m.id_article AND a.atelier_id = m.atelier_id
+LEFT JOIN fournisseurs f ON f.id_fournisseur = m.fournisseur_id AND f.atelier_id = m.atelier_id
 LEFT JOIN LATERAL (
   SELECT id_caisse_jour, montant
   FROM caisse_operation
   WHERE statut_operation <> 'ANNULEE'
+    AND atelier_id = m.atelier_id
     AND (
       reference_metier = m.reference_metier
       OR reference_metier = m.id_mouvement
