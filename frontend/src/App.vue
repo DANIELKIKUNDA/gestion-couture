@@ -29,7 +29,10 @@ import { requestSync, setSyncEngineAtelierContext, subscribeToSyncEvents } from 
 import { pendingActions, syncInProgress } from "./services/sync-status-service.js";
 import { showToast } from "./services/toast-service.js";
 import CommandeMediaGallery from "./components/commandes/CommandeMediaGallery.vue";
+import BottomNav from "./components/BottomNav.vue";
+import MobileHeader from "./components/MobileHeader.vue";
 import OfflineBanner from "./components/OfflineBanner.vue";
+import Sidebar from "./components/Sidebar.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
 import SystemAtelierDetailPage from "./components/system/SystemAtelierDetailPage.vue";
 import SystemDashboardPage from "./components/system/SystemDashboardPage.vue";
@@ -85,9 +88,12 @@ const AUTH_PORTAL_STORAGE_KEY = "atelier.auth.portal.v1";
 const AUTH_ATELIER_SLUG_STORAGE_KEY = "atelier.auth.slug.v1";
 const AUTH_INVALID_CREDENTIALS_MESSAGE = "Email ou mot de passe incorrect";
 const AUTH_DISABLED_ATELIER_MESSAGE = "Votre atelier est désactivé. Veuillez contacter l’administrateur.";
+const MOBILE_BREAKPOINT = 768;
 
 const currentRoute = ref("dashboard");
 const contentScrollRef = ref(null);
+const isMobileViewport = ref(typeof window !== "undefined" ? window.innerWidth < MOBILE_BREAKPOINT : false);
+const isSidebarDrawerOpen = ref(false);
 const toast = ref("");
 const loading = ref(false);
 const errorMessage = ref("");
@@ -2505,6 +2511,85 @@ function resolveAccessibleRoute(preferredRoute = "dashboard") {
   return visibleMenuItems.value[0]?.id || (isSystemManager.value ? "systemAteliers" : "dashboard");
 }
 
+const mobileNavItems = computed(() => {
+  if (isSystemManager.value) {
+    return [
+      {
+        id: "system-dashboard",
+        target: "systemDashboard",
+        label: "Accueil",
+        icon: "dashboard",
+        activeRoutes: ["systemDashboard"]
+      },
+      {
+        id: "system-ateliers",
+        target: "systemAteliers",
+        label: "Ateliers",
+        icon: "users",
+        activeRoutes: ["systemAteliers", "systemAtelierDetail"]
+      }
+    ].filter((item) => canAccessRoute(item.target));
+  }
+
+  const activitiesTarget = canAccessRoute("commandes") ? "commandes" : canAccessRoute("retouches") ? "retouches" : "";
+
+  return [
+    {
+      id: "dashboard",
+      target: "dashboard",
+      label: "Accueil",
+      icon: "dashboard",
+      activeRoutes: ["dashboard"]
+    },
+    {
+      id: "activities",
+      target: activitiesTarget,
+      label: "Activites",
+      icon: activitiesTarget === "retouches" ? "scissors" : "clipboard",
+      activeRoutes: ["commandes", "commande-detail", "retouches", "retouche-detail"]
+    },
+    {
+      id: "clients",
+      target: canAccessRoute("clientsMesures") ? "clientsMesures" : "",
+      label: "Clients",
+      icon: "users",
+      activeRoutes: ["clientsMesures"]
+    },
+    {
+      id: "caisse",
+      target: canAccessRoute("caisse") ? "caisse" : "",
+      label: "Caisse",
+      icon: "wallet",
+      activeRoutes: ["caisse"]
+    },
+    {
+      id: "parametres",
+      target: canAccessRoute("parametres") ? "parametres" : "",
+      label: "Parametres",
+      icon: "settings",
+      activeRoutes: ["parametres"]
+    }
+  ].filter((item) => item.target);
+});
+
+function updateViewportState() {
+  if (typeof window === "undefined") return;
+  const nextIsMobile = window.innerWidth < MOBILE_BREAKPOINT;
+  isMobileViewport.value = nextIsMobile;
+  if (!nextIsMobile) {
+    isSidebarDrawerOpen.value = false;
+  }
+}
+
+function closeSidebarDrawer() {
+  isSidebarDrawerOpen.value = false;
+}
+
+function toggleSidebarDrawer() {
+  if (!isMobileViewport.value) return;
+  isSidebarDrawerOpen.value = !isSidebarDrawerOpen.value;
+}
+
 const auditRoutes = [
   { path: "/audit", title: "Historique & Audit", subtitle: "Hub de navigation audit" },
   { path: "/audit/caisse", title: "Audit de la Caisse", subtitle: "Bilans journaliers, hebdomadaires et mensuels" },
@@ -3942,6 +4027,7 @@ async function submitLogout() {
 
 onMounted(async () => {
   loadAtelierSettingsLocal();
+  updateViewportState();
   lastKnownNetworkOnline = getNetworkState().online;
   unsubscribeNetworkState = subscribeToNetworkState((state) => {
     const reconnected = lastKnownNetworkOnline === false && state.online === true;
@@ -3968,6 +4054,7 @@ onMounted(async () => {
   loadClientConsultationSectionPreference();
   window.addEventListener("popstate", onBrowserNavigation);
   window.addEventListener("beforeunload", onBeforeUnload);
+  window.addEventListener("resize", updateViewportState);
   await hydrateAuthSession();
   if (!isAuthenticated.value) {
     await detectAuthMode();
@@ -3993,11 +4080,18 @@ onUnmounted(() => {
   setAuthLostHandler(null);
   window.removeEventListener("popstate", onBrowserNavigation);
   window.removeEventListener("beforeunload", onBeforeUnload);
+  window.removeEventListener("resize", updateViewportState);
   if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
   if (syncUiRefreshTimer) window.clearTimeout(syncUiRefreshTimer);
   clearSystemAteliersSearchDebounce();
   revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
   revokeSettingsLogoPreviewUrl();
+});
+
+watch(currentRoute, () => {
+  if (isMobileViewport.value) {
+    closeSidebarDrawer();
+  }
 });
 
 watch(
@@ -4437,6 +4531,17 @@ async function openRoute(routeId) {
   if (routeId === "clientsMesures" && selectedClientConsultationId.value) {
     loadClientConsultation(selectedClientConsultationId.value);
   }
+}
+
+async function handlePrimaryNavigation(routeId) {
+  if (!routeId) return;
+  closeSidebarDrawer();
+  await openRoute(routeId);
+}
+
+async function handleSidebarLogout() {
+  closeSidebarDrawer();
+  await submitLogout();
 }
 
 function canReloadSystemAteliers() {
@@ -8846,44 +8951,26 @@ async function loadRetoucheDetail(idRetouche) {
     </article>
   </div>
 
-  <div v-else class="workspace classic">
-    <aside class="sidebar classic-sidebar">
-      <div class="brand classic-brand">
-        <div class="brand-mark">
-          <img v-if="atelierLogoUrl && !isSystemManager" :src="atelierLogoUrl" alt="Logo atelier" />
-          <span v-else>{{ workspaceLogoText }}</span>
-        </div>
-        <div>
-          <h1>{{ workspaceName }}</h1>
-          <p>{{ workspaceSubtitle }}</p>
-        </div>
-      </div>
+  <div v-else class="workspace classic" :class="{ 'sidebar-open': isSidebarDrawerOpen }">
+    <div v-if="isMobileViewport && isSidebarDrawerOpen" class="sidebar-backdrop" @click="closeSidebarDrawer" />
 
-      <nav class="menu">
-        <a
-          v-for="item in visibleMenuItems"
-          :key="item.id"
-          href="#"
-          class="menu-item"
-          :class="{ active: currentRoute === item.id || (currentRoute === 'systemAtelierDetail' && item.id === 'systemAteliers') }"
-          @click.prevent="openRoute(item.id)"
-        >
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path v-for="(path, i) in iconPaths[item.icon]" :key="`${item.id}-${i}`" :d="path" />
-          </svg>
-          <span>{{ item.label }}</span>
-        </a>
-      </nav>
-      <div class="sidebar-user">
-        <div class="sidebar-user-meta">
-          <strong>{{ authUser?.nom || "Utilisateur" }}</strong>
-          <span>{{ authUser?.roleId || "-" }}</span>
-        </div>
-        <button class="mini-btn" @click="submitLogout">Deconnexion</button>
-      </div>
-    </aside>
+    <Sidebar
+      :menu-items="visibleMenuItems"
+      :current-route="currentRoute"
+      :icon-paths="iconPaths"
+      :workspace-name="workspaceName"
+      :workspace-subtitle="workspaceSubtitle"
+      :workspace-logo-text="workspaceLogoText"
+      :atelier-logo-url="atelierLogoUrl"
+      :is-system-manager="isSystemManager"
+      :auth-user="authUser"
+      @navigate="handlePrimaryNavigation"
+      @logout="handleSidebarLogout"
+    />
 
     <main class="main">
+      <MobileHeader v-if="isMobileViewport" :title="currentTitle" @toggle-menu="toggleSidebarDrawer" />
+
       <header class="topbar classic-topbar">
         <div>
           <p class="date-label">{{ todayLabel() }}</p>
@@ -9048,7 +9135,7 @@ async function loadRetoucheDetail(idRetouche) {
         <div class="split-grid legacy-split">
           <article class="panel">
             <h3>Dernieres Commandes</h3>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Client</th>
@@ -9060,11 +9147,11 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="row in recentWorkRows" :key="row.id">
-                  <td>{{ row.clientNom }}</td>
-                  <td>{{ row.type }}</td>
-                  <td>{{ row.statut }}</td>
-                  <td>{{ formatCurrency(row.montantTotal) }}</td>
-                  <td>{{ formatCurrency(row.avancePayee) }}</td>
+                  <td data-label="Client">{{ row.clientNom }}</td>
+                  <td data-label="Type">{{ row.type }}</td>
+                  <td data-label="Statut">{{ row.statut }}</td>
+                  <td data-label="Montant">{{ formatCurrency(row.montantTotal) }}</td>
+                  <td data-label="Avance">{{ formatCurrency(row.avancePayee) }}</td>
                 </tr>
                 <tr v-if="recentWorkRows.length === 0">
                   <td colspan="5">Aucune activite recente.</td>
@@ -9208,7 +9295,7 @@ async function loadRetoucheDetail(idRetouche) {
             </span>
           </div>
           <div class="table-scroll-x">
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>ID</th>
@@ -9229,21 +9316,21 @@ async function loadRetoucheDetail(idRetouche) {
                   :key="commande.idCommande"
                   :class="[`status-row-${commande.statutCommande}`, { selected: selectedCommandeId === commande.idCommande }]"
                 >
-                  <td>{{ commande.idCommande }}</td>
-                  <td>{{ commande.clientNom }}</td>
-                  <td>{{ commande.descriptionCommande }}</td>
-                  <td>
+                  <td data-label="ID">{{ commande.idCommande }}</td>
+                  <td data-label="Client">{{ commande.clientNom }}</td>
+                  <td data-label="Description">{{ commande.descriptionCommande }}</td>
+                  <td data-label="Statut">
                     <span class="status-pill" :data-status="commande.statutCommande">{{ commande.statutCommande }}</span>
                   </td>
-                  <td>
+                  <td data-label="Etat solde">
                     <span class="status-pill" :data-tone="commande.soldeRestant === 0 ? 'ok' : 'due'">
                       {{ commande.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
                     </span>
                   </td>
-                  <td>{{ formatCurrency(commande.montantTotal) }}</td>
-                  <td>{{ formatCurrency(commande.montantPaye) }}</td>
-                  <td>{{ formatCurrency(commande.soldeRestant) }}</td>
-                  <td>{{ commande.datePrevue || "-" }}</td>
+                  <td data-label="Total">{{ formatCurrency(commande.montantTotal) }}</td>
+                  <td data-label="Paye">{{ formatCurrency(commande.montantPaye) }}</td>
+                  <td data-label="Solde">{{ formatCurrency(commande.soldeRestant) }}</td>
+                  <td data-label="Date prevue">{{ commande.datePrevue || "-" }}</td>
                   <td class="row-actions">
                     <button class="mini-btn" @click="onVoirCommande(commande)">
                       <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -9391,7 +9478,7 @@ async function loadRetoucheDetail(idRetouche) {
             </span>
           </div>
           <div class="table-scroll-x">
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>ID</th>
@@ -9414,23 +9501,23 @@ async function loadRetoucheDetail(idRetouche) {
                   :key="retouche.idRetouche"
                   :class="[`status-row-${retouche.statutRetouche}`, { selected: selectedRetoucheId === retouche.idRetouche }]"
                 >
-                  <td>{{ retouche.idRetouche }}</td>
-                  <td>{{ retouche.clientNom }}</td>
-                  <td>{{ retouche.typeRetouche || "-" }}</td>
-                  <td>{{ retouche.descriptionRetouche }}</td>
-                  <td>
+                  <td data-label="ID">{{ retouche.idRetouche }}</td>
+                  <td data-label="Client">{{ retouche.clientNom }}</td>
+                  <td data-label="Type">{{ retouche.typeRetouche || "-" }}</td>
+                  <td data-label="Description">{{ retouche.descriptionRetouche }}</td>
+                  <td data-label="Statut">
                     <span class="status-pill" :data-status="retouche.statutRetouche">{{ retouche.statutRetouche }}</span>
                   </td>
-                  <td>
+                  <td data-label="Etat solde">
                     <span class="status-pill" :data-tone="retouche.soldeRestant === 0 ? 'ok' : 'due'">
                       {{ retouche.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
                     </span>
                   </td>
-                  <td>{{ formatCurrency(retouche.montantTotal) }}</td>
-                  <td>{{ formatCurrency(retouche.montantPaye) }}</td>
-                  <td>{{ formatCurrency(retouche.soldeRestant) }}</td>
-                  <td>{{ retouche.dateDepot || "-" }}</td>
-                  <td>{{ retouche.datePrevue || "-" }}</td>
+                  <td data-label="Total">{{ formatCurrency(retouche.montantTotal) }}</td>
+                  <td data-label="Paye">{{ formatCurrency(retouche.montantPaye) }}</td>
+                  <td data-label="Solde">{{ formatCurrency(retouche.soldeRestant) }}</td>
+                  <td data-label="Date depot">{{ retouche.dateDepot || "-" }}</td>
+                  <td data-label="Date prevue">{{ retouche.datePrevue || "-" }}</td>
                   <td class="row-actions">
                     <button class="mini-btn" @click="onVoirRetouche(retouche)">
                       <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -9599,7 +9686,7 @@ async function loadRetoucheDetail(idRetouche) {
           <article v-show="clientConsultationSection === 'commandes'" class="panel">
             <h3>Historique des commandes ({{ clientConsultationResultats.commandes }})</h3>
             <div class="table-scroll-x">
-              <table class="data-table">
+              <table class="data-table mobile-stack-table">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -9611,11 +9698,11 @@ async function loadRetoucheDetail(idRetouche) {
                 </thead>
                 <tbody>
                   <tr v-for="row in clientCommandesPaged" :key="`cc-${row.idCommande}`">
-                    <td>{{ formatDateShort(row.date) }}</td>
-                    <td>{{ row.typeHabit || "-" }}</td>
-                    <td>{{ row.statut || "-" }}</td>
-                    <td>{{ formatCurrency(row.montant) }}</td>
-                    <td><button class="mini-btn" @click="openCommandeDetail(row.idCommande)">Voir</button></td>
+                    <td data-label="Date">{{ formatDateShort(row.date) }}</td>
+                    <td data-label="Type habit">{{ row.typeHabit || "-" }}</td>
+                    <td data-label="Statut">{{ row.statut || "-" }}</td>
+                    <td data-label="Montant">{{ formatCurrency(row.montant) }}</td>
+                    <td class="actions-cell"><button class="mini-btn" @click="openCommandeDetail(row.idCommande)">Voir</button></td>
                   </tr>
                   <tr v-if="clientFilteredCommandes.length === 0">
                     <td colspan="5">Aucune commande pour les filtres selectionnes.</td>
@@ -9633,7 +9720,7 @@ async function loadRetoucheDetail(idRetouche) {
           <article v-show="clientConsultationSection === 'retouches'" class="panel">
             <h3>Historique des retouches ({{ clientConsultationResultats.retouches }})</h3>
             <div class="table-scroll-x">
-              <table class="data-table">
+              <table class="data-table mobile-stack-table">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -9646,12 +9733,12 @@ async function loadRetoucheDetail(idRetouche) {
                 </thead>
                 <tbody>
                   <tr v-for="row in clientRetouchesPaged" :key="`cr-${row.idRetouche}`">
-                    <td>{{ formatDateShort(row.date) }}</td>
-                    <td>{{ row.typeHabit || "-" }}</td>
-                    <td>{{ row.typeRetouche || "-" }}</td>
-                    <td>{{ row.statut || "-" }}</td>
-                    <td>{{ formatCurrency(row.montant) }}</td>
-                    <td><button class="mini-btn" @click="openRetoucheDetail(row.idRetouche)">Voir</button></td>
+                    <td data-label="Date">{{ formatDateShort(row.date) }}</td>
+                    <td data-label="Type habit">{{ row.typeHabit || "-" }}</td>
+                    <td data-label="Type retouche">{{ row.typeRetouche || "-" }}</td>
+                    <td data-label="Statut">{{ row.statut || "-" }}</td>
+                    <td data-label="Montant">{{ formatCurrency(row.montant) }}</td>
+                    <td class="actions-cell"><button class="mini-btn" @click="openRetoucheDetail(row.idRetouche)">Voir</button></td>
                   </tr>
                   <tr v-if="clientFilteredRetouches.length === 0">
                     <td colspan="6">Aucune retouche pour les filtres selectionnes.</td>
@@ -9669,7 +9756,7 @@ async function loadRetoucheDetail(idRetouche) {
           <article v-show="clientConsultationSection === 'mesures'" class="panel">
             <h3>Historique des mesures ({{ clientConsultationResultats.mesures }})</h3>
             <div class="table-scroll-x">
-              <table class="data-table">
+              <table class="data-table mobile-stack-table">
                 <thead>
                   <tr>
                     <th>Date de prise</th>
@@ -9681,16 +9768,16 @@ async function loadRetoucheDetail(idRetouche) {
                 </thead>
                 <tbody>
                   <tr v-for="(row, index) in clientMesuresPaged" :key="`cm-${row.source}-${row.idOrigine}-${index}`">
-                    <td>{{ formatDateShort(row.datePrise) }}</td>
-                    <td>{{ row.typeHabit || "-" }}</td>
-                    <td>{{ row.source || "-" }}</td>
-                    <td>
+                    <td data-label="Date">{{ formatDateShort(row.datePrise) }}</td>
+                    <td data-label="Type habit">{{ row.typeHabit || "-" }}</td>
+                    <td data-label="Source">{{ row.source || "-" }}</td>
+                    <td data-label="Mesures">
                       <template v-for="(line, idx) in formatMesuresLines(row.mesures)" :key="`cm-line-${index}-${idx}`">
                         <div>{{ line }}</div>
                       </template>
                       <div v-if="formatMesuresLines(row.mesures).length === 0">Aucune mesure</div>
                     </td>
-                    <td><button class="mini-btn" @click="onVoirOrigineMesure(row)">Voir</button></td>
+                    <td class="actions-cell"><button class="mini-btn" @click="onVoirOrigineMesure(row)">Voir</button></td>
                   </tr>
                   <tr v-if="clientFilteredMesures.length === 0">
                     <td colspan="5">Aucun snapshot de mesures pour les filtres selectionnes.</td>
@@ -9786,7 +9873,7 @@ async function loadRetoucheDetail(idRetouche) {
 
           <article class="panel" ref="stockListRef">
             <h3>Liste des articles</h3>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Article</th>
@@ -9800,12 +9887,12 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="article in stockArticles" :key="article.idArticle">
-                  <td>{{ article.nomArticle }}</td>
-                  <td>{{ article.quantiteDisponible }}</td>
-                  <td>{{ formatCurrency(article.prixAchatMoyen) }}</td>
-                  <td>{{ formatCurrency(article.prixVenteUnitaire) }}</td>
-                  <td>{{ article.seuilAlerte }}</td>
-                  <td>
+                  <td data-label="Article">{{ article.nomArticle }}</td>
+                  <td data-label="Quantite">{{ article.quantiteDisponible }}</td>
+                  <td data-label="Prix achat">{{ formatCurrency(article.prixAchatMoyen) }}</td>
+                  <td data-label="Prix vente">{{ formatCurrency(article.prixVenteUnitaire) }}</td>
+                  <td data-label="Seuil">{{ article.seuilAlerte }}</td>
+                  <td data-label="Etat">
                     <span
                       class="status-pill"
                       :data-tone="Number(article.quantiteDisponible || 0) <= Number(article.seuilAlerte || 0) ? 'due' : 'ok'"
@@ -9866,7 +9953,7 @@ async function loadRetoucheDetail(idRetouche) {
               <button class="mini-btn" @click="addVenteLigne">Ajouter ligne</button>
             </div>
 
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Article</th>
@@ -9876,8 +9963,8 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="(ligne, index) in venteDraft.lignes" :key="`${ligne.idArticle}-${index}`">
-                  <td>{{ stockArticleMap.get(ligne.idArticle) || ligne.idArticle }}</td>
-                  <td>{{ ligne.quantite }}</td>
+                  <td data-label="Article">{{ stockArticleMap.get(ligne.idArticle) || ligne.idArticle }}</td>
+                  <td data-label="Quantite">{{ ligne.quantite }}</td>
                   <td class="row-actions">
                     <button class="mini-btn" @click="removeVenteLigne(index)">Retirer</button>
                   </td>
@@ -9897,7 +9984,7 @@ async function loadRetoucheDetail(idRetouche) {
               <h3>Historique des ventes</h3>
               <span class="status-pill" :data-status="caisseStatus">{{ caisseStatus }}</span>
             </div>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>ID</th>
@@ -9910,13 +9997,13 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="vente in ventesPaged" :key="vente.idVente">
-                  <td>{{ vente.idVente }}</td>
-                  <td>{{ formatDateTime(vente.date) }}</td>
-                  <td>
+                  <td data-label="ID">{{ vente.idVente }}</td>
+                  <td data-label="Date">{{ formatDateTime(vente.date) }}</td>
+                  <td data-label="Statut">
                     <span class="status-pill" :data-status="vente.statut">{{ vente.statut }}</span>
                   </td>
-                  <td>{{ formatCurrency(vente.total) }}</td>
-                  <td>{{ vente.referenceCaisse || "-" }}</td>
+                  <td data-label="Total">{{ formatCurrency(vente.total) }}</td>
+                  <td data-label="Reference caisse">{{ vente.referenceCaisse || "-" }}</td>
                   <td class="row-actions">
                     <button class="mini-btn" @click="onVoirVente(vente)">
                       <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -10064,7 +10151,7 @@ async function loadRetoucheDetail(idRetouche) {
               <h4>Historique des paiements</h4>
               <span class="helper" v-if="detailPaiementsLoading">Chargement...</span>
             </div>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -10076,11 +10163,11 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="paiement in detailPaiementsPaged" :key="paiement.idOperation">
-                  <td>{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
-                  <td>{{ formatCurrency(paiement.montant) }}</td>
-                  <td>{{ paiement.modePaiement || "-" }}</td>
-                  <td>{{ paiement.statutOperation || "-" }}</td>
-                  <td>{{ paiement.motif || paiement.referenceMetier || "-" }}</td>
+                  <td data-label="Date">{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
+                  <td data-label="Montant">{{ formatCurrency(paiement.montant) }}</td>
+                  <td data-label="Mode">{{ paiement.modePaiement || "-" }}</td>
+                  <td data-label="Statut">{{ paiement.statutOperation || "-" }}</td>
+                  <td data-label="Reference">{{ paiement.motif || paiement.referenceMetier || "-" }}</td>
                 </tr>
                 <tr v-if="!detailPaiementsLoading && detailPaiements.length === 0">
                   <td colspan="5">Aucun paiement enregistre.</td>
@@ -10104,7 +10191,7 @@ async function loadRetoucheDetail(idRetouche) {
               <h4>Historique des evenements</h4>
               <span class="helper" v-if="detailCommandeEventsLoading">Chargement...</span>
             </div>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -10117,16 +10204,16 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="event in detailCommandeEventsPaged" :key="event.idEvent">
-                  <td>{{ formatDateTime(event.dateEvent) }}</td>
-                  <td>{{ event.typeEventLabel }}</td>
-                  <td>
+                  <td data-label="Date">{{ formatDateTime(event.dateEvent) }}</td>
+                  <td data-label="Evenement">{{ event.typeEventLabel }}</td>
+                  <td data-label="Etat precedent">
                     <span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span>
                   </td>
-                  <td>
+                  <td data-label="Nouvel etat">
                     <span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span>
                   </td>
-                  <td>{{ event.utilisateurNom }}</td>
-                  <td>{{ event.role }}</td>
+                  <td data-label="Utilisateur">{{ event.utilisateurNom }}</td>
+                  <td data-label="Role">{{ event.role }}</td>
                 </tr>
                 <tr v-if="!detailCommandeEventsLoading && detailCommandeEvents.length === 0">
                   <td colspan="6">Aucun evenement enregistre.</td>
@@ -10234,7 +10321,7 @@ async function loadRetoucheDetail(idRetouche) {
               <h4>Historique des paiements</h4>
               <span class="helper" v-if="detailRetouchePaiementsLoading">Chargement...</span>
             </div>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -10246,11 +10333,11 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="paiement in detailRetouchePaiementsPaged" :key="paiement.idOperation">
-                  <td>{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
-                  <td>{{ formatCurrency(paiement.montant) }}</td>
-                  <td>{{ paiement.modePaiement || "-" }}</td>
-                  <td>{{ paiement.statutOperation || "-" }}</td>
-                  <td>{{ paiement.motif || paiement.referenceMetier || "-" }}</td>
+                  <td data-label="Date">{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
+                  <td data-label="Montant">{{ formatCurrency(paiement.montant) }}</td>
+                  <td data-label="Mode">{{ paiement.modePaiement || "-" }}</td>
+                  <td data-label="Statut">{{ paiement.statutOperation || "-" }}</td>
+                  <td data-label="Reference">{{ paiement.motif || paiement.referenceMetier || "-" }}</td>
                 </tr>
                 <tr v-if="!detailRetouchePaiementsLoading && detailRetouchePaiements.length === 0">
                   <td colspan="5">Aucun paiement enregistre.</td>
@@ -10274,7 +10361,7 @@ async function loadRetoucheDetail(idRetouche) {
               <h4>Historique des evenements</h4>
               <span class="helper" v-if="detailRetoucheEventsLoading">Chargement...</span>
             </div>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -10287,16 +10374,16 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="event in detailRetoucheEventsPaged" :key="event.idEvent">
-                  <td>{{ formatDateTime(event.dateEvent) }}</td>
-                  <td>{{ event.typeEventLabel }}</td>
-                  <td>
+                  <td data-label="Date">{{ formatDateTime(event.dateEvent) }}</td>
+                  <td data-label="Evenement">{{ event.typeEventLabel }}</td>
+                  <td data-label="Etat precedent">
                     <span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span>
                   </td>
-                  <td>
+                  <td data-label="Nouvel etat">
                     <span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span>
                   </td>
-                  <td>{{ event.utilisateurNom }}</td>
-                  <td>{{ event.role }}</td>
+                  <td data-label="Utilisateur">{{ event.utilisateurNom }}</td>
+                  <td data-label="Role">{{ event.role }}</td>
                 </tr>
                 <tr v-if="!detailRetoucheEventsLoading && detailRetoucheEvents.length === 0">
                   <td colspan="6">Aucun evenement enregistre.</td>
@@ -10393,7 +10480,7 @@ async function loadRetoucheDetail(idRetouche) {
               <h4>Lignes de vente</h4>
               <span class="helper">Lecture seule</span>
             </div>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Article</th>
@@ -10403,9 +10490,9 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="ligne in detailVente.lignesVente" :key="ligne.idLigne">
-                  <td>{{ ligne.libelleArticle || ligne.idArticle }}</td>
-                  <td>{{ ligne.quantite }}</td>
-                  <td>{{ formatCurrency(ligne.prixUnitaire) }}</td>
+                  <td data-label="Article">{{ ligne.libelleArticle || ligne.idArticle }}</td>
+                  <td data-label="Quantite">{{ ligne.quantite }}</td>
+                  <td data-label="Prix unitaire">{{ formatCurrency(ligne.prixUnitaire) }}</td>
                 </tr>
                 <tr v-if="detailVente.lignesVente.length === 0">
                   <td colspan="3">Aucune ligne.</td>
@@ -10496,7 +10583,7 @@ async function loadRetoucheDetail(idRetouche) {
 
         <article v-show="factureSection === 'liste'" class="panel">
           <div class="table-scroll-x">
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Numero</th>
@@ -10512,14 +10599,14 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="facture in facturesPaged" :key="facture.idFacture">
-                  <td>{{ facture.numeroFacture }}</td>
-                  <td>{{ facture.client?.nom || "-" }}</td>
-                  <td>{{ facture.typeOrigine }} / {{ facture.idOrigine }}</td>
-                  <td>{{ formatDateShort(facture.dateEmission) }}</td>
-                  <td>{{ formatFactureCurrency(facture.montantTotal) }}</td>
-                  <td>{{ formatFactureCurrency(facture.montantPaye) }}</td>
-                  <td>{{ formatFactureCurrency(facture.solde) }}</td>
-                  <td>{{ facture.statut }}</td>
+                  <td data-label="Numero">{{ facture.numeroFacture }}</td>
+                  <td data-label="Client">{{ facture.client?.nom || "-" }}</td>
+                  <td data-label="Origine">{{ facture.typeOrigine }} / {{ facture.idOrigine }}</td>
+                  <td data-label="Date emission">{{ formatDateShort(facture.dateEmission) }}</td>
+                  <td data-label="Montant total">{{ formatFactureCurrency(facture.montantTotal) }}</td>
+                  <td data-label="Montant paye">{{ formatFactureCurrency(facture.montantPaye) }}</td>
+                  <td data-label="Solde">{{ formatFactureCurrency(facture.solde) }}</td>
+                  <td data-label="Statut">{{ facture.statut }}</td>
                   <td class="actions-cell">
                     <button class="mini-btn" @click="onVoirFacture(facture)">Voir</button>
                     <button class="mini-btn" @click="onImprimerFacture(facture)">Imprimer</button>
@@ -11223,44 +11310,46 @@ async function loadRetoucheDetail(idRetouche) {
                   </select>
                 </div>
               </div>
-              <table class="data-table compact">
-                <thead>
-                  <tr>
-                    <th>Nom</th>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Statut</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="user in securityUsersPaged" :key="user.id">
-                    <td><input v-model="user.nom" type="text" /></td>
-                    <td>{{ user.email }}</td>
-                    <td>
-                      <select v-model="user.roleId">
-                        <option v-for="role in securityRoleOptions" :key="`user-role-${user.id}-${role.value}`" :value="role.value">
-                          {{ role.label }}
-                        </option>
-                      </select>
-                    </td>
-                    <td>
-                      <span class="status-pill" :data-tone="user.actif ? 'ok' : 'due'">
-                        {{ user.actif ? "ACTIF" : "DESACTIVE" }}
-                      </span>
-                    </td>
-                    <td>
-                      <button class="mini-btn" :disabled="securitySaving" @click="saveSecurityUser(user)">Sauver</button>
-                      <button class="mini-btn" :disabled="securitySaving || user.id === authUser?.id" @click="toggleSecurityUserActivation(user)">
-                        {{ user.actif ? "Desactiver" : "Activer" }}
-                      </button>
-                    </td>
-                  </tr>
-                  <tr v-if="securityUsersFiltered.length === 0">
-                    <td colspan="5">Aucun utilisateur.</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="table-scroll-x">
+                <table class="data-table compact">
+                  <thead>
+                    <tr>
+                      <th>Nom</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Statut</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="user in securityUsersPaged" :key="user.id">
+                      <td><input v-model="user.nom" type="text" /></td>
+                      <td>{{ user.email }}</td>
+                      <td>
+                        <select v-model="user.roleId">
+                          <option v-for="role in securityRoleOptions" :key="`user-role-${user.id}-${role.value}`" :value="role.value">
+                            {{ role.label }}
+                          </option>
+                        </select>
+                      </td>
+                      <td>
+                        <span class="status-pill" :data-tone="user.actif ? 'ok' : 'due'">
+                          {{ user.actif ? "ACTIF" : "DESACTIVE" }}
+                        </span>
+                      </td>
+                      <td>
+                        <button class="mini-btn" :disabled="securitySaving" @click="saveSecurityUser(user)">Sauver</button>
+                        <button class="mini-btn" :disabled="securitySaving || user.id === authUser?.id" @click="toggleSecurityUserActivation(user)">
+                          {{ user.actif ? "Desactiver" : "Activer" }}
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="securityUsersFiltered.length === 0">
+                      <td colspan="5">Aucun utilisateur.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
               <div class="panel-footer table-pagination">
                 <select v-model.number="securityUsersPagination.pageSize">
                   <option :value="5">5 / page</option>
@@ -11383,7 +11472,7 @@ async function loadRetoucheDetail(idRetouche) {
               <h4>Lignes facture</h4>
               <span class="helper">Lecture seule</span>
             </div>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Description</th>
@@ -11394,10 +11483,10 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="(ligne, index) in detailFacture.lignes" :key="`${detailFacture.idFacture}-${index}`">
-                  <td>{{ ligne.description }}</td>
-                  <td>{{ ligne.quantite }}</td>
-                  <td>{{ formatFactureCurrency(ligne.prix) }}</td>
-                  <td>{{ formatFactureCurrency(ligne.montant) }}</td>
+                  <td data-label="Description">{{ ligne.description }}</td>
+                  <td data-label="Quantite">{{ ligne.quantite }}</td>
+                  <td data-label="Prix">{{ formatFactureCurrency(ligne.prix) }}</td>
+                  <td data-label="Montant">{{ formatFactureCurrency(ligne.montant) }}</td>
                 </tr>
                 <tr v-if="detailFacture.lignes.length === 0">
                   <td colspan="4">Aucune ligne.</td>
@@ -11469,7 +11558,7 @@ async function loadRetoucheDetail(idRetouche) {
               <h4>Historique des operations</h4>
               <span class="helper">Lecture seule</span>
             </div>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -11486,21 +11575,21 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="op in caisseOperationsPaged" :key="op.idOperation">
-                  <td>{{ formatDateTime(op.dateOperation) }}</td>
-                  <td>{{ op.typeOperation }}</td>
-                  <td>{{ formatCurrency(op.montant) }}</td>
-                  <td>
+                  <td data-label="Date">{{ formatDateTime(op.dateOperation) }}</td>
+                  <td data-label="Type">{{ op.typeOperation }}</td>
+                  <td data-label="Montant">{{ formatCurrency(op.montant) }}</td>
+                  <td data-label="Type depense">
                     <span v-if="op.typeOperation === 'SORTIE'" class="status-pill" :data-tone="op.typeDepense === 'EXCEPTIONNELLE' ? 'amber' : 'blue'">
                       {{ depenseTypeLabel(op.typeDepense) }}
                     </span>
                     <span v-else>-</span>
                   </td>
-                  <td>{{ op.modePaiement || "-" }}</td>
-                  <td>{{ op.motif || "-" }}</td>
-                  <td>{{ op.justification || "-" }}</td>
-                  <td>{{ op.referenceMetier || "-" }}</td>
-                  <td>{{ op.effectuePar || "-" }}</td>
-                  <td>{{ op.statutOperation || "-" }}</td>
+                  <td data-label="Mode">{{ op.modePaiement || "-" }}</td>
+                  <td data-label="Motif">{{ op.motif || "-" }}</td>
+                  <td data-label="Justification">{{ op.justification || "-" }}</td>
+                  <td data-label="Reference">{{ op.referenceMetier || "-" }}</td>
+                  <td data-label="Utilisateur">{{ op.effectuePar || "-" }}</td>
+                  <td data-label="Statut">{{ op.statutOperation || "-" }}</td>
                 </tr>
                 <tr v-if="caisseOperations.length === 0">
                   <td colspan="10">Aucune operation enregistree.</td>
@@ -11733,7 +11822,7 @@ async function loadRetoucheDetail(idRetouche) {
 
           <article class="panel">
             <h3>Bilans annuels</h3>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Annee</th>
@@ -11746,12 +11835,12 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="row in bilanAnnuelPaged" :key="row.id_bilan">
-                  <td>{{ row.annee || "-" }}</td>
-                  <td>{{ row.date_debut }} -> {{ row.date_fin }}</td>
-                  <td>{{ formatCurrency(row.solde_ouverture) }}</td>
-                  <td>{{ formatCurrency(row.total_entrees) }}</td>
-                  <td>{{ formatCurrency(row.total_sorties) }}</td>
-                  <td>{{ formatCurrency(row.solde_cloture) }}</td>
+                  <td data-label="Annee">{{ row.annee || "-" }}</td>
+                  <td data-label="Periode">{{ row.date_debut }} -> {{ row.date_fin }}</td>
+                  <td data-label="Solde debut">{{ formatCurrency(row.solde_ouverture) }}</td>
+                  <td data-label="Entrees">{{ formatCurrency(row.total_entrees) }}</td>
+                  <td data-label="Sorties">{{ formatCurrency(row.total_sorties) }}</td>
+                  <td data-label="Solde fin">{{ formatCurrency(row.solde_cloture) }}</td>
                 </tr>
                 <tr v-if="bilanAnnuel.length === 0">
                   <td colspan="6">Aucun bilan annuel.</td>
@@ -12054,7 +12143,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </select>
               </div>
             </div>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -12069,20 +12158,20 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="row in auditUtilisateursPaged" :key="row.idEvenement">
-                  <td>{{ formatDateTime(row.createdAt) }}</td>
-                  <td>{{ formatAuditAction(row) }}</td>
-                  <td>
+                  <td data-label="Date">{{ formatDateTime(row.createdAt) }}</td>
+                  <td data-label="Description">{{ formatAuditAction(row) }}</td>
+                  <td data-label="Utilisateur">
                     <div>{{ row.userName || row.userId || "-" }}</div>
                     <small class="helper" v-if="row.userEmail">{{ row.userEmail }}</small>
                   </td>
-                  <td>{{ formatRoleLabel(row.role) }}</td>
-                  <td>
+                  <td data-label="Role">{{ formatRoleLabel(row.role) }}</td>
+                  <td data-label="Cible">
                     <div>{{ formatAuditEntity(row) }}</div>
                     <small class="helper" v-if="row.entityType">{{ row.entityType }}</small>
                   </td>
-                  <td>{{ formatAuditStatus(row) }}</td>
-                  <td>{{ row.success ? "-" : (row.reason || "-") }}</td>
-                  <td>
+                  <td data-label="Statut">{{ formatAuditStatus(row) }}</td>
+                  <td data-label="Raison">{{ row.success ? "-" : (row.reason || "-") }}</td>
+                  <td data-label="Details">
                     <details>
                       <summary>Voir details</summary>
                       <div class="audit-user-details">
@@ -12137,7 +12226,7 @@ async function loadRetoucheDetail(idRetouche) {
           <article class="panel">
             <h3>Consolidation annuelle</h3>
             <p class="helper">Vue consolidee des bilans annuels de caisse.</p>
-            <table class="data-table">
+            <table class="data-table mobile-stack-table">
               <thead>
                 <tr>
                   <th>Annee</th>
@@ -12152,14 +12241,14 @@ async function loadRetoucheDetail(idRetouche) {
               </thead>
               <tbody>
                 <tr v-for="row in bilanAnnuelPaged" :key="row.id_bilan">
-                  <td>{{ row.annee || "-" }}</td>
-                  <td>{{ row.date_debut }} -> {{ row.date_fin }}</td>
-                  <td>{{ formatCurrency(row.solde_ouverture) }}</td>
-                  <td>{{ formatCurrency(row.total_entrees) }}</td>
-                  <td>{{ formatCurrency(row.total_sorties) }}</td>
-                  <td>{{ formatCurrency(row.solde_cloture) }}</td>
-                  <td>{{ row.nombre_jours || 0 }}</td>
-                  <td>{{ row.nombre_operations || 0 }}</td>
+                  <td data-label="Annee">{{ row.annee || "-" }}</td>
+                  <td data-label="Periode">{{ row.date_debut }} -> {{ row.date_fin }}</td>
+                  <td data-label="Solde debut">{{ formatCurrency(row.solde_ouverture) }}</td>
+                  <td data-label="Total entrees">{{ formatCurrency(row.total_entrees) }}</td>
+                  <td data-label="Total sorties">{{ formatCurrency(row.total_sorties) }}</td>
+                  <td data-label="Solde fin">{{ formatCurrency(row.solde_cloture) }}</td>
+                  <td data-label="Jours clotures">{{ row.nombre_jours || 0 }}</td>
+                  <td data-label="Operations">{{ row.nombre_operations || 0 }}</td>
                 </tr>
                 <tr v-if="bilanAnnuel.length === 0">
                   <td colspan="8">Aucun bilan annuel disponible.</td>
@@ -12195,6 +12284,14 @@ async function loadRetoucheDetail(idRetouche) {
         </section>
       </div>
     </main>
+
+    <BottomNav
+      v-if="isMobileViewport && mobileNavItems.length"
+      :items="mobileNavItems"
+      :current-route="currentRoute"
+      :icon-paths="iconPaths"
+      @navigate="handlePrimaryNavigation"
+    />
 
   <SystemAtelierCreateModal
       :open="systemAtelierModal.open"
