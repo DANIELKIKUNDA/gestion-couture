@@ -15,6 +15,9 @@
   --red: #be4336;
   --amber: #b66722;
   --shadow: 0 8px 20px rgba(12, 37, 70, 0.1);
+  --mobile-bottom-nav-height: 52px;
+  --mobile-bottom-nav-gap: 4px;
+  --mobile-bottom-offset: calc(var(--mobile-bottom-nav-height) + var(--mobile-bottom-nav-gap) + env(safe-area-inset-bottom));
 }
 
 * {
@@ -399,15 +402,15 @@ body {
 
 .bottom-nav {
   position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: calc(10px + env(safe-area-inset-bottom));
+  left: 0;
+  right: 0;
+  bottom: 0;
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-  gap: 6px;
-  padding: 8px;
+  gap: 1px;
+  padding: 3px 8px calc(3px + env(safe-area-inset-bottom));
   background: rgba(255, 255, 255, 0.98);
   border: 1px solid #dbe6f2;
-  border-radius: 18px;
+  border-radius: 12px 12px 0 0;
   box-shadow: 0 16px 36px rgba(25, 61, 102, 0.18);
   z-index: 35;
 }
@@ -416,16 +419,22 @@ body {
   border: none;
   background: transparent;
   color: #5b7693;
-  border-radius: 12px;
-  min-height: 58px;
-  padding: 8px 4px;
+  border-radius: 10px;
+  min-height: 40px;
+  padding: 3px 2px;
   font: inherit;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 700;
+  line-height: 1;
   display: grid;
   justify-items: center;
-  gap: 4px;
+  gap: 1px;
   cursor: pointer;
+}
+
+.bottom-nav-item span {
+  font-size: 10px;
+  letter-spacing: 0.01em;
 }
 
 .bottom-nav-item.active {
@@ -434,8 +443,8 @@ body {
 }
 
 .bottom-nav-icon {
-  width: 20px;
-  height: 20px;
+  width: 15px;
+  height: 15px;
 }
 
 .sidebar-backdrop {
@@ -2333,6 +2342,8 @@ textarea:focus-visible {
   .workspace {
     grid-template-columns: 1fr;
     position: relative;
+    min-height: 100dvh;
+    height: 100dvh;
   }
 
   .classic-sidebar {
@@ -2373,7 +2384,8 @@ textarea:focus-visible {
   .main {
     --main-padding: 12px;
     --main-padding-double: 24px;
-    padding: 12px 12px calc(88px + env(safe-area-inset-bottom));
+    height: 100%;
+    padding: 12px;
     gap: 10px;
     width: 100%;
   }
@@ -2381,7 +2393,8 @@ textarea:focus-visible {
   .content-scroll {
     height: auto;
     padding-right: 0;
-    padding-bottom: calc(100px + env(safe-area-inset-bottom));
+    padding-bottom: var(--mobile-bottom-offset);
+    scroll-padding-bottom: var(--mobile-bottom-offset);
     overflow-x: hidden;
   }
 
@@ -2474,7 +2487,7 @@ textarea:focus-visible {
   }
 
   .settings-sticky-actions {
-    bottom: calc(74px + env(safe-area-inset-bottom));
+    bottom: calc(var(--mobile-bottom-offset) + 8px);
     flex-direction: column;
     align-items: stretch;
     padding: 12px;

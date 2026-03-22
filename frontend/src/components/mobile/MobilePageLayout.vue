@@ -71,8 +71,5 @@ defineProps({
     gap: 8px;
   }
 
-  .mobile-page-layout--has-action {
-    padding-bottom: calc(96px + env(safe-area-inset-bottom));
-  }
 }
 </style>

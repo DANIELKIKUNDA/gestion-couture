@@ -2778,6 +2778,36 @@ const mobileNavItems = computed(() => {
   ].filter((item) => item.target);
 });
 
+const hasBlockingMobileOverlay = computed(
+  () =>
+    Boolean(
+      systemAtelierModal.open ||
+        factureEmission.open ||
+        wizard.open ||
+        retoucheWizard.open ||
+        settingsConfirmModal.open ||
+        actionModal.open
+    )
+);
+
+const shouldHideMobileBottomNavForRoute = computed(() => currentRoute.value === "parametres");
+
+const showMobileBottomNav = computed(
+  () =>
+    Boolean(
+      isMobileViewport.value &&
+        mobileNavItems.value.length > 0 &&
+        !hasBlockingMobileOverlay.value &&
+        !shouldHideMobileBottomNavForRoute.value
+    )
+);
+
+const mobileLayoutStyle = computed(() => ({
+  "--mobile-bottom-offset": showMobileBottomNav.value
+    ? "calc(var(--mobile-bottom-nav-height) + var(--mobile-bottom-nav-gap) + env(safe-area-inset-bottom))"
+    : "calc(12px + env(safe-area-inset-bottom))"
+}));
+
 function updateViewportState() {
   if (typeof window === "undefined") return;
   const nextIsMobile = window.innerWidth < MOBILE_BREAKPOINT;
@@ -9407,7 +9437,7 @@ async function loadRetoucheDetail(idRetouche) {
     </article>
   </div>
 
-  <div v-else class="workspace classic" :class="{ 'sidebar-open': isSidebarDrawerOpen }">
+  <div v-else class="workspace classic" :class="{ 'sidebar-open': isSidebarDrawerOpen }" :style="mobileLayoutStyle">
     <div v-if="isMobileViewport && isSidebarDrawerOpen" class="sidebar-backdrop" @click="closeSidebarDrawer" />
 
     <Sidebar
@@ -14111,7 +14141,7 @@ async function loadRetoucheDetail(idRetouche) {
     </main>
 
     <BottomNav
-      v-if="isMobileViewport && mobileNavItems.length"
+      v-if="showMobileBottomNav"
       :items="mobileNavItems"
       :current-route="currentRoute"
       :icon-paths="iconPaths"

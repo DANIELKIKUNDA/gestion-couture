@@ -27,7 +27,7 @@ defineProps({
 <style scoped>
 .mobile-primary-action-bar {
   position: sticky;
-  bottom: calc(74px + env(safe-area-inset-bottom));
+  bottom: calc(var(--mobile-bottom-offset) + 8px);
   z-index: 7;
   display: grid;
   gap: 8px;
