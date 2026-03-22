@@ -1,4 +1,4 @@
-﻿-- BC Stock & Ventes: schema (PostgreSQL)
+-- BC Stock & Ventes: schema (PostgreSQL)
 
 CREATE TABLE IF NOT EXISTS articles (
   id_article TEXT PRIMARY KEY,

@@ -7,6 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootDir = join(normalize(join(__dirname, "..")), "frontend", "dist");
 const port = Number(process.env.FRONTEND_PORT || 5173);
+const host = process.env.FRONTEND_HOST || "0.0.0.0";
 const apiBase = process.env.API_BASE_URL || "http://127.0.0.1:3000";
 
 const mimeTypes = {
@@ -107,10 +108,10 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(port, "127.0.0.1", async () => {
+server.listen(port, host, async () => {
   const indexPath = join(rootDir, "index.html");
   if (!existsSync(indexPath)) {
     console.warn("Frontend dist introuvable. Lance `npm.cmd run build` dans frontend si necessaire.");
   }
-  console.log(`Frontend launcher listening on http://127.0.0.1:${port}`);
+  console.log(`Frontend launcher listening on http://${host}:${port}`);
 });

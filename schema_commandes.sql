@@ -1,4 +1,4 @@
-﻿-- BC Commandes: complete schema (PostgreSQL)
+-- BC Commandes: complete schema (PostgreSQL)
 
 CREATE TABLE IF NOT EXISTS commandes (
   id_commande TEXT PRIMARY KEY,

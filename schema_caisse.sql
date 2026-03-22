@@ -1,4 +1,4 @@
-﻿-- BC Caisse: schema (PostgreSQL)
+-- BC Caisse: schema (PostgreSQL)
 
 CREATE TABLE IF NOT EXISTS caisse_jour (
   id_caisse_jour TEXT PRIMARY KEY,

@@ -28,11 +28,54 @@ import {
 import { requestSync, setSyncEngineAtelierContext, subscribeToSyncEvents } from "./services/sync-engine.js";
 import { pendingActions, syncInProgress } from "./services/sync-status-service.js";
 import { showToast } from "./services/toast-service.js";
+import CommandeDetailEventMobileList from "./components/commandes/CommandeDetailEventMobileList.vue";
+import CommandeDetailOverviewCards from "./components/commandes/CommandeDetailOverviewCards.vue";
+import CommandeDetailPaymentMobileList from "./components/commandes/CommandeDetailPaymentMobileList.vue";
+import CommandeMobileList from "./components/commandes/CommandeMobileList.vue";
 import CommandeMediaGallery from "./components/commandes/CommandeMediaGallery.vue";
 import BottomNav from "./components/BottomNav.vue";
+import AuditAnnualMobileList from "./components/audit/AuditAnnualMobileList.vue";
+import AuditCaisseDailyMobileList from "./components/audit/AuditCaisseDailyMobileList.vue";
+import AuditCommandeMobileList from "./components/audit/AuditCommandeMobileList.vue";
+import AuditCaissePeriodMobileList from "./components/audit/AuditCaissePeriodMobileList.vue";
+import AuditFactureMobileList from "./components/audit/AuditFactureMobileList.vue";
+import AuditOperationMobileList from "./components/audit/AuditOperationMobileList.vue";
+import AuditRetoucheMobileList from "./components/audit/AuditRetoucheMobileList.vue";
+import AuditStockVenteMobileList from "./components/audit/AuditStockVenteMobileList.vue";
+import AuditUtilisateurMobileList from "./components/audit/AuditUtilisateurMobileList.vue";
+import CaisseOperationMobileList from "./components/caisse/CaisseOperationMobileList.vue";
+import CaisseOverviewCards from "./components/caisse/CaisseOverviewCards.vue";
+import ClientCommandeHistoryMobileList from "./components/clients/ClientCommandeHistoryMobileList.vue";
+import ClientConsultationOverviewCards from "./components/clients/ClientConsultationOverviewCards.vue";
+import ClientMesureHistoryMobileList from "./components/clients/ClientMesureHistoryMobileList.vue";
+import ClientRetoucheHistoryMobileList from "./components/clients/ClientRetoucheHistoryMobileList.vue";
+import DashboardActivityMobileList from "./components/dashboard/DashboardActivityMobileList.vue";
+import DashboardMetricCardGrid from "./components/dashboard/DashboardMetricCardGrid.vue";
+import DashboardRecentWorkMobileList from "./components/dashboard/DashboardRecentWorkMobileList.vue";
+import VenteDetailLinesMobileList from "./components/stock/VenteDetailLinesMobileList.vue";
+import VenteDetailOverviewCards from "./components/stock/VenteDetailOverviewCards.vue";
+import FactureDetailLinesMobileList from "./components/facturation/FactureDetailLinesMobileList.vue";
+import FactureDetailOverviewCards from "./components/facturation/FactureDetailOverviewCards.vue";
+import FactureMobileList from "./components/facturation/FactureMobileList.vue";
 import MobileHeader from "./components/MobileHeader.vue";
+import MobileFilterBlock from "./components/mobile/MobileFilterBlock.vue";
+import MobilePageLayout from "./components/mobile/MobilePageLayout.vue";
+import MobilePrimaryActionBar from "./components/mobile/MobilePrimaryActionBar.vue";
+import ResponsivePagination from "./components/mobile/ResponsivePagination.vue";
+import MobileSectionHeader from "./components/mobile/MobileSectionHeader.vue";
+import MobileStateEmpty from "./components/mobile/MobileStateEmpty.vue";
+import MobileStateError from "./components/mobile/MobileStateError.vue";
+import MobileStateLoading from "./components/mobile/MobileStateLoading.vue";
+import ResponsiveDataContainer from "./components/mobile/ResponsiveDataContainer.vue";
 import OfflineBanner from "./components/OfflineBanner.vue";
+import RetoucheDetailEventMobileList from "./components/retouches/RetoucheDetailEventMobileList.vue";
+import RetoucheDetailOverviewCards from "./components/retouches/RetoucheDetailOverviewCards.vue";
+import RetoucheDetailPaymentMobileList from "./components/retouches/RetoucheDetailPaymentMobileList.vue";
+import RetoucheMobileList from "./components/retouches/RetoucheMobileList.vue";
 import Sidebar from "./components/Sidebar.vue";
+import StockArticleMobileList from "./components/stock/StockArticleMobileList.vue";
+import VenteDraftMobileList from "./components/stock/VenteDraftMobileList.vue";
+import VenteMobileList from "./components/stock/VenteMobileList.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
 import SystemAtelierDetailPage from "./components/system/SystemAtelierDetailPage.vue";
 import SystemDashboardPage from "./components/system/SystemDashboardPage.vue";
@@ -201,6 +244,7 @@ const filters = reactive({
 });
 const commandeClientQuery = ref("");
 const commandeSection = ref("liste");
+const commandeMobileFiltersOpen = ref(false);
 const commandesPagination = reactive({
   page: 1,
   pageSize: 10
@@ -215,6 +259,7 @@ const retoucheFilters = reactive({
 });
 const retoucheClientQuery = ref("");
 const retoucheSection = ref("liste");
+const retoucheMobileFiltersOpen = ref(false);
 const retouchesPagination = reactive({
   page: 1,
   pageSize: 10
@@ -226,6 +271,8 @@ const factureFilters = reactive({
   soldeRestant: "ALL"
 });
 const factureSection = ref("liste");
+const factureMobileFiltersOpen = ref(false);
+const auditUtilisateursMobileFiltersOpen = ref(false);
 const facturesPagination = reactive({
   page: 1,
   pageSize: 10
@@ -364,6 +411,7 @@ const { pages: detailRetoucheEventsPages, paged: detailRetoucheEventsPaged } = c
 const selectedClientConsultationId = ref("");
 const clientConsultationQuery = ref("");
 const clientConsultationSection = ref("commandes");
+const clientMobileFiltersOpen = ref(false);
 const CLIENT_CONSULT_SECTION_KEY = "atelier.clients_consult.section.v1";
 const clientConsultation = ref(null);
 const clientConsultationLoading = ref(false);
@@ -429,6 +477,7 @@ const { pages: auditStockVentesPages, paged: auditStockVentesPaged } = createCli
 const { pages: auditFacturesPages, paged: auditFacturesPaged } = createClientSidePager(auditFactures, auditFacturesPagination);
 
 const SETTINGS_STORAGE_KEY = "atelier.settings.v1";
+const RUNTIME_SETTINGS_STORAGE_KEY = "atelier.runtime-settings.v1";
 const settingsEditMode = ref(false);
 const settingsConfirmSave = ref(false);
 const settingsAuditNote = ref("");
@@ -751,6 +800,27 @@ function cloneSettings(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function resolveScopedStorageKey(baseKey, atelierId = "") {
+  const normalizedAtelierId = String(atelierId || "").trim();
+  return normalizedAtelierId ? `${baseKey}:${normalizedAtelierId}` : baseKey;
+}
+
+function readScopedStorageValue(baseKey, atelierId = "", { allowLegacy = false } = {}) {
+  const scopedKey = resolveScopedStorageKey(baseKey, atelierId);
+  const scopedValue = window.localStorage.getItem(scopedKey);
+  if (scopedValue) return { raw: scopedValue, key: scopedKey, legacy: false };
+  if (!allowLegacy) return { raw: null, key: scopedKey, legacy: false };
+  const legacyValue = window.localStorage.getItem(baseKey);
+  if (!legacyValue) return { raw: null, key: scopedKey, legacy: false };
+  return { raw: legacyValue, key: scopedKey, legacy: true };
+}
+
+function writeScopedStorageValue(baseKey, atelierId, payload) {
+  const scopedKey = resolveScopedStorageKey(baseKey, atelierId);
+  window.localStorage.setItem(scopedKey, JSON.stringify(payload));
+  return scopedKey;
+}
+
 const atelierSettingsDefault = {
   meta: {
     version: 1,
@@ -806,6 +876,22 @@ const atelierSettingsDefault = {
 };
 
 const atelierSettings = reactive(cloneSettings(atelierSettingsDefault));
+const atelierRuntimeSettingsDefault = {
+  meta: {
+    version: 1,
+    lastSavedAt: ""
+  },
+  identite: {
+    nomAtelier: "Atelier",
+    devise: "FC",
+    logoUrl: ""
+  },
+  commandes: cloneSettings(atelierSettingsDefault.commandes),
+  retouches: cloneSettings(atelierSettingsDefault.retouches),
+  habits: cloneSettings(atelierSettingsDefault.habits)
+};
+const atelierRuntimeSettings = reactive(cloneSettings(atelierRuntimeSettingsDefault));
+const atelierRuntimeSettingsReady = ref(false);
 
 function applySettings(target, source) {
   if (!source || typeof source !== "object") return;
@@ -819,6 +905,51 @@ function applySettings(target, source) {
     } else {
       target[key] = value;
     }
+  }
+}
+
+function buildRuntimeSettingsSubset(source) {
+  const next = cloneSettings(atelierRuntimeSettingsDefault);
+  if (source && typeof source === "object") {
+    applySettings(next, {
+      meta: source.meta || {},
+      identite: {
+        nomAtelier: source.identite?.nomAtelier || next.identite.nomAtelier,
+        devise: source.identite?.devise || next.identite.devise,
+        logoUrl: source.identite?.logoUrl || next.identite.logoUrl
+      },
+      commandes: source.commandes || {},
+      retouches: source.retouches || {},
+      habits: source.habits || {}
+    });
+  }
+  return next;
+}
+
+function applyRuntimeSettingsSubset(source) {
+  const next = buildRuntimeSettingsSubset(source);
+  atelierRuntimeSettings.meta = next.meta;
+  atelierRuntimeSettings.identite = next.identite;
+  atelierRuntimeSettings.commandes = next.commandes;
+  atelierRuntimeSettings.retouches = next.retouches;
+  atelierRuntimeSettings.habits = next.habits;
+}
+
+function resetRuntimeSettings() {
+  applyRuntimeSettingsSubset(atelierRuntimeSettingsDefault);
+  atelierRuntimeSettingsReady.value = false;
+}
+
+function loadRuntimeSettingsLocal() {
+  try {
+    const entry = readScopedStorageValue(RUNTIME_SETTINGS_STORAGE_KEY, currentAtelierId.value);
+    if (!entry.raw) return false;
+    applyRuntimeSettingsSubset(JSON.parse(entry.raw));
+    atelierRuntimeSettingsReady.value = true;
+    return true;
+  } catch (err) {
+    console.warn("Failed to load atelier runtime settings (local)", err);
+    return false;
   }
 }
 
@@ -837,13 +968,18 @@ function normalizeCaisseSettings(caisse) {
 
 function loadAtelierSettingsLocal() {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
+    const entry = readScopedStorageValue(SETTINGS_STORAGE_KEY, currentAtelierId.value, { allowLegacy: true });
+    if (!entry.raw) return false;
+    const parsed = JSON.parse(entry.raw);
     applySettings(atelierSettings, parsed);
     normalizeCaisseSettings(atelierSettings.caisse);
+    if (entry.legacy && currentAtelierId.value) {
+      writeScopedStorageValue(SETTINGS_STORAGE_KEY, currentAtelierId.value, cloneSettings(atelierSettings));
+    }
+    return true;
   } catch (err) {
     console.warn("Failed to load atelier settings (local)", err);
+    return false;
   }
 }
 
@@ -947,7 +1083,12 @@ async function loadAtelierSettings() {
 
 function persistAtelierSettings() {
   const payload = cloneSettings(atelierSettings);
-  window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
+  writeScopedStorageValue(SETTINGS_STORAGE_KEY, currentAtelierId.value, payload);
+}
+
+function persistAtelierRuntimeSettings() {
+  const payload = buildRuntimeSettingsSubset(atelierRuntimeSettings);
+  writeScopedStorageValue(RUNTIME_SETTINGS_STORAGE_KEY, currentAtelierId.value, payload);
 }
 
 function withVersionedUrl(url, versionToken = "") {
@@ -962,6 +1103,43 @@ function revokeSettingsLogoPreviewUrl() {
   if (settingsLogoLocalPreviewUrl.value) {
     URL.revokeObjectURL(settingsLogoLocalPreviewUrl.value);
     settingsLogoLocalPreviewUrl.value = "";
+  }
+}
+
+async function loadAtelierRuntimeSettings() {
+  resetRuntimeSettings();
+  if (!isAuthenticated.value || currentRole.value === "MANAGER_SYSTEME") {
+    atelierRuntimeSettingsReady.value = true;
+    return;
+  }
+
+  loadRuntimeSettingsLocal();
+
+  try {
+    const response = await atelierApi.getRuntimeParametresAtelier();
+    if (response?.payload) {
+      applyRuntimeSettingsSubset(response.payload);
+      if (response.version !== undefined && response.version !== null) {
+        atelierRuntimeSettings.meta.version = Number(response.version || 1);
+      }
+      if (response.updatedAt) {
+        atelierRuntimeSettings.meta.lastSavedAt = String(response.updatedAt || "");
+      }
+      persistAtelierRuntimeSettings();
+    } else {
+      applyRuntimeSettingsSubset(atelierSettings);
+      persistAtelierRuntimeSettings();
+    }
+  } catch (err) {
+    if (!(err instanceof ApiError && (err.status === 401 || err.status === 403))) {
+      console.warn("Failed to load atelier runtime settings", err);
+    }
+    if (!atelierRuntimeSettingsReady.value) {
+      applyRuntimeSettingsSubset(atelierSettings);
+      persistAtelierRuntimeSettings();
+    }
+  } finally {
+    atelierRuntimeSettingsReady.value = true;
   }
 }
 
@@ -1031,6 +1209,7 @@ const canAccessSecurityModule = computed(() => hasPermission(PERMISSIONS.GERER_U
 const canCreateClient = computed(() => hasPermission(PERMISSIONS.CREER_CLIENT));
 const canCreateCommande = computed(() => hasAnyPermission([PERMISSIONS.CREER_COMMANDE, PERMISSIONS.VOIR_BILANS_GLOBAUX, PERMISSIONS.CLOTURER_CAISSE]));
 const canCreateRetouche = computed(() => hasAnyPermission([PERMISSIONS.CREER_RETOUCHE, PERMISSIONS.VOIR_BILANS_GLOBAUX, PERMISSIONS.CLOTURER_CAISSE]));
+const canCreateWizardClient = computed(() => canCreateClient.value || canCreateCommande.value || canCreateRetouche.value);
 const canCreateVente = computed(() => hasAnyPermission([PERMISSIONS.GERER_VENTES, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
 const canOpenCaisse = computed(() => hasAnyPermission([PERMISSIONS.OUVRIR_CAISSE, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
 const canRecordCaisseExpense = computed(() => hasAnyPermission([PERMISSIONS.ENREGISTRER_SORTIE_CAISSE, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
@@ -1139,8 +1318,34 @@ const settingsHasUnsavedChanges = computed(() => {
   const userDirty = serializeSettingsUser() !== settingsUserSnapshot.value;
   return currentSerialized !== settingsSnapshot.value || userDirty || noteDirty;
 });
+const wizardSettings = computed(() => (atelierRuntimeSettingsReady.value ? atelierRuntimeSettings : atelierSettings));
+const wizardCommandesSettings = computed(() => wizardSettings.value?.commandes || atelierSettingsDefault.commandes);
+const wizardRetouchesSettings = computed(() => wizardSettings.value?.retouches || atelierSettingsDefault.retouches);
+const wizardHabitsSettings = computed(() => wizardSettings.value?.habits || atelierSettingsDefault.habits);
 const availableHabitTypeOptions = computed(() => {
   const configuredEntries = Object.entries(atelierSettings.habits || {})
+    .map(([value, config]) => ({
+      value,
+      label: String(config?.label || "").trim() || value,
+      ordre: normalizeSortOrder(config?.ordre, Number.MAX_SAFE_INTEGER),
+      actif: config?.actif !== false
+    }))
+    .filter((item) => item.value && item.actif);
+  if (configuredEntries.length === 0) return habitTypeOptions;
+  return configuredEntries.sort((left, right) => {
+    if (left.ordre !== right.ordre) return left.ordre - right.ordre;
+    const leftIndex = habitConfigOrder.indexOf(left.value);
+    const rightIndex = habitConfigOrder.indexOf(right.value);
+    if (leftIndex !== -1 || rightIndex !== -1) {
+      if (leftIndex === -1) return 1;
+      if (rightIndex === -1) return -1;
+      return leftIndex - rightIndex;
+    }
+    return left.label.localeCompare(right.label, "fr", { sensitivity: "base" });
+  });
+});
+const wizardAvailableHabitTypeOptions = computed(() => {
+  const configuredEntries = Object.entries(wizardHabitsSettings.value || {})
     .map(([value, config]) => ({
       value,
       label: String(config?.label || "").trim() || value,
@@ -1278,16 +1483,16 @@ const selectedRetoucheTypeDefinition = computed(() => {
   const code = String(retoucheWizard.retouche.typeRetouche || "").trim().toUpperCase();
   return availableRetoucheTypeDefinitions.value.find((row) => row.code === code) || null;
 });
-const compatibleRetoucheHabitOptions = computed(() => {
+const wizardCompatibleRetoucheHabitOptions = computed(() => {
   const compatibles = Array.isArray(selectedRetoucheTypeDefinition.value?.habitsCompatibles)
     ? selectedRetoucheTypeDefinition.value.habitsCompatibles
     : ["*"];
-  if (compatibles.includes("*")) return availableHabitTypeOptions.value;
+  if (compatibles.includes("*")) return wizardAvailableHabitTypeOptions.value;
   const allowed = new Set(compatibles.map((item) => String(item || "").trim().toUpperCase()).filter(Boolean));
-  return availableHabitTypeOptions.value.filter((option) => allowed.has(String(option.value || "").trim().toUpperCase()));
+  return wizardAvailableHabitTypeOptions.value.filter((option) => allowed.has(String(option.value || "").trim().toUpperCase()));
 });
-const retoucheDescriptionRequired = computed(
-  () => Boolean(selectedRetoucheTypeDefinition.value?.descriptionObligatoire || atelierSettings.retouches?.descriptionObligatoire)
+const wizardRetoucheDescriptionRequired = computed(
+  () => Boolean(selectedRetoucheTypeDefinition.value?.descriptionObligatoire || wizardRetouchesSettings.value?.descriptionObligatoire)
 );
 const retoucheMeasuresRequired = computed(() => selectedRetoucheTypeDefinition.value?.necessiteMesures === true);
 const settingsRetoucheTypeEntries = computed(() => {
@@ -1968,6 +2173,7 @@ async function saveAtelierSettings() {
     if (saved?.version !== undefined && saved?.version !== null) {
       atelierSettings.meta.version = Number(saved.version || atelierSettings.meta.version || 1);
     }
+    await loadAtelierRuntimeSettings();
     persistAtelierSettings();
     captureSettingsSnapshot();
     settingsConfirmSave.value = false;
@@ -2840,6 +3046,10 @@ const stockArticleMap = computed(() => {
   return map;
 });
 
+function stockArticleLabel(idArticle) {
+  return stockArticleMap.value.get(idArticle) || idArticle || "-";
+}
+
 const currentTitle = computed(() => {
   if (currentRoute.value === "systemDashboard") return "Vue Globale";
   if (currentRoute.value === "systemAteliers") return "Ateliers";
@@ -2901,6 +3111,43 @@ const canAnnulerDetail = computed(() => {
   }
   return false;
 });
+const canEmitCommandeDetailFacture = computed(() => Boolean(detailCommande.value && !detailCommandeFacture.value && detailCommande.value.statutCommande !== "ANNULEE"));
+const detailCommandeMesuresLines = computed(() => formatMesuresLines(detailCommande.value?.mesuresHabit));
+const commandeDetailPrimaryAction = computed(() => {
+  if (canPayerDetail.value) {
+    return {
+      label: "Payer",
+      subtitle: "Enregistrez rapidement un paiement sur cette commande.",
+      tone: "blue",
+      handler: onPaiementDetail
+    };
+  }
+  if (canLivrerDetail.value) {
+    return {
+      label: "Livrer",
+      subtitle: "Marquez la commande comme livree depuis le detail.",
+      tone: "green",
+      handler: onLivrerDetail
+    };
+  }
+  if (canTerminerDetail.value) {
+    return {
+      label: "Terminer",
+      subtitle: "Finalisez la commande pour preparer la livraison.",
+      tone: "amber",
+      handler: onTerminerDetail
+    };
+  }
+  if (canEmitCommandeDetailFacture.value) {
+    return {
+      label: "Emettre facture",
+      subtitle: "Generez la facture associee a cette commande.",
+      tone: "blue",
+      handler: onEmettreFactureCommandeDetail
+    };
+  }
+  return null;
+});
 
 const detailRetoucheSoldeRestant = computed(() => soldeRestant(detailRetouche.value));
 const canPayerRetoucheDetail = computed(() => {
@@ -2933,6 +3180,43 @@ const canAnnulerRetoucheDetail = computed(() => {
   }
   return false;
 });
+const canEmitRetoucheDetailFacture = computed(() => Boolean(detailRetouche.value && !detailRetoucheFacture.value && detailRetouche.value.statutRetouche !== "ANNULEE"));
+const detailRetoucheMesuresLines = computed(() => formatMesuresLines(detailRetouche.value?.mesuresHabit));
+const retoucheDetailPrimaryAction = computed(() => {
+  if (canPayerRetoucheDetail.value) {
+    return {
+      label: "Payer",
+      subtitle: "Enregistrez rapidement un paiement sur cette retouche.",
+      tone: "blue",
+      handler: onPaiementRetoucheDetail
+    };
+  }
+  if (canLivrerRetoucheDetail.value) {
+    return {
+      label: "Livrer",
+      subtitle: "Marquez la retouche comme livree depuis le detail.",
+      tone: "green",
+      handler: onLivrerRetoucheDetail
+    };
+  }
+  if (canTerminerRetoucheDetail.value) {
+    return {
+      label: "Terminer",
+      subtitle: "Finalisez la retouche avant la livraison.",
+      tone: "amber",
+      handler: onTerminerRetoucheDetail
+    };
+  }
+  if (canEmitRetoucheDetailFacture.value) {
+    return {
+      label: "Emettre facture",
+      subtitle: "Generez la facture associee a cette retouche.",
+      tone: "blue",
+      handler: onEmettreFactureRetoucheDetail
+    };
+  }
+  return null;
+});
 
 const detailCommandeFacture = computed(() => {
   const id = detailCommande.value?.idCommande;
@@ -2946,10 +3230,44 @@ const detailRetoucheFacture = computed(() => {
   return findFactureByOrigine("RETOUCHE", id);
 });
 
+const factureDetailPrimaryAction = computed(() => {
+  if (!detailFacture.value) return null;
+  return {
+    label: "Generer PDF",
+    subtitle: "Creez un PDF propre de la facture depuis ce detail.",
+    tone: "blue",
+    handler: () => onGenererPdfFacture(detailFacture.value)
+  };
+});
+
 const detailVenteFacture = computed(() => {
   const id = detailVente.value?.idVente;
   if (!id) return null;
   return findFactureByOrigine("VENTE", id);
+});
+const venteDetailPrimaryAction = computed(() => {
+  if (!detailVente.value) return null;
+  if (detailVente.value.statut === "BROUILLON") {
+    return {
+      label: "Valider",
+      subtitle: caisseOuverte.value
+        ? "Validez la vente pour finaliser l'encaissement."
+        : "La caisse doit etre ouverte pour valider la vente.",
+      tone: "blue",
+      disabled: !caisseOuverte.value,
+      handler: () => onValiderVente(detailVente.value)
+    };
+  }
+  if (detailVente.value.statut === "VALIDEE" && !detailVenteFacture.value) {
+    return {
+      label: "Emettre facture",
+      subtitle: "Generez la facture associee a cette vente validee.",
+      tone: "blue",
+      disabled: false,
+      handler: onEmettreFactureVenteDetail
+    };
+  }
+  return null;
 });
 
 const commandesView = computed(() =>
@@ -3034,6 +3352,38 @@ const facturesKpi = computed(() => ({
   enAttente: facturesFiltered.value.filter((row) => Number(row.solde || 0) > 0).length,
   montantTotal: facturesFiltered.value.reduce((sum, row) => sum + Number(row.montantTotal || 0), 0)
 }));
+const factureFilterSummary = computed(() => {
+  const summary = [];
+  if (factureFilters.statut !== "ALL") summary.push(`Statut: ${factureFilters.statut}`);
+  if (factureFilters.source !== "ALL") summary.push(`Origine: ${factureFilters.source}`);
+  if (factureFilters.soldeRestant !== "ALL") {
+    summary.push(soldeOptions.find((option) => option.value === factureFilters.soldeRestant)?.label || "Solde filtre");
+  }
+  if (factureFilters.recherche.trim()) summary.push("Recherche active");
+  return summary.length > 0 ? summary.join(" · ") : "Aucun filtre applique";
+});
+const facturesMobileKpiCards = computed(() => [
+  {
+    label: "Total",
+    value: facturesKpi.value.total,
+    tone: "blue"
+  },
+  {
+    label: "Reglees",
+    value: facturesKpi.value.reglees,
+    tone: "green"
+  },
+  {
+    label: "En attente",
+    value: facturesKpi.value.enAttente,
+    tone: "amber"
+  },
+  {
+    label: "Montant total",
+    value: formatFactureCurrency(facturesKpi.value.montantTotal),
+    tone: "slate"
+  }
+]);
 const auditUtilisateursActions = computed(() => {
   const dynamic = Array.from(new Set(auditUtilisateurs.value.map((row) => String(row.actionType || "").toUpperCase()).filter(Boolean)));
   return ["ALL", ...dynamic];
@@ -3068,6 +3418,16 @@ const auditUtilisateursPaged = computed(() => {
   const page = Math.min(Math.max(1, auditUtilisateursPagination.page), auditUtilisateursPages.value);
   const start = (page - 1) * auditUtilisateursPagination.pageSize;
   return auditUtilisateursFiltered.value.slice(start, start + auditUtilisateursPagination.pageSize);
+});
+const auditUtilisateursFilterSummary = computed(() => {
+  const summary = [];
+  if (auditUtilisateursFiltres.recherche.trim()) summary.push("Recherche active");
+  if (auditUtilisateursFiltres.action !== "ALL") {
+    summary.push(formatAuditAction({ actionType: auditUtilisateursFiltres.action, entityId: "", metadata: null }));
+  }
+  if (auditUtilisateursFiltres.statut === "SUCCES") summary.push("Succes");
+  if (auditUtilisateursFiltres.statut === "ECHEC") summary.push("Echec");
+  return summary.length > 0 ? summary.join(" · ") : "Aucun filtre applique";
 });
 
 const facturesOriginesSet = computed(() => {
@@ -3139,6 +3499,25 @@ const clientConsultationClientOptions = computed(() => {
   });
 });
 
+const clientHistoryFilterSummary = computed(() => {
+  const summary = [];
+  if (clientHistoryFilters.source !== "ALL") {
+    summary.push(clientHistoryFilters.source === "COMMANDE" ? "Commandes" : "Retouches");
+  }
+  if (clientHistoryFilters.typeHabit !== "ALL") summary.push(clientHistoryFilters.typeHabit);
+  if (clientHistoryFilters.periode !== "ALL") {
+    summary.push(
+      {
+        "30J": "30 derniers jours",
+        "90J": "90 derniers jours",
+        "365J": "12 derniers mois"
+      }[clientHistoryFilters.periode] || "Periode filtree"
+    );
+  }
+  summary.push(`${clientPagination.pageSize} / page`);
+  return summary.join(" · ");
+});
+
 function loadClientConsultationSectionPreference() {
   try {
     const raw = window.localStorage.getItem(CLIENT_CONSULT_SECTION_KEY);
@@ -3167,7 +3546,7 @@ const clientMesuresPaged = computed(() => clientFilteredMesures.value);
 function resolveHabitUiDefinition(typeHabit) {
   const type = String(typeHabit || "").trim().toUpperCase();
   if (!type) return null;
-  const configured = atelierSettings.habits?.[type];
+  const configured = wizardHabitsSettings.value?.[type];
   if (configured && configured.actif !== false && Array.isArray(configured.mesures)) {
     const required = [];
     const optional = [];
@@ -3388,6 +3767,27 @@ const dashboardSalesMetrics = computed(() => {
   };
 });
 
+const dashboardPrimaryMobileCards = computed(() => [
+  dashboardCommandesCards.value[0],
+  dashboardCommandesCards.value[1],
+  dashboardRetouchesCards.value[0],
+  dashboardRetouchesCards.value[1]
+].filter(Boolean));
+
+const dashboardFinanceMobileCards = computed(() => [
+  { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse), tone: "blue" },
+  { label: "Encaissement", value: formatCurrency(financeMetrics.value.totalEncaissement), tone: "green" },
+  { label: "Depenses", value: formatCurrency(financeMetrics.value.depensesJour), tone: "amber" },
+  { label: "Acomptes", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" }
+]);
+
+const dashboardSalesMobileCards = computed(() => [
+  { label: "Ventes stock", value: dashboardSalesMetrics.value.nombreVentes, tone: "blue" },
+  { label: "CA ventes", value: formatCurrency(dashboardSalesMetrics.value.chiffreAffaires), tone: "blue" },
+  { label: "Benefice brut", value: formatCurrency(dashboardSalesMetrics.value.beneficeBrut), tone: "green" },
+  { label: "Taux de marge", value: formatPercent(dashboardSalesMetrics.value.margeMoyenne), tone: "teal" }
+]);
+
 function dateOnly(value) {
   if (!value) return "";
   return String(value).slice(0, 10);
@@ -3552,6 +3952,16 @@ const commandeClientOptions = computed(() => {
     return haystack.includes(query);
   });
 });
+const commandeFilterSummary = computed(() => {
+  const summary = [];
+  if (filters.statut !== "ALL") summary.push(`Statut: ${filters.statut}`);
+  if (filters.client !== "ALL") summary.push("Client selectionne");
+  if (filters.periode !== "ALL") summary.push(periodOptions.find((option) => option.value === filters.periode)?.label || "Periode filtree");
+  if (filters.soldeRestant !== "ALL") summary.push(soldeOptions.find((option) => option.value === filters.soldeRestant)?.label || "Solde filtre");
+  if (commandeClientQuery.value.trim()) summary.push("Recherche client active");
+  if (filters.recherche.trim()) summary.push("Recherche texte active");
+  return summary.length > 0 ? summary.join(" · ") : "Aucun filtre applique";
+});
 
 const retoucheStatusOptions = computed(() => {
   const dynamic = Array.from(new Set(retouches.value.map((row) => row.statutRetouche).filter(Boolean)));
@@ -3615,6 +4025,16 @@ const retoucheClientOptions = computed(() => {
     const haystack = `${client.idClient || ""} ${client.nom || ""} ${client.prenom || ""} ${client.telephone || ""}`.toLowerCase();
     return haystack.includes(query);
   });
+});
+const retoucheFilterSummary = computed(() => {
+  const summary = [];
+  if (retoucheFilters.statut !== "ALL") summary.push(`Statut: ${retoucheFilters.statut}`);
+  if (retoucheFilters.client !== "ALL") summary.push("Client selectionne");
+  if (retoucheFilters.periode !== "ALL") summary.push(periodOptions.find((option) => option.value === retoucheFilters.periode)?.label || "Periode filtree");
+  if (retoucheFilters.soldeRestant !== "ALL") summary.push(soldeOptions.find((option) => option.value === retoucheFilters.soldeRestant)?.label || "Solde filtre");
+  if (retoucheClientQuery.value.trim()) summary.push("Recherche client active");
+  if (retoucheFilters.recherche.trim()) summary.push("Recherche texte active");
+  return summary.length > 0 ? summary.join(" · ") : "Aucun filtre applique";
 });
 
 function hasActionEntry(store, id) {
@@ -3790,6 +4210,7 @@ function applyAuthSession(session) {
     authPermissions.value = [];
     settingsUser.nom = "";
     settingsUser.role = "COUTURIER";
+    resetRuntimeSettings();
     return;
   }
   authUser.value = {
@@ -3895,6 +4316,7 @@ async function submitLogin() {
     authMode.value = "login";
     loginForm.motDePasse = "";
     await loadAtelierSettings();
+    await loadAtelierRuntimeSettings();
     await reloadAll();
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute(currentRoute.value);
   } catch (err) {
@@ -4061,6 +4483,7 @@ onMounted(async () => {
   }
   if (isAuthenticated.value) {
     await loadAtelierSettings();
+    await loadAtelierRuntimeSettings();
     await reloadAll();
     if (currentRoute.value === "audit" && canAccessRoute("audit")) loadAuditPage(auditSubRoute.value);
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute();
@@ -4091,6 +4514,36 @@ onUnmounted(() => {
 watch(currentRoute, () => {
   if (isMobileViewport.value) {
     closeSidebarDrawer();
+  }
+});
+
+watch([isMobileViewport, currentRoute, commandeSection], ([mobile, routeName, sectionName]) => {
+  if (!mobile || routeName !== "commandes" || sectionName !== "liste") {
+    commandeMobileFiltersOpen.value = false;
+  }
+});
+
+watch([isMobileViewport, currentRoute, retoucheSection], ([mobile, routeName, sectionName]) => {
+  if (!mobile || routeName !== "retouches" || sectionName !== "liste") {
+    retoucheMobileFiltersOpen.value = false;
+  }
+});
+
+watch([isMobileViewport, currentRoute, selectedClientConsultationId], ([mobile, routeName, selectedId]) => {
+  if (!mobile || routeName !== "clientsMesures" || !selectedId) {
+    clientMobileFiltersOpen.value = false;
+  }
+});
+
+watch([isMobileViewport, currentRoute, factureSection], ([mobile, routeName, sectionName]) => {
+  if (!mobile || routeName !== "facturation" || sectionName !== "liste") {
+    factureMobileFiltersOpen.value = false;
+  }
+});
+
+watch([isMobileViewport, currentRoute, auditSubRoute], ([mobile, routeName, subRoute]) => {
+  if (!mobile || routeName !== "audit" || subRoute !== "/audit/utilisateurs") {
+    auditUtilisateursMobileFiltersOpen.value = false;
   }
 });
 
@@ -4416,7 +4869,7 @@ watch(
   () => retoucheWizard.retouche.typeRetouche,
   () => {
     const currentHabit = String(retoucheWizard.retouche.typeHabit || "").trim().toUpperCase();
-    const stillAllowed = compatibleRetoucheHabitOptions.value.some((option) => String(option.value || "").trim().toUpperCase() === currentHabit);
+    const stillAllowed = wizardCompatibleRetoucheHabitOptions.value.some((option) => String(option.value || "").trim().toUpperCase() === currentHabit);
     if (!stillAllowed) {
       retoucheWizard.retouche.typeHabit = "";
     }
@@ -5210,7 +5663,7 @@ async function reloadAll() {
   const shouldLoadClients = canReadClients.value;
   const shouldLoadCommandes = canReadCommandes.value;
   const shouldLoadRetouches = canReadRetouches.value;
-  const shouldLoadRetoucheTypes = shouldLoadRetouches || settingsRoleAllowed.value;
+  const shouldLoadRetoucheTypes = shouldLoadRetouches || canCreateRetouche.value || settingsRoleAllowed.value;
   const shouldLoadStock = canReadStockArticles.value;
   const shouldLoadVentes = canReadVentes.value;
   const shouldLoadFactures = canAccessModule("facturation");
@@ -5793,6 +6246,7 @@ async function refreshVisibleDataAfterReconnect() {
   if (!authReady.value || !isAuthenticated.value || isSystemManager.value || !currentAtelierId.value) return null;
 
   reconnectRefreshPromise = (async () => {
+    await loadAtelierRuntimeSettings();
     await reloadAll();
     if (currentRoute.value === "commande-detail" && selectedCommandeId.value) {
       await loadCommandeDetail(selectedCommandeId.value);
@@ -7037,8 +7491,9 @@ function resetWizard() {
   resetWizardClientInsight();
 }
 
-function openNouvelleCommande() {
+async function openNouvelleCommande() {
   if (!canCreateCommande.value) return;
+  await loadAtelierRuntimeSettings();
   resetWizard();
   wizard.open = true;
 }
@@ -7072,8 +7527,9 @@ function resetRetoucheWizard() {
   resetRetoucheClientInsight();
 }
 
-function openNouvelleRetouche() {
+async function openNouvelleRetouche() {
   if (!canCreateRetouche.value) return;
+  await loadAtelierRuntimeSettings();
   resetRetoucheWizard();
   retoucheWizard.open = true;
 }
@@ -7195,7 +7651,7 @@ async function onWizardStep1() {
       if (!wizard.existingClientId) throw new Error("Selectionnez un client existant.");
       wizard.resolvedClientId = wizard.existingClientId;
     } else {
-      if (!canCreateClient.value) throw new Error("Creation de client non autorisee.");
+      if (!canCreateWizardClient.value) throw new Error("Creation de client non autorisee.");
       const atelierId = currentAtelierId.value;
       if (!atelierId) throw new Error("Atelier offline introuvable.");
       const payload = {
@@ -7245,7 +7701,7 @@ async function onWizardStep2() {
     }
     if (!wizard.commande.typeHabit) throw new Error("Type d'habit obligatoire.");
 
-    const commandesConfig = atelierSettings.commandes || {};
+    const commandesConfig = wizardCommandesSettings.value || {};
     const mesuresObligatoires = commandesConfig.mesuresObligatoires !== false;
     const interdictionSansMesures = commandesConfig.interdictionSansMesures !== false;
 
@@ -7306,7 +7762,7 @@ async function onRetoucheWizardStep1() {
       if (!retoucheWizard.existingClientId) throw new Error("Selectionnez un client existant.");
       retoucheWizard.resolvedClientId = retoucheWizard.existingClientId;
     } else {
-      if (!canCreateClient.value) throw new Error("Creation de client non autorisee.");
+      if (!canCreateWizardClient.value) throw new Error("Creation de client non autorisee.");
       const payload = {
         nom: String(retoucheWizard.newClient.nom || "").trim(),
         prenom: String(retoucheWizard.newClient.prenom || "").trim(),
@@ -7334,7 +7790,7 @@ async function onRetoucheWizardStep2() {
     if (Number.isNaN(montant) || montant <= 0) throw new Error("Montant total invalide.");
     if (!retoucheWizard.retouche.typeHabit) throw new Error("Type d'habit obligatoire.");
     if (!retoucheWizard.retouche.typeRetouche) throw new Error("Type de retouche obligatoire.");
-    if (retoucheDescriptionRequired.value && !String(retoucheWizard.retouche.descriptionRetouche || "").trim()) {
+    if (wizardRetoucheDescriptionRequired.value && !String(retoucheWizard.retouche.descriptionRetouche || "").trim()) {
       throw new Error("Description retouche obligatoire.");
     }
     if (retoucheMeasuresConfigError.value) {
@@ -7345,7 +7801,7 @@ async function onRetoucheWizardStep2() {
       ? collectRetoucheMesuresSnapshot({
           mesuresModel: retoucheWizard.retouche.mesuresHabit,
           fields: retoucheMesureFields.value,
-          requireComplete: atelierSettings.retouches?.saisiePartielle !== true,
+          requireComplete: wizardRetouchesSettings.value?.saisiePartielle !== true,
           requireAtLeastOne: true
         })
       : {};
@@ -9064,13 +9520,15 @@ async function loadRetoucheDetail(idRetouche) {
         />
 
         <section v-if="currentRoute === 'dashboard'" class="dashboard classic-dashboard">
+        <MobilePageLayout :has-action="isMobileViewport && (canCreateCommande || canCreateRetouche)">
         <article class="panel dashboard-filter">
-          <div>
-            <h3>Vue globale</h3>
-            <p class="helper">Filtrer les indicateurs par periode</p>
-            <p v-if="dashboardClientsActifs" class="helper"><strong>Clients actifs:</strong> {{ dashboardClientsActifs.value }}</p>
-          </div>
+          <MobileSectionHeader
+            eyebrow="Vue globale"
+            title="Dashboard atelier"
+            subtitle="Suivez rapidement l'activite, la caisse et les alertes."
+          />
           <div class="row-actions">
+            <p v-if="dashboardClientsActifs" class="helper"><strong>Clients actifs:</strong> {{ dashboardClientsActifs.value }}</p>
             <select v-model="dashboardPeriod">
               <option v-for="option in dashboardPeriodOptions" :key="option.value" :value="option.value">
                 {{ option.label }}
@@ -9079,500 +9537,823 @@ async function loadRetoucheDetail(idRetouche) {
           </div>
         </article>
 
-        <div class="kpi-grid legacy-kpi-grid">
-          <article v-for="card in dashboardCommandesCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
-            <div class="kpi-head"><span>{{ card.label }}</span></div>
-            <strong>{{ card.value }}</strong>
-          </article>
-        </div>
-
-        <div class="kpi-grid legacy-kpi-grid">
-          <article v-for="card in dashboardRetouchesCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
-            <div class="kpi-head"><span>{{ card.label }}</span></div>
-            <strong>{{ card.value }}</strong>
-          </article>
-        </div>
-
-        <article class="panel finance-band">
-          <div class="money-item">
-            <p>Solde Caisse</p>
-            <strong>{{ formatCurrency(financeMetrics.soldeCaisse) }}</strong>
-          </div>
-          <div class="money-item green">
-            <p>Total Encaissement</p>
-            <strong>{{ formatCurrency(financeMetrics.totalEncaissement) }}</strong>
-          </div>
-          <div class="money-item red">
-            <p>Depenses du Jour</p>
-            <strong>{{ formatCurrency(financeMetrics.depensesJour) }}</strong>
-          </div>
-          <div class="money-item red">
-            <p>Acomptes encaisses</p>
-            <strong>{{ formatCurrency(financeMetrics.acomptesEncaisses) }}</strong>
-          </div>
-
-        </article>
-
-        <article class="panel finance-band">
-          <div class="money-item">
-            <p>Ventes stock</p>
-            <strong>{{ dashboardSalesMetrics.nombreVentes }}</strong>
-          </div>
-          <div class="money-item blue">
-            <p>CA ventes stock</p>
-            <strong>{{ formatCurrency(dashboardSalesMetrics.chiffreAffaires) }}</strong>
-          </div>
-          <div class="money-item green">
-            <p>Benefice brut</p>
-            <strong>{{ formatCurrency(dashboardSalesMetrics.beneficeBrut) }}</strong>
-          </div>
-          <div class="money-item teal">
-            <p>Taux de marge</p>
-            <strong>{{ formatPercent(dashboardSalesMetrics.margeMoyenne) }}</strong>
-          </div>
-        </article>
-
-        <div class="split-grid legacy-split">
-          <article class="panel">
-            <h3>Dernieres Commandes</h3>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Client</th>
-                  <th>Type</th>
-                  <th>Statut</th>
-                  <th>Montant</th>
-                  <th>Avance</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in recentWorkRows" :key="row.id">
-                  <td data-label="Client">{{ row.clientNom }}</td>
-                  <td data-label="Type">{{ row.type }}</td>
-                  <td data-label="Statut">{{ row.statut }}</td>
-                  <td data-label="Montant">{{ formatCurrency(row.montantTotal) }}</td>
-                  <td data-label="Avance">{{ formatCurrency(row.avancePayee) }}</td>
-                </tr>
-                <tr v-if="recentWorkRows.length === 0">
-                  <td colspan="5">Aucune activite recente.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="quick-inline">
-              <button class="action-btn blue" @click="openNouvelleCommande">Nouvelle Commande</button>
-              <button class="action-btn green" @click="openNouvelleRetouche">Nouvelle Retouche</button>
-            </div>
-          </article>
-
-          <div class="stack">
+        <ResponsiveDataContainer :mobile="isMobileViewport">
+          <template #mobile>
             <article class="panel">
-              <h3>Activite Caisse Recente</h3>
-              <ul class="activity-list">
-                <li v-for="item in recentCaisseActivity" :key="item.id">
-                  <span>{{ item.libelle }}</span>
-                  <strong>{{ formatCurrency(item.montant) }}</strong>
-                </li>
-                <li v-if="recentCaisseActivity.length === 0">
-                  <span>Aucune operation recente.</span>
-                </li>
-              </ul>
+              <MobileSectionHeader
+                title="Indicateurs cles"
+                subtitle="Les indicateurs prioritaires pour piloter la journee."
+              />
+              <DashboardMetricCardGrid :items="dashboardPrimaryMobileCards" />
+            </article>
+
+            <article class="panel">
+              <MobileSectionHeader
+                title="Caisse et encaissements"
+                subtitle="Lecture rapide de la situation financiere."
+              />
+              <DashboardMetricCardGrid :items="dashboardFinanceMobileCards" />
+            </article>
+
+            <article class="panel">
+              <MobileSectionHeader
+                title="Ventes stock"
+                subtitle="Performance recente des ventes atelier."
+              />
+              <DashboardMetricCardGrid :items="dashboardSalesMobileCards" />
+            </article>
+
+            <article class="panel">
+              <MobileSectionHeader
+                title="Activite recente"
+                subtitle="Les derniers mouvements les plus utiles."
+              />
+              <DashboardRecentWorkMobileList
+                v-if="recentWorkRows.length > 0"
+                :items="recentWorkRows"
+                :format-currency="formatCurrency"
+              />
+              <MobileStateEmpty
+                v-else
+                title="Aucune activite recente"
+                description="Aucune commande, retouche ou vente recente sur la periode choisie."
+              />
+            </article>
+
+            <article class="panel">
+              <MobileSectionHeader
+                title="Activite caisse recente"
+                subtitle="Les dernieres operations de caisse enregistrees."
+              />
+              <DashboardActivityMobileList
+                :items="recentCaisseActivity"
+                title="Activite caisse"
+                empty-label="Aucune operation recente"
+                tone="info"
+                :value-formatter="formatCurrency"
+              />
             </article>
 
             <article class="panel alerts">
-              <h3>
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path v-for="(path, i) in iconPaths.alert" :key="`alert-${i}`" :d="path" />
-                </svg>
-                Alertes
-              </h3>
-              <ul class="activity-list">
-                <li v-for="alert in alerts" :key="alert.label">
-                  <span class="status-pill" :data-tone="alert.tone">Alerte</span>
-                  <span>{{ alert.label }}</span>
-                </li>
-                <li v-if="alerts.length === 0">
-                  <span>Aucune alerte active.</span>
-                </li>
-              </ul>
+              <MobileSectionHeader
+                title="Alertes"
+                subtitle="Points d'attention a traiter rapidement."
+              />
+              <DashboardActivityMobileList
+                :items="alerts"
+                title="Alertes"
+                empty-label="Aucune alerte active"
+                tone="warning"
+                badge-label="Alerte"
+              />
             </article>
-          </div>
-        </div>
+          </template>
+
+          <template #desktop>
+            <div class="kpi-grid legacy-kpi-grid">
+              <article v-for="card in dashboardCommandesCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
+                <div class="kpi-head"><span>{{ card.label }}</span></div>
+                <strong>{{ card.value }}</strong>
+              </article>
+            </div>
+
+            <div class="kpi-grid legacy-kpi-grid">
+              <article v-for="card in dashboardRetouchesCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
+                <div class="kpi-head"><span>{{ card.label }}</span></div>
+                <strong>{{ card.value }}</strong>
+              </article>
+            </div>
+
+            <article class="panel finance-band">
+              <div class="money-item">
+                <p>Solde Caisse</p>
+                <strong>{{ formatCurrency(financeMetrics.soldeCaisse) }}</strong>
+              </div>
+              <div class="money-item green">
+                <p>Total Encaissement</p>
+                <strong>{{ formatCurrency(financeMetrics.totalEncaissement) }}</strong>
+              </div>
+              <div class="money-item red">
+                <p>Depenses du Jour</p>
+                <strong>{{ formatCurrency(financeMetrics.depensesJour) }}</strong>
+              </div>
+              <div class="money-item red">
+                <p>Acomptes encaisses</p>
+                <strong>{{ formatCurrency(financeMetrics.acomptesEncaisses) }}</strong>
+              </div>
+            </article>
+
+            <article class="panel finance-band">
+              <div class="money-item">
+                <p>Ventes stock</p>
+                <strong>{{ dashboardSalesMetrics.nombreVentes }}</strong>
+              </div>
+              <div class="money-item blue">
+                <p>CA ventes stock</p>
+                <strong>{{ formatCurrency(dashboardSalesMetrics.chiffreAffaires) }}</strong>
+              </div>
+              <div class="money-item green">
+                <p>Benefice brut</p>
+                <strong>{{ formatCurrency(dashboardSalesMetrics.beneficeBrut) }}</strong>
+              </div>
+              <div class="money-item teal">
+                <p>Taux de marge</p>
+                <strong>{{ formatPercent(dashboardSalesMetrics.margeMoyenne) }}</strong>
+              </div>
+            </article>
+
+            <div class="split-grid legacy-split">
+              <article class="panel">
+                <h3>Dernieres Commandes</h3>
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>Client</th>
+                      <th>Type</th>
+                      <th>Statut</th>
+                      <th>Montant</th>
+                      <th>Avance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in recentWorkRows" :key="row.id">
+                      <td data-label="Client">{{ row.clientNom }}</td>
+                      <td data-label="Type">{{ row.type }}</td>
+                      <td data-label="Statut">{{ row.statut }}</td>
+                      <td data-label="Montant">{{ formatCurrency(row.montantTotal) }}</td>
+                      <td data-label="Avance">{{ formatCurrency(row.avancePayee) }}</td>
+                    </tr>
+                    <tr v-if="recentWorkRows.length === 0">
+                      <td colspan="5">Aucune activite recente.</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="quick-inline">
+                  <button class="action-btn blue" @click="openNouvelleCommande">Nouvelle Commande</button>
+                  <button class="action-btn green" @click="openNouvelleRetouche">Nouvelle Retouche</button>
+                </div>
+              </article>
+
+              <div class="stack">
+                <article class="panel">
+                  <h3>Activite Caisse Recente</h3>
+                  <ul class="activity-list">
+                    <li v-for="item in recentCaisseActivity" :key="item.id">
+                      <span>{{ item.libelle }}</span>
+                      <strong>{{ formatCurrency(item.montant) }}</strong>
+                    </li>
+                    <li v-if="recentCaisseActivity.length === 0">
+                      <span>Aucune operation recente.</span>
+                    </li>
+                  </ul>
+                </article>
+
+                <article class="panel alerts">
+                  <h3>
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path v-for="(path, i) in iconPaths.alert" :key="`alert-${i}`" :d="path" />
+                    </svg>
+                    Alertes
+                  </h3>
+                  <ul class="activity-list">
+                    <li v-for="alert in alerts" :key="alert.label">
+                      <span class="status-pill" :data-tone="alert.tone">Alerte</span>
+                      <span>{{ alert.label }}</span>
+                    </li>
+                    <li v-if="alerts.length === 0">
+                      <span>Aucune alerte active.</span>
+                    </li>
+                  </ul>
+                </article>
+              </div>
+            </div>
+          </template>
+        </ResponsiveDataContainer>
+
+        <template #action>
+          <MobilePrimaryActionBar
+            v-if="isMobileViewport && canCreateCommande"
+            title="Action principale"
+            subtitle="Commencez rapidement une nouvelle commande."
+          >
+            <button class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
+          </MobilePrimaryActionBar>
+          <MobilePrimaryActionBar
+            v-else-if="isMobileViewport && canCreateRetouche"
+            title="Action principale"
+            subtitle="Commencez rapidement une nouvelle retouche."
+          >
+            <button class="action-btn green" @click="openNouvelleRetouche">Nouvelle retouche</button>
+          </MobilePrimaryActionBar>
+        </template>
+        </MobilePageLayout>
       </section>
 
       <section v-else-if="currentRoute === 'commandes'" class="commandes-page">
-        <article class="panel panel-header">
-          <h3>Page centrale des commandes</h3>
-          <button v-if="canCreateCommande" class="action-btn blue" @click="openNouvelleCommande">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path v-for="(path, i) in iconPaths.plus" :key="`new-cmd-${i}`" :d="path" />
-            </svg>
-            Nouvelle commande
-          </button>
-        </article>
+        <MobilePageLayout :has-action="isMobileViewport && canCreateCommande && commandeSection === 'liste'">
+          <template #header>
+            <article class="panel panel-header">
+              <MobileSectionHeader
+                eyebrow="Activite atelier"
+                title="Page centrale des commandes"
+                subtitle="Pilotage, suivi et priorisation des commandes en cours."
+              >
+                <template #actions>
+                  <button v-if="canCreateCommande && !isMobileViewport" class="action-btn blue" @click="openNouvelleCommande">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path v-for="(path, i) in iconPaths.plus" :key="`new-cmd-${i}`" :d="path" />
+                    </svg>
+                    Nouvelle commande
+                  </button>
+                </template>
+              </MobileSectionHeader>
+            </article>
+          </template>
 
-        <article class="panel">
-          <div class="segmented">
-            <button class="mini-btn" :class="{ active: commandeSection === 'liste' }" @click="commandeSection = 'liste'">Liste</button>
-            <button class="mini-btn" :class="{ active: commandeSection === 'indicateurs' }" @click="commandeSection = 'indicateurs'">Indicateurs</button>
-            <button class="mini-btn" :class="{ active: commandeSection === 'actions' }" @click="commandeSection = 'actions'">Actions rapides</button>
-          </div>
-        </article>
+          <template #context>
+            <article class="panel">
+              <div class="segmented">
+                <button class="mini-btn" :class="{ active: commandeSection === 'liste' }" @click="commandeSection = 'liste'">Liste</button>
+                <button class="mini-btn" :class="{ active: commandeSection === 'indicateurs' }" @click="commandeSection = 'indicateurs'">Indicateurs</button>
+                <button class="mini-btn" :class="{ active: commandeSection === 'actions' }" @click="commandeSection = 'actions'">Actions rapides</button>
+              </div>
+            </article>
 
-        <article v-show="commandeSection === 'liste'" class="panel">
-          <h3>Filtres commandes</h3>
-          <div class="filters compact">
-            <select v-model="filters.statut">
-              <option v-for="status in statusOptions" :key="status" :value="status">
-                {{ status === "ALL" ? "Tous statuts" : status }}
-              </option>
-            </select>
-            <div class="commande-client-picker">
-              <input v-model.trim="commandeClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
-              <select v-model="filters.client">
-              <option value="ALL">Tous clients</option>
-              <option value="" v-if="commandeClientOptions.length === 0">Aucun resultat</option>
-              <option v-for="client in commandeClientOptions" :key="client.idClient" :value="client.idClient">
-                {{ `${client.nom} ${client.prenom}`.trim() }}
-              </option>
-            </select>
+            <MobileFilterBlock
+              v-if="isMobileViewport && commandeSection === 'liste'"
+              title="Filtres commandes"
+              :summary="commandeFilterSummary"
+              :open="commandeMobileFiltersOpen"
+              @toggle="commandeMobileFiltersOpen = !commandeMobileFiltersOpen"
+            >
+              <div class="filters compact">
+                <select v-model="filters.statut">
+                  <option v-for="status in statusOptions" :key="status" :value="status">
+                    {{ status === "ALL" ? "Tous statuts" : status }}
+                  </option>
+                </select>
+                <div class="commande-client-picker">
+                  <input v-model.trim="commandeClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
+                  <select v-model="filters.client">
+                    <option value="ALL">Tous clients</option>
+                    <option value="" v-if="commandeClientOptions.length === 0">Aucun resultat</option>
+                    <option v-for="client in commandeClientOptions" :key="client.idClient" :value="client.idClient">
+                      {{ `${client.nom} ${client.prenom}`.trim() }}
+                    </option>
+                  </select>
+                </div>
+                <select v-model="filters.periode">
+                  <option v-for="period in periodOptions" :key="period.value" :value="period.value">
+                    {{ period.label }}
+                  </option>
+                </select>
+                <select v-model="filters.soldeRestant">
+                  <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <input v-model="filters.recherche" type="text" placeholder="Recherche client / id / statut" />
+              </div>
+              <div class="panel-footer">
+                <button class="mini-btn" @click="resetCommandeFilters">Reinitialiser filtres</button>
+              </div>
+              <p class="helper" v-if="commandeClientQuery.trim() || filters.recherche.trim()">
+                Recherche active - {{ commandesFiltered.length }} resultat(s)
+              </p>
+            </MobileFilterBlock>
+
+            <article v-else-if="commandeSection === 'liste'" class="panel">
+              <h3>Filtres commandes</h3>
+              <div class="filters compact">
+                <select v-model="filters.statut">
+                  <option v-for="status in statusOptions" :key="status" :value="status">
+                    {{ status === "ALL" ? "Tous statuts" : status }}
+                  </option>
+                </select>
+                <div class="commande-client-picker">
+                  <input v-model.trim="commandeClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
+                  <select v-model="filters.client">
+                    <option value="ALL">Tous clients</option>
+                    <option value="" v-if="commandeClientOptions.length === 0">Aucun resultat</option>
+                    <option v-for="client in commandeClientOptions" :key="client.idClient" :value="client.idClient">
+                      {{ `${client.nom} ${client.prenom}`.trim() }}
+                    </option>
+                  </select>
+                </div>
+                <select v-model="filters.periode">
+                  <option v-for="period in periodOptions" :key="period.value" :value="period.value">
+                    {{ period.label }}
+                  </option>
+                </select>
+                <select v-model="filters.soldeRestant">
+                  <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <input v-model="filters.recherche" type="text" placeholder="Recherche client / id / statut" />
+              </div>
+              <div class="panel-footer">
+                <button class="mini-btn" @click="resetCommandeFilters">Reinitialiser filtres</button>
+              </div>
+              <p class="helper" v-if="commandeClientQuery.trim() || filters.recherche.trim()">
+                Recherche active - {{ commandesFiltered.length }} resultat(s)
+              </p>
+            </article>
+          </template>
+
+          <article v-show="commandeSection === 'indicateurs'" class="panel">
+            <MobileSectionHeader title="Indicateurs commandes" subtitle="Vue rapide sur le volume, l'avancement et les soldes." />
+            <div class="kpi-grid legacy-kpi-grid">
+              <div class="kpi-card legacy-kpi" data-tone="blue">
+                <div class="kpi-head"><span>Total</span></div>
+                <strong>{{ commandesKpi.total }}</strong>
+              </div>
+              <div class="kpi-card legacy-kpi" data-tone="teal">
+                <div class="kpi-head"><span>En cours</span></div>
+                <strong>{{ commandesKpi.enCours }}</strong>
+              </div>
+              <div class="kpi-card legacy-kpi" data-tone="green">
+                <div class="kpi-head"><span>Livrees</span></div>
+                <strong>{{ commandesKpi.livrees }}</strong>
+              </div>
+              <div class="kpi-card legacy-kpi" data-tone="amber">
+                <div class="kpi-head"><span>Solde restant</span></div>
+                <strong>{{ commandesKpi.avecSolde }}</strong>
+              </div>
             </div>
-            <select v-model="filters.periode">
-              <option v-for="period in periodOptions" :key="period.value" :value="period.value">
-                {{ period.label }}
-              </option>
-            </select>
-            <select v-model="filters.soldeRestant">
-              <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-            <input v-model="filters.recherche" type="text" placeholder="Recherche client / id / statut" />
-          </div>
-          <div class="panel-footer">
-            <button class="mini-btn" @click="resetCommandeFilters">Reinitialiser filtres</button>
-          </div>
-          <p class="helper" v-if="commandeClientQuery.trim() || filters.recherche.trim()">
-            Recherche active - {{ commandesFiltered.length }} resultat(s)
-          </p>
+          </article>
 
-        </article>
+          <article v-show="commandeSection === 'actions'" class="panel">
+            <MobileSectionHeader title="Actions rapides" subtitle="Raccourcis utiles pour poursuivre le flux sans changer de contexte." />
+            <div class="quick-actions">
+              <button v-if="canCreateCommande" class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
+              <button class="action-btn green" @click="commandeSection = 'liste'">Voir la liste</button>
+              <button v-if="canAccessModule('clientsMesures')" class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
+            </div>
+          </article>
 
-        <article v-show="commandeSection === 'indicateurs'" class="panel">
-          <h3>Indicateurs commandes</h3>
-          <div class="kpi-grid legacy-kpi-grid">
-            <div class="kpi-card legacy-kpi" data-tone="blue">
-              <div class="kpi-head"><span>Total</span></div>
-              <strong>{{ commandesKpi.total }}</strong>
-            </div>
-            <div class="kpi-card legacy-kpi" data-tone="teal">
-              <div class="kpi-head"><span>En cours</span></div>
-              <strong>{{ commandesKpi.enCours }}</strong>
-            </div>
-            <div class="kpi-card legacy-kpi" data-tone="green">
-              <div class="kpi-head"><span>Livrees</span></div>
-              <strong>{{ commandesKpi.livrees }}</strong>
-            </div>
-            <div class="kpi-card legacy-kpi" data-tone="amber">
-              <div class="kpi-head"><span>Solde restant</span></div>
-              <strong>{{ commandesKpi.avecSolde }}</strong>
-            </div>
-          </div>
-        </article>
+          <article v-show="commandeSection === 'liste'" class="panel">
+            <MobileSectionHeader
+              title="Tableau des commandes"
+              subtitle="Vue detaillee de la file active avant l'integration des cards mobiles."
+            >
+              <template #actions>
+                <span class="status-pill" data-tone="due">
+                  {{ commandesSoldeRestantCount }} avec solde restant
+                </span>
+              </template>
+            </MobileSectionHeader>
 
-        <article v-show="commandeSection === 'actions'" class="panel">
-          <div class="quick-actions">
-            <button v-if="canCreateCommande" class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
-            <button class="action-btn green" @click="commandeSection = 'liste'">Voir la liste</button>
-            <button v-if="canAccessModule('clientsMesures')" class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
-          </div>
-        </article>
+            <ResponsiveDataContainer :mobile="isMobileViewport" v-slot="{ isMobile }">
+              <MobileStateLoading
+                v-if="isMobile && loading"
+                title="Chargement des commandes"
+                description="La liste se met a jour."
+                :blocks="3"
+              />
 
-        <article v-show="commandeSection === 'liste'" class="panel">
-          <div class="panel-header">
-            <h3>Tableau des commandes</h3>
-            <span class="status-pill" data-tone="due">
-              {{ commandesSoldeRestantCount }} avec solde restant
-            </span>
-          </div>
-          <div class="table-scroll-x">
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Client</th>
-                  <th>Description</th>
-                  <th>Statut</th>
-                  <th>Etat solde</th>
-                  <th>Total</th>
-                  <th>Paye</th>
-                  <th>Solde</th>
-                  <th>Date prevue</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="commande in commandesPaged"
-                  :key="commande.idCommande"
-                  :class="[`status-row-${commande.statutCommande}`, { selected: selectedCommandeId === commande.idCommande }]"
-                >
-                  <td data-label="ID">{{ commande.idCommande }}</td>
-                  <td data-label="Client">{{ commande.clientNom }}</td>
-                  <td data-label="Description">{{ commande.descriptionCommande }}</td>
-                  <td data-label="Statut">
-                    <span class="status-pill" :data-status="commande.statutCommande">{{ commande.statutCommande }}</span>
-                  </td>
-                  <td data-label="Etat solde">
-                    <span class="status-pill" :data-tone="commande.soldeRestant === 0 ? 'ok' : 'due'">
-                      {{ commande.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
-                    </span>
-                  </td>
-                  <td data-label="Total">{{ formatCurrency(commande.montantTotal) }}</td>
-                  <td data-label="Paye">{{ formatCurrency(commande.montantPaye) }}</td>
-                  <td data-label="Solde">{{ formatCurrency(commande.soldeRestant) }}</td>
-                  <td data-label="Date prevue">{{ commande.datePrevue || "-" }}</td>
-                  <td class="row-actions">
-                    <button class="mini-btn" @click="onVoirCommande(commande)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.eye" :key="`see-${commande.idCommande}-${i}`" :d="path" />
-                      </svg>
-                      Voir
-                    </button>
-                    <button class="mini-btn" v-if="canPayer(commande)" @click="onPaiementCommande(commande)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.cash" :key="`cash-${commande.idCommande}-${i}`" :d="path" />
-                      </svg>
-                      Paiement
-                    </button>
-                    <button class="mini-btn" v-if="canLivrer(commande)" @click="onLivrerCommande(commande)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.check" :key="`liv-${commande.idCommande}-${i}`" :d="path" />
-                      </svg>
-                      Livrer
-                    </button>
-                    <button class="mini-btn" v-if="canTerminer(commande)" @click="onTerminerCommande(commande)">
-                      Terminer
-                    </button>
-                    <button class="mini-btn" v-if="canAnnuler(commande)" @click="onAnnulerCommande(commande)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M3 3l18 18" />
-                        <path d="M21 3L3 21" />
-                      </svg>
-                      Annuler
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="commandesFiltered.length === 0">
-                  <td colspan="10">Aucune commande ne correspond aux filtres actuels.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="panel-footer table-pagination">
-            <select v-model.number="commandesPagination.pageSize">
-              <option :value="5">5 / page</option>
-              <option :value="10">10 / page</option>
-              <option :value="20">20 / page</option>
-              <option :value="50">50 / page</option>
-            </select>
-            <button class="mini-btn" :disabled="commandesPagination.page <= 1" @click="commandesPagination.page -= 1">Precedent</button>
-            <span>Page {{ commandesPagination.page }} / {{ commandesPages }}</span>
-            <button class="mini-btn" :disabled="commandesPagination.page >= commandesPages" @click="commandesPagination.page += 1">Suivant</button>
-          </div>
-        </article>
+              <MobileStateError
+                v-else-if="isMobile && errorMessage"
+                title="Impossible d'afficher les commandes"
+                :description="errorMessage"
+              />
+
+              <MobileStateEmpty
+                v-else-if="isMobile && commandesFiltered.length === 0"
+                title="Aucune commande"
+                description="Aucune commande ne correspond aux filtres actuels."
+              >
+                <template #actions>
+                  <button v-if="canCreateCommande" class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
+                </template>
+              </MobileStateEmpty>
+
+              <CommandeMobileList
+                v-else-if="isMobile"
+                :items="commandesPaged"
+                :selected-id="selectedCommandeId"
+                :format-currency="formatCurrency"
+                :format-date="formatDateShort"
+                @view="onVoirCommande"
+              />
+
+              <div v-else class="table-scroll-x">
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Client</th>
+                      <th>Description</th>
+                      <th>Statut</th>
+                      <th>Etat solde</th>
+                      <th>Total</th>
+                      <th>Paye</th>
+                      <th>Solde</th>
+                      <th>Date prevue</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="commande in commandesPaged"
+                      :key="commande.idCommande"
+                      :class="[`status-row-${commande.statutCommande}`, { selected: selectedCommandeId === commande.idCommande }]"
+                    >
+                      <td data-label="ID">{{ commande.idCommande }}</td>
+                      <td data-label="Client">{{ commande.clientNom }}</td>
+                      <td data-label="Description">{{ commande.descriptionCommande }}</td>
+                      <td data-label="Statut">
+                        <span class="status-pill" :data-status="commande.statutCommande">{{ commande.statutCommande }}</span>
+                      </td>
+                      <td data-label="Etat solde">
+                        <span class="status-pill" :data-tone="commande.soldeRestant === 0 ? 'ok' : 'due'">
+                          {{ commande.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
+                        </span>
+                      </td>
+                      <td data-label="Total">{{ formatCurrency(commande.montantTotal) }}</td>
+                      <td data-label="Paye">{{ formatCurrency(commande.montantPaye) }}</td>
+                      <td data-label="Solde">{{ formatCurrency(commande.soldeRestant) }}</td>
+                      <td data-label="Date prevue">{{ commande.datePrevue || "-" }}</td>
+                      <td class="row-actions">
+                        <button class="mini-btn" @click="onVoirCommande(commande)">
+                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path v-for="(path, i) in iconPaths.eye" :key="`see-${commande.idCommande}-${i}`" :d="path" />
+                          </svg>
+                          Voir
+                        </button>
+                        <button class="mini-btn" v-if="canPayer(commande)" @click="onPaiementCommande(commande)">
+                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path v-for="(path, i) in iconPaths.cash" :key="`cash-${commande.idCommande}-${i}`" :d="path" />
+                          </svg>
+                          Paiement
+                        </button>
+                        <button class="mini-btn" v-if="canLivrer(commande)" @click="onLivrerCommande(commande)">
+                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path v-for="(path, i) in iconPaths.check" :key="`liv-${commande.idCommande}-${i}`" :d="path" />
+                          </svg>
+                          Livrer
+                        </button>
+                        <button class="mini-btn" v-if="canTerminer(commande)" @click="onTerminerCommande(commande)">
+                          Terminer
+                        </button>
+                        <button class="mini-btn" v-if="canAnnuler(commande)" @click="onAnnulerCommande(commande)">
+                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 3l18 18" />
+                            <path d="M21 3L3 21" />
+                          </svg>
+                          Annuler
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="!isMobile && commandesFiltered.length === 0">
+                      <td colspan="10">Aucune commande ne correspond aux filtres actuels.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </ResponsiveDataContainer>
+
+            <ResponsivePagination
+              :page="commandesPagination.page"
+              :pages="commandesPages"
+              :page-size="commandesPagination.pageSize"
+              :page-size-options="[5, 10, 20, 50]"
+              :prev-disabled="commandesPagination.page <= 1"
+              :next-disabled="commandesPagination.page >= commandesPages"
+              @update:page-size="commandesPagination.pageSize = $event"
+              @prev="commandesPagination.page -= 1"
+              @next="commandesPagination.page += 1"
+            />
+          </article>
+
+          <template #action>
+            <MobilePrimaryActionBar
+              v-if="isMobileViewport && canCreateCommande && commandeSection === 'liste'"
+              title="Action principale"
+              subtitle="Creer rapidement une nouvelle commande."
+            >
+              <button class="action-btn blue" @click="openNouvelleCommande">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path v-for="(path, i) in iconPaths.plus" :key="`new-cmd-mobile-${i}`" :d="path" />
+                </svg>
+                Nouvelle commande
+              </button>
+            </MobilePrimaryActionBar>
+          </template>
+        </MobilePageLayout>
       </section>
 
         <section v-else-if="currentRoute === 'retouches'" class="commandes-page">
-        <article class="panel panel-header">
-          <h3>Page centrale des retouches</h3>
-          <button v-if="canCreateRetouche" class="action-btn blue" @click="openNouvelleRetouche">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path v-for="(path, i) in iconPaths.plus" :key="`new-ret-${i}`" :d="path" />
-            </svg>
-            Nouvelle retouche
-          </button>
-        </article>
+        <MobilePageLayout :has-action="isMobileViewport && canCreateRetouche && retoucheSection === 'liste'">
+          <template #header>
+            <article class="panel panel-header">
+              <MobileSectionHeader
+                eyebrow="Activite atelier"
+                title="Page centrale des retouches"
+                subtitle="Suivi rapide des retouches, delais et soldes en attente."
+              >
+                <template #actions>
+                  <button v-if="canCreateRetouche && !isMobileViewport" class="action-btn blue" @click="openNouvelleRetouche">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path v-for="(path, i) in iconPaths.plus" :key="`new-ret-${i}`" :d="path" />
+                    </svg>
+                    Nouvelle retouche
+                  </button>
+                </template>
+              </MobileSectionHeader>
+            </article>
+          </template>
 
-        <article class="panel">
-          <div class="segmented">
-            <button class="mini-btn" :class="{ active: retoucheSection === 'liste' }" @click="retoucheSection = 'liste'">Liste</button>
-            <button class="mini-btn" :class="{ active: retoucheSection === 'kpi' }" @click="retoucheSection = 'kpi'">Indicateurs</button>
-            <button class="mini-btn" :class="{ active: retoucheSection === 'actions' }" @click="retoucheSection = 'actions'">Actions rapides</button>
-          </div>
-        </article>
+          <template #context>
+            <article class="panel">
+              <div class="segmented">
+                <button class="mini-btn" :class="{ active: retoucheSection === 'liste' }" @click="retoucheSection = 'liste'">Liste</button>
+                <button class="mini-btn" :class="{ active: retoucheSection === 'kpi' }" @click="retoucheSection = 'kpi'">Indicateurs</button>
+                <button class="mini-btn" :class="{ active: retoucheSection === 'actions' }" @click="retoucheSection = 'actions'">Actions rapides</button>
+              </div>
+            </article>
 
-        <article v-show="retoucheSection === 'liste'" class="panel">
-          <h3>Filtres retouches</h3>
-          <div class="filters compact">
-            <select v-model="retoucheFilters.statut">
-              <option v-for="status in retoucheStatusOptions" :key="status" :value="status">
-                {{ status === "ALL" ? "Tous statuts" : status }}
-              </option>
-            </select>
-            <div class="retouche-client-picker">
-              <input v-model.trim="retoucheClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
-              <select v-model="retoucheFilters.client">
-              <option value="ALL">Tous clients</option>
-              <option value="" v-if="retoucheClientOptions.length === 0">Aucun resultat</option>
-              <option v-for="client in retoucheClientOptions" :key="client.idClient" :value="client.idClient">
-                {{ `${client.nom} ${client.prenom}`.trim() }}
-              </option>
-            </select>
+            <MobileFilterBlock
+              v-if="isMobileViewport && retoucheSection === 'liste'"
+              title="Filtres retouches"
+              :summary="retoucheFilterSummary"
+              :open="retoucheMobileFiltersOpen"
+              @toggle="retoucheMobileFiltersOpen = !retoucheMobileFiltersOpen"
+            >
+              <div class="filters compact">
+                <select v-model="retoucheFilters.statut">
+                  <option v-for="status in retoucheStatusOptions" :key="status" :value="status">
+                    {{ status === "ALL" ? "Tous statuts" : status }}
+                  </option>
+                </select>
+                <div class="retouche-client-picker">
+                  <input v-model.trim="retoucheClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
+                  <select v-model="retoucheFilters.client">
+                    <option value="ALL">Tous clients</option>
+                    <option value="" v-if="retoucheClientOptions.length === 0">Aucun resultat</option>
+                    <option v-for="client in retoucheClientOptions" :key="client.idClient" :value="client.idClient">
+                      {{ `${client.nom} ${client.prenom}`.trim() }}
+                    </option>
+                  </select>
+                </div>
+                <select v-model="retoucheFilters.periode">
+                  <option v-for="period in periodOptions" :key="period.value" :value="period.value">
+                    {{ period.label }}
+                  </option>
+                </select>
+                <select v-model="retoucheFilters.soldeRestant">
+                  <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <input v-model="retoucheFilters.recherche" type="text" placeholder="Recherche client / id / statut" />
+              </div>
+              <div class="panel-footer">
+                <button class="mini-btn" @click="resetRetoucheFilters">Reinitialiser filtres</button>
+              </div>
+              <p class="helper" v-if="retoucheClientQuery.trim() || retoucheFilters.recherche.trim()">
+                Recherche active - {{ retouchesFiltered.length }} resultat(s)
+              </p>
+            </MobileFilterBlock>
+
+            <article v-else-if="retoucheSection === 'liste'" class="panel">
+              <h3>Filtres retouches</h3>
+              <div class="filters compact">
+                <select v-model="retoucheFilters.statut">
+                  <option v-for="status in retoucheStatusOptions" :key="status" :value="status">
+                    {{ status === "ALL" ? "Tous statuts" : status }}
+                  </option>
+                </select>
+                <div class="retouche-client-picker">
+                  <input v-model.trim="retoucheClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
+                  <select v-model="retoucheFilters.client">
+                    <option value="ALL">Tous clients</option>
+                    <option value="" v-if="retoucheClientOptions.length === 0">Aucun resultat</option>
+                    <option v-for="client in retoucheClientOptions" :key="client.idClient" :value="client.idClient">
+                      {{ `${client.nom} ${client.prenom}`.trim() }}
+                    </option>
+                  </select>
+                </div>
+                <select v-model="retoucheFilters.periode">
+                  <option v-for="period in periodOptions" :key="period.value" :value="period.value">
+                    {{ period.label }}
+                  </option>
+                </select>
+                <select v-model="retoucheFilters.soldeRestant">
+                  <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <input v-model="retoucheFilters.recherche" type="text" placeholder="Recherche client / id / statut" />
+              </div>
+              <div class="panel-footer">
+                <button class="mini-btn" @click="resetRetoucheFilters">Reinitialiser filtres</button>
+              </div>
+              <p class="helper" v-if="retoucheClientQuery.trim() || retoucheFilters.recherche.trim()">
+                Recherche active - {{ retouchesFiltered.length }} resultat(s)
+              </p>
+            </article>
+          </template>
+
+          <article v-show="retoucheSection === 'kpi'" class="panel">
+            <MobileSectionHeader title="Indicateurs retouches" subtitle="Vue rapide sur le volume, l'avancement et les soldes." />
+            <div class="kpi-grid legacy-kpi-grid">
+              <div class="kpi-card legacy-kpi" data-tone="teal">
+                <div class="kpi-head"><span>Total</span></div>
+                <strong>{{ retouchesKpi.total }}</strong>
+              </div>
+              <div class="kpi-card legacy-kpi" data-tone="blue">
+                <div class="kpi-head"><span>En cours</span></div>
+                <strong>{{ retouchesKpi.enCours }}</strong>
+              </div>
+              <div class="kpi-card legacy-kpi" data-tone="green">
+                <div class="kpi-head"><span>Livrees</span></div>
+                <strong>{{ retouchesKpi.livrees }}</strong>
+              </div>
+              <div class="kpi-card legacy-kpi" data-tone="amber">
+                <div class="kpi-head"><span>Solde restant</span></div>
+                <strong>{{ retouchesKpi.avecSolde }}</strong>
+              </div>
             </div>
-            <select v-model="retoucheFilters.periode">
-              <option v-for="period in periodOptions" :key="period.value" :value="period.value">
-                {{ period.label }}
-              </option>
-            </select>
-            <select v-model="retoucheFilters.soldeRestant">
-              <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-            <input v-model="retoucheFilters.recherche" type="text" placeholder="Recherche client / id / statut" />
-          </div>
-          <div class="panel-footer">
-            <button class="mini-btn" @click="resetRetoucheFilters">Reinitialiser filtres</button>
-          </div>
-          <p class="helper" v-if="retoucheClientQuery.trim() || retoucheFilters.recherche.trim()">
-            Recherche active - {{ retouchesFiltered.length }} resultat(s)
-          </p>
+          </article>
 
-        </article>
+          <article v-show="retoucheSection === 'actions'" class="panel">
+            <MobileSectionHeader title="Actions rapides" subtitle="Raccourcis utiles pour poursuivre le flux sans changer de contexte." />
+            <div class="quick-actions">
+              <button v-if="canCreateRetouche" class="action-btn blue" @click="openNouvelleRetouche">Nouvelle retouche</button>
+              <button class="action-btn green" @click="retoucheSection = 'liste'">Voir la liste</button>
+              <button v-if="canAccessModule('clientsMesures')" class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
+            </div>
+          </article>
 
-        <article v-show="retoucheSection === 'kpi'" class="panel">
-          <h3>Indicateurs retouches</h3>
-          <div class="kpi-grid legacy-kpi-grid">
-            <div class="kpi-card legacy-kpi" data-tone="teal">
-              <div class="kpi-head"><span>Total</span></div>
-              <strong>{{ retouchesKpi.total }}</strong>
-            </div>
-            <div class="kpi-card legacy-kpi" data-tone="blue">
-              <div class="kpi-head"><span>En cours</span></div>
-              <strong>{{ retouchesKpi.enCours }}</strong>
-            </div>
-            <div class="kpi-card legacy-kpi" data-tone="green">
-              <div class="kpi-head"><span>Livrees</span></div>
-              <strong>{{ retouchesKpi.livrees }}</strong>
-            </div>
-            <div class="kpi-card legacy-kpi" data-tone="amber">
-              <div class="kpi-head"><span>Solde restant</span></div>
-              <strong>{{ retouchesKpi.avecSolde }}</strong>
-            </div>
-          </div>
-        </article>
+          <article v-show="retoucheSection === 'liste'" class="panel">
+            <MobileSectionHeader
+              title="Tableau des retouches"
+              subtitle="Vue detaillee de la file active avant l'integration des actions secondaires en detail."
+            >
+              <template #actions>
+                <span class="status-pill" data-tone="due">
+                  {{ retouchesSoldeRestantCount }} avec solde restant
+                </span>
+              </template>
+            </MobileSectionHeader>
 
-        <article v-show="retoucheSection === 'actions'" class="panel">
-          <div class="quick-actions">
-            <button v-if="canCreateRetouche" class="action-btn blue" @click="openNouvelleRetouche">Nouvelle retouche</button>
-            <button class="action-btn green" @click="retoucheSection = 'liste'">Voir la liste</button>
-            <button v-if="canAccessModule('clientsMesures')" class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
-          </div>
-        </article>
+            <ResponsiveDataContainer :mobile="isMobileViewport" v-slot="{ isMobile }">
+              <MobileStateLoading
+                v-if="isMobile && loading"
+                title="Chargement des retouches"
+                description="La liste se met a jour."
+                :blocks="3"
+              />
 
-        <article v-show="retoucheSection === 'liste'" class="panel">
-          <div class="panel-header">
-            <h3>Tableau des retouches</h3>
-            <span class="status-pill" data-tone="due">
-              {{ retouchesSoldeRestantCount }} avec solde restant
-            </span>
-          </div>
-          <div class="table-scroll-x">
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Client</th>
-                  <th>Type</th>
-                  <th>Description</th>
-                  <th>Statut</th>
-                  <th>Etat solde</th>
-                  <th>Total</th>
-                  <th>Paye</th>
-                  <th>Solde</th>
-                  <th>Date depot</th>
-                  <th>Date prevue</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="retouche in retouchesPaged"
-                  :key="retouche.idRetouche"
-                  :class="[`status-row-${retouche.statutRetouche}`, { selected: selectedRetoucheId === retouche.idRetouche }]"
-                >
-                  <td data-label="ID">{{ retouche.idRetouche }}</td>
-                  <td data-label="Client">{{ retouche.clientNom }}</td>
-                  <td data-label="Type">{{ retouche.typeRetouche || "-" }}</td>
-                  <td data-label="Description">{{ retouche.descriptionRetouche }}</td>
-                  <td data-label="Statut">
-                    <span class="status-pill" :data-status="retouche.statutRetouche">{{ retouche.statutRetouche }}</span>
-                  </td>
-                  <td data-label="Etat solde">
-                    <span class="status-pill" :data-tone="retouche.soldeRestant === 0 ? 'ok' : 'due'">
-                      {{ retouche.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
-                    </span>
-                  </td>
-                  <td data-label="Total">{{ formatCurrency(retouche.montantTotal) }}</td>
-                  <td data-label="Paye">{{ formatCurrency(retouche.montantPaye) }}</td>
-                  <td data-label="Solde">{{ formatCurrency(retouche.soldeRestant) }}</td>
-                  <td data-label="Date depot">{{ retouche.dateDepot || "-" }}</td>
-                  <td data-label="Date prevue">{{ retouche.datePrevue || "-" }}</td>
-                  <td class="row-actions">
-                    <button class="mini-btn" @click="onVoirRetouche(retouche)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.eye" :key="`see-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                      </svg>
-                      Voir
-                    </button>
-                    <button class="mini-btn" v-if="canPayerRetouche(retouche)" @click="onPaiementRetouche(retouche)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.cash" :key="`cash-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                      </svg>
-                      Paiement
-                    </button>
-                    <button class="mini-btn" v-if="canLivrerRetouche(retouche)" @click="onLivrerRetouche(retouche)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.check" :key="`liv-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                      </svg>
-                      Livrer
-                    </button>
-                    <button class="mini-btn" v-if="canTerminerRetouche(retouche)" @click="onTerminerRetouche(retouche)">
-                      Terminer
-                    </button>
-                    <button class="mini-btn" v-if="canAnnulerRetouche(retouche)" @click="onAnnulerRetouche(retouche)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M3 3l18 18" />
-                        <path d="M21 3L3 21" />
-                      </svg>
-                      Annuler
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="retouchesFiltered.length === 0">
-                  <td colspan="12">Aucune retouche ne correspond aux filtres actuels.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="panel-footer table-pagination">
-            <select v-model.number="retouchesPagination.pageSize">
-              <option :value="5">5 / page</option>
-              <option :value="10">10 / page</option>
-              <option :value="20">20 / page</option>
-              <option :value="50">50 / page</option>
-            </select>
-            <button class="mini-btn" :disabled="retouchesPagination.page <= 1" @click="retouchesPagination.page -= 1">Precedent</button>
-            <span>Page {{ retouchesPagination.page }} / {{ retouchesPages }}</span>
-            <button class="mini-btn" :disabled="retouchesPagination.page >= retouchesPages" @click="retouchesPagination.page += 1">Suivant</button>
-          </div>
-        </article>
+              <MobileStateError
+                v-else-if="isMobile && errorMessage"
+                title="Impossible d'afficher les retouches"
+                :description="errorMessage"
+              />
+
+              <MobileStateEmpty
+                v-else-if="isMobile && retouchesFiltered.length === 0"
+                title="Aucune retouche"
+                description="Aucune retouche ne correspond aux filtres actuels."
+              >
+                <template #actions>
+                  <button v-if="canCreateRetouche" class="action-btn blue" @click="openNouvelleRetouche">Nouvelle retouche</button>
+                </template>
+              </MobileStateEmpty>
+
+              <RetoucheMobileList
+                v-else-if="isMobile"
+                :items="retouchesPaged"
+                :selected-id="selectedRetoucheId"
+                :format-currency="formatCurrency"
+                :format-date="formatDateShort"
+                @view="onVoirRetouche"
+              />
+
+              <div v-else class="table-scroll-x">
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Client</th>
+                      <th>Type</th>
+                      <th>Description</th>
+                      <th>Statut</th>
+                      <th>Etat solde</th>
+                      <th>Total</th>
+                      <th>Paye</th>
+                      <th>Solde</th>
+                      <th>Date depot</th>
+                      <th>Date prevue</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="retouche in retouchesPaged"
+                      :key="retouche.idRetouche"
+                      :class="[`status-row-${retouche.statutRetouche}`, { selected: selectedRetoucheId === retouche.idRetouche }]"
+                    >
+                      <td data-label="ID">{{ retouche.idRetouche }}</td>
+                      <td data-label="Client">{{ retouche.clientNom }}</td>
+                      <td data-label="Type">{{ retouche.typeRetouche || "-" }}</td>
+                      <td data-label="Description">{{ retouche.descriptionRetouche }}</td>
+                      <td data-label="Statut">
+                        <span class="status-pill" :data-status="retouche.statutRetouche">{{ retouche.statutRetouche }}</span>
+                      </td>
+                      <td data-label="Etat solde">
+                        <span class="status-pill" :data-tone="retouche.soldeRestant === 0 ? 'ok' : 'due'">
+                          {{ retouche.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
+                        </span>
+                      </td>
+                      <td data-label="Total">{{ formatCurrency(retouche.montantTotal) }}</td>
+                      <td data-label="Paye">{{ formatCurrency(retouche.montantPaye) }}</td>
+                      <td data-label="Solde">{{ formatCurrency(retouche.soldeRestant) }}</td>
+                      <td data-label="Date depot">{{ retouche.dateDepot || "-" }}</td>
+                      <td data-label="Date prevue">{{ retouche.datePrevue || "-" }}</td>
+                      <td class="row-actions">
+                        <button class="mini-btn" @click="onVoirRetouche(retouche)">
+                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path v-for="(path, i) in iconPaths.eye" :key="`see-ret-${retouche.idRetouche}-${i}`" :d="path" />
+                          </svg>
+                          Voir
+                        </button>
+                        <button class="mini-btn" v-if="canPayerRetouche(retouche)" @click="onPaiementRetouche(retouche)">
+                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path v-for="(path, i) in iconPaths.cash" :key="`cash-ret-${retouche.idRetouche}-${i}`" :d="path" />
+                          </svg>
+                          Paiement
+                        </button>
+                        <button class="mini-btn" v-if="canLivrerRetouche(retouche)" @click="onLivrerRetouche(retouche)">
+                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path v-for="(path, i) in iconPaths.check" :key="`liv-ret-${retouche.idRetouche}-${i}`" :d="path" />
+                          </svg>
+                          Livrer
+                        </button>
+                        <button class="mini-btn" v-if="canTerminerRetouche(retouche)" @click="onTerminerRetouche(retouche)">
+                          Terminer
+                        </button>
+                        <button class="mini-btn" v-if="canAnnulerRetouche(retouche)" @click="onAnnulerRetouche(retouche)">
+                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 3l18 18" />
+                            <path d="M21 3L3 21" />
+                          </svg>
+                          Annuler
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="!isMobile && retouchesFiltered.length === 0">
+                      <td colspan="12">Aucune retouche ne correspond aux filtres actuels.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </ResponsiveDataContainer>
+
+            <ResponsivePagination
+              :page="retouchesPagination.page"
+              :pages="retouchesPages"
+              :page-size="retouchesPagination.pageSize"
+              :page-size-options="[5, 10, 20, 50]"
+              :prev-disabled="retouchesPagination.page <= 1"
+              :next-disabled="retouchesPagination.page >= retouchesPages"
+              @update:page-size="retouchesPagination.pageSize = $event"
+              @prev="retouchesPagination.page -= 1"
+              @next="retouchesPagination.page += 1"
+            />
+          </article>
+
+          <template #action>
+            <MobilePrimaryActionBar
+              v-if="isMobileViewport && canCreateRetouche && retoucheSection === 'liste'"
+              title="Action principale"
+              subtitle="Creer rapidement une nouvelle retouche."
+            >
+              <button class="action-btn blue" @click="openNouvelleRetouche">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path v-for="(path, i) in iconPaths.plus" :key="`new-ret-mobile-${i}`" :d="path" />
+                </svg>
+                Nouvelle retouche
+              </button>
+            </MobilePrimaryActionBar>
+          </template>
+        </MobilePageLayout>
       </section>
 
         <section v-else-if="currentRoute === 'clientsMesures'" class="commandes-page">
+        <MobilePageLayout compact>
         <article class="panel panel-header">
-          <h3>Fiche Client - Consultation</h3>
-          <div class="filters compact client-consultation-picker" style="min-width: 320px;">
+          <MobileSectionHeader
+            eyebrow="Memoire atelier"
+            title="Fiche client - Consultation"
+            subtitle="Consultez l'historique, les mesures et les passages d'un client."
+          >
+            <template #actions>
+              <button class="mini-btn" @click="exportClientConsultationPdf" :disabled="!clientConsultationClient">Exporter PDF</button>
+            </template>
+          </MobileSectionHeader>
+          <div class="filters compact client-consultation-picker">
             <input v-model.trim="clientConsultationQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
             <select v-model="selectedClientConsultationId">
               <option value="" v-if="clients.length === 0">{{ networkIsOnline ? "Aucun client disponible" : "Aucun client disponible hors ligne" }}</option>
@@ -9582,19 +10363,187 @@ async function loadRetoucheDetail(idRetouche) {
               </option>
             </select>
           </div>
-          <button class="mini-btn" @click="exportClientConsultationPdf" :disabled="!clientConsultationClient">Exporter PDF</button>
         </article>
 
-        <article class="panel" v-if="clientConsultationLoading">
-          <p>Chargement de l'historique client...</p>
-        </article>
+        <ResponsiveDataContainer v-if="clientConsultationLoading" :mobile="isMobileViewport">
+          <template #mobile>
+            <MobileStateLoading
+              title="Chargement de l'historique client"
+              description="Preparation de la fiche, des mesures et des passages de l'atelier."
+              :blocks="3"
+            />
+          </template>
+          <template #desktop>
+            <article class="panel">
+              <p>Chargement de l'historique client...</p>
+            </article>
+          </template>
+        </ResponsiveDataContainer>
 
-        <article class="panel error-panel" v-else-if="clientConsultationError">
-          <strong>Consultation client</strong>
-          <p>{{ clientConsultationError }}</p>
-        </article>
+        <ResponsiveDataContainer v-else-if="clientConsultationError" :mobile="isMobileViewport">
+          <template #mobile>
+            <MobileStateError
+              title="Impossible d'afficher la consultation client"
+              :description="clientConsultationError"
+            />
+          </template>
+          <template #desktop>
+            <article class="panel error-panel">
+              <strong>Consultation client</strong>
+              <p>{{ clientConsultationError }}</p>
+            </article>
+          </template>
+        </ResponsiveDataContainer>
 
         <template v-else-if="clientConsultationClient">
+          <ResponsiveDataContainer :mobile="isMobileViewport">
+            <template #mobile>
+              <ClientConsultationOverviewCards
+                :client="clientConsultationClient"
+                :synthese="clientConsultationSynthese"
+                :format-date="formatDateShort"
+                :format-currency="formatCurrency"
+              />
+
+              <MobileFilterBlock
+                title="Filtres consultation"
+                :summary="clientHistoryFilterSummary"
+                :open="clientMobileFiltersOpen"
+                @toggle="clientMobileFiltersOpen = !clientMobileFiltersOpen"
+              >
+                <div class="filters compact">
+                  <select v-model="clientHistoryFilters.source">
+                    <option value="ALL">Toutes sources</option>
+                    <option value="COMMANDE">Commande</option>
+                    <option value="RETOUCHE">Retouche</option>
+                  </select>
+                  <select v-model="clientHistoryFilters.typeHabit">
+                    <option value="ALL">Tous types d'habit</option>
+                    <option v-for="type in clientTypeHabitOptions" :key="`flt-th-mobile-${type}`" :value="type">{{ type }}</option>
+                  </select>
+                  <select v-model="clientHistoryFilters.periode">
+                    <option value="ALL">Toute periode</option>
+                    <option value="30J">30 derniers jours</option>
+                    <option value="90J">90 derniers jours</option>
+                    <option value="365J">12 derniers mois</option>
+                  </select>
+                </div>
+              </MobileFilterBlock>
+
+              <article class="panel">
+                <MobileSectionHeader
+                  eyebrow="Historique"
+                  title="Historique client"
+                  :subtitle="`Resultats: ${clientConsultationResultats.commandes} commandes, ${clientConsultationResultats.retouches} retouches, ${clientConsultationResultats.mesures} mesures.`"
+                />
+                <div class="segmented">
+                  <button class="mini-btn" :class="{ active: clientConsultationSection === 'commandes' }" @click="clientConsultationSection = 'commandes'">
+                    Commandes ({{ clientConsultationResultats.commandes }})
+                  </button>
+                  <button class="mini-btn" :class="{ active: clientConsultationSection === 'retouches' }" @click="clientConsultationSection = 'retouches'">
+                    Retouches ({{ clientConsultationResultats.retouches }})
+                  </button>
+                  <button class="mini-btn" :class="{ active: clientConsultationSection === 'mesures' }" @click="clientConsultationSection = 'mesures'">
+                    Mesures ({{ clientConsultationResultats.mesures }})
+                  </button>
+                </div>
+              </article>
+
+              <article v-show="clientConsultationSection === 'commandes'" class="panel">
+                <MobileSectionHeader
+                  title="Historique des commandes"
+                  :subtitle="`${clientConsultationResultats.commandes} element(s)`"
+                />
+
+                <MobileStateEmpty
+                  v-if="clientFilteredCommandes.length === 0"
+                  title="Aucune commande"
+                  description="Aucune commande ne correspond aux filtres selectionnes."
+                />
+
+                <ClientCommandeHistoryMobileList
+                  v-else
+                  :items="clientCommandesPaged"
+                  :format-currency="formatCurrency"
+                  :format-date="formatDateShort"
+                  @view="openCommandeDetail"
+                />
+
+                <ResponsivePagination
+                  :page="clientPagination.commandesPage"
+                  :pages="clientCommandesPages"
+                  :show-page-size="false"
+                  :prev-disabled="clientPagination.commandesPage <= 1"
+                  :next-disabled="clientPagination.commandesPage >= clientCommandesPages"
+                  @prev="setClientPage('commandes', clientPagination.commandesPage - 1)"
+                  @next="setClientPage('commandes', clientPagination.commandesPage + 1)"
+                />
+              </article>
+
+              <article v-show="clientConsultationSection === 'retouches'" class="panel">
+                <MobileSectionHeader
+                  title="Historique des retouches"
+                  :subtitle="`${clientConsultationResultats.retouches} element(s)`"
+                />
+
+                <MobileStateEmpty
+                  v-if="clientFilteredRetouches.length === 0"
+                  title="Aucune retouche"
+                  description="Aucune retouche ne correspond aux filtres selectionnes."
+                />
+
+                <ClientRetoucheHistoryMobileList
+                  v-else
+                  :items="clientRetouchesPaged"
+                  :format-currency="formatCurrency"
+                  :format-date="formatDateShort"
+                  @view="openRetoucheDetail"
+                />
+
+                <ResponsivePagination
+                  :page="clientPagination.retouchesPage"
+                  :pages="clientRetouchesPages"
+                  :show-page-size="false"
+                  :prev-disabled="clientPagination.retouchesPage <= 1"
+                  :next-disabled="clientPagination.retouchesPage >= clientRetouchesPages"
+                  @prev="setClientPage('retouches', clientPagination.retouchesPage - 1)"
+                  @next="setClientPage('retouches', clientPagination.retouchesPage + 1)"
+                />
+              </article>
+
+              <article v-show="clientConsultationSection === 'mesures'" class="panel">
+                <MobileSectionHeader
+                  title="Historique des mesures"
+                  :subtitle="`${clientConsultationResultats.mesures} element(s)`"
+                />
+
+                <MobileStateEmpty
+                  v-if="clientFilteredMesures.length === 0"
+                  title="Aucune mesure"
+                  description="Aucun snapshot de mesures ne correspond aux filtres selectionnes."
+                />
+
+                <ClientMesureHistoryMobileList
+                  v-else
+                  :items="clientMesuresPaged"
+                  :format-date="formatDateShort"
+                  :format-mesures-lines="formatMesuresLines"
+                  @view="onVoirOrigineMesure"
+                />
+
+                <ResponsivePagination
+                  :page="clientPagination.mesuresPage"
+                  :pages="clientMesuresPages"
+                  :show-page-size="false"
+                  :prev-disabled="clientPagination.mesuresPage <= 1"
+                  :next-disabled="clientPagination.mesuresPage >= clientMesuresPages"
+                  @prev="setClientPage('mesures', clientPagination.mesuresPage - 1)"
+                  @next="setClientPage('mesures', clientPagination.mesuresPage + 1)"
+                />
+              </article>
+            </template>
+
+            <template #desktop>
           <article class="panel">
             <h3>Identite client</h3>
             <p><strong>Nom complet:</strong> {{ clientConsultationClient.nomComplet || "-" }}</p>
@@ -9791,20 +10740,37 @@ async function loadRetoucheDetail(idRetouche) {
               <button class="mini-btn" :disabled="clientPagination.mesuresPage >= clientMesuresPages" @click="setClientPage('mesures', clientPagination.mesuresPage + 1)">Suivant</button>
             </div>
           </article>
+            </template>
+          </ResponsiveDataContainer>
         </template>
 
-        <article class="panel" v-else>
-          <p>Selectionnez un client pour consulter sa memoire atelier.</p>
-        </article>
+        <ResponsiveDataContainer v-else :mobile="isMobileViewport">
+          <template #mobile>
+            <MobileStateEmpty
+              title="Selectionnez un client"
+              description="Choisissez un client pour consulter sa memoire atelier."
+            />
+          </template>
+          <template #desktop>
+            <article class="panel">
+              <p>Selectionnez un client pour consulter sa memoire atelier.</p>
+            </article>
+          </template>
+        </ResponsiveDataContainer>
+        </MobilePageLayout>
       </section>
         <section v-else-if="currentRoute === 'stockVentes'" class="commandes-page">
+        <MobilePageLayout :has-action="isMobileViewport && ((stockVentesTab === 'stock' && canManageStockArticles) || (stockVentesTab === 'ventes' && canCreateVente && venteDraft.lignes.length > 0))">
         <article class="panel panel-header">
-          <h3>Stock & Ventes</h3>
+          <MobileSectionHeader
+            eyebrow="Stock atelier"
+            title="Stock & Ventes"
+            subtitle="Suivez vos articles, enregistrez une vente et consultez l'historique."
+          />
           <div class="segmented">
             <button class="mini-btn" :class="{ active: stockVentesTab === 'stock' }" @click="stockVentesTab = 'stock'">Stock</button>
             <button class="mini-btn" :class="{ active: stockVentesTab === 'ventes' }" @click="stockVentesTab = 'ventes'">Ventes</button>
           </div>
-
         </article>
 
         <template v-if="stockVentesTab === 'stock'">
@@ -9819,7 +10785,7 @@ async function loadRetoucheDetail(idRetouche) {
           <article class="panel">
             <div class="panel-header">
               <h3>Gestion articles</h3>
-              <button v-if="canManageStockArticles" class="action-btn blue" @click="showNewArticle = !showNewArticle">
+              <button v-if="canManageStockArticles && !isMobileViewport" class="action-btn blue" @click="showNewArticle = !showNewArticle">
                 {{ showNewArticle ? "Fermer" : "Ajouter article" }}
               </button>
             </div>
@@ -9872,74 +10838,108 @@ async function loadRetoucheDetail(idRetouche) {
           </article>
 
           <article class="panel" ref="stockListRef">
-            <h3>Liste des articles</h3>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Article</th>
-                  <th>Quantite</th>
-                  <th>Prix achat moyen</th>
-                  <th>Prix vente</th>
-                  <th>Seuil</th>
-                  <th>Etat</th>
-                  <th>Approvisionnement</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="article in stockArticles" :key="article.idArticle">
-                  <td data-label="Article">{{ article.nomArticle }}</td>
-                  <td data-label="Quantite">{{ article.quantiteDisponible }}</td>
-                  <td data-label="Prix achat">{{ formatCurrency(article.prixAchatMoyen) }}</td>
-                  <td data-label="Prix vente">{{ formatCurrency(article.prixVenteUnitaire) }}</td>
-                  <td data-label="Seuil">{{ article.seuilAlerte }}</td>
-                  <td data-label="Etat">
-                    <span
-                      class="status-pill"
-                      :data-tone="Number(article.quantiteDisponible || 0) <= Number(article.seuilAlerte || 0) ? 'due' : 'ok'"
-                    >
-                      {{
-                        !article.actif
-                          ? "INACTIF"
-                          : Number(article.quantiteDisponible || 0) <= Number(article.seuilAlerte || 0)
-                            ? "STOCK FAIBLE"
-                            : "OK"
-                      }}
-                    </span>
-                  </td>
-                  <td class="row-actions">
-                    <template v-if="canManageStockAdjustments || canManageStockPurchases || canManageStockArticles">
-                      <input
-                        v-if="canManageStockAdjustments"
-                        class="inline-input"
-                        type="number"
-                        min="0"
-                        placeholder="Quantite"
-                        v-model="ensureStockInput(article.idArticle).quantite"
-                      />
-                      <input
-                        v-if="canManageStockAdjustments"
-                        class="inline-input"
-                        type="text"
-                        placeholder="Motif entree simple"
-                        v-model="ensureStockInput(article.idArticle).motif"
-                      />
-                      <button v-if="canManageStockAdjustments" class="mini-btn" @click="onApprovisionnerStock(article)">Entrer</button>
-                      <button v-if="canManageStockPurchases" class="mini-btn" @click="onAcheterStock(article)">Acheter</button>
-                      <button v-if="canManageStockArticles" class="mini-btn" @click="onModifierArticleStock(article)">Modifier</button>
-                    </template>
-                    <span v-else class="helper">Lecture seule</span>
-                  </td>
-                </tr>
-                <tr v-if="stockArticles.length === 0">
-                  <td colspan="6">{{ networkIsOnline ? "Aucun article en stock." : "Aucun article disponible hors ligne." }}</td>
-                </tr>
-              </tbody>
-            </table></article>
+            <MobileSectionHeader
+              title="Liste des articles"
+              :subtitle="`${stockArticles.length} article(s) en stock`"
+            />
+
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <MobileStateEmpty
+                  v-if="stockArticles.length === 0"
+                  title="Aucun article"
+                  :description="networkIsOnline ? 'Aucun article en stock.' : 'Aucun article disponible hors ligne.'"
+                />
+
+                <StockArticleMobileList
+                  v-else
+                  :items="stockArticles"
+                  :format-currency="formatCurrency"
+                  :ensure-input="ensureStockInput"
+                  :can-manage-stock-adjustments="canManageStockAdjustments"
+                  :can-manage-stock-purchases="canManageStockPurchases"
+                  :can-manage-stock-articles="canManageStockArticles"
+                  @adjust="onApprovisionnerStock"
+                  @buy="onAcheterStock"
+                  @edit="onModifierArticleStock"
+                />
+              </template>
+
+              <template #desktop>
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>Article</th>
+                      <th>Quantite</th>
+                      <th>Prix achat moyen</th>
+                      <th>Prix vente</th>
+                      <th>Seuil</th>
+                      <th>Etat</th>
+                      <th>Approvisionnement</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="article in stockArticles" :key="article.idArticle">
+                      <td data-label="Article">{{ article.nomArticle }}</td>
+                      <td data-label="Quantite">{{ article.quantiteDisponible }}</td>
+                      <td data-label="Prix achat">{{ formatCurrency(article.prixAchatMoyen) }}</td>
+                      <td data-label="Prix vente">{{ formatCurrency(article.prixVenteUnitaire) }}</td>
+                      <td data-label="Seuil">{{ article.seuilAlerte }}</td>
+                      <td data-label="Etat">
+                        <span
+                          class="status-pill"
+                          :data-tone="Number(article.quantiteDisponible || 0) <= Number(article.seuilAlerte || 0) ? 'due' : 'ok'"
+                        >
+                          {{
+                            !article.actif
+                              ? "INACTIF"
+                              : Number(article.quantiteDisponible || 0) <= Number(article.seuilAlerte || 0)
+                                ? "STOCK FAIBLE"
+                                : "OK"
+                          }}
+                        </span>
+                      </td>
+                      <td class="row-actions">
+                        <template v-if="canManageStockAdjustments || canManageStockPurchases || canManageStockArticles">
+                          <input
+                            v-if="canManageStockAdjustments"
+                            class="inline-input"
+                            type="number"
+                            min="0"
+                            placeholder="Quantite"
+                            v-model="ensureStockInput(article.idArticle).quantite"
+                          />
+                          <input
+                            v-if="canManageStockAdjustments"
+                            class="inline-input"
+                            type="text"
+                            placeholder="Motif entree simple"
+                            v-model="ensureStockInput(article.idArticle).motif"
+                          />
+                          <button v-if="canManageStockAdjustments" class="mini-btn" @click="onApprovisionnerStock(article)">Entrer</button>
+                          <button v-if="canManageStockPurchases" class="mini-btn" @click="onAcheterStock(article)">Acheter</button>
+                          <button v-if="canManageStockArticles" class="mini-btn" @click="onModifierArticleStock(article)">Modifier</button>
+                        </template>
+                        <span v-else class="helper">Lecture seule</span>
+                      </td>
+                    </tr>
+                    <tr v-if="stockArticles.length === 0">
+                      <td colspan="6">{{ networkIsOnline ? "Aucun article en stock." : "Aucun article disponible hors ligne." }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </ResponsiveDataContainer>
+          </article>
         </template>
 
         <template v-else>
           <article v-if="canCreateVente" class="panel">
-            <h3>Nouvelle vente</h3>
+            <MobileSectionHeader
+              title="Nouvelle vente"
+              subtitle="Ajoutez des lignes au brouillon avant de creer la vente."
+            />
+
             <div class="stack-form">
               <label>Article</label>
               <select v-model="venteDraft.current.idArticle">
@@ -9953,28 +10953,48 @@ async function loadRetoucheDetail(idRetouche) {
               <button class="mini-btn" @click="addVenteLigne">Ajouter ligne</button>
             </div>
 
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Article</th>
-                  <th>Quantite</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(ligne, index) in venteDraft.lignes" :key="`${ligne.idArticle}-${index}`">
-                  <td data-label="Article">{{ stockArticleMap.get(ligne.idArticle) || ligne.idArticle }}</td>
-                  <td data-label="Quantite">{{ ligne.quantite }}</td>
-                  <td class="row-actions">
-                    <button class="mini-btn" @click="removeVenteLigne(index)">Retirer</button>
-                  </td>
-                </tr>
-                <tr v-if="venteDraft.lignes.length === 0">
-                  <td colspan="3">Aucune ligne ajoutee.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer">
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <MobileStateEmpty
+                  v-if="venteDraft.lignes.length === 0"
+                  title="Aucune ligne ajoutee"
+                  description="Selectionnez un article et une quantite pour commencer la vente."
+                />
+
+                <VenteDraftMobileList
+                  v-else
+                  :items="venteDraft.lignes"
+                  :article-label="stockArticleLabel"
+                  @remove="removeVenteLigne"
+                />
+              </template>
+
+              <template #desktop>
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>Article</th>
+                      <th>Quantite</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(ligne, index) in venteDraft.lignes" :key="`${ligne.idArticle}-${index}`">
+                      <td data-label="Article">{{ stockArticleMap.get(ligne.idArticle) || ligne.idArticle }}</td>
+                      <td data-label="Quantite">{{ ligne.quantite }}</td>
+                      <td class="row-actions">
+                        <button class="mini-btn" @click="removeVenteLigne(index)">Retirer</button>
+                      </td>
+                    </tr>
+                    <tr v-if="venteDraft.lignes.length === 0">
+                      <td colspan="3">Aucune ligne ajoutee.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </ResponsiveDataContainer>
+
+            <div v-if="!isMobileViewport" class="panel-footer">
               <button class="action-btn blue" @click="onCreerVente" :disabled="venteSubmitting">Creer la vente</button>
             </div>
           </article>
@@ -9984,535 +11004,878 @@ async function loadRetoucheDetail(idRetouche) {
               <h3>Historique des ventes</h3>
               <span class="status-pill" :data-status="caisseStatus">{{ caisseStatus }}</span>
             </div>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Date</th>
-                  <th>Statut</th>
-                  <th>Total</th>
-                  <th>Reference caisse</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="vente in ventesPaged" :key="vente.idVente">
-                  <td data-label="ID">{{ vente.idVente }}</td>
-                  <td data-label="Date">{{ formatDateTime(vente.date) }}</td>
-                  <td data-label="Statut">
-                    <span class="status-pill" :data-status="vente.statut">{{ vente.statut }}</span>
-                  </td>
-                  <td data-label="Total">{{ formatCurrency(vente.total) }}</td>
-                  <td data-label="Reference caisse">{{ vente.referenceCaisse || "-" }}</td>
-                  <td class="row-actions">
-                    <button class="mini-btn" @click="onVoirVente(vente)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.eye" :key="`see-vente-${vente.idVente}-${i}`" :d="path" />
-                      </svg>
-                      Voir
-                    </button>
-                    <button
-                      class="mini-btn"
-                      v-if="vente.statut === 'BROUILLON'"
-                      :disabled="!caisseOuverte"
-                      :title="!caisseOuverte ? 'Caisse cloturee' : ''"
-                      @click="onValiderVente(vente)"
-                    >
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.check" :key="`val-vente-${vente.idVente}-${i}`" :d="path" />
-                      </svg>
-                      Valider
-                    </button>
-                    <button
-                      class="mini-btn"
-                      v-if="vente.statut === 'BROUILLON'"
-                      :disabled="!caisseOuverte"
-                      :title="!caisseOuverte ? 'Caisse cloturee' : ''"
-                      @click="onValiderVenteEtFacturer(vente)"
-                    >
-                      Valider + facture
-                    </button>
-                    <button class="mini-btn" v-if="vente.statut === 'BROUILLON'" @click="onAnnulerVente(vente)">
-                      Annuler
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="ventesView.length === 0">
-                  <td colspan="6">Aucune vente disponible.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="ventesPagination.pageSize">
-                <option :value="5">5 / page</option>
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="ventesPagination.page <= 1" @click="ventesPagination.page -= 1">Precedent</button>
-              <span>Page {{ ventesPagination.page }} / {{ ventesPages }} · {{ ventesView.length }} vente(s)</span>
-              <button class="mini-btn" :disabled="ventesPagination.page >= ventesPages" @click="ventesPagination.page += 1">Suivant</button>
-            </div>
+
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <MobileStateEmpty
+                  v-if="ventesView.length === 0"
+                  title="Aucune vente"
+                  description="Aucune vente disponible pour le moment."
+                />
+
+                <VenteMobileList
+                  v-else
+                  :items="ventesPaged"
+                  :format-currency="formatCurrency"
+                  :format-date-time="formatDateTime"
+                  @view="onVoirVente"
+                />
+              </template>
+
+              <template #desktop>
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Date</th>
+                      <th>Statut</th>
+                      <th>Total</th>
+                      <th>Reference caisse</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="vente in ventesPaged" :key="vente.idVente">
+                      <td data-label="ID">{{ vente.idVente }}</td>
+                      <td data-label="Date">{{ formatDateTime(vente.date) }}</td>
+                      <td data-label="Statut">
+                        <span class="status-pill" :data-status="vente.statut">{{ vente.statut }}</span>
+                      </td>
+                      <td data-label="Total">{{ formatCurrency(vente.total) }}</td>
+                      <td data-label="Reference caisse">{{ vente.referenceCaisse || "-" }}</td>
+                      <td class="row-actions">
+                        <button class="mini-btn" @click="onVoirVente(vente)">
+                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path v-for="(path, i) in iconPaths.eye" :key="`see-vente-${vente.idVente}-${i}`" :d="path" />
+                          </svg>
+                          Voir
+                        </button>
+                        <button
+                          class="mini-btn"
+                          v-if="vente.statut === 'BROUILLON'"
+                          :disabled="!caisseOuverte"
+                          :title="!caisseOuverte ? 'Caisse cloturee' : ''"
+                          @click="onValiderVente(vente)"
+                        >
+                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <path v-for="(path, i) in iconPaths.check" :key="`val-vente-${vente.idVente}-${i}`" :d="path" />
+                          </svg>
+                          Valider
+                        </button>
+                        <button
+                          class="mini-btn"
+                          v-if="vente.statut === 'BROUILLON'"
+                          :disabled="!caisseOuverte"
+                          :title="!caisseOuverte ? 'Caisse cloturee' : ''"
+                          @click="onValiderVenteEtFacturer(vente)"
+                        >
+                          Valider + facture
+                        </button>
+                        <button class="mini-btn" v-if="vente.statut === 'BROUILLON'" @click="onAnnulerVente(vente)">
+                          Annuler
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="ventesView.length === 0">
+                      <td colspan="6">Aucune vente disponible.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </ResponsiveDataContainer>
+
+            <ResponsivePagination
+              :page="ventesPagination.page"
+              :pages="ventesPages"
+              :page-size="ventesPagination.pageSize"
+              :page-size-options="[5, 10, 20]"
+              :prev-disabled="ventesPagination.page <= 1"
+              :next-disabled="ventesPagination.page >= ventesPages"
+              :desktop-summary="`Page ${ventesPagination.page} / ${ventesPages} · ${ventesView.length} vente(s)`"
+              @update:page-size="ventesPagination.pageSize = $event"
+              @prev="ventesPagination.page -= 1"
+              @next="ventesPagination.page += 1"
+            />
           </article>
         </template>
+
+        <template #action>
+          <MobilePrimaryActionBar
+            v-if="isMobileViewport && stockVentesTab === 'stock' && canManageStockArticles"
+            title="Action principale"
+            subtitle="Ajoutez rapidement un nouvel article au stock."
+          >
+            <button class="action-btn blue" @click="showNewArticle = !showNewArticle">
+              {{ showNewArticle ? "Fermer le formulaire" : "Ajouter article" }}
+            </button>
+          </MobilePrimaryActionBar>
+
+          <MobilePrimaryActionBar
+            v-else-if="isMobileViewport && stockVentesTab === 'ventes' && canCreateVente && venteDraft.lignes.length > 0"
+            title="Action principale"
+            subtitle="Validez le brouillon lorsque la vente est prete."
+          >
+            <button class="action-btn blue" @click="onCreerVente" :disabled="venteSubmitting">
+              Creer la vente
+            </button>
+          </MobilePrimaryActionBar>
+        </template>
+        </MobilePageLayout>
       </section>
 
         <section v-else-if="currentRoute === 'commande-detail'" class="commande-detail">
-        <article class="panel panel-header detail-header">
-          <div>
-            <h3>Detail commande</h3>
-            <p class="helper" v-if="detailCommande">ID: {{ detailCommande.idCommande }}</p>
-          </div>
-          <div class="row-actions">
-            <button class="mini-btn" @click="openRoute('commandes')">Retour</button>
-            <button
-              class="action-btn blue"
-              v-if="detailCommande && !detailCommandeFacture && detailCommande.statutCommande !== 'ANNULEE'"
-              @click="onEmettreFactureCommandeDetail"
-              :disabled="detailLoading"
-            >
-              Emettre facture
-            </button>
-            <button class="mini-btn" v-if="detailCommandeFacture" @click="onVoirFactureParOrigine('COMMANDE', detailCommande.idCommande)">
-              Voir facture
-            </button>
-            <button class="mini-btn" v-if="detailCommandeFacture" @click="onImprimerFactureParOrigine('COMMANDE', detailCommande.idCommande)">
-              Imprimer facture
-            </button>
-            <button class="action-btn blue" v-if="canPayerDetail" @click="onPaiementDetail" :disabled="detailLoading || detailPaiementsLoading">
-              Payer
-            </button>
-            <button class="action-btn green" v-if="canLivrerDetail" @click="onLivrerDetail" :disabled="detailLoading">
-              Livrer
-            </button>
-            <button class="action-btn amber" v-if="canTerminerDetail" @click="onTerminerDetail" :disabled="detailLoading">
-              Terminer
-            </button>
-            <button class="action-btn red" v-if="canAnnulerDetail" @click="onAnnulerDetail" :disabled="detailLoading">
-              Annuler
-            </button>
-          </div>
+        <MobilePageLayout :has-action="isMobileViewport && !!commandeDetailPrimaryAction">
+          <template #header>
+            <article class="panel panel-header detail-header">
+              <MobileSectionHeader
+                eyebrow="Commande"
+                title="Detail commande"
+                :subtitle="detailCommande ? `ID: ${detailCommande.idCommande}` : 'Suivez la commande, ses paiements et son historique.'"
+              />
+              <div class="row-actions">
+                <button class="mini-btn" @click="openRoute('commandes')">Retour</button>
+                <button
+                  v-if="!isMobileViewport && canEmitCommandeDetailFacture"
+                  class="action-btn blue"
+                  @click="onEmettreFactureCommandeDetail"
+                  :disabled="detailLoading"
+                >
+                  Emettre facture
+                </button>
+                <button class="mini-btn" v-if="detailCommandeFacture" @click="onVoirFactureParOrigine('COMMANDE', detailCommande.idCommande)">
+                  Voir facture
+                </button>
+                <button class="mini-btn" v-if="detailCommandeFacture" @click="onImprimerFactureParOrigine('COMMANDE', detailCommande.idCommande)">
+                  Imprimer facture
+                </button>
+                <button v-if="!isMobileViewport && canPayerDetail" class="action-btn blue" @click="onPaiementDetail" :disabled="detailLoading || detailPaiementsLoading">
+                  Payer
+                </button>
+                <button v-if="!isMobileViewport && canLivrerDetail" class="action-btn green" @click="onLivrerDetail" :disabled="detailLoading">
+                  Livrer
+                </button>
+                <button v-if="!isMobileViewport && canTerminerDetail" class="action-btn amber" @click="onTerminerDetail" :disabled="detailLoading">
+                  Terminer
+                </button>
+                <button
+                  :class="isMobileViewport ? 'mini-btn' : 'action-btn red'"
+                  v-if="canAnnulerDetail"
+                  @click="onAnnulerDetail"
+                  :disabled="detailLoading"
+                >
+                  Annuler
+                </button>
+              </div>
+            </article>
+          </template>
 
-        </article>
+          <ResponsiveDataContainer v-if="detailError" :mobile="isMobileViewport">
+            <template #mobile>
+              <MobileStateError title="Detail commande" :description="detailError" />
+            </template>
+            <template #desktop>
+              <article class="panel error-panel">
+                <strong>Detail commande</strong>
+                <p>{{ detailError }}</p>
+              </article>
+            </template>
+          </ResponsiveDataContainer>
 
-        <article v-if="detailError" class="panel error-panel">
-          <strong>Detail commande</strong>
-          <p>{{ detailError }}</p>
-        </article>
+          <ResponsiveDataContainer v-else-if="detailLoading" :mobile="isMobileViewport">
+            <template #mobile>
+              <MobileStateLoading title="Chargement de la commande" description="Preparation des informations detaillees..." />
+            </template>
+            <template #desktop>
+              <article class="panel">
+                <p>Chargement de la commande...</p>
+              </article>
+            </template>
+          </ResponsiveDataContainer>
 
-        <article v-if="detailLoading" class="panel">
-          <p>Chargement de la commande...</p>
-        </article>
-
-        <template v-else-if="detailCommande">
-          <article class="panel detail-grid" style="grid-template-columns: 1fr 1fr 1fr;">
-            <div>
-              <h4>Identite commande</h4>
-              <p><strong>Client:</strong> {{ detailCommande.clientNom || detailCommande.idClient }}</p>
-              <p><strong>Description:</strong> {{ detailCommande.descriptionCommande }}</p>
-              <p><strong>Statut:</strong> {{ detailCommande.statutCommande }}</p>
-              <p><strong>Facture:</strong> {{ detailCommandeFacture ? detailCommandeFacture.numeroFacture : "Non emise" }}</p>
-              <p><strong>Date creation:</strong> {{ detailCommande.dateCreation || "-" }}</p>
-              <p><strong>Date prevue:</strong> {{ detailCommande.datePrevue || "-" }}</p>
-            </div>
-            <div>
-              <h4>Mesures de l'habit</h4>
-              <p><strong>Type d'habit:</strong> {{ detailCommande.typeHabit || "-" }}</p>
-              <p><strong>Unite:</strong> cm</p>
-              <p><strong>Mode:</strong> Lecture seule</p>
-              <template v-for="(line, idx) in formatMesuresLines(detailCommande.mesuresHabit)" :key="`cmd-mes-line-${idx}`">
-                <p>{{ line }}</p>
+          <template v-else-if="detailCommande">
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <CommandeDetailOverviewCards
+                  :commande="detailCommande"
+                  :facture-number="detailCommandeFacture ? detailCommandeFacture.numeroFacture : ''"
+                  :mesures-lines="detailCommandeMesuresLines"
+                  :solde-restant="detailSoldeRestant"
+                  :format-currency="formatCurrency"
+                />
               </template>
-              <p v-if="formatMesuresLines(detailCommande.mesuresHabit).length === 0">Aucune mesure.</p>
-            </div>
-            <div>
-              <h4>Resume financier</h4>
-              <p><strong>Montant total:</strong> {{ formatCurrency(detailCommande.montantTotal) }}</p>
-              <p><strong>Total paye:</strong> {{ formatCurrency(detailCommande.montantPaye) }}</p>
-              <p><strong>Solde restant:</strong> {{ formatCurrency(detailSoldeRestant) }}</p>
-            </div>
-          </article>
+              <template #desktop>
+                <article class="panel detail-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                  <div>
+                    <h4>Identite commande</h4>
+                    <p><strong>Client:</strong> {{ detailCommande.clientNom || detailCommande.idClient }}</p>
+                    <p><strong>Description:</strong> {{ detailCommande.descriptionCommande }}</p>
+                    <p><strong>Statut:</strong> {{ detailCommande.statutCommande }}</p>
+                    <p><strong>Facture:</strong> {{ detailCommandeFacture ? detailCommandeFacture.numeroFacture : "Non emise" }}</p>
+                    <p><strong>Date creation:</strong> {{ detailCommande.dateCreation || "-" }}</p>
+                    <p><strong>Date prevue:</strong> {{ detailCommande.datePrevue || "-" }}</p>
+                  </div>
+                  <div>
+                    <h4>Mesures de l'habit</h4>
+                    <p><strong>Type d'habit:</strong> {{ detailCommande.typeHabit || "-" }}</p>
+                    <p><strong>Unite:</strong> cm</p>
+                    <p><strong>Mode:</strong> Lecture seule</p>
+                    <template v-for="(line, idx) in detailCommandeMesuresLines" :key="`cmd-mes-line-${idx}`">
+                      <p>{{ line }}</p>
+                    </template>
+                    <p v-if="detailCommandeMesuresLines.length === 0">Aucune mesure.</p>
+                  </div>
+                  <div>
+                    <h4>Resume financier</h4>
+                    <p><strong>Montant total:</strong> {{ formatCurrency(detailCommande.montantTotal) }}</p>
+                    <p><strong>Total paye:</strong> {{ formatCurrency(detailCommande.montantPaye) }}</p>
+                    <p><strong>Solde restant:</strong> {{ formatCurrency(detailSoldeRestant) }}</p>
+                  </div>
+                </article>
+              </template>
+            </ResponsiveDataContainer>
 
-          <CommandeMediaGallery
-            :items="detailCommandeMedia"
-            :loading="detailCommandeMediaLoading"
-            :error="detailCommandeMediaError"
-            :uploading="detailCommandeMediaUploading"
-            :action-id="detailCommandeMediaActionId"
-            @upload="uploadCommandeMedia"
-            @open="openCommandeMedia"
-            @remove="deleteCommandeMedia"
-            @set-primary="setCommandeMediaPrimary"
-            @move="moveCommandeMedia"
-            @save-note="saveCommandeMediaNote"
-          />
+            <CommandeMediaGallery
+              :items="detailCommandeMedia"
+              :loading="detailCommandeMediaLoading"
+              :error="detailCommandeMediaError"
+              :uploading="detailCommandeMediaUploading"
+              :action-id="detailCommandeMediaActionId"
+              @upload="uploadCommandeMedia"
+              @open="openCommandeMedia"
+              @remove="deleteCommandeMedia"
+              @set-primary="setCommandeMediaPrimary"
+              @move="moveCommandeMedia"
+              @save-note="saveCommandeMediaNote"
+            />
 
-          <article class="panel">
-            <div class="panel-header detail-panel-header">
-              <h4>Historique des paiements</h4>
-              <span class="helper" v-if="detailPaiementsLoading">Chargement...</span>
-            </div>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Montant</th>
-                  <th>Mode</th>
-                  <th>Statut</th>
-                  <th>Reference</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="paiement in detailPaiementsPaged" :key="paiement.idOperation">
-                  <td data-label="Date">{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
-                  <td data-label="Montant">{{ formatCurrency(paiement.montant) }}</td>
-                  <td data-label="Mode">{{ paiement.modePaiement || "-" }}</td>
-                  <td data-label="Statut">{{ paiement.statutOperation || "-" }}</td>
-                  <td data-label="Reference">{{ paiement.motif || paiement.referenceMetier || "-" }}</td>
-                </tr>
-                <tr v-if="!detailPaiementsLoading && detailPaiements.length === 0">
-                  <td colspan="5">Aucun paiement enregistre.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="detailPaiementsPagination.pageSize">
-                <option :value="5">5 / page</option>
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="detailPaiementsPagination.page <= 1" @click="detailPaiementsPagination.page -= 1">Precedent</button>
-              <span>Page {{ detailPaiementsPagination.page }} / {{ detailPaiementsPages }}</span>
-              <button class="mini-btn" :disabled="detailPaiementsPagination.page >= detailPaiementsPages" @click="detailPaiementsPagination.page += 1">Suivant</button>
-            </div>
-          </article>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <article class="panel">
+                  <MobileSectionHeader
+                    title="Historique des paiements"
+                    subtitle="Consultez rapidement les derniers paiements de la commande."
+                  />
+                  <CommandeDetailPaymentMobileList
+                    :items="detailPaiementsPaged"
+                    :loading="detailPaiementsLoading"
+                    :format-currency="formatCurrency"
+                    :format-date-time="formatDateTime"
+                  />
+                  <ResponsivePagination
+                    v-if="detailPaiements.length > 0"
+                    :page="detailPaiementsPagination.page"
+                    :pages="detailPaiementsPages"
+                    :page-size="detailPaiementsPagination.pageSize"
+                    :page-size-options="[5, 10, 20]"
+                    :prev-disabled="detailPaiementsPagination.page <= 1"
+                    :next-disabled="detailPaiementsPagination.page >= detailPaiementsPages"
+                    @update:page-size="detailPaiementsPagination.pageSize = $event"
+                    @prev="detailPaiementsPagination.page -= 1"
+                    @next="detailPaiementsPagination.page += 1"
+                  />
+                </article>
+              </template>
+              <template #desktop>
+                <article class="panel">
+                  <div class="panel-header detail-panel-header">
+                    <h4>Historique des paiements</h4>
+                    <span class="helper" v-if="detailPaiementsLoading">Chargement...</span>
+                  </div>
+                  <table class="data-table mobile-stack-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Montant</th>
+                        <th>Mode</th>
+                        <th>Statut</th>
+                        <th>Reference</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="paiement in detailPaiementsPaged" :key="paiement.idOperation">
+                        <td data-label="Date">{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
+                        <td data-label="Montant">{{ formatCurrency(paiement.montant) }}</td>
+                        <td data-label="Mode">{{ paiement.modePaiement || "-" }}</td>
+                        <td data-label="Statut">{{ paiement.statutOperation || "-" }}</td>
+                        <td data-label="Reference">{{ paiement.motif || paiement.referenceMetier || "-" }}</td>
+                      </tr>
+                      <tr v-if="!detailPaiementsLoading && detailPaiements.length === 0">
+                        <td colspan="5">Aucun paiement enregistre.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <ResponsivePagination
+                    :page="detailPaiementsPagination.page"
+                    :pages="detailPaiementsPages"
+                    :page-size="detailPaiementsPagination.pageSize"
+                    :page-size-options="[5, 10, 20]"
+                    :prev-disabled="detailPaiementsPagination.page <= 1"
+                    :next-disabled="detailPaiementsPagination.page >= detailPaiementsPages"
+                    @update:page-size="detailPaiementsPagination.pageSize = $event"
+                    @prev="detailPaiementsPagination.page -= 1"
+                    @next="detailPaiementsPagination.page += 1"
+                  />
+                </article>
+              </template>
+            </ResponsiveDataContainer>
 
-          <article class="panel">
-            <div class="panel-header detail-panel-header">
-              <h4>Historique des evenements</h4>
-              <span class="helper" v-if="detailCommandeEventsLoading">Chargement...</span>
-            </div>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Evenement</th>
-                  <th>Etat precedent</th>
-                  <th>Nouvel etat</th>
-                  <th>Utilisateur</th>
-                  <th>Role</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="event in detailCommandeEventsPaged" :key="event.idEvent">
-                  <td data-label="Date">{{ formatDateTime(event.dateEvent) }}</td>
-                  <td data-label="Evenement">{{ event.typeEventLabel }}</td>
-                  <td data-label="Etat precedent">
-                    <span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span>
-                  </td>
-                  <td data-label="Nouvel etat">
-                    <span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span>
-                  </td>
-                  <td data-label="Utilisateur">{{ event.utilisateurNom }}</td>
-                  <td data-label="Role">{{ event.role }}</td>
-                </tr>
-                <tr v-if="!detailCommandeEventsLoading && detailCommandeEvents.length === 0">
-                  <td colspan="6">Aucun evenement enregistre.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="detailCommandeEventsPagination.pageSize">
-                <option :value="5">5 / page</option>
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="detailCommandeEventsPagination.page <= 1" @click="detailCommandeEventsPagination.page -= 1">Precedent</button>
-              <span>Page {{ detailCommandeEventsPagination.page }} / {{ detailCommandeEventsPages }}</span>
-              <button class="mini-btn" :disabled="detailCommandeEventsPagination.page >= detailCommandeEventsPages" @click="detailCommandeEventsPagination.page += 1">Suivant</button>
-            </div>
-          </article>
-        </template>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <article class="panel">
+                  <MobileSectionHeader
+                    title="Historique des evenements"
+                    subtitle="Suivi des changements d'etat et des interventions sur la commande."
+                  />
+                  <CommandeDetailEventMobileList
+                    :items="detailCommandeEventsPaged"
+                    :loading="detailCommandeEventsLoading"
+                    :format-date-time="formatDateTime"
+                  />
+                  <ResponsivePagination
+                    v-if="detailCommandeEvents.length > 0"
+                    :page="detailCommandeEventsPagination.page"
+                    :pages="detailCommandeEventsPages"
+                    :page-size="detailCommandeEventsPagination.pageSize"
+                    :page-size-options="[5, 10, 20]"
+                    :prev-disabled="detailCommandeEventsPagination.page <= 1"
+                    :next-disabled="detailCommandeEventsPagination.page >= detailCommandeEventsPages"
+                    @update:page-size="detailCommandeEventsPagination.pageSize = $event"
+                    @prev="detailCommandeEventsPagination.page -= 1"
+                    @next="detailCommandeEventsPagination.page += 1"
+                  />
+                </article>
+              </template>
+              <template #desktop>
+                <article class="panel">
+                  <div class="panel-header detail-panel-header">
+                    <h4>Historique des evenements</h4>
+                    <span class="helper" v-if="detailCommandeEventsLoading">Chargement...</span>
+                  </div>
+                  <table class="data-table mobile-stack-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Evenement</th>
+                        <th>Etat precedent</th>
+                        <th>Nouvel etat</th>
+                        <th>Utilisateur</th>
+                        <th>Role</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="event in detailCommandeEventsPaged" :key="event.idEvent">
+                        <td data-label="Date">{{ formatDateTime(event.dateEvent) }}</td>
+                        <td data-label="Evenement">{{ event.typeEventLabel }}</td>
+                        <td data-label="Etat precedent">
+                          <span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span>
+                        </td>
+                        <td data-label="Nouvel etat">
+                          <span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span>
+                        </td>
+                        <td data-label="Utilisateur">{{ event.utilisateurNom }}</td>
+                        <td data-label="Role">{{ event.role }}</td>
+                      </tr>
+                      <tr v-if="!detailCommandeEventsLoading && detailCommandeEvents.length === 0">
+                        <td colspan="6">Aucun evenement enregistre.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <ResponsivePagination
+                    :page="detailCommandeEventsPagination.page"
+                    :pages="detailCommandeEventsPages"
+                    :page-size="detailCommandeEventsPagination.pageSize"
+                    :page-size-options="[5, 10, 20]"
+                    :prev-disabled="detailCommandeEventsPagination.page <= 1"
+                    :next-disabled="detailCommandeEventsPagination.page >= detailCommandeEventsPages"
+                    @update:page-size="detailCommandeEventsPagination.pageSize = $event"
+                    @prev="detailCommandeEventsPagination.page -= 1"
+                    @next="detailCommandeEventsPagination.page += 1"
+                  />
+                </article>
+              </template>
+            </ResponsiveDataContainer>
+          </template>
+
+          <template #action>
+            <MobilePrimaryActionBar
+              v-if="isMobileViewport && commandeDetailPrimaryAction"
+              title="Action principale"
+              :subtitle="commandeDetailPrimaryAction.subtitle"
+            >
+              <button
+                :class="`action-btn ${commandeDetailPrimaryAction.tone}`"
+                :disabled="detailLoading || detailPaiementsLoading"
+                @click="commandeDetailPrimaryAction.handler"
+              >
+                {{ commandeDetailPrimaryAction.label }}
+              </button>
+            </MobilePrimaryActionBar>
+          </template>
+        </MobilePageLayout>
       </section>
 
         <section v-else-if="currentRoute === 'retouche-detail'" class="commande-detail">
-        <article class="panel panel-header detail-header">
-          <div>
-            <h3>Detail retouche</h3>
-            <p class="helper" v-if="detailRetouche">ID: {{ detailRetouche.idRetouche }}</p>
-          </div>
-          <div class="row-actions">
-            <button class="mini-btn" @click="openRoute('retouches')">Retour</button>
-            <button
-              class="action-btn blue"
-              v-if="detailRetouche && !detailRetoucheFacture && detailRetouche.statutRetouche !== 'ANNULEE'"
-              @click="onEmettreFactureRetoucheDetail"
-              :disabled="detailRetoucheLoading"
-            >
-              Emettre facture
-            </button>
-            <button class="mini-btn" v-if="detailRetoucheFacture" @click="onVoirFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
-              Voir facture
-            </button>
-            <button class="mini-btn" v-if="detailRetoucheFacture" @click="onImprimerFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
-              Imprimer facture
-            </button>
-            <button
-              class="action-btn blue"
-              v-if="canPayerRetoucheDetail"
-              @click="onPaiementRetoucheDetail"
-              :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading"
-            >
-              Payer
-            </button>
-            <button class="action-btn green" v-if="canLivrerRetoucheDetail" @click="onLivrerRetoucheDetail" :disabled="detailRetoucheLoading">
-              Livrer
-            </button>
-            <button class="action-btn amber" v-if="canTerminerRetoucheDetail" @click="onTerminerRetoucheDetail" :disabled="detailRetoucheLoading">
-              Terminer
-            </button>
-            <button class="action-btn red" v-if="canAnnulerRetoucheDetail" @click="onAnnulerRetoucheDetail" :disabled="detailRetoucheLoading">
-              Annuler
-            </button>
-          </div>
+        <MobilePageLayout :has-action="isMobileViewport && !!retoucheDetailPrimaryAction">
+          <template #header>
+            <article class="panel panel-header detail-header">
+              <MobileSectionHeader
+                eyebrow="Retouche"
+                title="Detail retouche"
+                :subtitle="detailRetouche ? `ID: ${detailRetouche.idRetouche}` : 'Suivez la retouche, ses paiements et son historique.'"
+              />
+              <div class="row-actions">
+                <button class="mini-btn" @click="openRoute('retouches')">Retour</button>
+                <button
+                  v-if="!isMobileViewport && canEmitRetoucheDetailFacture"
+                  class="action-btn blue"
+                  @click="onEmettreFactureRetoucheDetail"
+                  :disabled="detailRetoucheLoading"
+                >
+                  Emettre facture
+                </button>
+                <button class="mini-btn" v-if="detailRetoucheFacture" @click="onVoirFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
+                  Voir facture
+                </button>
+                <button class="mini-btn" v-if="detailRetoucheFacture" @click="onImprimerFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
+                  Imprimer facture
+                </button>
+                <button
+                  v-if="!isMobileViewport && canPayerRetoucheDetail"
+                  class="action-btn blue"
+                  @click="onPaiementRetoucheDetail"
+                  :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading"
+                >
+                  Payer
+                </button>
+                <button v-if="!isMobileViewport && canLivrerRetoucheDetail" class="action-btn green" @click="onLivrerRetoucheDetail" :disabled="detailRetoucheLoading">
+                  Livrer
+                </button>
+                <button v-if="!isMobileViewport && canTerminerRetoucheDetail" class="action-btn amber" @click="onTerminerRetoucheDetail" :disabled="detailRetoucheLoading">
+                  Terminer
+                </button>
+                <button
+                  :class="isMobileViewport ? 'mini-btn' : 'action-btn red'"
+                  v-if="canAnnulerRetoucheDetail"
+                  @click="onAnnulerRetoucheDetail"
+                  :disabled="detailRetoucheLoading"
+                >
+                  Annuler
+                </button>
+              </div>
+            </article>
+          </template>
 
-        </article>
+          <ResponsiveDataContainer v-if="detailRetoucheError" :mobile="isMobileViewport">
+            <template #mobile>
+              <MobileStateError title="Detail retouche" :description="detailRetoucheError" />
+            </template>
+            <template #desktop>
+              <article class="panel error-panel">
+                <strong>Detail retouche</strong>
+                <p>{{ detailRetoucheError }}</p>
+              </article>
+            </template>
+          </ResponsiveDataContainer>
 
-        <article v-if="detailRetoucheError" class="panel error-panel">
-          <strong>Detail retouche</strong>
-          <p>{{ detailRetoucheError }}</p>
-        </article>
+          <ResponsiveDataContainer v-else-if="detailRetoucheLoading" :mobile="isMobileViewport">
+            <template #mobile>
+              <MobileStateLoading title="Chargement de la retouche" description="Preparation des informations detaillees..." />
+            </template>
+            <template #desktop>
+              <article class="panel">
+                <p>Chargement de la retouche...</p>
+              </article>
+            </template>
+          </ResponsiveDataContainer>
 
-        <article v-if="detailRetoucheLoading" class="panel">
-          <p>Chargement de la retouche...</p>
-        </article>
-
-        <template v-else-if="detailRetouche">
-          <article class="panel detail-grid" style="grid-template-columns: 1fr 1fr 1fr;">
-            <div>
-              <h4>Identite retouche</h4>
-              <p><strong>Client:</strong> {{ detailRetouche.clientNom || detailRetouche.idClient }}</p>
-              <p><strong>Type:</strong> {{ detailRetouche.typeRetouche || "-" }}</p>
-              <p><strong>Description:</strong> {{ detailRetouche.descriptionRetouche }}</p>
-              <p><strong>Statut:</strong> {{ detailRetouche.statutRetouche }}</p>
-              <p><strong>Facture:</strong> {{ detailRetoucheFacture ? detailRetoucheFacture.numeroFacture : "Non emise" }}</p>
-              <p><strong>Date depot:</strong> {{ detailRetouche.dateDepot || "-" }}</p>
-              <p><strong>Date prevue:</strong> {{ detailRetouche.datePrevue || "-" }}</p>
-            </div>
-            <div>
-              <h4>Mesures de l'habit</h4>
-              <p><strong>Type d'habit:</strong> {{ detailRetouche.typeHabit || "-" }}</p>
-              <p><strong>Unite:</strong> cm</p>
-              <p><strong>Mode:</strong> Lecture seule</p>
-              <template v-for="(line, idx) in formatMesuresLines(detailRetouche.mesuresHabit)" :key="`ret-mes-line-${idx}`">
-                <p>{{ line }}</p>
+          <template v-else-if="detailRetouche">
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <RetoucheDetailOverviewCards
+                  :retouche="detailRetouche"
+                  :facture-number="detailRetoucheFacture ? detailRetoucheFacture.numeroFacture : ''"
+                  :mesures-lines="detailRetoucheMesuresLines"
+                  :solde-restant="detailRetoucheSoldeRestant"
+                  :format-currency="formatCurrency"
+                />
               </template>
-              <p v-if="formatMesuresLines(detailRetouche.mesuresHabit).length === 0">Aucune mesure.</p>
-            </div>
-            <div>
-              <h4>Resume financier</h4>
-              <p><strong>Montant total:</strong> {{ formatCurrency(detailRetouche.montantTotal) }}</p>
-              <p><strong>Total paye:</strong> {{ formatCurrency(detailRetouche.montantPaye) }}</p>
-              <p><strong>Solde restant:</strong> {{ formatCurrency(detailRetoucheSoldeRestant) }}</p>
-            </div>
-          </article>
+              <template #desktop>
+                <article class="panel detail-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                  <div>
+                    <h4>Identite retouche</h4>
+                    <p><strong>Client:</strong> {{ detailRetouche.clientNom || detailRetouche.idClient }}</p>
+                    <p><strong>Type:</strong> {{ detailRetouche.typeRetouche || "-" }}</p>
+                    <p><strong>Description:</strong> {{ detailRetouche.descriptionRetouche }}</p>
+                    <p><strong>Statut:</strong> {{ detailRetouche.statutRetouche }}</p>
+                    <p><strong>Facture:</strong> {{ detailRetoucheFacture ? detailRetoucheFacture.numeroFacture : "Non emise" }}</p>
+                    <p><strong>Date depot:</strong> {{ detailRetouche.dateDepot || "-" }}</p>
+                    <p><strong>Date prevue:</strong> {{ detailRetouche.datePrevue || "-" }}</p>
+                  </div>
+                  <div>
+                    <h4>Mesures de l'habit</h4>
+                    <p><strong>Type d'habit:</strong> {{ detailRetouche.typeHabit || "-" }}</p>
+                    <p><strong>Unite:</strong> cm</p>
+                    <p><strong>Mode:</strong> Lecture seule</p>
+                    <template v-for="(line, idx) in detailRetoucheMesuresLines" :key="`ret-mes-line-${idx}`">
+                      <p>{{ line }}</p>
+                    </template>
+                    <p v-if="detailRetoucheMesuresLines.length === 0">Aucune mesure.</p>
+                  </div>
+                  <div>
+                    <h4>Resume financier</h4>
+                    <p><strong>Montant total:</strong> {{ formatCurrency(detailRetouche.montantTotal) }}</p>
+                    <p><strong>Total paye:</strong> {{ formatCurrency(detailRetouche.montantPaye) }}</p>
+                    <p><strong>Solde restant:</strong> {{ formatCurrency(detailRetoucheSoldeRestant) }}</p>
+                  </div>
+                </article>
+              </template>
+            </ResponsiveDataContainer>
 
-          <article class="panel">
-            <div class="panel-header detail-panel-header">
-              <h4>Historique des paiements</h4>
-              <span class="helper" v-if="detailRetouchePaiementsLoading">Chargement...</span>
-            </div>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Montant</th>
-                  <th>Mode</th>
-                  <th>Statut</th>
-                  <th>Reference</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="paiement in detailRetouchePaiementsPaged" :key="paiement.idOperation">
-                  <td data-label="Date">{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
-                  <td data-label="Montant">{{ formatCurrency(paiement.montant) }}</td>
-                  <td data-label="Mode">{{ paiement.modePaiement || "-" }}</td>
-                  <td data-label="Statut">{{ paiement.statutOperation || "-" }}</td>
-                  <td data-label="Reference">{{ paiement.motif || paiement.referenceMetier || "-" }}</td>
-                </tr>
-                <tr v-if="!detailRetouchePaiementsLoading && detailRetouchePaiements.length === 0">
-                  <td colspan="5">Aucun paiement enregistre.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="detailRetouchePaiementsPagination.pageSize">
-                <option :value="5">5 / page</option>
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="detailRetouchePaiementsPagination.page <= 1" @click="detailRetouchePaiementsPagination.page -= 1">Precedent</button>
-              <span>Page {{ detailRetouchePaiementsPagination.page }} / {{ detailRetouchePaiementsPages }}</span>
-              <button class="mini-btn" :disabled="detailRetouchePaiementsPagination.page >= detailRetouchePaiementsPages" @click="detailRetouchePaiementsPagination.page += 1">Suivant</button>
-            </div>
-          </article>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <article class="panel">
+                  <MobileSectionHeader
+                    title="Historique des paiements"
+                    subtitle="Consultez rapidement les derniers paiements de la retouche."
+                  />
+                  <RetoucheDetailPaymentMobileList
+                    :items="detailRetouchePaiementsPaged"
+                    :loading="detailRetouchePaiementsLoading"
+                    :format-currency="formatCurrency"
+                    :format-date-time="formatDateTime"
+                  />
+                  <ResponsivePagination
+                    v-if="detailRetouchePaiements.length > 0"
+                    :page="detailRetouchePaiementsPagination.page"
+                    :pages="detailRetouchePaiementsPages"
+                    :page-size="detailRetouchePaiementsPagination.pageSize"
+                    :page-size-options="[5, 10, 20]"
+                    :prev-disabled="detailRetouchePaiementsPagination.page <= 1"
+                    :next-disabled="detailRetouchePaiementsPagination.page >= detailRetouchePaiementsPages"
+                    @update:page-size="detailRetouchePaiementsPagination.pageSize = $event"
+                    @prev="detailRetouchePaiementsPagination.page -= 1"
+                    @next="detailRetouchePaiementsPagination.page += 1"
+                  />
+                </article>
+              </template>
+              <template #desktop>
+                <article class="panel">
+                  <div class="panel-header detail-panel-header">
+                    <h4>Historique des paiements</h4>
+                    <span class="helper" v-if="detailRetouchePaiementsLoading">Chargement...</span>
+                  </div>
+                  <table class="data-table mobile-stack-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Montant</th>
+                        <th>Mode</th>
+                        <th>Statut</th>
+                        <th>Reference</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="paiement in detailRetouchePaiementsPaged" :key="paiement.idOperation">
+                        <td data-label="Date">{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
+                        <td data-label="Montant">{{ formatCurrency(paiement.montant) }}</td>
+                        <td data-label="Mode">{{ paiement.modePaiement || "-" }}</td>
+                        <td data-label="Statut">{{ paiement.statutOperation || "-" }}</td>
+                        <td data-label="Reference">{{ paiement.motif || paiement.referenceMetier || "-" }}</td>
+                      </tr>
+                      <tr v-if="!detailRetouchePaiementsLoading && detailRetouchePaiements.length === 0">
+                        <td colspan="5">Aucun paiement enregistre.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <ResponsivePagination
+                    :page="detailRetouchePaiementsPagination.page"
+                    :pages="detailRetouchePaiementsPages"
+                    :page-size="detailRetouchePaiementsPagination.pageSize"
+                    :page-size-options="[5, 10, 20]"
+                    :prev-disabled="detailRetouchePaiementsPagination.page <= 1"
+                    :next-disabled="detailRetouchePaiementsPagination.page >= detailRetouchePaiementsPages"
+                    @update:page-size="detailRetouchePaiementsPagination.pageSize = $event"
+                    @prev="detailRetouchePaiementsPagination.page -= 1"
+                    @next="detailRetouchePaiementsPagination.page += 1"
+                  />
+                </article>
+              </template>
+            </ResponsiveDataContainer>
 
-          <article class="panel">
-            <div class="panel-header detail-panel-header">
-              <h4>Historique des evenements</h4>
-              <span class="helper" v-if="detailRetoucheEventsLoading">Chargement...</span>
-            </div>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Evenement</th>
-                  <th>Etat precedent</th>
-                  <th>Nouvel etat</th>
-                  <th>Utilisateur</th>
-                  <th>Role</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="event in detailRetoucheEventsPaged" :key="event.idEvent">
-                  <td data-label="Date">{{ formatDateTime(event.dateEvent) }}</td>
-                  <td data-label="Evenement">{{ event.typeEventLabel }}</td>
-                  <td data-label="Etat precedent">
-                    <span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span>
-                  </td>
-                  <td data-label="Nouvel etat">
-                    <span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span>
-                  </td>
-                  <td data-label="Utilisateur">{{ event.utilisateurNom }}</td>
-                  <td data-label="Role">{{ event.role }}</td>
-                </tr>
-                <tr v-if="!detailRetoucheEventsLoading && detailRetoucheEvents.length === 0">
-                  <td colspan="6">Aucun evenement enregistre.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="detailRetoucheEventsPagination.pageSize">
-                <option :value="5">5 / page</option>
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="detailRetoucheEventsPagination.page <= 1" @click="detailRetoucheEventsPagination.page -= 1">Precedent</button>
-              <span>Page {{ detailRetoucheEventsPagination.page }} / {{ detailRetoucheEventsPages }}</span>
-              <button class="mini-btn" :disabled="detailRetoucheEventsPagination.page >= detailRetoucheEventsPages" @click="detailRetoucheEventsPagination.page += 1">Suivant</button>
-            </div>
-          </article>
-        </template>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <article class="panel">
+                  <MobileSectionHeader
+                    title="Historique des evenements"
+                    subtitle="Suivi des changements d'etat et des interventions sur la retouche."
+                  />
+                  <RetoucheDetailEventMobileList
+                    :items="detailRetoucheEventsPaged"
+                    :loading="detailRetoucheEventsLoading"
+                    :format-date-time="formatDateTime"
+                  />
+                  <ResponsivePagination
+                    v-if="detailRetoucheEvents.length > 0"
+                    :page="detailRetoucheEventsPagination.page"
+                    :pages="detailRetoucheEventsPages"
+                    :page-size="detailRetoucheEventsPagination.pageSize"
+                    :page-size-options="[5, 10, 20]"
+                    :prev-disabled="detailRetoucheEventsPagination.page <= 1"
+                    :next-disabled="detailRetoucheEventsPagination.page >= detailRetoucheEventsPages"
+                    @update:page-size="detailRetoucheEventsPagination.pageSize = $event"
+                    @prev="detailRetoucheEventsPagination.page -= 1"
+                    @next="detailRetoucheEventsPagination.page += 1"
+                  />
+                </article>
+              </template>
+              <template #desktop>
+                <article class="panel">
+                  <div class="panel-header detail-panel-header">
+                    <h4>Historique des evenements</h4>
+                    <span class="helper" v-if="detailRetoucheEventsLoading">Chargement...</span>
+                  </div>
+                  <table class="data-table mobile-stack-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Evenement</th>
+                        <th>Etat precedent</th>
+                        <th>Nouvel etat</th>
+                        <th>Utilisateur</th>
+                        <th>Role</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="event in detailRetoucheEventsPaged" :key="event.idEvent">
+                        <td data-label="Date">{{ formatDateTime(event.dateEvent) }}</td>
+                        <td data-label="Evenement">{{ event.typeEventLabel }}</td>
+                        <td data-label="Etat precedent">
+                          <span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span>
+                        </td>
+                        <td data-label="Nouvel etat">
+                          <span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span>
+                        </td>
+                        <td data-label="Utilisateur">{{ event.utilisateurNom }}</td>
+                        <td data-label="Role">{{ event.role }}</td>
+                      </tr>
+                      <tr v-if="!detailRetoucheEventsLoading && detailRetoucheEvents.length === 0">
+                        <td colspan="6">Aucun evenement enregistre.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <ResponsivePagination
+                    :page="detailRetoucheEventsPagination.page"
+                    :pages="detailRetoucheEventsPages"
+                    :page-size="detailRetoucheEventsPagination.pageSize"
+                    :page-size-options="[5, 10, 20]"
+                    :prev-disabled="detailRetoucheEventsPagination.page <= 1"
+                    :next-disabled="detailRetoucheEventsPagination.page >= detailRetoucheEventsPages"
+                    @update:page-size="detailRetoucheEventsPagination.pageSize = $event"
+                    @prev="detailRetoucheEventsPagination.page -= 1"
+                    @next="detailRetoucheEventsPagination.page += 1"
+                  />
+                </article>
+              </template>
+            </ResponsiveDataContainer>
+          </template>
+
+          <template #action>
+            <MobilePrimaryActionBar
+              v-if="isMobileViewport && retoucheDetailPrimaryAction"
+              title="Action principale"
+              :subtitle="retoucheDetailPrimaryAction.subtitle"
+            >
+              <button
+                :class="`action-btn ${retoucheDetailPrimaryAction.tone}`"
+                :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading"
+                @click="retoucheDetailPrimaryAction.handler"
+              >
+                {{ retoucheDetailPrimaryAction.label }}
+              </button>
+            </MobilePrimaryActionBar>
+          </template>
+        </MobilePageLayout>
       </section>
 
         <section v-else-if="currentRoute === 'vente-detail'" class="commande-detail">
-        <article class="panel panel-header detail-header">
-          <div>
-            <h3>Detail vente</h3>
-            <p class="helper" v-if="detailVente">ID: {{ detailVente.idVente }}</p>
-          </div>
-          <div class="row-actions">
-            <button class="mini-btn" @click="openRoute('stockVentes')">Retour</button>
-            <button
-              class="mini-btn"
-              v-if="detailVente && detailVente.statut === 'VALIDEE' && !detailVenteFacture"
-              @click="onEmettreFactureVenteDetail"
+        <MobilePageLayout :has-action="isMobileViewport && !!venteDetailPrimaryAction">
+          <template #header>
+            <article class="panel panel-header detail-header">
+              <MobileSectionHeader
+                eyebrow="Vente"
+                title="Detail vente"
+                :subtitle="detailVente ? `ID: ${detailVente.idVente}` : 'Consultez la vente et ses lignes en lecture seule.'"
+              />
+              <div class="row-actions">
+                <button class="mini-btn" @click="openRoute('stockVentes')">Retour</button>
+                <button
+                  class="mini-btn"
+                  v-if="detailVente && detailVente.statut === 'VALIDEE' && !detailVenteFacture"
+                  @click="onEmettreFactureVenteDetail"
+                >
+                  Emettre facture
+                </button>
+                <button class="mini-btn" v-if="detailVenteFacture" @click="onVoirFactureParOrigine('VENTE', detailVente.idVente)">
+                  Voir facture
+                </button>
+                <button class="mini-btn" v-if="detailVenteFacture" @click="onImprimerFactureParOrigine('VENTE', detailVente.idVente)">
+                  Imprimer facture
+                </button>
+                <button
+                  v-if="!isMobileViewport && detailVente && detailVente.statut === 'BROUILLON'"
+                  class="action-btn blue"
+                  :disabled="!caisseOuverte"
+                  :title="!caisseOuverte ? 'Caisse cloturee' : ''"
+                  @click="onValiderVente(detailVente)"
+                >
+                  Valider
+                </button>
+                <button
+                  class="mini-btn"
+                  v-if="detailVente && detailVente.statut === 'BROUILLON'"
+                  :disabled="!caisseOuverte"
+                  :title="!caisseOuverte ? 'Caisse cloturee' : ''"
+                  @click="onValiderVenteEtFacturer(detailVente)"
+                >
+                  Valider + facture
+                </button>
+                <button
+                  :class="isMobileViewport ? 'mini-btn' : 'action-btn red'"
+                  v-if="detailVente && detailVente.statut === 'BROUILLON'"
+                  @click="onAnnulerVente(detailVente)"
+                >
+                  Annuler
+                </button>
+              </div>
+            </article>
+          </template>
+
+          <ResponsiveDataContainer v-if="detailVenteError" :mobile="isMobileViewport">
+            <template #mobile>
+              <MobileStateError title="Erreur detail vente" :description="detailVenteError" />
+            </template>
+            <template #desktop>
+              <article class="panel error-panel">
+                <strong>Erreur detail vente</strong>
+                <p>{{ detailVenteError }}</p>
+              </article>
+            </template>
+          </ResponsiveDataContainer>
+
+          <ResponsiveDataContainer v-else-if="detailVenteLoading" :mobile="isMobileViewport">
+            <template #mobile>
+              <MobileStateLoading title="Chargement de la vente" description="Preparation des informations detaillees..." />
+            </template>
+            <template #desktop>
+              <article class="panel">
+                <p>Chargement de la vente...</p>
+              </article>
+            </template>
+          </ResponsiveDataContainer>
+
+          <template v-else-if="detailVente">
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <VenteDetailOverviewCards
+                  :vente="detailVente"
+                  :facture-number="detailVenteFacture ? detailVenteFacture.numeroFacture : ''"
+                  :format-currency="formatCurrency"
+                  :format-date-time="formatDateTime"
+                />
+              </template>
+              <template #desktop>
+                <article class="panel detail-grid">
+                  <div>
+                    <h4>Informations vente</h4>
+                    <p><strong>Date:</strong> {{ formatDateTime(detailVente.date) }}</p>
+                    <p><strong>Statut:</strong> {{ detailVente.statut }}</p>
+                    <p><strong>Facture:</strong> {{ detailVenteFacture ? detailVenteFacture.numeroFacture : "Non emise" }}</p>
+                    <p><strong>Reference caisse:</strong> {{ detailVente.referenceCaisse || "-" }}</p>
+                    <p v-if="detailVente.statut === 'ANNULEE'"><strong>Motif annulation:</strong> {{ detailVente.motifAnnulation || "-" }}</p>
+                  </div>
+                  <div>
+                    <h4>Resume financier</h4>
+                    <p><strong>Total:</strong> {{ formatCurrency(detailVente.total) }}</p>
+                  </div>
+                </article>
+              </template>
+            </ResponsiveDataContainer>
+
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <article class="panel">
+                  <MobileSectionHeader
+                    title="Lignes de vente"
+                    subtitle="Lecture detaillee des articles et quantites vendus."
+                  />
+                  <VenteDetailLinesMobileList
+                    :items="detailVente.lignesVente"
+                    :format-currency="formatCurrency"
+                  />
+                </article>
+              </template>
+              <template #desktop>
+                <article class="panel">
+                  <div class="panel-header detail-panel-header">
+                    <h4>Lignes de vente</h4>
+                    <span class="helper">Lecture seule</span>
+                  </div>
+                  <table class="data-table mobile-stack-table">
+                    <thead>
+                      <tr>
+                        <th>Article</th>
+                        <th>Quantite</th>
+                        <th>Prix unitaire</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="ligne in detailVente.lignesVente" :key="ligne.idLigne">
+                        <td data-label="Article">{{ ligne.libelleArticle || ligne.idArticle }}</td>
+                        <td data-label="Quantite">{{ ligne.quantite }}</td>
+                        <td data-label="Prix unitaire">{{ formatCurrency(ligne.prixUnitaire) }}</td>
+                      </tr>
+                      <tr v-if="detailVente.lignesVente.length === 0">
+                        <td colspan="3">Aucune ligne.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </article>
+              </template>
+            </ResponsiveDataContainer>
+          </template>
+
+          <template #action>
+            <MobilePrimaryActionBar
+              v-if="isMobileViewport && venteDetailPrimaryAction"
+              title="Action principale"
+              :subtitle="venteDetailPrimaryAction.subtitle"
             >
-              Emettre facture
-            </button>
-            <button class="mini-btn" v-if="detailVenteFacture" @click="onVoirFactureParOrigine('VENTE', detailVente.idVente)">
-              Voir facture
-            </button>
-            <button class="mini-btn" v-if="detailVenteFacture" @click="onImprimerFactureParOrigine('VENTE', detailVente.idVente)">
-              Imprimer facture
-            </button>
-            <button
-              class="action-btn blue"
-              v-if="detailVente && detailVente.statut === 'BROUILLON'"
-              :disabled="!caisseOuverte"
-              :title="!caisseOuverte ? 'Caisse cloturee' : ''"
-              @click="onValiderVente(detailVente)"
-            >
-              Valider
-            </button>
-            <button
-              class="mini-btn"
-              v-if="detailVente && detailVente.statut === 'BROUILLON'"
-              :disabled="!caisseOuverte"
-              :title="!caisseOuverte ? 'Caisse cloturee' : ''"
-              @click="onValiderVenteEtFacturer(detailVente)"
-            >
-              Valider + facture
-            </button>
-            <button class="action-btn red" v-if="detailVente && detailVente.statut === 'BROUILLON'" @click="onAnnulerVente(detailVente)">
-              Annuler
-            </button>
-          </div>
-
-        </article>
-
-        <article v-if="detailVenteError" class="panel error-panel">
-          <strong>Erreur detail vente</strong>
-          <p>{{ detailVenteError }}</p>
-        </article>
-
-        <article v-if="detailVenteLoading" class="panel">
-          <p>Chargement de la vente...</p>
-        </article>
-
-        <template v-else-if="detailVente">
-          <article class="panel detail-grid">
-            <div>
-              <h4>Informations vente</h4>
-              <p><strong>Date:</strong> {{ formatDateTime(detailVente.date) }}</p>
-              <p><strong>Statut:</strong> {{ detailVente.statut }}</p>
-              <p><strong>Facture:</strong> {{ detailVenteFacture ? detailVenteFacture.numeroFacture : "Non emise" }}</p>
-              <p><strong>Reference caisse:</strong> {{ detailVente.referenceCaisse || "-" }}</p>
-              <p v-if="detailVente.statut === 'ANNULEE'"><strong>Motif annulation:</strong> {{ detailVente.motifAnnulation || "-" }}</p>
-            </div>
-            <div>
-              <h4>Resume financier</h4>
-              <p><strong>Total:</strong> {{ formatCurrency(detailVente.total) }}</p>
-            </div>
-          </article>
-
-          <article class="panel">
-            <div class="panel-header detail-panel-header">
-              <h4>Lignes de vente</h4>
-              <span class="helper">Lecture seule</span>
-            </div>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Article</th>
-                  <th>Quantite</th>
-                  <th>Prix unitaire</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="ligne in detailVente.lignesVente" :key="ligne.idLigne">
-                  <td data-label="Article">{{ ligne.libelleArticle || ligne.idArticle }}</td>
-                  <td data-label="Quantite">{{ ligne.quantite }}</td>
-                  <td data-label="Prix unitaire">{{ formatCurrency(ligne.prixUnitaire) }}</td>
-                </tr>
-                <tr v-if="detailVente.lignesVente.length === 0">
-                  <td colspan="3">Aucune ligne.</td>
-                </tr>
-              </tbody>
-            </table></article>
-        </template>
+              <button
+                :class="`action-btn ${venteDetailPrimaryAction.tone}`"
+                :disabled="venteDetailPrimaryAction.disabled"
+                @click="venteDetailPrimaryAction.handler"
+              >
+                {{ venteDetailPrimaryAction.label }}
+              </button>
+            </MobilePrimaryActionBar>
+          </template>
+        </MobilePageLayout>
       </section>
 
         <section v-else-if="currentRoute === 'facturation'" class="commandes-page">
-        <article class="panel panel-header">
-          <div>
-            <h3>Factures</h3>
-            <p class="helper">Module immuable en lecture seule. Le statut est derive de la caisse.</p>
-          </div>
-          <div class="row-actions">
-            <button class="action-btn blue" @click="onEmettreFacture">Emettre facture</button>
-          </div>
-
-        </article>
+        <MobilePageLayout :has-action="isMobileViewport">
+          <template #header>
+            <article class="panel panel-header">
+              <MobileSectionHeader
+                eyebrow="Facturation"
+                title="Factures"
+                subtitle="Module immuable en lecture seule. Le statut est derive de la caisse."
+              />
+              <div class="row-actions">
+                <button v-if="!isMobileViewport" class="action-btn blue" @click="onEmettreFacture">Emettre facture</button>
+              </div>
+            </article>
+          </template>
 
         <article class="panel">
           <div class="segmented">
@@ -10523,54 +11886,96 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <article v-show="factureSection === 'liste'" class="panel">
-          <h3>Filtres factures</h3>
-          <div class="filters compact">
-            <select v-model="factureFilters.statut">
-              <option v-for="status in factureStatusOptions" :key="`fac-st-${status}`" :value="status">
-                {{ status === "ALL" ? "Tous statuts" : status }}
-              </option>
-            </select>
-            <select v-model="factureFilters.source">
-              <option value="ALL">Toutes origines</option>
-              <option value="COMMANDE">Commande</option>
-              <option value="RETOUCHE">Retouche</option>
-              <option value="VENTE">Vente</option>
-            </select>
-            <select v-model="factureFilters.soldeRestant">
-              <option v-for="option in soldeOptions" :key="`fac-solde-${option.value}`" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-            <input v-model="factureFilters.recherche" type="text" placeholder="Recherche numero / client / origine" />
-          </div>
-          <div class="panel-footer">
-            <button class="mini-btn" @click="resetFactureFilters">Reinitialiser filtres</button>
-          </div>
+          <template v-if="isMobileViewport">
+            <MobileFilterBlock
+              title="Filtres factures"
+              :summary="factureFilterSummary"
+              :open="factureMobileFiltersOpen"
+              @toggle="factureMobileFiltersOpen = !factureMobileFiltersOpen"
+            >
+              <div class="filters compact">
+                <select v-model="factureFilters.statut">
+                  <option v-for="status in factureStatusOptions" :key="`fac-st-${status}`" :value="status">
+                    {{ status === "ALL" ? "Tous statuts" : status }}
+                  </option>
+                </select>
+                <select v-model="factureFilters.source">
+                  <option value="ALL">Toutes origines</option>
+                  <option value="COMMANDE">Commande</option>
+                  <option value="RETOUCHE">Retouche</option>
+                  <option value="VENTE">Vente</option>
+                </select>
+                <select v-model="factureFilters.soldeRestant">
+                  <option v-for="option in soldeOptions" :key="`fac-solde-${option.value}`" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <input v-model="factureFilters.recherche" type="text" placeholder="Recherche numero / client / origine" />
+              </div>
+              <div class="panel-footer">
+                <button class="mini-btn" @click="resetFactureFilters">Reinitialiser filtres</button>
+              </div>
+            </MobileFilterBlock>
+          </template>
+          <template v-else>
+            <h3>Filtres factures</h3>
+            <div class="filters compact">
+              <select v-model="factureFilters.statut">
+                <option v-for="status in factureStatusOptions" :key="`fac-st-${status}`" :value="status">
+                  {{ status === "ALL" ? "Tous statuts" : status }}
+                </option>
+              </select>
+              <select v-model="factureFilters.source">
+                <option value="ALL">Toutes origines</option>
+                <option value="COMMANDE">Commande</option>
+                <option value="RETOUCHE">Retouche</option>
+                <option value="VENTE">Vente</option>
+              </select>
+              <select v-model="factureFilters.soldeRestant">
+                <option v-for="option in soldeOptions" :key="`fac-solde-${option.value}`" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+              <input v-model="factureFilters.recherche" type="text" placeholder="Recherche numero / client / origine" />
+            </div>
+            <div class="panel-footer">
+              <button class="mini-btn" @click="resetFactureFilters">Reinitialiser filtres</button>
+            </div>
+          </template>
           <p class="helper" v-if="factureFilters.recherche.trim()">
             Recherche active - {{ facturesFiltered.length }} resultat(s)
           </p>
         </article>
 
         <article v-show="factureSection === 'indicateurs'" class="panel">
-          <h3>Indicateurs factures</h3>
-          <div class="kpi-grid legacy-kpi-grid">
-            <div class="kpi-card legacy-kpi" data-tone="blue">
-              <div class="kpi-head"><span>Total</span></div>
-              <strong>{{ facturesKpi.total }}</strong>
+          <template v-if="isMobileViewport">
+            <MobileSectionHeader
+              title="Indicateurs factures"
+              subtitle="Lecture rapide des statuts et montants sur la selection courante."
+            />
+            <DashboardMetricCardGrid :items="facturesMobileKpiCards" />
+          </template>
+          <template v-else>
+            <h3>Indicateurs factures</h3>
+            <div class="kpi-grid legacy-kpi-grid">
+              <div class="kpi-card legacy-kpi" data-tone="blue">
+                <div class="kpi-head"><span>Total</span></div>
+                <strong>{{ facturesKpi.total }}</strong>
+              </div>
+              <div class="kpi-card legacy-kpi" data-tone="green">
+                <div class="kpi-head"><span>Reglees</span></div>
+                <strong>{{ facturesKpi.reglees }}</strong>
+              </div>
+              <div class="kpi-card legacy-kpi" data-tone="amber">
+                <div class="kpi-head"><span>En attente</span></div>
+                <strong>{{ facturesKpi.enAttente }}</strong>
+              </div>
+              <div class="kpi-card legacy-kpi" data-tone="slate">
+                <div class="kpi-head"><span>Montant total</span></div>
+                <strong>{{ formatFactureCurrency(facturesKpi.montantTotal) }}</strong>
+              </div>
             </div>
-            <div class="kpi-card legacy-kpi" data-tone="green">
-              <div class="kpi-head"><span>Reglees</span></div>
-              <strong>{{ facturesKpi.reglees }}</strong>
-            </div>
-            <div class="kpi-card legacy-kpi" data-tone="amber">
-              <div class="kpi-head"><span>En attente</span></div>
-              <strong>{{ facturesKpi.enAttente }}</strong>
-            </div>
-            <div class="kpi-card legacy-kpi" data-tone="slate">
-              <div class="kpi-head"><span>Montant total</span></div>
-              <strong>{{ formatFactureCurrency(facturesKpi.montantTotal) }}</strong>
-            </div>
-          </div>
+          </template>
         </article>
 
         <article v-show="factureSection === 'actions'" class="panel">
@@ -10582,79 +11987,112 @@ async function loadRetoucheDetail(idRetouche) {
         </article>
 
         <article v-show="factureSection === 'liste'" class="panel">
-          <div class="table-scroll-x">
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Numero</th>
-                  <th>Client</th>
-                  <th>Origine</th>
-                  <th>Date emission</th>
-                  <th>Montant total</th>
-                  <th>Montant paye</th>
-                  <th>Solde</th>
-                  <th>Statut</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="facture in facturesPaged" :key="facture.idFacture">
-                  <td data-label="Numero">{{ facture.numeroFacture }}</td>
-                  <td data-label="Client">{{ facture.client?.nom || "-" }}</td>
-                  <td data-label="Origine">{{ facture.typeOrigine }} / {{ facture.idOrigine }}</td>
-                  <td data-label="Date emission">{{ formatDateShort(facture.dateEmission) }}</td>
-                  <td data-label="Montant total">{{ formatFactureCurrency(facture.montantTotal) }}</td>
-                  <td data-label="Montant paye">{{ formatFactureCurrency(facture.montantPaye) }}</td>
-                  <td data-label="Solde">{{ formatFactureCurrency(facture.solde) }}</td>
-                  <td data-label="Statut">{{ facture.statut }}</td>
-                  <td class="actions-cell">
-                    <button class="mini-btn" @click="onVoirFacture(facture)">Voir</button>
-                    <button class="mini-btn" @click="onImprimerFacture(facture)">Imprimer</button>
-                    <button class="mini-btn" @click="onGenererPdfFacture(facture)">PDF</button>
-                  </td>
-                </tr>
-                <tr v-if="facturesFiltered.length === 0">
-                  <td colspan="9">Aucune facture ne correspond aux filtres actuels.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="panel-footer table-pagination">
-            <select v-model.number="facturesPagination.pageSize">
-              <option :value="5">5 / page</option>
-              <option :value="10">10 / page</option>
-              <option :value="20">20 / page</option>
-              <option :value="50">50 / page</option>
-            </select>
-            <button class="mini-btn" :disabled="facturesPagination.page <= 1" @click="facturesPagination.page -= 1">Precedent</button>
-            <span>Page {{ facturesPagination.page }} / {{ facturesPages }}</span>
-            <button class="mini-btn" :disabled="facturesPagination.page >= facturesPages" @click="facturesPagination.page += 1">Suivant</button>
-          </div>
+          <ResponsiveDataContainer :mobile="isMobileViewport">
+            <template #mobile>
+              <FactureMobileList
+                :items="facturesPaged"
+                :format-currency="formatFactureCurrency"
+                :format-date="formatDateShort"
+                @view="onVoirFacture"
+              />
+            </template>
+            <template #desktop>
+              <div class="table-scroll-x">
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>Numero</th>
+                      <th>Client</th>
+                      <th>Origine</th>
+                      <th>Date emission</th>
+                      <th>Montant total</th>
+                      <th>Montant paye</th>
+                      <th>Solde</th>
+                      <th>Statut</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="facture in facturesPaged" :key="facture.idFacture">
+                      <td data-label="Numero">{{ facture.numeroFacture }}</td>
+                      <td data-label="Client">{{ facture.client?.nom || "-" }}</td>
+                      <td data-label="Origine">{{ facture.typeOrigine }} / {{ facture.idOrigine }}</td>
+                      <td data-label="Date emission">{{ formatDateShort(facture.dateEmission) }}</td>
+                      <td data-label="Montant total">{{ formatFactureCurrency(facture.montantTotal) }}</td>
+                      <td data-label="Montant paye">{{ formatFactureCurrency(facture.montantPaye) }}</td>
+                      <td data-label="Solde">{{ formatFactureCurrency(facture.solde) }}</td>
+                      <td data-label="Statut">{{ facture.statut }}</td>
+                      <td class="actions-cell">
+                        <button class="mini-btn" @click="onVoirFacture(facture)">Voir</button>
+                        <button class="mini-btn" @click="onImprimerFacture(facture)">Imprimer</button>
+                        <button class="mini-btn" @click="onGenererPdfFacture(facture)">PDF</button>
+                      </td>
+                    </tr>
+                    <tr v-if="facturesFiltered.length === 0">
+                      <td colspan="9">Aucune facture ne correspond aux filtres actuels.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </ResponsiveDataContainer>
+          <ResponsivePagination
+            v-if="facturesFiltered.length > 0"
+            :page="facturesPagination.page"
+            :pages="facturesPages"
+            :page-size="facturesPagination.pageSize"
+            :page-size-options="[5, 10, 20, 50]"
+            :prev-disabled="facturesPagination.page <= 1"
+            :next-disabled="facturesPagination.page >= facturesPages"
+            @update:page-size="facturesPagination.pageSize = $event"
+            @prev="facturesPagination.page -= 1"
+            @next="facturesPagination.page += 1"
+          />
         </article>
+
+        <template #action>
+          <MobilePrimaryActionBar
+            v-if="isMobileViewport"
+            title="Action principale"
+            subtitle="Emettez une nouvelle facture depuis une origine disponible."
+          >
+            <button class="action-btn blue" @click="onEmettreFacture">Emettre facture</button>
+          </MobilePrimaryActionBar>
+        </template>
+        </MobilePageLayout>
       </section>
 
         <section v-else-if="currentRoute === 'parametres'" class="commandes-page parametres-page">
-        <article class="panel panel-header">
-          <div>
-            <h3>Parametres Atelier</h3>
-            <p class="helper">Configuration metier globale. Lecture par les modules, modification rare et securisee.</p>
-            <p class="helper" v-if="atelierSettings.meta.lastSavedAt">
-              Derniere sauvegarde: {{ formatDateTime(atelierSettings.meta.lastSavedAt) }}
-            </p>
-          </div>
-          <div class="row-actions">
-            <span class="status-pill" :data-tone="settingsCanEdit ? 'ok' : 'due'">
-              {{ settingsCanEdit ? "Edition active" : "Lecture seule" }}
-            </span>
-            <button class="mini-btn" :disabled="settingsSaving" @click="toggleSettingsEdit">
-              {{ settingsCanEdit ? "Verrouiller" : "Activer modifications" }}
-            </button>
-            <button class="action-btn blue" :disabled="!settingsCanEdit || settingsSaving" @click="saveAtelierSettings">
-              {{ settingsSaving ? "Sauvegarde..." : "Sauvegarder" }}
-            </button>
-            <button class="mini-btn" :disabled="!settingsCanEdit || settingsSaving" @click="resetAtelierSettings">Reinitialiser</button>
-          </div>
-        </article>
+        <MobilePageLayout :has-action="isMobileViewport && settingsCanEdit">
+          <template #header>
+            <article class="panel panel-header">
+              <MobileSectionHeader
+                eyebrow="Configuration"
+                title="Parametres atelier"
+                subtitle="Configuration metier globale. Lecture par les modules, modification rare et securisee."
+              />
+              <div class="row-actions">
+                <p class="helper" v-if="atelierSettings.meta.lastSavedAt">
+                  Derniere sauvegarde: {{ formatDateTime(atelierSettings.meta.lastSavedAt) }}
+                </p>
+                <span class="status-pill" :data-tone="settingsCanEdit ? 'ok' : 'due'">
+                  {{ settingsCanEdit ? "Edition active" : "Lecture seule" }}
+                </span>
+                <button class="mini-btn" :disabled="settingsSaving" @click="toggleSettingsEdit">
+                  {{ settingsCanEdit ? "Verrouiller" : "Activer modifications" }}
+                </button>
+                <button
+                  v-if="!isMobileViewport"
+                  class="action-btn blue"
+                  :disabled="!settingsCanEdit || settingsSaving"
+                  @click="saveAtelierSettings"
+                >
+                  {{ settingsSaving ? "Sauvegarde..." : "Sauvegarder" }}
+                </button>
+                <button class="mini-btn" :disabled="!settingsCanEdit || settingsSaving" @click="resetAtelierSettings">Reinitialiser</button>
+              </div>
+            </article>
+          </template>
 
         <article class="panel settings-tabs" role="tablist" aria-label="Sections parametres">
           <button
@@ -10678,18 +12116,32 @@ async function loadRetoucheDetail(idRetouche) {
           </div>
         </article>
 
-        <article v-if="settingsLoading" class="panel">
-          <p>Chargement des parametres...</p>
-        </article>
+        <ResponsiveDataContainer v-if="settingsLoading" :mobile="isMobileViewport">
+          <template #mobile>
+            <MobileStateLoading title="Chargement des parametres" description="Preparation de la configuration atelier..." />
+          </template>
+          <template #desktop>
+            <article class="panel">
+              <p>Chargement des parametres...</p>
+            </article>
+          </template>
+        </ResponsiveDataContainer>
 
         <article v-if="settingsSaving" class="panel info-panel">
           <p>Sauvegarde des parametres en cours...</p>
         </article>
 
-        <article v-if="settingsError" class="panel error-panel">
-          <strong>Erreur parametres</strong>
-          <p>{{ settingsError }}</p>
-        </article>
+        <ResponsiveDataContainer v-if="settingsError" :mobile="isMobileViewport">
+          <template #mobile>
+            <MobileStateError title="Erreur parametres" :description="settingsError" />
+          </template>
+          <template #desktop>
+            <article class="panel error-panel">
+              <strong>Erreur parametres</strong>
+              <p>{{ settingsError }}</p>
+            </article>
+          </template>
+        </ResponsiveDataContainer>
 
         <article v-show="settingsActiveTab === 'identite'" id="settings-identite" class="panel settings-section" role="tabpanel">
           <h3>Identite de l'atelier</h3>
@@ -10842,16 +12294,17 @@ async function loadRetoucheDetail(idRetouche) {
                 </button>
                 <p v-if="filteredSettingsRetoucheTypeEntries.length === 0" class="helper">Aucun type de retouche ne correspond au filtre actuel.</p>
               </div>
-              <div class="panel-footer table-pagination">
-                <select v-model.number="settingsRetouchePagination.pageSize">
-                  <option :value="6">6 / page</option>
-                  <option :value="10">10 / page</option>
-                  <option :value="20">20 / page</option>
-                </select>
-                <button class="mini-btn" :disabled="settingsRetouchePagination.page <= 1" @click="settingsRetouchePagination.page -= 1">Precedent</button>
-                <span>Page {{ settingsRetouchePagination.page }} / {{ settingsRetouchePages }}</span>
-                <button class="mini-btn" :disabled="settingsRetouchePagination.page >= settingsRetouchePages" @click="settingsRetouchePagination.page += 1">Suivant</button>
-              </div>
+              <ResponsivePagination
+                :page="settingsRetouchePagination.page"
+                :pages="settingsRetouchePages"
+                :page-size="settingsRetouchePagination.pageSize"
+                :page-size-options="[6, 10, 20]"
+                :prev-disabled="settingsRetouchePagination.page <= 1"
+                :next-disabled="settingsRetouchePagination.page >= settingsRetouchePages"
+                @update:page-size="settingsRetouchePagination.pageSize = $event"
+                @prev="settingsRetouchePagination.page -= 1"
+                @next="settingsRetouchePagination.page += 1"
+              />
             </article>
 
             <article v-if="selectedSettingsRetoucheType" class="panel measure-editor">
@@ -11025,16 +12478,17 @@ async function loadRetoucheDetail(idRetouche) {
                 </button>
                 <p v-if="filteredHabitConfigEntries.length === 0" class="helper">Aucun type d'habit ne correspond au filtre actuel.</p>
               </div>
-              <div class="panel-footer table-pagination">
-                <select v-model.number="settingsMeasurePagination.pageSize">
-                  <option :value="8">8 / page</option>
-                  <option :value="12">12 / page</option>
-                  <option :value="20">20 / page</option>
-                </select>
-                <button class="mini-btn" :disabled="settingsMeasurePagination.page <= 1" @click="settingsMeasurePagination.page -= 1">Precedent</button>
-                <span>Page {{ settingsMeasurePagination.page }} / {{ settingsMeasurePages }}</span>
-                <button class="mini-btn" :disabled="settingsMeasurePagination.page >= settingsMeasurePages" @click="settingsMeasurePagination.page += 1">Suivant</button>
-              </div>
+              <ResponsivePagination
+                :page="settingsMeasurePagination.page"
+                :pages="settingsMeasurePages"
+                :page-size="settingsMeasurePagination.pageSize"
+                :page-size-options="[8, 12, 20]"
+                :prev-disabled="settingsMeasurePagination.page <= 1"
+                :next-disabled="settingsMeasurePagination.page >= settingsMeasurePages"
+                @update:page-size="settingsMeasurePagination.pageSize = $event"
+                @prev="settingsMeasurePagination.page -= 1"
+                @next="settingsMeasurePagination.page += 1"
+              />
             </article>
 
             <article v-if="selectedHabitConfigEntry" class="panel measure-editor">
@@ -11350,17 +12804,18 @@ async function loadRetoucheDetail(idRetouche) {
                   </tbody>
                 </table>
               </div>
-              <div class="panel-footer table-pagination">
-                <select v-model.number="securityUsersPagination.pageSize">
-                  <option :value="5">5 / page</option>
-                  <option :value="10">10 / page</option>
-                  <option :value="20">20 / page</option>
-                  <option :value="50">50 / page</option>
-                </select>
-                <button class="mini-btn" :disabled="securityUsersPagination.page <= 1" @click="securityUsersPagination.page -= 1">Precedent</button>
-                <span>Page {{ securityUsersPagination.page }} / {{ securityUsersPages }} · {{ securityUsersFiltered.length }} utilisateur(s)</span>
-                <button class="mini-btn" :disabled="securityUsersPagination.page >= securityUsersPages" @click="securityUsersPagination.page += 1">Suivant</button>
-              </div>
+              <ResponsivePagination
+                :page="securityUsersPagination.page"
+                :pages="securityUsersPages"
+                :page-size="securityUsersPagination.pageSize"
+                :page-size-options="[5, 10, 20, 50]"
+                :prev-disabled="securityUsersPagination.page <= 1"
+                :next-disabled="securityUsersPagination.page >= securityUsersPages"
+                :desktop-summary="`Page ${securityUsersPagination.page} / ${securityUsersPages} · ${securityUsersFiltered.length} utilisateur(s)`"
+                @update:page-size="securityUsersPagination.pageSize = $event"
+                @prev="securityUsersPagination.page -= 1"
+                @next="securityUsersPagination.page += 1"
+              />
             </article>
 
             <article class="panel nested-panel">
@@ -11393,7 +12848,7 @@ async function loadRetoucheDetail(idRetouche) {
           </template>
         </article>
 
-        <article class="panel settings-sticky-actions">
+        <article v-if="!isMobileViewport" class="panel settings-sticky-actions">
           <span class="helper">Fin de page</span>
           <div class="row-actions">
             <span class="status-pill" :data-tone="settingsCanEdit ? 'ok' : 'due'">
@@ -11407,100 +12862,179 @@ async function loadRetoucheDetail(idRetouche) {
             </button>
           </div>
         </article>
+        <template #action>
+          <MobilePrimaryActionBar
+            v-if="isMobileViewport && settingsCanEdit"
+            title="Action principale"
+            subtitle="Enregistrez les changements de configuration de l'atelier."
+          >
+            <button class="action-btn blue" :disabled="settingsSaving" @click="saveAtelierSettings">
+              {{ settingsSaving ? "Sauvegarde..." : "Sauvegarder" }}
+            </button>
+          </MobilePrimaryActionBar>
+        </template>
+        </MobilePageLayout>
       </section>
 
         <section v-else-if="currentRoute === 'facture-detail'" class="commande-detail">
-        <article class="panel panel-header detail-header">
-          <div>
-            <h3>Detail facture</h3>
-            <p class="helper" v-if="detailFacture">N{{ detailFacture.numeroFacture }}</p>
-          </div>
-          <div class="row-actions">
-            <button class="mini-btn" @click="openRoute('facturation')">Retour</button>
-            <button class="mini-btn" v-if="detailFacture" @click="onOuvrirOrigineFacture(detailFacture)">Voir origine</button>
-            <button class="action-btn blue" v-if="detailFacture" @click="onGenererPdfFacture(detailFacture)">Generer PDF</button>
-            <button class="action-btn green" v-if="detailFacture" @click="onImprimerFacture(detailFacture)">Imprimer</button>
-          </div>
-
-        </article>
-
-        <article v-if="detailFactureError" class="panel error-panel">
-          <strong>Erreur detail facture</strong>
-          <p>{{ detailFactureError }}</p>
-        </article>
-
-        <article v-if="detailFactureLoading" class="panel">
-          <p>Chargement de la facture...</p>
-        </article>
-
-        <template v-else-if="detailFacture">
-          <article class="panel detail-grid">
-            <div>
-              <h4>Atelier</h4>
-              <img
-                v-if="factureAtelierProfile.afficherLogo && factureAtelierProfile.logo"
-                :src="factureAtelierProfile.logo"
-                alt="Logo atelier"
-                class="facture-atelier-logo"
+        <MobilePageLayout :has-action="isMobileViewport && !!factureDetailPrimaryAction">
+          <template #header>
+            <article class="panel panel-header detail-header">
+              <MobileSectionHeader
+                eyebrow="Facture"
+                title="Detail facture"
+                :subtitle="detailFacture ? `N${detailFacture.numeroFacture}` : 'Consultez la facture et ses lignes en lecture seule.'"
               />
-              <p><strong>{{ factureAtelierProfile.nomAtelier || "-" }}</strong></p>
-              <p v-if="factureAtelierProfile.adresse">{{ factureAtelierProfile.adresse }}</p>
-              <p v-if="factureAtelierContactLine">{{ factureAtelierContactLine }}</p>
-              <p><strong>Devise:</strong> {{ factureAtelierProfile.devise || "-" }}</p>
-              <p v-if="factureAtelierProfile.mentions"><strong>Mentions:</strong> {{ factureAtelierProfile.mentions }}</p>
-            </div>
-            <div>
-              <h4>En-tete</h4>
-              <p><strong>Numero:</strong> {{ detailFacture.numeroFacture }}</p>
-              <p><strong>Date emission:</strong> {{ formatDateShort(detailFacture.dateEmission) }}</p>
-              <p><strong>Client:</strong> {{ detailFacture.client?.nom || "-" }}</p>
-              <p><strong>Contact:</strong> {{ detailFacture.client?.contact || "-" }}</p>
-              <p><strong>Origine:</strong> {{ detailFacture.typeOrigine }} / {{ detailFacture.idOrigine }}</p>
-              <p><strong>Reference caisse:</strong> {{ detailFacture.referenceCaisse || "-" }}</p>
-            </div>
-            <div>
-              <h4>Resume financier</h4>
-              <p><strong>Total:</strong> {{ formatFactureCurrency(detailFacture.montantTotal) }}</p>
-              <p><strong>Paye:</strong> {{ formatFactureCurrency(detailFacture.montantPaye) }}</p>
-              <p><strong>Solde:</strong> {{ formatFactureCurrency(detailFacture.solde) }}</p>
-              <p><strong>Statut:</strong> {{ detailFacture.statut }}</p>
-            </div>
-          </article>
+              <div class="row-actions">
+                <button class="mini-btn" @click="openRoute('facturation')">Retour</button>
+                <button class="mini-btn" v-if="detailFacture" @click="onOuvrirOrigineFacture(detailFacture)">Voir origine</button>
+                <button v-if="!isMobileViewport && detailFacture" class="action-btn blue" @click="onGenererPdfFacture(detailFacture)">Generer PDF</button>
+                <button
+                  :class="isMobileViewport ? 'mini-btn' : 'action-btn green'"
+                  v-if="detailFacture"
+                  @click="onImprimerFacture(detailFacture)"
+                >
+                  Imprimer
+                </button>
+              </div>
+            </article>
+          </template>
 
-          <article class="panel">
-            <div class="panel-header detail-panel-header">
-              <h4>Lignes facture</h4>
-              <span class="helper">Lecture seule</span>
-            </div>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Description</th>
-                  <th>Quantite</th>
-                  <th>Prix</th>
-                  <th>Montant</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(ligne, index) in detailFacture.lignes" :key="`${detailFacture.idFacture}-${index}`">
-                  <td data-label="Description">{{ ligne.description }}</td>
-                  <td data-label="Quantite">{{ ligne.quantite }}</td>
-                  <td data-label="Prix">{{ formatFactureCurrency(ligne.prix) }}</td>
-                  <td data-label="Montant">{{ formatFactureCurrency(ligne.montant) }}</td>
-                </tr>
-                <tr v-if="detailFacture.lignes.length === 0">
-                  <td colspan="4">Aucune ligne.</td>
-                </tr>
-              </tbody>
-            </table></article>
-        </template>
+          <ResponsiveDataContainer v-if="detailFactureError" :mobile="isMobileViewport">
+            <template #mobile>
+              <MobileStateError title="Erreur detail facture" :description="detailFactureError" />
+            </template>
+            <template #desktop>
+              <article class="panel error-panel">
+                <strong>Erreur detail facture</strong>
+                <p>{{ detailFactureError }}</p>
+              </article>
+            </template>
+          </ResponsiveDataContainer>
+
+          <ResponsiveDataContainer v-else-if="detailFactureLoading" :mobile="isMobileViewport">
+            <template #mobile>
+              <MobileStateLoading title="Chargement de la facture" description="Preparation des informations detaillees..." />
+            </template>
+            <template #desktop>
+              <article class="panel">
+                <p>Chargement de la facture...</p>
+              </article>
+            </template>
+          </ResponsiveDataContainer>
+
+          <template v-else-if="detailFacture">
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <FactureDetailOverviewCards
+                  :facture="detailFacture"
+                  :atelier-profile="factureAtelierProfile"
+                  :atelier-contact-line="factureAtelierContactLine"
+                  :format-currency="formatFactureCurrency"
+                  :format-date="formatDateShort"
+                />
+              </template>
+              <template #desktop>
+                <article class="panel detail-grid">
+                  <div>
+                    <h4>Atelier</h4>
+                    <img
+                      v-if="factureAtelierProfile.afficherLogo && factureAtelierProfile.logo"
+                      :src="factureAtelierProfile.logo"
+                      alt="Logo atelier"
+                      class="facture-atelier-logo"
+                    />
+                    <p><strong>{{ factureAtelierProfile.nomAtelier || "-" }}</strong></p>
+                    <p v-if="factureAtelierProfile.adresse">{{ factureAtelierProfile.adresse }}</p>
+                    <p v-if="factureAtelierContactLine">{{ factureAtelierContactLine }}</p>
+                    <p><strong>Devise:</strong> {{ factureAtelierProfile.devise || "-" }}</p>
+                    <p v-if="factureAtelierProfile.mentions"><strong>Mentions:</strong> {{ factureAtelierProfile.mentions }}</p>
+                  </div>
+                  <div>
+                    <h4>En-tete</h4>
+                    <p><strong>Numero:</strong> {{ detailFacture.numeroFacture }}</p>
+                    <p><strong>Date emission:</strong> {{ formatDateShort(detailFacture.dateEmission) }}</p>
+                    <p><strong>Client:</strong> {{ detailFacture.client?.nom || "-" }}</p>
+                    <p><strong>Contact:</strong> {{ detailFacture.client?.contact || "-" }}</p>
+                    <p><strong>Origine:</strong> {{ detailFacture.typeOrigine }} / {{ detailFacture.idOrigine }}</p>
+                    <p><strong>Reference caisse:</strong> {{ detailFacture.referenceCaisse || "-" }}</p>
+                  </div>
+                  <div>
+                    <h4>Resume financier</h4>
+                    <p><strong>Total:</strong> {{ formatFactureCurrency(detailFacture.montantTotal) }}</p>
+                    <p><strong>Paye:</strong> {{ formatFactureCurrency(detailFacture.montantPaye) }}</p>
+                    <p><strong>Solde:</strong> {{ formatFactureCurrency(detailFacture.solde) }}</p>
+                    <p><strong>Statut:</strong> {{ detailFacture.statut }}</p>
+                  </div>
+                </article>
+              </template>
+            </ResponsiveDataContainer>
+
+            <ResponsiveDataContainer :mobile="isMobileViewport">
+              <template #mobile>
+                <article class="panel">
+                  <MobileSectionHeader
+                    title="Lignes facture"
+                    subtitle="Lecture detaillee des lignes de facturation."
+                  />
+                  <FactureDetailLinesMobileList
+                    :items="detailFacture.lignes"
+                    :format-currency="formatFactureCurrency"
+                  />
+                </article>
+              </template>
+              <template #desktop>
+                <article class="panel">
+                  <div class="panel-header detail-panel-header">
+                    <h4>Lignes facture</h4>
+                    <span class="helper">Lecture seule</span>
+                  </div>
+                  <table class="data-table mobile-stack-table">
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th>Quantite</th>
+                        <th>Prix</th>
+                        <th>Montant</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(ligne, index) in detailFacture.lignes" :key="`${detailFacture.idFacture}-${index}`">
+                        <td data-label="Description">{{ ligne.description }}</td>
+                        <td data-label="Quantite">{{ ligne.quantite }}</td>
+                        <td data-label="Prix">{{ formatFactureCurrency(ligne.prix) }}</td>
+                        <td data-label="Montant">{{ formatFactureCurrency(ligne.montant) }}</td>
+                      </tr>
+                      <tr v-if="detailFacture.lignes.length === 0">
+                        <td colspan="4">Aucune ligne.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </article>
+              </template>
+            </ResponsiveDataContainer>
+          </template>
+
+          <template #action>
+            <MobilePrimaryActionBar
+              v-if="isMobileViewport && factureDetailPrimaryAction"
+              title="Action principale"
+              :subtitle="factureDetailPrimaryAction.subtitle"
+            >
+              <button class="action-btn blue" @click="factureDetailPrimaryAction.handler">
+                {{ factureDetailPrimaryAction.label }}
+              </button>
+            </MobilePrimaryActionBar>
+          </template>
+        </MobilePageLayout>
       </section>
 
         <section v-else-if="currentRoute === 'caisse'" class="commande-detail">
+        <MobilePageLayout :has-action="isMobileViewport && ((!caisseOuverte && canOpenCaisse) || (caisseOuverte && canRecordCaisseExpense) || (caisseOuverte && !canRecordCaisseExpense && canCloseCaisse))">
         <article class="panel panel-header detail-header" :class="{ 'caisse-header-closed': !caisseOuverte }">
           <div>
             <h3>Caisse du jour</h3>
-            <p class="helper" v-if="caisseJour">ID: {{ caisseJour.idCaisseJour }} Â· Date: {{ caisseJour.date }}</p>
+            <p class="helper" v-if="caisseJour">ID: {{ caisseJour.idCaisseJour }} · Date: {{ caisseJour.date }}</p>
           </div>
           <div class="row-actions">
             <span class="status-pill" :data-status="caisseStatus">
@@ -11509,12 +13043,12 @@ async function loadRetoucheDetail(idRetouche) {
               </svg>
               {{ caisseStatus }}
             </span>
-            <button class="action-btn green" v-if="!caisseOuverte && canOpenCaisse" @click="onOuvrirCaisseDuJour">Ouvrir la caisse</button>
+            <button class="action-btn green" v-if="!isMobileViewport && !caisseOuverte && canOpenCaisse" @click="onOuvrirCaisseDuJour">Ouvrir la caisse</button>
             <button class="mini-btn" v-if="!caisseOuverte && canOpenCaisse" @click="onOuvrirCaisseAnticipee">Ouverture anticipee (manager)</button>
-            <button class="action-btn amber" v-if="caisseOuverte && canRecordCaisseExpense" @click="onDepenseCaisse">Enregistrer depense</button>
-            <button class="action-btn red" v-if="caisseOuverte && canCloseCaisse" @click="onCloturerCaisse">Cloturer la caisse</button>
+            <button class="action-btn amber" v-if="!isMobileViewport && caisseOuverte && canRecordCaisseExpense" @click="onDepenseCaisse">Enregistrer depense</button>
+            <button class="action-btn red" v-if="!isMobileViewport && caisseOuverte && canCloseCaisse" @click="onCloturerCaisse">Cloturer la caisse</button>
+            <button class="mini-btn" v-if="isMobileViewport && caisseOuverte && canCloseCaisse" @click="onCloturerCaisse">Cloturer</button>
           </div>
-
         </article>
 
         <article v-if="caisseJour && !caisseOuverte" class="panel caisse-locked">
@@ -11522,93 +13056,179 @@ async function loadRetoucheDetail(idRetouche) {
           <p>Aucune ecriture n'est autorisee apres cloture.</p>
         </article>
 
-        <article v-if="!caisseJour" class="panel error-panel">
-          <strong>Caisse</strong>
-          <p>{{ networkIsOnline ? "Aucune caisse du jour n'a ete chargee." : "Aucune caisse disponible hors ligne." }}</p>
-        </article>
+        <ResponsiveDataContainer v-if="!caisseJour" :mobile="isMobileViewport">
+          <template #mobile>
+            <MobileStateError
+              title="Caisse indisponible"
+              :description="networkIsOnline ? `Aucune caisse du jour n'a ete chargee.` : 'Aucune caisse disponible hors ligne.'"
+            />
+          </template>
+          <template #desktop>
+            <article class="panel error-panel">
+              <strong>Caisse</strong>
+              <p>{{ networkIsOnline ? "Aucune caisse du jour n'a ete chargee." : "Aucune caisse disponible hors ligne." }}</p>
+            </article>
+          </template>
+        </ResponsiveDataContainer>
 
         <template v-else>
-          <article class="panel caisse-summary-grid">
-            <div class="caisse-summary-col">
-              <h4>Statut de la caisse</h4>
-              <p class="caisse-row"><strong>Etat:</strong> <span class="caisse-value">{{ caisseStatus }}</span></p>
-              <p class="caisse-row"><strong>Solde d'ouverture:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeOuverture) }}</span></p>
-              <p class="caisse-row"><strong>Solde courant:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
-              <p class="caisse-row"><strong>Ouverte par:</strong> <span class="caisse-value">{{ formatCaisseOuvertePar(caisseJour) }}</span></p>
-              <p class="caisse-row"><strong>Date d'ouverture:</strong> <span class="caisse-value">{{ formatDateTime(caisseJour.dateOuverture) }}</span></p>
-              <p class="caisse-row"><strong>Cloturee par:</strong> <span class="caisse-value">{{ formatCaisseClotureePar(caisseJour) }}</span></p>
-              <p class="caisse-row"><strong>Date de cloture:</strong> <span class="caisse-value">{{ formatDateTime(caisseJour.dateCloture) }}</span></p>
-            </div>
-            <div class="caisse-summary-col">
-              <h4>Resume financier</h4>
-              <p class="caisse-row"><strong>Total entrees:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
-              <p class="caisse-row"><strong>Total sorties:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSorties) }}</span></p>
-              <p class="caisse-row"><strong>Solde:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
-            </div>
-            <div class="caisse-summary-col">
-              <h4>Resultat du jour</h4>
-              <p class="caisse-row"><strong>Entrees du jour:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
-              <p class="caisse-row"><strong>Depenses quotidiennes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</span></p>
-              <p class="caisse-row"><strong>Resultat journalier:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.resultatJournalier) }}</span></p>
-            </div>
-          </article>
+          <ResponsiveDataContainer :mobile="isMobileViewport">
+            <template #mobile>
+              <CaisseOverviewCards
+                :caisse="caisseJour"
+                :status="caisseStatus"
+                :totals="caisseTotals"
+                :format-currency="formatCurrency"
+                :format-date-time="formatDateTime"
+                :format-opened-by="formatCaisseOuvertePar"
+                :format-closed-by="formatCaisseClotureePar"
+              />
 
-          <article class="panel">
-            <div class="panel-header detail-panel-header">
-              <h4>Historique des operations</h4>
-              <span class="helper">Lecture seule</span>
-            </div>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Montant</th>
-                  <th>Type depense</th>
-                  <th>Mode</th>
-                  <th>Motif</th>
-                  <th>Justification</th>
-                  <th>Reference</th>
-                  <th>Utilisateur</th>
-                  <th>Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="op in caisseOperationsPaged" :key="op.idOperation">
-                  <td data-label="Date">{{ formatDateTime(op.dateOperation) }}</td>
-                  <td data-label="Type">{{ op.typeOperation }}</td>
-                  <td data-label="Montant">{{ formatCurrency(op.montant) }}</td>
-                  <td data-label="Type depense">
-                    <span v-if="op.typeOperation === 'SORTIE'" class="status-pill" :data-tone="op.typeDepense === 'EXCEPTIONNELLE' ? 'amber' : 'blue'">
-                      {{ depenseTypeLabel(op.typeDepense) }}
-                    </span>
-                    <span v-else>-</span>
-                  </td>
-                  <td data-label="Mode">{{ op.modePaiement || "-" }}</td>
-                  <td data-label="Motif">{{ op.motif || "-" }}</td>
-                  <td data-label="Justification">{{ op.justification || "-" }}</td>
-                  <td data-label="Reference">{{ op.referenceMetier || "-" }}</td>
-                  <td data-label="Utilisateur">{{ op.effectuePar || "-" }}</td>
-                  <td data-label="Statut">{{ op.statutOperation || "-" }}</td>
-                </tr>
-                <tr v-if="caisseOperations.length === 0">
-                  <td colspan="10">Aucune operation enregistree.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="caisseOperationsPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="caisseOperationsPagination.page <= 1" @click="caisseOperationsPagination.page -= 1">Precedent</button>
-              <span>Page {{ caisseOperationsPagination.page }} / {{ caisseOperationsPages }}</span>
-              <button class="mini-btn" :disabled="caisseOperationsPagination.page >= caisseOperationsPages" @click="caisseOperationsPagination.page += 1">Suivant</button>
-            </div>
-          </article>
+              <article class="panel">
+                <MobileSectionHeader
+                  title="Historique des operations"
+                  :subtitle="`${caisseOperations.length} operation(s) enregistree(s)`"
+                />
 
+                <MobileStateEmpty
+                  v-if="caisseOperations.length === 0"
+                  title="Aucune operation"
+                  description="Aucune operation n'est enregistree pour cette caisse."
+                />
+
+                <CaisseOperationMobileList
+                  v-else
+                  :items="caisseOperationsPaged"
+                  :format-currency="formatCurrency"
+                  :format-date-time="formatDateTime"
+                  :depense-type-label="depenseTypeLabel"
+                />
+
+                <ResponsivePagination
+                  :page="caisseOperationsPagination.page"
+                  :pages="caisseOperationsPages"
+                  :page-size="caisseOperationsPagination.pageSize"
+                  :page-size-options="[10, 20, 50]"
+                  :prev-disabled="caisseOperationsPagination.page <= 1"
+                  :next-disabled="caisseOperationsPagination.page >= caisseOperationsPages"
+                  @update:page-size="caisseOperationsPagination.pageSize = $event"
+                  @prev="caisseOperationsPagination.page -= 1"
+                  @next="caisseOperationsPagination.page += 1"
+                />
+              </article>
+            </template>
+
+            <template #desktop>
+              <article class="panel caisse-summary-grid">
+                <div class="caisse-summary-col">
+                  <h4>Statut de la caisse</h4>
+                  <p class="caisse-row"><strong>Etat:</strong> <span class="caisse-value">{{ caisseStatus }}</span></p>
+                  <p class="caisse-row"><strong>Solde d'ouverture:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeOuverture) }}</span></p>
+                  <p class="caisse-row"><strong>Solde courant:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
+                  <p class="caisse-row"><strong>Ouverte par:</strong> <span class="caisse-value">{{ formatCaisseOuvertePar(caisseJour) }}</span></p>
+                  <p class="caisse-row"><strong>Date d'ouverture:</strong> <span class="caisse-value">{{ formatDateTime(caisseJour.dateOuverture) }}</span></p>
+                  <p class="caisse-row"><strong>Cloturee par:</strong> <span class="caisse-value">{{ formatCaisseClotureePar(caisseJour) }}</span></p>
+                  <p class="caisse-row"><strong>Date de cloture:</strong> <span class="caisse-value">{{ formatDateTime(caisseJour.dateCloture) }}</span></p>
+                </div>
+                <div class="caisse-summary-col">
+                  <h4>Resume financier</h4>
+                  <p class="caisse-row"><strong>Total entrees:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
+                  <p class="caisse-row"><strong>Total sorties:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSorties) }}</span></p>
+                  <p class="caisse-row"><strong>Solde:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
+                </div>
+                <div class="caisse-summary-col">
+                  <h4>Resultat du jour</h4>
+                  <p class="caisse-row"><strong>Entrees du jour:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
+                  <p class="caisse-row"><strong>Depenses quotidiennes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</span></p>
+                  <p class="caisse-row"><strong>Resultat journalier:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.resultatJournalier) }}</span></p>
+                </div>
+              </article>
+
+              <article class="panel">
+                <div class="panel-header detail-panel-header">
+                  <h4>Historique des operations</h4>
+                  <span class="helper">Lecture seule</span>
+                </div>
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Type</th>
+                      <th>Montant</th>
+                      <th>Type depense</th>
+                      <th>Mode</th>
+                      <th>Motif</th>
+                      <th>Justification</th>
+                      <th>Reference</th>
+                      <th>Utilisateur</th>
+                      <th>Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="op in caisseOperationsPaged" :key="op.idOperation">
+                      <td data-label="Date">{{ formatDateTime(op.dateOperation) }}</td>
+                      <td data-label="Type">{{ op.typeOperation }}</td>
+                      <td data-label="Montant">{{ formatCurrency(op.montant) }}</td>
+                      <td data-label="Type depense">
+                        <span v-if="op.typeOperation === 'SORTIE'" class="status-pill" :data-tone="op.typeDepense === 'EXCEPTIONNELLE' ? 'amber' : 'blue'">
+                          {{ depenseTypeLabel(op.typeDepense) }}
+                        </span>
+                        <span v-else>-</span>
+                      </td>
+                      <td data-label="Mode">{{ op.modePaiement || "-" }}</td>
+                      <td data-label="Motif">{{ op.motif || "-" }}</td>
+                      <td data-label="Justification">{{ op.justification || "-" }}</td>
+                      <td data-label="Reference">{{ op.referenceMetier || "-" }}</td>
+                      <td data-label="Utilisateur">{{ op.effectuePar || "-" }}</td>
+                      <td data-label="Statut">{{ op.statutOperation || "-" }}</td>
+                    </tr>
+                    <tr v-if="caisseOperations.length === 0">
+                      <td colspan="10">Aucune operation enregistree.</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <ResponsivePagination
+                  :page="caisseOperationsPagination.page"
+                  :pages="caisseOperationsPages"
+                  :page-size="caisseOperationsPagination.pageSize"
+                  :page-size-options="[10, 20, 50]"
+                  :prev-disabled="caisseOperationsPagination.page <= 1"
+                  :next-disabled="caisseOperationsPagination.page >= caisseOperationsPages"
+                  @update:page-size="caisseOperationsPagination.pageSize = $event"
+                  @prev="caisseOperationsPagination.page -= 1"
+                  @next="caisseOperationsPagination.page += 1"
+                />
+              </article>
+            </template>
+          </ResponsiveDataContainer>
         </template>
+
+        <template #action>
+          <MobilePrimaryActionBar
+            v-if="isMobileViewport && !caisseOuverte && canOpenCaisse"
+            title="Action principale"
+            subtitle="Ouvrez la caisse du jour pour autoriser les ecritures."
+          >
+            <button class="action-btn green" @click="onOuvrirCaisseDuJour">Ouvrir la caisse</button>
+          </MobilePrimaryActionBar>
+
+          <MobilePrimaryActionBar
+            v-else-if="isMobileViewport && caisseOuverte && canRecordCaisseExpense"
+            title="Action principale"
+            subtitle="Enregistrez rapidement une depense sur la caisse ouverte."
+          >
+            <button class="action-btn amber" @click="onDepenseCaisse">Enregistrer depense</button>
+          </MobilePrimaryActionBar>
+
+          <MobilePrimaryActionBar
+            v-else-if="isMobileViewport && caisseOuverte && !canRecordCaisseExpense && canCloseCaisse"
+            title="Action principale"
+            subtitle="Cloturez la caisse lorsque les operations sont terminees."
+          >
+            <button class="action-btn red" @click="onCloturerCaisse">Cloturer la caisse</button>
+          </MobilePrimaryActionBar>
+        </template>
+        </MobilePageLayout>
       </section>
 
         <section v-else-if="currentRoute === 'audit'" class="commande-detail">
@@ -11696,575 +13316,780 @@ async function loadRetoucheDetail(idRetouche) {
 
         <template v-else-if="auditSubRoute === '/audit/caisse'">
           <article class="panel">
-            <h3>Bilans journaliers</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Date ouverture</th>
-                  <th>Heure ouverture</th>
-                  <th>Date cloture</th>
-                  <th>Heure cloture</th>
-                  <th>Jour</th>
-                  <th>Solde ouverture</th>
-                  <th>Total entrees</th>
-                  <th>Total sorties</th>
-                  <th>Resultat journalier</th>
-                  <th>Solde journalier restant</th>
-                  <th>Solde cloture</th>
-                  <th>Nb operations</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in auditCaisseJournalierPaged" :key="row.id_caisse_jour">
-                  <td>{{ row.date_ouverture ? row.date_ouverture.slice(0, 10) : "-" }}</td>
-                  <td>{{ row.heure_ouverture || "-" }}</td>
-                  <td>{{ row.date_cloture ? row.date_cloture.slice(0, 10) : "-" }}</td>
-                  <td>{{ row.heure_cloture || "-" }}</td>
-                  <td>{{ formatWeekdayFr(row.jour_semaine) }}</td>
-                  <td>{{ formatCurrency(row.solde_ouverture) }}</td>
-                  <td>{{ formatCurrency(row.total_entrees) }}</td>
-                  <td>{{ formatCurrency(row.total_sorties) }}</td>
-                  <td>{{ formatCurrency(row.resultat_journalier) }}</td>
-                  <td>{{ formatCurrency(row.solde_journalier_restant) }}</td>
-                  <td>{{ formatCurrency(row.solde_cloture) }}</td>
-                  <td>{{ row.nombre_operations }}</td>
-                </tr>
-                <tr v-if="auditCaisseJournalier.length === 0">
-                  <td colspan="12">Aucune caisse cloturee.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="auditCaisseJournalierPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="auditCaisseJournalierPagination.page <= 1" @click="auditCaisseJournalierPagination.page -= 1">Precedent</button>
-              <span>Page {{ auditCaisseJournalierPagination.page }} / {{ auditCaisseJournalierPages }}</span>
-              <button class="mini-btn" :disabled="auditCaisseJournalierPagination.page >= auditCaisseJournalierPages" @click="auditCaisseJournalierPagination.page += 1">Suivant</button>
-            </div>
+            <template v-if="isMobileViewport">
+              <MobileSectionHeader
+                title="Bilans journaliers"
+                subtitle="Lecture rapide des ouvertures, clotures et soldes journaliers."
+              />
+              <AuditCaisseDailyMobileList
+                :items="auditCaisseJournalierPaged"
+                :format-currency="formatCurrency"
+                :format-weekday="formatWeekdayFr"
+              />
+            </template>
+            <template v-else>
+              <h3>Bilans journaliers</h3>
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Date ouverture</th>
+                    <th>Heure ouverture</th>
+                    <th>Date cloture</th>
+                    <th>Heure cloture</th>
+                    <th>Jour</th>
+                    <th>Solde ouverture</th>
+                    <th>Total entrees</th>
+                    <th>Total sorties</th>
+                    <th>Resultat journalier</th>
+                    <th>Solde journalier restant</th>
+                    <th>Solde cloture</th>
+                    <th>Nb operations</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in auditCaisseJournalierPaged" :key="row.id_caisse_jour">
+                    <td>{{ row.date_ouverture ? row.date_ouverture.slice(0, 10) : "-" }}</td>
+                    <td>{{ row.heure_ouverture || "-" }}</td>
+                    <td>{{ row.date_cloture ? row.date_cloture.slice(0, 10) : "-" }}</td>
+                    <td>{{ row.heure_cloture || "-" }}</td>
+                    <td>{{ formatWeekdayFr(row.jour_semaine) }}</td>
+                    <td>{{ formatCurrency(row.solde_ouverture) }}</td>
+                    <td>{{ formatCurrency(row.total_entrees) }}</td>
+                    <td>{{ formatCurrency(row.total_sorties) }}</td>
+                    <td>{{ formatCurrency(row.resultat_journalier) }}</td>
+                    <td>{{ formatCurrency(row.solde_journalier_restant) }}</td>
+                    <td>{{ formatCurrency(row.solde_cloture) }}</td>
+                    <td>{{ row.nombre_operations }}</td>
+                  </tr>
+                  <tr v-if="auditCaisseJournalier.length === 0">
+                    <td colspan="12">Aucune caisse cloturee.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
+            <ResponsivePagination
+              :page="auditCaisseJournalierPagination.page"
+              :pages="auditCaisseJournalierPages"
+              :page-size="auditCaisseJournalierPagination.pageSize"
+              :page-size-options="[10, 20, 50]"
+              :prev-disabled="auditCaisseJournalierPagination.page <= 1"
+              :next-disabled="auditCaisseJournalierPagination.page >= auditCaisseJournalierPages"
+              @update:page-size="auditCaisseJournalierPagination.pageSize = $event"
+              @prev="auditCaisseJournalierPagination.page -= 1"
+              @next="auditCaisseJournalierPagination.page += 1"
+            />
           </article>
 
           <article class="panel">
-            <h3>Bilans hebdomadaires</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Semaine</th>
-                  <th>Solde debut</th>
-                  <th>Total entrees</th>
-                  <th>Total sorties</th>
-                  <th>Solde fin</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in bilanHebdoPaged" :key="row.id_bilan">
-                  <td>{{ row.date_debut }} -> {{ row.date_fin }}</td>
-                  <td>{{ formatCurrency(row.solde_ouverture) }}</td>
-                  <td>{{ formatCurrency(row.total_entrees) }}</td>
-                  <td>{{ formatCurrency(row.total_sorties) }}</td>
-                  <td>{{ formatCurrency(row.solde_cloture) }}</td>
-                </tr>
-                <tr v-if="bilanHebdo.length === 0">
-                  <td colspan="5">Aucun bilan hebdomadaire.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="bilanHebdoPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="bilanHebdoPagination.page <= 1" @click="bilanHebdoPagination.page -= 1">Precedent</button>
-              <span>Page {{ bilanHebdoPagination.page }} / {{ bilanHebdoPages }}</span>
-              <button class="mini-btn" :disabled="bilanHebdoPagination.page >= bilanHebdoPages" @click="bilanHebdoPagination.page += 1">Suivant</button>
-            </div>
+            <template v-if="isMobileViewport">
+              <MobileSectionHeader
+                title="Bilans hebdomadaires"
+                subtitle="Vision compacte des soldes et mouvements par semaine."
+              />
+              <AuditCaissePeriodMobileList
+                :items="bilanHebdoPaged"
+                :format-currency="formatCurrency"
+                mode="weekly"
+              />
+            </template>
+            <template v-else>
+              <h3>Bilans hebdomadaires</h3>
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Semaine</th>
+                    <th>Solde debut</th>
+                    <th>Total entrees</th>
+                    <th>Total sorties</th>
+                    <th>Solde fin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in bilanHebdoPaged" :key="row.id_bilan">
+                    <td>{{ row.date_debut }} -> {{ row.date_fin }}</td>
+                    <td>{{ formatCurrency(row.solde_ouverture) }}</td>
+                    <td>{{ formatCurrency(row.total_entrees) }}</td>
+                    <td>{{ formatCurrency(row.total_sorties) }}</td>
+                    <td>{{ formatCurrency(row.solde_cloture) }}</td>
+                  </tr>
+                  <tr v-if="bilanHebdo.length === 0">
+                    <td colspan="5">Aucun bilan hebdomadaire.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
+            <ResponsivePagination
+              :page="bilanHebdoPagination.page"
+              :pages="bilanHebdoPages"
+              :page-size="bilanHebdoPagination.pageSize"
+              :page-size-options="[10, 20, 50]"
+              :prev-disabled="bilanHebdoPagination.page <= 1"
+              :next-disabled="bilanHebdoPagination.page >= bilanHebdoPages"
+              @update:page-size="bilanHebdoPagination.pageSize = $event"
+              @prev="bilanHebdoPagination.page -= 1"
+              @next="bilanHebdoPagination.page += 1"
+            />
           </article>
 
           <article class="panel">
-            <h3>Bilans mensuels</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Mois / Annee</th>
-                  <th>Solde debut</th>
-                  <th>Entrees</th>
-                  <th>Sorties</th>
-                  <th>Solde fin</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in bilanMensuelPaged" :key="row.id_bilan">
-                  <td>{{ row.date_debut }} -> {{ row.date_fin }}</td>
-                  <td>{{ formatCurrency(row.solde_ouverture) }}</td>
-                  <td>{{ formatCurrency(row.total_entrees) }}</td>
-                  <td>{{ formatCurrency(row.total_sorties) }}</td>
-                  <td>{{ formatCurrency(row.solde_cloture) }}</td>
-                </tr>
-                <tr v-if="bilanMensuel.length === 0">
-                  <td colspan="5">Aucun bilan mensuel.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="bilanMensuelPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="bilanMensuelPagination.page <= 1" @click="bilanMensuelPagination.page -= 1">Precedent</button>
-              <span>Page {{ bilanMensuelPagination.page }} / {{ bilanMensuelPages }}</span>
-              <button class="mini-btn" :disabled="bilanMensuelPagination.page >= bilanMensuelPages" @click="bilanMensuelPagination.page += 1">Suivant</button>
-            </div>
+            <template v-if="isMobileViewport">
+              <MobileSectionHeader
+                title="Bilans mensuels"
+                subtitle="Lecture compacte des soldes et flux par mois."
+              />
+              <AuditCaissePeriodMobileList
+                :items="bilanMensuelPaged"
+                :format-currency="formatCurrency"
+                mode="monthly"
+              />
+            </template>
+            <template v-else>
+              <h3>Bilans mensuels</h3>
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Mois / Annee</th>
+                    <th>Solde debut</th>
+                    <th>Entrees</th>
+                    <th>Sorties</th>
+                    <th>Solde fin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in bilanMensuelPaged" :key="row.id_bilan">
+                    <td>{{ row.date_debut }} -> {{ row.date_fin }}</td>
+                    <td>{{ formatCurrency(row.solde_ouverture) }}</td>
+                    <td>{{ formatCurrency(row.total_entrees) }}</td>
+                    <td>{{ formatCurrency(row.total_sorties) }}</td>
+                    <td>{{ formatCurrency(row.solde_cloture) }}</td>
+                  </tr>
+                  <tr v-if="bilanMensuel.length === 0">
+                    <td colspan="5">Aucun bilan mensuel.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
+            <ResponsivePagination
+              :page="bilanMensuelPagination.page"
+              :pages="bilanMensuelPages"
+              :page-size="bilanMensuelPagination.pageSize"
+              :page-size-options="[10, 20, 50]"
+              :prev-disabled="bilanMensuelPagination.page <= 1"
+              :next-disabled="bilanMensuelPagination.page >= bilanMensuelPages"
+              @update:page-size="bilanMensuelPagination.pageSize = $event"
+              @prev="bilanMensuelPagination.page -= 1"
+              @next="bilanMensuelPagination.page += 1"
+            />
           </article>
 
           <article class="panel">
-            <h3>Bilans annuels</h3>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Annee</th>
-                  <th>Periode</th>
-                  <th>Solde debut</th>
-                  <th>Entrees</th>
-                  <th>Sorties</th>
-                  <th>Solde fin</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in bilanAnnuelPaged" :key="row.id_bilan">
-                  <td data-label="Annee">{{ row.annee || "-" }}</td>
-                  <td data-label="Periode">{{ row.date_debut }} -> {{ row.date_fin }}</td>
-                  <td data-label="Solde debut">{{ formatCurrency(row.solde_ouverture) }}</td>
-                  <td data-label="Entrees">{{ formatCurrency(row.total_entrees) }}</td>
-                  <td data-label="Sorties">{{ formatCurrency(row.total_sorties) }}</td>
-                  <td data-label="Solde fin">{{ formatCurrency(row.solde_cloture) }}</td>
-                </tr>
-                <tr v-if="bilanAnnuel.length === 0">
-                  <td colspan="6">Aucun bilan annuel.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="bilanAnnuelPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="bilanAnnuelPagination.page <= 1" @click="bilanAnnuelPagination.page -= 1">Precedent</button>
-              <span>Page {{ bilanAnnuelPagination.page }} / {{ bilanAnnuelPages }}</span>
-              <button class="mini-btn" :disabled="bilanAnnuelPagination.page >= bilanAnnuelPages" @click="bilanAnnuelPagination.page += 1">Suivant</button>
-            </div>
+            <template v-if="isMobileViewport">
+              <MobileSectionHeader
+                title="Bilans annuels"
+                subtitle="Synthese annuelle des entrees, sorties et soldes de cloture."
+              />
+              <AuditCaissePeriodMobileList
+                :items="bilanAnnuelPaged"
+                :format-currency="formatCurrency"
+                mode="annual"
+              />
+            </template>
+            <template v-else>
+              <h3>Bilans annuels</h3>
+              <table class="data-table mobile-stack-table">
+                <thead>
+                  <tr>
+                    <th>Annee</th>
+                    <th>Periode</th>
+                    <th>Solde debut</th>
+                    <th>Entrees</th>
+                    <th>Sorties</th>
+                    <th>Solde fin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in bilanAnnuelPaged" :key="row.id_bilan">
+                    <td data-label="Annee">{{ row.annee || "-" }}</td>
+                    <td data-label="Periode">{{ row.date_debut }} -> {{ row.date_fin }}</td>
+                    <td data-label="Solde debut">{{ formatCurrency(row.solde_ouverture) }}</td>
+                    <td data-label="Entrees">{{ formatCurrency(row.total_entrees) }}</td>
+                    <td data-label="Sorties">{{ formatCurrency(row.total_sorties) }}</td>
+                    <td data-label="Solde fin">{{ formatCurrency(row.solde_cloture) }}</td>
+                  </tr>
+                  <tr v-if="bilanAnnuel.length === 0">
+                    <td colspan="6">Aucun bilan annuel.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
+            <ResponsivePagination
+              :page="bilanAnnuelPagination.page"
+              :pages="bilanAnnuelPages"
+              :page-size="bilanAnnuelPagination.pageSize"
+              :page-size-options="[10, 20, 50]"
+              :prev-disabled="bilanAnnuelPagination.page <= 1"
+              :next-disabled="bilanAnnuelPagination.page >= bilanAnnuelPages"
+              @update:page-size="bilanAnnuelPagination.pageSize = $event"
+              @prev="bilanAnnuelPagination.page -= 1"
+              @next="bilanAnnuelPagination.page += 1"
+            />
           </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/operations'">
           <article class="panel">
-            <h3>Journal financier global</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Date & heure</th>
-                  <th>Type d'operation</th>
-                  <th>Montant</th>
-                  <th>Type depense</th>
-                  <th>Mode de paiement</th>
-                  <th>Justification</th>
-                  <th>Impact journalier</th>
-                  <th>Impact global</th>
-                  <th>Utilisateur</th>
-                  <th>Reference metier</th>
-                  <th>Reference caisse</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="op in auditOperationsPaged" :key="op.id_operation">
-                  <td>{{ formatDateTime(op.date_operation) }}</td>
-                  <td>{{ operationAuditType(op) }}</td>
-                  <td>{{ formatCurrency(op.montant) }}</td>
-                  <td>
-                    <span v-if="op.type_operation === 'SORTIE'" class="status-pill" :data-tone="op.type_depense === 'EXCEPTIONNELLE' ? 'amber' : 'blue'">
-                      {{ depenseTypeLabel(op.type_depense) }}
-                    </span>
-                    <span v-else>-</span>
-                  </td>
-                  <td>{{ op.mode_paiement || "-" }}</td>
-                  <td>{{ op.justification || "-" }}</td>
-                  <td>{{ op.impact_journalier === true ? "Oui" : "Non" }}</td>
-                  <td>{{ op.impact_global === false ? "Non" : "Oui" }}</td>
-                  <td>{{ op.effectue_par || "-" }}</td>
-                  <td>{{ op.reference_metier || "-" }}</td>
-                  <td>{{ op.id_caisse_jour || "-" }}</td>
-                </tr>
-                <tr v-if="auditOperations.length === 0">
-                  <td colspan="11">Aucune operation.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="auditOperationsPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="auditOperationsPagination.page <= 1" @click="auditOperationsPagination.page -= 1">Precedent</button>
-              <span>Page {{ auditOperationsPagination.page }} / {{ auditOperationsPages }}</span>
-              <button class="mini-btn" :disabled="auditOperationsPagination.page >= auditOperationsPages" @click="auditOperationsPagination.page += 1">Suivant</button>
-            </div>
+            <ResponsiveDataContainer>
+              <template #mobile>
+                <MobileSectionHeader
+                  title="Journal financier global"
+                  :subtitle="`${auditOperations.length} operation(s) enregistree(s)`"
+                />
+                <AuditOperationMobileList
+                  :items="auditOperationsPaged"
+                  :format-currency="formatCurrency"
+                  :format-date-time="formatDateTime"
+                  :operation-audit-type="operationAuditType"
+                  :depense-type-label="depenseTypeLabel"
+                />
+              </template>
+
+              <template #desktop>
+                <h3>Journal financier global</h3>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Date & heure</th>
+                      <th>Type d'operation</th>
+                      <th>Montant</th>
+                      <th>Type depense</th>
+                      <th>Mode de paiement</th>
+                      <th>Justification</th>
+                      <th>Impact journalier</th>
+                      <th>Impact global</th>
+                      <th>Utilisateur</th>
+                      <th>Reference metier</th>
+                      <th>Reference caisse</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="op in auditOperationsPaged" :key="op.id_operation">
+                      <td>{{ formatDateTime(op.date_operation) }}</td>
+                      <td>{{ operationAuditType(op) }}</td>
+                      <td>{{ formatCurrency(op.montant) }}</td>
+                      <td>
+                        <span v-if="op.type_operation === 'SORTIE'" class="status-pill" :data-tone="op.type_depense === 'EXCEPTIONNELLE' ? 'amber' : 'blue'">
+                          {{ depenseTypeLabel(op.type_depense) }}
+                        </span>
+                        <span v-else>-</span>
+                      </td>
+                      <td>{{ op.mode_paiement || "-" }}</td>
+                      <td>{{ op.justification || "-" }}</td>
+                      <td>{{ op.impact_journalier === true ? "Oui" : "Non" }}</td>
+                      <td>{{ op.impact_global === false ? "Non" : "Oui" }}</td>
+                      <td>{{ op.effectue_par || "-" }}</td>
+                      <td>{{ op.reference_metier || "-" }}</td>
+                      <td>{{ op.id_caisse_jour || "-" }}</td>
+                    </tr>
+                    <tr v-if="auditOperations.length === 0">
+                      <td colspan="11">Aucune operation.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </ResponsiveDataContainer>
+            <ResponsivePagination
+              :page="auditOperationsPagination.page"
+              :pages="auditOperationsPages"
+              :page-size="auditOperationsPagination.pageSize"
+              :page-size-options="[10, 20, 50]"
+              :prev-disabled="auditOperationsPagination.page <= 1"
+              :next-disabled="auditOperationsPagination.page >= auditOperationsPages"
+              @update:page-size="auditOperationsPagination.pageSize = $event"
+              @prev="auditOperationsPagination.page -= 1"
+              @next="auditOperationsPagination.page += 1"
+            />
           </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/commandes'">
           <article class="panel">
-            <h3>Historique commandes</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Client</th>
-                  <th>Description</th>
-                  <th>Statut</th>
-                  <th>Montant total</th>
-                  <th>Montant paye</th>
-                  <th>Total paiements</th>
-                  <th>Nb paiements</th>
-                  <th>Detail</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in auditCommandesPaged" :key="row.idCommande">
-                  <td>{{ row.idCommande }}</td>
-                  <td>{{ row.clientNom || row.idClient }}</td>
-                  <td>{{ row.descriptionCommande }}</td>
-                  <td>{{ row.statutCommande }}</td>
-                  <td>{{ formatCurrency(row.montantTotal) }}</td>
-                  <td>{{ formatCurrency(row.montantPaye) }}</td>
-                  <td>{{ formatCurrency(row.totalPaiements) }}</td>
-                  <td>{{ row.nombrePaiements }}</td>
-                  <td><button class="mini-btn" @click="openCommandeDetail(row.idCommande)">Voir detail</button></td>
-                </tr>
-                <tr v-if="auditCommandes.length === 0">
-                  <td colspan="9">Aucune commande.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="auditCommandesPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="auditCommandesPagination.page <= 1" @click="auditCommandesPagination.page -= 1">Precedent</button>
-              <span>Page {{ auditCommandesPagination.page }} / {{ auditCommandesPages }}</span>
-              <button class="mini-btn" :disabled="auditCommandesPagination.page >= auditCommandesPages" @click="auditCommandesPagination.page += 1">Suivant</button>
-            </div>
+            <ResponsiveDataContainer>
+              <template #mobile>
+                <MobileSectionHeader
+                  title="Historique commandes"
+                  :subtitle="`${auditCommandes.length} commande(s) dans l'audit`"
+                />
+                <AuditCommandeMobileList
+                  :items="auditCommandesPaged"
+                  :format-currency="formatCurrency"
+                  @view="openCommandeDetail($event.idCommande)"
+                />
+              </template>
+
+              <template #desktop>
+                <h3>Historique commandes</h3>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Client</th>
+                      <th>Description</th>
+                      <th>Statut</th>
+                      <th>Montant total</th>
+                      <th>Montant paye</th>
+                      <th>Total paiements</th>
+                      <th>Nb paiements</th>
+                      <th>Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in auditCommandesPaged" :key="row.idCommande">
+                      <td>{{ row.idCommande }}</td>
+                      <td>{{ row.clientNom || row.idClient }}</td>
+                      <td>{{ row.descriptionCommande }}</td>
+                      <td>{{ row.statutCommande }}</td>
+                      <td>{{ formatCurrency(row.montantTotal) }}</td>
+                      <td>{{ formatCurrency(row.montantPaye) }}</td>
+                      <td>{{ formatCurrency(row.totalPaiements) }}</td>
+                      <td>{{ row.nombrePaiements }}</td>
+                      <td><button class="mini-btn" @click="openCommandeDetail(row.idCommande)">Voir detail</button></td>
+                    </tr>
+                    <tr v-if="auditCommandes.length === 0">
+                      <td colspan="9">Aucune commande.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </ResponsiveDataContainer>
+            <ResponsivePagination
+              :page="auditCommandesPagination.page"
+              :pages="auditCommandesPages"
+              :page-size="auditCommandesPagination.pageSize"
+              :page-size-options="[10, 20, 50]"
+              :prev-disabled="auditCommandesPagination.page <= 1"
+              :next-disabled="auditCommandesPagination.page >= auditCommandesPages"
+              @update:page-size="auditCommandesPagination.pageSize = $event"
+              @prev="auditCommandesPagination.page -= 1"
+              @next="auditCommandesPagination.page += 1"
+            />
           </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/retouches'">
           <article class="panel">
-            <h3>Historique retouches</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Client</th>
-                  <th>Type</th>
-                  <th>Description</th>
-                  <th>Statut</th>
-                  <th>Montant total</th>
-                  <th>Montant paye</th>
-                  <th>Total paiements</th>
-                  <th>Nb paiements</th>
-                  <th>Detail</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in auditRetouchesPaged" :key="row.idRetouche">
-                  <td>{{ row.idRetouche }}</td>
-                  <td>{{ row.clientNom || row.idClient }}</td>
-                  <td>{{ row.typeRetouche || "-" }}</td>
-                  <td>{{ row.descriptionRetouche }}</td>
-                  <td>{{ row.statutRetouche }}</td>
-                  <td>{{ formatCurrency(row.montantTotal) }}</td>
-                  <td>{{ formatCurrency(row.montantPaye) }}</td>
-                  <td>{{ formatCurrency(row.totalPaiements) }}</td>
-                  <td>{{ row.nombrePaiements }}</td>
-                  <td><button class="mini-btn" @click="openRetoucheDetail(row.idRetouche)">Voir detail</button></td>
-                </tr>
-                <tr v-if="auditRetouches.length === 0">
-                  <td colspan="10">Aucune retouche.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="auditRetouchesPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="auditRetouchesPagination.page <= 1" @click="auditRetouchesPagination.page -= 1">Precedent</button>
-              <span>Page {{ auditRetouchesPagination.page }} / {{ auditRetouchesPages }}</span>
-              <button class="mini-btn" :disabled="auditRetouchesPagination.page >= auditRetouchesPages" @click="auditRetouchesPagination.page += 1">Suivant</button>
-            </div>
+            <ResponsiveDataContainer>
+              <template #mobile>
+                <MobileSectionHeader
+                  title="Historique retouches"
+                  :subtitle="`${auditRetouches.length} retouche(s) dans l'audit`"
+                />
+                <AuditRetoucheMobileList
+                  :items="auditRetouchesPaged"
+                  :format-currency="formatCurrency"
+                  @view="openRetoucheDetail($event.idRetouche)"
+                />
+              </template>
+
+              <template #desktop>
+                <h3>Historique retouches</h3>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Client</th>
+                      <th>Type</th>
+                      <th>Description</th>
+                      <th>Statut</th>
+                      <th>Montant total</th>
+                      <th>Montant paye</th>
+                      <th>Total paiements</th>
+                      <th>Nb paiements</th>
+                      <th>Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in auditRetouchesPaged" :key="row.idRetouche">
+                      <td>{{ row.idRetouche }}</td>
+                      <td>{{ row.clientNom || row.idClient }}</td>
+                      <td>{{ row.typeRetouche || "-" }}</td>
+                      <td>{{ row.descriptionRetouche }}</td>
+                      <td>{{ row.statutRetouche }}</td>
+                      <td>{{ formatCurrency(row.montantTotal) }}</td>
+                      <td>{{ formatCurrency(row.montantPaye) }}</td>
+                      <td>{{ formatCurrency(row.totalPaiements) }}</td>
+                      <td>{{ row.nombrePaiements }}</td>
+                      <td><button class="mini-btn" @click="openRetoucheDetail(row.idRetouche)">Voir detail</button></td>
+                    </tr>
+                    <tr v-if="auditRetouches.length === 0">
+                      <td colspan="10">Aucune retouche.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </ResponsiveDataContainer>
+            <ResponsivePagination
+              :page="auditRetouchesPagination.page"
+              :pages="auditRetouchesPages"
+              :page-size="auditRetouchesPagination.pageSize"
+              :page-size-options="[10, 20, 50]"
+              :prev-disabled="auditRetouchesPagination.page <= 1"
+              :next-disabled="auditRetouchesPagination.page >= auditRetouchesPages"
+              @update:page-size="auditRetouchesPagination.pageSize = $event"
+              @prev="auditRetouchesPagination.page -= 1"
+              @next="auditRetouchesPagination.page += 1"
+            />
           </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/stock-ventes'">
           <article class="panel">
-            <h3>Ventes & sorties stock</h3>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Article</th>
-                  <th>Quantite</th>
-                  <th>Montant</th>
-                  <th>Ref caisse</th>
-                  <th>Utilisateur</th>
-                  <th>Reference metier</th>
-                  <th>Detail</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in auditStockVentesPaged" :key="row.idMouvement">
-                  <td>{{ formatDateTime(row.dateMouvement) }}</td>
-                  <td>{{ row.nomArticle || row.idArticle }}</td>
-                  <td>{{ row.quantite }}</td>
-                  <td>{{ formatCurrency(row.montantEncaisse === null ? row.montantEstime : row.montantEncaisse) }}</td>
-                  <td>{{ row.idCaisseJour || "-" }}</td>
-                  <td>{{ row.utilisateur || "-" }}</td>
-                  <td>
-                    <div class="row-actions">
-                      <span class="status-pill" data-tone="ok" v-if="row.referenceMetier && String(row.referenceMetier).startsWith('VTE-')">
-                        VENTE
-                      </span>
-                      <span>{{ row.referenceMetier || "-" }}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <button
-                      v-if="row.referenceMetier && String(row.referenceMetier).startsWith('VTE-')"
-                      class="mini-btn"
-                      @click="openVenteDetail(row.referenceMetier)"
-                    >
-                      Voir vente
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="auditStockVentes.length === 0">
-                  <td colspan="8">Aucune vente/sortie stock.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="auditStockVentesPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="auditStockVentesPagination.page <= 1" @click="auditStockVentesPagination.page -= 1">Precedent</button>
-              <span>Page {{ auditStockVentesPagination.page }} / {{ auditStockVentesPages }}</span>
-              <button class="mini-btn" :disabled="auditStockVentesPagination.page >= auditStockVentesPages" @click="auditStockVentesPagination.page += 1">Suivant</button>
-            </div>
+            <ResponsiveDataContainer>
+              <template #mobile>
+                <MobileSectionHeader
+                  title="Ventes & sorties stock"
+                  :subtitle="`${auditStockVentes.length} mouvement(s) dans l'audit`"
+                />
+                <AuditStockVenteMobileList
+                  :items="auditStockVentesPaged"
+                  :format-currency="formatCurrency"
+                  :format-date-time="formatDateTime"
+                  @view="openVenteDetail($event.referenceMetier)"
+                />
+              </template>
+
+              <template #desktop>
+                <h3>Ventes & sorties stock</h3>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Article</th>
+                      <th>Quantite</th>
+                      <th>Montant</th>
+                      <th>Ref caisse</th>
+                      <th>Utilisateur</th>
+                      <th>Reference metier</th>
+                      <th>Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in auditStockVentesPaged" :key="row.idMouvement">
+                      <td>{{ formatDateTime(row.dateMouvement) }}</td>
+                      <td>{{ row.nomArticle || row.idArticle }}</td>
+                      <td>{{ row.quantite }}</td>
+                      <td>{{ formatCurrency(row.montantEncaisse === null ? row.montantEstime : row.montantEncaisse) }}</td>
+                      <td>{{ row.idCaisseJour || "-" }}</td>
+                      <td>{{ row.utilisateur || "-" }}</td>
+                      <td>
+                        <div class="row-actions">
+                          <span class="status-pill" data-tone="ok" v-if="row.referenceMetier && String(row.referenceMetier).startsWith('VTE-')">
+                            VENTE
+                          </span>
+                          <span>{{ row.referenceMetier || "-" }}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <button
+                          v-if="row.referenceMetier && String(row.referenceMetier).startsWith('VTE-')"
+                          class="mini-btn"
+                          @click="openVenteDetail(row.referenceMetier)"
+                        >
+                          Voir vente
+                        </button>
+                      </td>
+                    </tr>
+                    <tr v-if="auditStockVentes.length === 0">
+                      <td colspan="8">Aucune vente/sortie stock.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </ResponsiveDataContainer>
+            <ResponsivePagination
+              :page="auditStockVentesPagination.page"
+              :pages="auditStockVentesPages"
+              :page-size="auditStockVentesPagination.pageSize"
+              :page-size-options="[10, 20, 50]"
+              :prev-disabled="auditStockVentesPagination.page <= 1"
+              :next-disabled="auditStockVentesPagination.page >= auditStockVentesPages"
+              @update:page-size="auditStockVentesPagination.pageSize = $event"
+              @prev="auditStockVentesPagination.page -= 1"
+              @next="auditStockVentesPagination.page += 1"
+            />
           </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/factures'">
           <article class="panel">
-            <h3>Historique factures</h3>
-            <p class="helper">Documents emis, immuables et auditable en lecture seule.</p>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Numero</th>
-                  <th>Client</th>
-                  <th>Origine</th>
-                  <th>Date emission</th>
-                  <th>Total</th>
-                  <th>Paye</th>
-                  <th>Solde</th>
-                  <th>Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in auditFacturesPaged" :key="row.idFacture">
-                  <td>{{ row.numeroFacture }}</td>
-                  <td>{{ row.client?.nom || "-" }}</td>
-                  <td>{{ row.typeOrigine }} / {{ row.idOrigine }}</td>
-                  <td>{{ formatDateShort(row.dateEmission) }}</td>
-                  <td>{{ formatFactureCurrency(row.montantTotal) }}</td>
-                  <td>{{ formatFactureCurrency(row.montantPaye) }}</td>
-                  <td>{{ formatFactureCurrency(row.solde) }}</td>
-                  <td>{{ row.statut }}</td>
-                </tr>
-                <tr v-if="auditFactures.length === 0">
-                  <td colspan="8">Aucune facture.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="auditFacturesPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="auditFacturesPagination.page <= 1" @click="auditFacturesPagination.page -= 1">Precedent</button>
-              <span>Page {{ auditFacturesPagination.page }} / {{ auditFacturesPages }}</span>
-              <button class="mini-btn" :disabled="auditFacturesPagination.page >= auditFacturesPages" @click="auditFacturesPagination.page += 1">Suivant</button>
-            </div>
+            <ResponsiveDataContainer>
+              <template #mobile>
+                <MobileSectionHeader
+                  title="Historique factures"
+                  :subtitle="`${auditFactures.length} facture(s) dans l'audit`"
+                />
+                <p class="helper">Documents emis, immuables et auditable en lecture seule.</p>
+                <AuditFactureMobileList
+                  :items="auditFacturesPaged"
+                  :format-currency="formatFactureCurrency"
+                  :format-date="formatDateShort"
+                />
+              </template>
+
+              <template #desktop>
+                <h3>Historique factures</h3>
+                <p class="helper">Documents emis, immuables et auditable en lecture seule.</p>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Numero</th>
+                      <th>Client</th>
+                      <th>Origine</th>
+                      <th>Date emission</th>
+                      <th>Total</th>
+                      <th>Paye</th>
+                      <th>Solde</th>
+                      <th>Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in auditFacturesPaged" :key="row.idFacture">
+                      <td>{{ row.numeroFacture }}</td>
+                      <td>{{ row.client?.nom || "-" }}</td>
+                      <td>{{ row.typeOrigine }} / {{ row.idOrigine }}</td>
+                      <td>{{ formatDateShort(row.dateEmission) }}</td>
+                      <td>{{ formatFactureCurrency(row.montantTotal) }}</td>
+                      <td>{{ formatFactureCurrency(row.montantPaye) }}</td>
+                      <td>{{ formatFactureCurrency(row.solde) }}</td>
+                      <td>{{ row.statut }}</td>
+                    </tr>
+                    <tr v-if="auditFactures.length === 0">
+                      <td colspan="8">Aucune facture.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </ResponsiveDataContainer>
+            <ResponsivePagination
+              :page="auditFacturesPagination.page"
+              :pages="auditFacturesPages"
+              :page-size="auditFacturesPagination.pageSize"
+              :page-size-options="[10, 20, 50]"
+              :prev-disabled="auditFacturesPagination.page <= 1"
+              :next-disabled="auditFacturesPagination.page >= auditFacturesPages"
+              @update:page-size="auditFacturesPagination.pageSize = $event"
+              @prev="auditFacturesPagination.page -= 1"
+              @next="auditFacturesPagination.page += 1"
+            />
           </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/utilisateurs'">
           <article class="panel">
-            <h3>Audit Utilisateurs</h3>
-            <div class="settings-grid">
-              <div class="stack-form">
-                <label>Recherche</label>
-                <input v-model="auditUtilisateursFiltres.recherche" type="text" placeholder="Utilisateur, action, entite..." />
-              </div>
-              <div class="stack-form">
-                <label>Action</label>
-                <select v-model="auditUtilisateursFiltres.action">
-                  <option v-for="action in auditUtilisateursActions" :key="`audit-user-action-${action}`" :value="action">
-                    {{ action === "ALL" ? "Toutes les actions" : formatAuditAction({ actionType: action, entityId: "", metadata: null }) }}
-                  </option>
-                </select>
-              </div>
-              <div class="stack-form">
-                <label>Statut</label>
-                <select v-model="auditUtilisateursFiltres.statut">
-                  <option value="ALL">Tous</option>
-                  <option value="SUCCES">Succes</option>
-                  <option value="ECHEC">Echec</option>
-                </select>
-              </div>
-            </div>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Description</th>
-                  <th>Utilisateur</th>
-                  <th>Role</th>
-                  <th>Cible</th>
-                  <th>Statut</th>
-                  <th>Raison</th>
-                  <th>Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in auditUtilisateursPaged" :key="row.idEvenement">
-                  <td data-label="Date">{{ formatDateTime(row.createdAt) }}</td>
-                  <td data-label="Description">{{ formatAuditAction(row) }}</td>
-                  <td data-label="Utilisateur">
-                    <div>{{ row.userName || row.userId || "-" }}</div>
-                    <small class="helper" v-if="row.userEmail">{{ row.userEmail }}</small>
-                  </td>
-                  <td data-label="Role">{{ formatRoleLabel(row.role) }}</td>
-                  <td data-label="Cible">
-                    <div>{{ formatAuditEntity(row) }}</div>
-                    <small class="helper" v-if="row.entityType">{{ row.entityType }}</small>
-                  </td>
-                  <td data-label="Statut">{{ formatAuditStatus(row) }}</td>
-                  <td data-label="Raison">{{ row.success ? "-" : (row.reason || "-") }}</td>
-                  <td data-label="Details">
-                    <details>
-                      <summary>Voir details</summary>
-                      <div class="audit-user-details">
-                        <template v-if="auditUserDiffRows(row.metadata).length > 0">
-                          <table class="data-table compact">
-                            <thead>
-                              <tr>
-                                <th>Champ</th>
-                                <th>Avant</th>
-                                <th>Apres</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr v-for="item in auditUserDiffRows(row.metadata)" :key="`${row.idEvenement}-${item.key}`">
-                                <td>{{ item.label }}</td>
-                                <td>{{ item.before }}</td>
-                                <td>{{ item.after }}</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </template>
-                        <template v-else-if="hasAuditMetadata(row)">
-                          <pre>{{ auditMetadataJson(row) }}</pre>
-                        </template>
-                        <template v-else>
-                          <p class="helper">Aucun detail technique pour cet evenement.</p>
-                        </template>
-                      </div>
-                    </details>
-                  </td>
-                </tr>
-                <tr v-if="auditUtilisateursFiltered.length === 0">
-                  <td colspan="8">Aucun evenement utilisateur.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="auditUtilisateursPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-                <option :value="100">100 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="auditUtilisateursPagination.page <= 1" @click="auditUtilisateursPagination.page -= 1">Precedent</button>
-              <span>Page {{ auditUtilisateursPagination.page }} / {{ auditUtilisateursPages }} · {{ auditUtilisateursFiltered.length }} evenement(s)</span>
-              <button class="mini-btn" :disabled="auditUtilisateursPagination.page >= auditUtilisateursPages" @click="auditUtilisateursPagination.page += 1">Suivant</button>
-            </div>
+            <ResponsiveDataContainer>
+              <template #mobile>
+                <MobileSectionHeader
+                  title="Audit Utilisateurs"
+                  :subtitle="`${auditUtilisateursFiltered.length} evenement(s) utilisateur(s)`"
+                />
+                <MobileFilterBlock
+                  title="Filtres utilisateurs"
+                  :summary="auditUtilisateursFilterSummary"
+                  :open="auditUtilisateursMobileFiltersOpen"
+                  @toggle="auditUtilisateursMobileFiltersOpen = !auditUtilisateursMobileFiltersOpen"
+                >
+                  <div class="filters compact">
+                    <input v-model="auditUtilisateursFiltres.recherche" type="text" placeholder="Utilisateur, action, entite..." />
+                    <select v-model="auditUtilisateursFiltres.action">
+                      <option v-for="action in auditUtilisateursActions" :key="`audit-user-action-${action}`" :value="action">
+                        {{ action === "ALL" ? "Toutes les actions" : formatAuditAction({ actionType: action, entityId: "", metadata: null }) }}
+                      </option>
+                    </select>
+                    <select v-model="auditUtilisateursFiltres.statut">
+                      <option value="ALL">Tous</option>
+                      <option value="SUCCES">Succes</option>
+                      <option value="ECHEC">Echec</option>
+                    </select>
+                  </div>
+                </MobileFilterBlock>
+                <AuditUtilisateurMobileList
+                  :items="auditUtilisateursPaged"
+                  :format-date-time="formatDateTime"
+                  :format-audit-action="formatAuditAction"
+                  :format-role-label="formatRoleLabel"
+                  :format-audit-entity="formatAuditEntity"
+                  :format-audit-status="formatAuditStatus"
+                  :has-audit-metadata="hasAuditMetadata"
+                  :audit-metadata-json="auditMetadataJson"
+                  :audit-user-diff-rows="auditUserDiffRows"
+                />
+              </template>
+
+              <template #desktop>
+                <h3>Audit Utilisateurs</h3>
+                <div class="settings-grid">
+                  <div class="stack-form">
+                    <label>Recherche</label>
+                    <input v-model="auditUtilisateursFiltres.recherche" type="text" placeholder="Utilisateur, action, entite..." />
+                  </div>
+                  <div class="stack-form">
+                    <label>Action</label>
+                    <select v-model="auditUtilisateursFiltres.action">
+                      <option v-for="action in auditUtilisateursActions" :key="`audit-user-action-${action}`" :value="action">
+                        {{ action === "ALL" ? "Toutes les actions" : formatAuditAction({ actionType: action, entityId: "", metadata: null }) }}
+                      </option>
+                    </select>
+                  </div>
+                  <div class="stack-form">
+                    <label>Statut</label>
+                    <select v-model="auditUtilisateursFiltres.statut">
+                      <option value="ALL">Tous</option>
+                      <option value="SUCCES">Succes</option>
+                      <option value="ECHEC">Echec</option>
+                    </select>
+                  </div>
+                </div>
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Description</th>
+                      <th>Utilisateur</th>
+                      <th>Role</th>
+                      <th>Cible</th>
+                      <th>Statut</th>
+                      <th>Raison</th>
+                      <th>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in auditUtilisateursPaged" :key="row.idEvenement">
+                      <td data-label="Date">{{ formatDateTime(row.createdAt) }}</td>
+                      <td data-label="Description">{{ formatAuditAction(row) }}</td>
+                      <td data-label="Utilisateur">
+                        <div>{{ row.userName || row.userId || "-" }}</div>
+                        <small class="helper" v-if="row.userEmail">{{ row.userEmail }}</small>
+                      </td>
+                      <td data-label="Role">{{ formatRoleLabel(row.role) }}</td>
+                      <td data-label="Cible">
+                        <div>{{ formatAuditEntity(row) }}</div>
+                        <small class="helper" v-if="row.entityType">{{ row.entityType }}</small>
+                      </td>
+                      <td data-label="Statut">{{ formatAuditStatus(row) }}</td>
+                      <td data-label="Raison">{{ row.success ? "-" : (row.reason || "-") }}</td>
+                      <td data-label="Details">
+                        <details>
+                          <summary>Voir details</summary>
+                          <div class="audit-user-details">
+                            <template v-if="auditUserDiffRows(row.metadata).length > 0">
+                              <table class="data-table compact">
+                                <thead>
+                                  <tr>
+                                    <th>Champ</th>
+                                    <th>Avant</th>
+                                    <th>Apres</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr v-for="item in auditUserDiffRows(row.metadata)" :key="`${row.idEvenement}-${item.key}`">
+                                    <td>{{ item.label }}</td>
+                                    <td>{{ item.before }}</td>
+                                    <td>{{ item.after }}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </template>
+                            <template v-else-if="hasAuditMetadata(row)">
+                              <pre>{{ auditMetadataJson(row) }}</pre>
+                            </template>
+                            <template v-else>
+                              <p class="helper">Aucun detail technique pour cet evenement.</p>
+                            </template>
+                          </div>
+                        </details>
+                      </td>
+                    </tr>
+                    <tr v-if="auditUtilisateursFiltered.length === 0">
+                      <td colspan="8">Aucun evenement utilisateur.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </ResponsiveDataContainer>
+            <ResponsivePagination
+              :page="auditUtilisateursPagination.page"
+              :pages="auditUtilisateursPages"
+              :page-size="auditUtilisateursPagination.pageSize"
+              :page-size-options="[10, 20, 50, 100]"
+              :prev-disabled="auditUtilisateursPagination.page <= 1"
+              :next-disabled="auditUtilisateursPagination.page >= auditUtilisateursPages"
+              :desktop-summary="`Page ${auditUtilisateursPagination.page} / ${auditUtilisateursPages} · ${auditUtilisateursFiltered.length} evenement(s)`"
+              @update:page-size="auditUtilisateursPagination.pageSize = $event"
+              @prev="auditUtilisateursPagination.page -= 1"
+              @next="auditUtilisateursPagination.page += 1"
+            />
           </article>
         </template>
 
         <template v-else-if="auditSubRoute === '/audit/annuel'">
           <article class="panel">
-            <h3>Consolidation annuelle</h3>
-            <p class="helper">Vue consolidee des bilans annuels de caisse.</p>
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>Annee</th>
-                  <th>Periode</th>
-                  <th>Solde debut</th>
-                  <th>Total entrees</th>
-                  <th>Total sorties</th>
-                  <th>Solde fin</th>
-                  <th>Jours clotures</th>
-                  <th>Operations</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in bilanAnnuelPaged" :key="row.id_bilan">
-                  <td data-label="Annee">{{ row.annee || "-" }}</td>
-                  <td data-label="Periode">{{ row.date_debut }} -> {{ row.date_fin }}</td>
-                  <td data-label="Solde debut">{{ formatCurrency(row.solde_ouverture) }}</td>
-                  <td data-label="Total entrees">{{ formatCurrency(row.total_entrees) }}</td>
-                  <td data-label="Total sorties">{{ formatCurrency(row.total_sorties) }}</td>
-                  <td data-label="Solde fin">{{ formatCurrency(row.solde_cloture) }}</td>
-                  <td data-label="Jours clotures">{{ row.nombre_jours || 0 }}</td>
-                  <td data-label="Operations">{{ row.nombre_operations || 0 }}</td>
-                </tr>
-                <tr v-if="bilanAnnuel.length === 0">
-                  <td colspan="8">Aucun bilan annuel disponible.</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="panel-footer table-pagination">
-              <select v-model.number="bilanAnnuelPagination.pageSize">
-                <option :value="10">10 / page</option>
-                <option :value="20">20 / page</option>
-                <option :value="50">50 / page</option>
-              </select>
-              <button class="mini-btn" :disabled="bilanAnnuelPagination.page <= 1" @click="bilanAnnuelPagination.page -= 1">Precedent</button>
-              <span>Page {{ bilanAnnuelPagination.page }} / {{ bilanAnnuelPages }}</span>
-              <button class="mini-btn" :disabled="bilanAnnuelPagination.page >= bilanAnnuelPages" @click="bilanAnnuelPagination.page += 1">Suivant</button>
-            </div>
+            <ResponsiveDataContainer>
+              <template #mobile>
+                <MobileSectionHeader
+                  title="Consolidation annuelle"
+                  :subtitle="`${bilanAnnuel.length} bilan(s) annuel(s)`"
+                />
+                <p class="helper">Vue consolidee des bilans annuels de caisse.</p>
+                <AuditAnnualMobileList
+                  :items="bilanAnnuelPaged"
+                  :format-currency="formatCurrency"
+                />
+              </template>
+
+              <template #desktop>
+                <h3>Consolidation annuelle</h3>
+                <p class="helper">Vue consolidee des bilans annuels de caisse.</p>
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>Annee</th>
+                      <th>Periode</th>
+                      <th>Solde debut</th>
+                      <th>Total entrees</th>
+                      <th>Total sorties</th>
+                      <th>Solde fin</th>
+                      <th>Jours clotures</th>
+                      <th>Operations</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in bilanAnnuelPaged" :key="row.id_bilan">
+                      <td data-label="Annee">{{ row.annee || "-" }}</td>
+                      <td data-label="Periode">{{ row.date_debut }} -> {{ row.date_fin }}</td>
+                      <td data-label="Solde debut">{{ formatCurrency(row.solde_ouverture) }}</td>
+                      <td data-label="Total entrees">{{ formatCurrency(row.total_entrees) }}</td>
+                      <td data-label="Total sorties">{{ formatCurrency(row.total_sorties) }}</td>
+                      <td data-label="Solde fin">{{ formatCurrency(row.solde_cloture) }}</td>
+                      <td data-label="Jours clotures">{{ row.nombre_jours || 0 }}</td>
+                      <td data-label="Operations">{{ row.nombre_operations || 0 }}</td>
+                    </tr>
+                    <tr v-if="bilanAnnuel.length === 0">
+                      <td colspan="8">Aucun bilan annuel disponible.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
+            </ResponsiveDataContainer>
+            <ResponsivePagination
+              :page="bilanAnnuelPagination.page"
+              :pages="bilanAnnuelPages"
+              :page-size="bilanAnnuelPagination.pageSize"
+              :page-size-options="[10, 20, 50]"
+              :prev-disabled="bilanAnnuelPagination.page <= 1"
+              :next-disabled="bilanAnnuelPagination.page >= bilanAnnuelPages"
+              @update:page-size="bilanAnnuelPagination.pageSize = $event"
+              @prev="bilanAnnuelPagination.page -= 1"
+              @next="bilanAnnuelPagination.page += 1"
+            />
           </article>
         </template>
       </section>
@@ -12366,7 +14191,7 @@ async function loadRetoucheDetail(idRetouche) {
 
           <div class="segmented">
             <button class="mini-btn" :class="{ active: wizard.mode === 'existing' }" @click="wizard.mode = 'existing'">Client existant</button>
-            <button v-if="canCreateClient" class="mini-btn" :class="{ active: wizard.mode === 'new' }" @click="wizard.mode = 'new'">Nouveau client</button>
+            <button v-if="canCreateWizardClient" class="mini-btn" :class="{ active: wizard.mode === 'new' }" @click="wizard.mode = 'new'">Nouveau client</button>
           </div>
 
           <div v-if="wizard.mode === 'existing'" class="stack-form">
@@ -12396,7 +14221,7 @@ async function loadRetoucheDetail(idRetouche) {
                 <li v-if="wizardClientSearchResults.length === 0" class="client-search-empty">Aucun client trouvé</li>
               </ul>
             </div>
-            <button v-if="canCreateClient" class="mini-btn" @click="wizard.mode = 'new'">+ Nouveau client</button>
+            <button v-if="canCreateWizardClient" class="mini-btn" @click="wizard.mode = 'new'">+ Nouveau client</button>
 
             <div v-if="wizard.existingClientId" class="client-insight-card">
               <p class="client-insight-title">Client selectionne</p>
@@ -12449,7 +14274,7 @@ async function loadRetoucheDetail(idRetouche) {
           <label>Type d'habit</label>
           <select v-model="wizard.commande.typeHabit">
             <option value="">Choisir un type d'habit</option>
-            <option v-for="option in availableHabitTypeOptions" :key="`cmd-habit-${option.value}`" :value="option.value">
+            <option v-for="option in wizardAvailableHabitTypeOptions" :key="`cmd-habit-${option.value}`" :value="option.value">
               {{ option.label }}
             </option>
           </select>
@@ -12520,7 +14345,7 @@ async function loadRetoucheDetail(idRetouche) {
 
         <div class="segmented">
           <button class="mini-btn" :class="{ active: retoucheWizard.mode === 'existing' }" @click="retoucheWizard.mode = 'existing'">Client existant</button>
-          <button v-if="canCreateClient" class="mini-btn" :class="{ active: retoucheWizard.mode === 'new' }" @click="retoucheWizard.mode = 'new'">Nouveau client</button>
+          <button v-if="canCreateWizardClient" class="mini-btn" :class="{ active: retoucheWizard.mode === 'new' }" @click="retoucheWizard.mode = 'new'">Nouveau client</button>
         </div>
 
         <div v-if="retoucheWizard.mode === 'existing'" class="stack-form">
@@ -12550,7 +14375,7 @@ async function loadRetoucheDetail(idRetouche) {
               <li v-if="retoucheClientSearchResultsWizard.length === 0" class="client-search-empty">Aucun client trouvé</li>
             </ul>
           </div>
-          <button v-if="canCreateClient" class="mini-btn" @click="retoucheWizard.mode = 'new'">+ Nouveau client</button>
+          <button v-if="canCreateWizardClient" class="mini-btn" @click="retoucheWizard.mode = 'new'">+ Nouveau client</button>
 
           <div v-if="retoucheWizard.existingClientId" class="client-insight-card">
             <p class="client-insight-title">Client selectionne</p>
@@ -12609,13 +14434,13 @@ async function loadRetoucheDetail(idRetouche) {
         </select>
         <p v-if="selectedRetoucheTypeDefinition" class="helper">
           Habits compatibles: {{ (selectedRetoucheTypeDefinition.habitsCompatibles || []).join(", ") }}
-          · Description {{ retoucheDescriptionRequired ? "obligatoire" : "optionnelle" }}
+          · Description {{ wizardRetoucheDescriptionRequired ? "obligatoire" : "optionnelle" }}
           · Mesures {{ retoucheMeasuresRequired ? "requises" : "non requises" }}
         </p>
         <label>Type d'habit</label>
         <select v-model="retoucheWizard.retouche.typeHabit" :disabled="!retoucheWizard.retouche.typeRetouche">
           <option value="">{{ retoucheWizard.retouche.typeRetouche ? "Choisir un type d'habit" : "Choisir d'abord un type de retouche" }}</option>
-          <option v-for="option in compatibleRetoucheHabitOptions" :key="`ret-habit-${option.value}`" :value="option.value">
+          <option v-for="option in wizardCompatibleRetoucheHabitOptions" :key="`ret-habit-${option.value}`" :value="option.value">
             {{ option.label }}
           </option>
         </select>

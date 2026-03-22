@@ -1,4 +1,4 @@
-﻿-- BC Retouches: complete schema (PostgreSQL)
+-- BC Retouches: complete schema (PostgreSQL)
 
 CREATE TABLE IF NOT EXISTS retouches (
   id_retouche TEXT PRIMARY KEY,

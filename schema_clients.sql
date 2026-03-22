@@ -1,4 +1,4 @@
-﻿-- BC Clients & Mesures: schema (PostgreSQL)
+-- BC Clients & Mesures: schema (PostgreSQL)
 
 CREATE TABLE IF NOT EXISTS clients (
   id_client TEXT PRIMARY KEY,

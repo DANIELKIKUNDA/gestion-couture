@@ -1,9 +1,49 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
+import { VitePWA } from "vite-plugin-pwa";
+
+const packageJsonPath = fileURLToPath(new URL("./package.json", import.meta.url));
+const { version: appVersion } = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+const pwaCacheId = `atelierpro-${appVersion}`;
 
 export default defineConfig({
-  plugins: [vue()],
+  define: {
+    APP_VERSION: JSON.stringify(appVersion)
+  },
+  plugins: [
+    vue(),
+    VitePWA({
+      registerType: "prompt",
+      injectRegister: false,
+      manifest: false,
+      workbox: {
+        cacheId: pwaCacheId,
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        // `prompt` mode needs a waiting SW so the user can choose when to update.
+        skipWaiting: false,
+        navigateFallback: "index.html",
+        navigateFallbackDenylist: [/^\/api\//, /^\/health$/],
+        globPatterns: ["**/*.{html,js,css,ico,png,svg,webmanifest,woff2}"],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith("/api/"),
+            handler: "NetworkOnly",
+            method: "GET"
+          },
+          {
+            urlPattern: ({ url }) => url.pathname === "/health",
+            handler: "NetworkOnly",
+            method: "GET"
+          }
+        ]
+      }
+    })
+  ],
   server: {
+    host: true,
     port: 5173,
     proxy: {
       "/api": "http://localhost:3000",

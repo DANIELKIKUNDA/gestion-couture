@@ -1,15 +1,19 @@
 import { ref } from "vue";
+import { registerSW } from "virtual:pwa-register";
 
 export const isPwaInstallAvailable = ref(false);
 export const isPwaUpdateAvailable = ref(false);
 export const isPwaOfflineReady = ref(false);
 export const isRunningStandalone = ref(false);
 
+const appVersion = typeof APP_VERSION === "string" ? APP_VERSION : "dev";
+const pwaCachePrefix = "atelierpro-";
+const currentPwaCachePrefix = `${pwaCachePrefix}${appVersion}`;
+
 let deferredInstallPrompt = null;
 let initialized = false;
 let serviceWorkerRegistration = null;
-let waitingServiceWorker = null;
-let shouldReloadAfterUpdate = false;
+let updateServiceWorker = null;
 
 function resolveStandaloneState() {
   if (typeof window === "undefined") return false;
@@ -33,34 +37,22 @@ function handleAppInstalled() {
   syncInstallAvailability();
 }
 
-function attachWorkerState(worker) {
-  if (!worker) return;
-  worker.addEventListener("statechange", () => {
-    if (worker.state !== "installed") return;
-    if (navigator.serviceWorker.controller) {
-      waitingServiceWorker = serviceWorkerRegistration?.waiting || worker;
-      isPwaUpdateAvailable.value = true;
-      return;
-    }
-    isPwaOfflineReady.value = true;
-  });
-}
-
-function monitorRegistration(registration) {
-  if (!registration) return;
-  serviceWorkerRegistration = registration;
-  if (registration.waiting) {
-    waitingServiceWorker = registration.waiting;
-    isPwaUpdateAvailable.value = true;
-  }
-  if (registration.installing) attachWorkerState(registration.installing);
-  registration.addEventListener("updatefound", () => {
-    attachWorkerState(registration.installing);
-  });
-}
-
 function requestServiceWorkerUpdateCheck() {
   serviceWorkerRegistration?.update?.().catch(() => {});
+}
+
+async function cleanupLegacyPwaCaches() {
+  if (typeof window === "undefined" || !("caches" in window)) return;
+  try {
+    const cacheKeys = await window.caches.keys();
+    const staleCacheKeys = cacheKeys.filter((cacheKey) => {
+      if (!cacheKey.startsWith(pwaCachePrefix)) return false;
+      return !cacheKey.startsWith(currentPwaCachePrefix);
+    });
+    await Promise.all(staleCacheKeys.map((cacheKey) => window.caches.delete(cacheKey)));
+  } catch {
+    // Cache cleanup must stay best-effort and never break the app.
+  }
 }
 
 export function initializePwaService() {
@@ -68,6 +60,7 @@ export function initializePwaService() {
   initialized = true;
 
   syncInstallAvailability();
+  cleanupLegacyPwaCaches();
 
   window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
   window.addEventListener("appinstalled", handleAppInstalled);
@@ -80,21 +73,27 @@ export function initializePwaService() {
     if (document.visibilityState === "visible") requestServiceWorkerUpdateCheck();
   });
 
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (!shouldReloadAfterUpdate) return;
-    shouldReloadAfterUpdate = false;
-    isPwaUpdateAvailable.value = false;
-    window.location.reload();
-  });
-
-  window.addEventListener("load", async () => {
-    try {
-      const registration = await navigator.serviceWorker.register("/sw.js");
-      monitorRegistration(registration);
-    } catch {
+  updateServiceWorker = registerSW({
+    immediate: false,
+    onNeedRefresh() {
+      isPwaUpdateAvailable.value = true;
+    },
+    onOfflineReady() {
+      isPwaOfflineReady.value = true;
+    },
+    onRegisteredSW(_swUrl, registration) {
+      serviceWorkerRegistration = registration || null;
+      cleanupLegacyPwaCaches();
+      requestServiceWorkerUpdateCheck();
+    },
+    onRegisterError() {
       // PWA registration stays optional and must never break the app.
     }
   });
+
+  if (typeof console !== "undefined" && typeof console.info === "function") {
+    console.info(`[PWA] AtelierPro ${appVersion}`);
+  }
 }
 
 export async function promptPwaInstall() {
@@ -112,8 +111,8 @@ export function dismissPwaOfflineReady() {
 }
 
 export async function applyPwaUpdate() {
-  if (!waitingServiceWorker) return false;
-  shouldReloadAfterUpdate = true;
-  waitingServiceWorker.postMessage({ type: "SKIP_WAITING" });
+  if (!updateServiceWorker) return false;
+  isPwaUpdateAvailable.value = false;
+  await updateServiceWorker(true);
   return true;
 }

@@ -951,6 +951,10 @@ export const atelierApi = {
     return request("/parametres-atelier", { method: "GET" });
   },
 
+  getRuntimeParametresAtelier() {
+    return request("/parametres-atelier/policy", { method: "GET" });
+  },
+
   saveParametresAtelier(payload, updatedBy = "", expectedVersion = null) {
     const resolvedExpectedVersion =
       expectedVersion ?? (payload?.meta?.version !== undefined && payload?.meta?.version !== null ? Number(payload.meta.version) : null);

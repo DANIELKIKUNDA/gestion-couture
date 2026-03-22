@@ -1,6 +1,6 @@
 import express from "express";
 import { AtelierParametresRepoPg } from "../../infrastructure/repositories/atelier-parametres-repo-pg.js";
-import { getParametresAtelier } from "../../application/use-cases/get-parametres.js";
+import { getParametresAtelier, getRuntimeParametresAtelier } from "../../application/use-cases/get-parametres.js";
 import { saveParametresAtelier } from "../../application/use-cases/save-parametres.js";
 import { uploadLogoAtelier, AtelierLogoForbiddenError, AtelierLogoNotFoundError, AtelierLogoValidationError } from "../../application/use-cases/upload-logo-atelier.js";
 import { atelierLogoUploadSingle } from "./atelier-logo-upload.js";
@@ -8,13 +8,22 @@ import { AtelierLogoStorageLocal } from "../../infrastructure/storage/atelier-lo
 import { CommandeRepoPg } from "../../../bc-commandes/infrastructure/repositories/commande-repo-pg.js";
 import { AtelierRepoPg } from "../../../shared/infrastructure/repositories/atelier-repo-pg.js";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
-import { requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
+import { requireAnyPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 
 const router = express.Router();
 const repo = new AtelierParametresRepoPg();
 const commandeRepo = new CommandeRepoPg();
 const atelierRepo = new AtelierRepoPg();
 const logoStorage = new AtelierLogoStorageLocal();
+const RUNTIME_PARAMETRES_PERMISSIONS = [
+  PERMISSIONS.MODIFIER_PARAMETRES,
+  PERMISSIONS.VOIR_COMMANDES,
+  PERMISSIONS.CREER_COMMANDE,
+  PERMISSIONS.VOIR_RETOUCHES,
+  PERMISSIONS.CREER_RETOUCHE,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX,
+  PERMISSIONS.CLOTURER_CAISSE
+];
 
 function atelierIdFromReq(req) {
   return String(req.auth?.atelierId || "ATELIER");
@@ -44,10 +53,10 @@ router.get("/parametres-atelier", requirePermission(PERMISSIONS.MODIFIER_PARAMET
   }
 });
 
-router.get("/parametres-atelier/policy", requirePermission(PERMISSIONS.MODIFIER_PARAMETRES), async (req, res) => {
+router.get("/parametres-atelier/policy", requireAnyPermission(RUNTIME_PARAMETRES_PERMISSIONS), async (req, res) => {
   try {
-    const current = await getParametresAtelier({ repo: scopedRepo(req) });
-    res.json(current?.payload || null);
+    const current = await getRuntimeParametresAtelier({ repo: scopedRepo(req) });
+    res.json(current);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

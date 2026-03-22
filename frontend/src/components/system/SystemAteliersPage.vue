@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from "vue";
+import ResponsivePagination from "../mobile/ResponsivePagination.vue";
 
 const props = defineProps({
   loading: { type: Boolean, default: false },
@@ -250,16 +251,18 @@ const pageSummary = computed(() => {
         </article>
       </div>
 
-      <div class="panel-footer table-pagination">
-        <select :value="pageSize" @change="updatePageSize($event.target.value)">
-          <option :value="10">10 / page</option>
-          <option :value="20">20 / page</option>
-          <option :value="50">50 / page</option>
-        </select>
-        <button class="mini-btn" :disabled="loading || page <= 1" @click="emit('prev-page')">Precedent</button>
-        <span>Page {{ page }} / {{ pages }} | {{ pageSummary }} sur {{ filteredCount }} atelier(s)</span>
-        <button class="mini-btn" :disabled="loading || page >= pages" @click="emit('next-page')">Suivant</button>
-      </div>
+      <ResponsivePagination
+        :page="page"
+        :pages="pages"
+        :page-size="pageSize"
+        :page-size-options="[10, 20, 50]"
+        :prev-disabled="loading || page <= 1"
+        :next-disabled="loading || page >= pages"
+        :desktop-summary="`Page ${page} / ${pages} | ${pageSummary} sur ${filteredCount} atelier(s)`"
+        @update:page-size="updatePageSize"
+        @prev="emit('prev-page')"
+        @next="emit('next-page')"
+      />
     </article>
   </section>
 </template>

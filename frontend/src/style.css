@@ -802,6 +802,14 @@ body {
   font-size: 10px;
 }
 
+.sort-indicator[data-dir="asc"]::after {
+  content: "^";
+}
+
+.sort-indicator[data-dir="desc"]::after {
+  content: "v";
+}
+
 .table-filters th {
   background: #fbfcff;
   position: static;
