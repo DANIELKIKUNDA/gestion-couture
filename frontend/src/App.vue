@@ -67,6 +67,7 @@ import MobileStateEmpty from "./components/mobile/MobileStateEmpty.vue";
 import MobileStateError from "./components/mobile/MobileStateError.vue";
 import MobileStateLoading from "./components/mobile/MobileStateLoading.vue";
 import ResponsiveDataContainer from "./components/mobile/ResponsiveDataContainer.vue";
+import ScrollTopButton from "./components/mobile/ScrollTopButton.vue";
 import OfflineBanner from "./components/OfflineBanner.vue";
 import RetoucheDetailEventMobileList from "./components/retouches/RetoucheDetailEventMobileList.vue";
 import RetoucheDetailOverviewCards from "./components/retouches/RetoucheDetailOverviewCards.vue";
@@ -135,6 +136,7 @@ const MOBILE_BREAKPOINT = 768;
 
 const currentRoute = ref("dashboard");
 const contentScrollRef = ref(null);
+const showScrollTopButton = ref(false);
 const isMobileViewport = ref(typeof window !== "undefined" ? window.innerWidth < MOBILE_BREAKPOINT : false);
 const isSidebarDrawerOpen = ref(false);
 const toast = ref("");
@@ -164,6 +166,7 @@ let lastKnownNetworkOnline = true;
 let reconnectRefreshPromise = null;
 let syncUiRefreshTimer = null;
 let commandeMediaRenderSequence = 0;
+let contentScrollElement = null;
 
 const systemAteliers = ref([]);
 const systemAteliersLoading = ref(false);
@@ -2808,6 +2811,43 @@ const mobileLayoutStyle = computed(() => ({
     : "calc(12px + env(safe-area-inset-bottom))"
 }));
 
+const showMobileScrollTopButton = computed(
+  () => Boolean(isMobileViewport.value && !isSidebarDrawerOpen.value && !hasBlockingMobileOverlay.value && showScrollTopButton.value)
+);
+
+function updateScrollTopButtonVisibility() {
+  const container = contentScrollRef.value;
+  const nextVisible = Boolean(container && container.scrollTop > 280);
+  if (showScrollTopButton.value !== nextVisible) {
+    showScrollTopButton.value = nextVisible;
+  }
+}
+
+function handleContentScroll() {
+  updateScrollTopButtonVisibility();
+}
+
+function bindContentScrollListener() {
+  if (contentScrollElement && contentScrollElement !== contentScrollRef.value) {
+    contentScrollElement.removeEventListener("scroll", handleContentScroll);
+    contentScrollElement = null;
+  }
+
+  if (!contentScrollRef.value) {
+    showScrollTopButton.value = false;
+    return;
+  }
+
+  if (contentScrollElement === contentScrollRef.value) {
+    updateScrollTopButtonVisibility();
+    return;
+  }
+
+  contentScrollElement = contentScrollRef.value;
+  contentScrollElement.addEventListener("scroll", handleContentScroll, { passive: true });
+  updateScrollTopButtonVisibility();
+}
+
 function updateViewportState() {
   if (typeof window === "undefined") return;
   const nextIsMobile = window.innerWidth < MOBILE_BREAKPOINT;
@@ -4507,6 +4547,8 @@ onMounted(async () => {
   window.addEventListener("popstate", onBrowserNavigation);
   window.addEventListener("beforeunload", onBeforeUnload);
   window.addEventListener("resize", updateViewportState);
+  await nextTick();
+  bindContentScrollListener();
   await hydrateAuthSession();
   if (!isAuthenticated.value) {
     await detectAuthMode();
@@ -4534,6 +4576,10 @@ onUnmounted(() => {
   window.removeEventListener("popstate", onBrowserNavigation);
   window.removeEventListener("beforeunload", onBeforeUnload);
   window.removeEventListener("resize", updateViewportState);
+  if (contentScrollElement) {
+    contentScrollElement.removeEventListener("scroll", handleContentScroll);
+    contentScrollElement = null;
+  }
   if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
   if (syncUiRefreshTimer) window.clearTimeout(syncUiRefreshTimer);
   clearSystemAteliersSearchDebounce();
@@ -4545,6 +4591,16 @@ watch(currentRoute, () => {
   if (isMobileViewport.value) {
     closeSidebarDrawer();
   }
+  nextTick(() => {
+    bindContentScrollListener();
+    updateScrollTopButtonVisibility();
+  });
+});
+
+watch(contentScrollRef, () => {
+  nextTick(() => {
+    bindContentScrollListener();
+  });
 });
 
 watch([isMobileViewport, currentRoute, commandeSection], ([mobile, routeName, sectionName]) => {
@@ -14146,6 +14202,12 @@ async function loadRetoucheDetail(idRetouche) {
       :current-route="currentRoute"
       :icon-paths="iconPaths"
       @navigate="handlePrimaryNavigation"
+    />
+
+    <ScrollTopButton
+      v-if="showMobileScrollTopButton"
+      label="Revenir en haut"
+      @click="scrollMainContentToTop('smooth')"
     />
 
   <SystemAtelierCreateModal
