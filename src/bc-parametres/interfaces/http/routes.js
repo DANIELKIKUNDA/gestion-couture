@@ -8,22 +8,13 @@ import { AtelierLogoStorageLocal } from "../../infrastructure/storage/atelier-lo
 import { CommandeRepoPg } from "../../../bc-commandes/infrastructure/repositories/commande-repo-pg.js";
 import { AtelierRepoPg } from "../../../shared/infrastructure/repositories/atelier-repo-pg.js";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
-import { requireAnyPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
+import { requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 
 const router = express.Router();
 const repo = new AtelierParametresRepoPg();
 const commandeRepo = new CommandeRepoPg();
 const atelierRepo = new AtelierRepoPg();
 const logoStorage = new AtelierLogoStorageLocal();
-const RUNTIME_PARAMETRES_PERMISSIONS = [
-  PERMISSIONS.MODIFIER_PARAMETRES,
-  PERMISSIONS.VOIR_COMMANDES,
-  PERMISSIONS.CREER_COMMANDE,
-  PERMISSIONS.VOIR_RETOUCHES,
-  PERMISSIONS.CREER_RETOUCHE,
-  PERMISSIONS.VOIR_BILANS_GLOBAUX,
-  PERMISSIONS.CLOTURER_CAISSE
-];
 
 function atelierIdFromReq(req) {
   return String(req.auth?.atelierId || "ATELIER");
@@ -53,8 +44,12 @@ router.get("/parametres-atelier", requirePermission(PERMISSIONS.MODIFIER_PARAMET
   }
 });
 
-router.get("/parametres-atelier/policy", requireAnyPermission(RUNTIME_PARAMETRES_PERMISSIONS), async (req, res) => {
+router.get("/parametres-atelier/policy", async (req, res) => {
   try {
+    const role = String(req.auth?.roleId || req.auth?.role || "").trim().toUpperCase();
+    if (role === "MANAGER_SYSTEME") {
+      return res.status(403).json({ error: "Acces non autorise" });
+    }
     const current = await getRuntimeParametresAtelier({ repo: scopedRepo(req) });
     res.json(current);
   } catch (err) {
