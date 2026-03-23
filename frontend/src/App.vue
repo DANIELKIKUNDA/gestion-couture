@@ -27,7 +27,7 @@ import {
 } from "./services/pwa-service.js";
 import { requestSync, setSyncEngineAtelierContext, subscribeToSyncEvents } from "./services/sync-engine.js";
 import { pendingActions, syncInProgress } from "./services/sync-status-service.js";
-import { showToast } from "./services/toast-service.js";
+import { showToast, toastState } from "./services/toast-service.js";
 import CommandeDetailEventMobileList from "./components/commandes/CommandeDetailEventMobileList.vue";
 import CommandeDetailOverviewCards from "./components/commandes/CommandeDetailOverviewCards.vue";
 import CommandeDetailPaymentMobileList from "./components/commandes/CommandeDetailPaymentMobileList.vue";
@@ -57,6 +57,7 @@ import VenteDetailOverviewCards from "./components/stock/VenteDetailOverviewCard
 import FactureDetailLinesMobileList from "./components/facturation/FactureDetailLinesMobileList.vue";
 import FactureDetailOverviewCards from "./components/facturation/FactureDetailOverviewCards.vue";
 import FactureMobileList from "./components/facturation/FactureMobileList.vue";
+import GlobalToastHost from "./components/GlobalToastHost.vue";
 import MobileHeader from "./components/MobileHeader.vue";
 import MobileFilterBlock from "./components/mobile/MobileFilterBlock.vue";
 import MobilePageLayout from "./components/mobile/MobilePageLayout.vue";
@@ -139,7 +140,7 @@ const contentScrollRef = ref(null);
 const showScrollTopButton = ref(false);
 const isMobileViewport = ref(typeof window !== "undefined" ? window.innerWidth < MOBILE_BREAKPOINT : false);
 const isSidebarDrawerOpen = ref(false);
-const toast = ref("");
+const toast = computed(() => toastState.message);
 const loading = ref(false);
 const errorMessage = ref("");
 const authReady = ref(false);
@@ -550,6 +551,14 @@ const settingsRoleOptions = [
 ];
 const securityRoleOptions = [...settingsRoleOptions];
 const securityPermissionLabels = {
+  VOIR_CLIENTS: "Voir clients",
+  CREER_CLIENT: "Creer client",
+  MODIFIER_CLIENT: "Modifier client",
+  DESACTIVER_CLIENT: "Desactiver client",
+  VOIR_COMMANDES: "Voir commandes",
+  CREER_COMMANDE: "Creer commande",
+  VOIR_RETOUCHES: "Voir retouches",
+  CREER_RETOUCHE: "Creer retouche",
   ANNULER_COMMANDE: "Annuler commande/retouche",
   VOIR_BILANS_GLOBAUX: "Voir bilans & audit",
   GERER_STOCK: "Gerer stock",
@@ -557,6 +566,10 @@ const securityPermissionLabels = {
   GERER_ACHATS_STOCK: "Gerer achats stock",
   GERER_AJUSTEMENTS_STOCK: "Gerer ajustements stock",
   VOIR_AUDIT_STOCK: "Voir audit stock & ventes",
+  OUVRIR_CAISSE: "Ouvrir caisse",
+  ENREGISTRER_ENTREE_CAISSE: "Enregistrer entree caisse",
+  ENREGISTRER_SORTIE_CAISSE: "Enregistrer sortie caisse",
+  ANNULER_OPERATION_CAISSE: "Annuler operation caisse",
   CLOTURER_CAISSE: "Cloturer caisse",
   LIVRER_COMMANDE: "Livrer commande/retouche",
   TERMINER_COMMANDE: "Terminer commande/retouche",
@@ -1210,8 +1223,8 @@ const settingsRoleAllowed = computed(() => hasPermission(PERMISSIONS.MODIFIER_PA
 const settingsCanEdit = computed(() => settingsEditMode.value && settingsRoleAllowed.value);
 const canAccessSecurityModule = computed(() => hasPermission(PERMISSIONS.GERER_UTILISATEURS));
 const canCreateClient = computed(() => hasPermission(PERMISSIONS.CREER_CLIENT));
-const canCreateCommande = computed(() => hasAnyPermission([PERMISSIONS.CREER_COMMANDE, PERMISSIONS.VOIR_BILANS_GLOBAUX, PERMISSIONS.CLOTURER_CAISSE]));
-const canCreateRetouche = computed(() => hasAnyPermission([PERMISSIONS.CREER_RETOUCHE, PERMISSIONS.VOIR_BILANS_GLOBAUX, PERMISSIONS.CLOTURER_CAISSE]));
+const canCreateCommande = computed(() => hasPermission(PERMISSIONS.CREER_COMMANDE));
+const canCreateRetouche = computed(() => hasPermission(PERMISSIONS.CREER_RETOUCHE));
 const canCreateWizardClient = computed(() => canCreateClient.value || canCreateCommande.value || canCreateRetouche.value);
 const canCreateVente = computed(() => hasAnyPermission([PERMISSIONS.GERER_VENTES, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
 const canOpenCaisse = computed(() => hasAnyPermission([PERMISSIONS.OUVRIR_CAISSE, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
@@ -4976,10 +4989,7 @@ watch(isPwaUpdateAvailable, (available) => {
 });
 
 function notify(message) {
-  toast.value = message;
-  setTimeout(() => {
-    if (toast.value === message) toast.value = "";
-  }, 2600);
+  showToast(message);
 }
 
 async function installApplication() {
@@ -6371,19 +6381,24 @@ function appendAuditError(message) {
 }
 
 function readableError(err) {
-  const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : "";
+  const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err || "");
   const lowered = String(message || "").toLowerCase();
-  if (!getNetworkState().online) return "";
+  if (!getNetworkState().online) {
+    return "Connexion indisponible. Verifiez votre reseau puis reessayez.";
+  }
   if (
     lowered.includes("failed to fetch") ||
     lowered.includes("networkerror") ||
     lowered.includes("load failed") ||
     lowered.includes("offline")
   ) {
-    return "";
+    return "Connexion indisponible. Verifiez votre reseau puis reessayez.";
   }
-  if (message) return translateErrorMessage(message);
-  return "";
+  if (message) {
+    const translated = translateErrorMessage(message);
+    if (translated) return translated;
+  }
+  return "Une erreur est survenue. Reessayez.";
 }
 
 function translateErrorMessage(message) {
@@ -6420,7 +6435,7 @@ function translateErrorMessage(message) {
       if (lower.includes("operation not found")) return "Operation introuvable.";
       if (lower.includes("operation already cancelled")) return "Operation deja annulee.";
       if (lower.includes("advance is insufficient")) return "L'avance est insuffisante pour demarrer le travail.";
-      if (lower.includes("erreur api")) return "";
+      if (lower.includes("erreur api")) return "Operation impossible pour le moment.";
       if (lower.startsWith("missing fields:")) {
         const fields = part.split(":")[1] || "";
         return `Champs obligatoires manquants: ${fields.trim()}`;
@@ -7751,14 +7766,14 @@ async function onWizardStep1() {
       if (getNetworkState().online) {
         const created = await atelierApi.createClient(payload);
         normalized = normalizeClient(created.client || created);
-        showToast("✅ Enregistré");
+        notify("Client enregistre.");
       } else {
         const created = await createOfflineClient({
           atelierId,
           client: payload
         });
         normalized = normalizeClient(created.client);
-        showToast("⏳ Enregistré hors ligne");
+        notify("Client enregistre hors ligne.");
         void requestSync(atelierId);
       }
       upsertClientRow(normalized);
@@ -7817,12 +7832,12 @@ async function onWizardStep2() {
         commande: payload
       });
       normalized = normalizeCommande(created.commande);
-      showToast("⏳ Enregistré hors ligne");
+      notify("Commande enregistree hors ligne.");
       void requestSync(atelierId);
     } else {
       const created = await atelierApi.createCommande(payload);
       normalized = normalizeCommande(created);
-      showToast("✅ Enregistré");
+      notify("Commande enregistree.");
     }
     wizard.createdCommandeId = normalized.idCommande;
     wizard.createdFactureId = "";
@@ -7934,7 +7949,7 @@ async function onRetoucheWizardStep2() {
         retoucheWizard.resolvedClientId = normalizedClient.idClient;
       }
       normalized = normalizeRetouche(created.retouche);
-      showToast("⏳ Enregistré hors ligne");
+      notify("Retouche enregistree hors ligne.");
       void requestSync(atelierId);
     } else {
       const created = await atelierApi.createRetoucheWizard(payload);
@@ -7944,7 +7959,7 @@ async function onRetoucheWizardStep2() {
         retoucheWizard.resolvedClientId = normalizedClient.idClient;
       }
       normalized = normalizeRetouche(created.retouche || created);
-      showToast("✅ Enregistré");
+      notify("Retouche enregistree.");
     }
     retoucheWizard.createdRetoucheId = normalized.idRetouche;
     retoucheWizard.createdFactureId = "";
@@ -8296,7 +8311,6 @@ async function onPaiementCommande(commande) {
   try {
     await atelierApi.enregistrerPaiementViaCaisse({ idCommande: commande.idCommande, montant, utilisateur: "frontend" });
     await reloadAll();
-    showToast("✅ Enregistré");
     notify(`Paiement enregistre via la caisse pour ${commande.idCommande}`);
   } catch (err) {
     const message = readableError(err);
@@ -8327,7 +8341,6 @@ async function onPaiementDetail() {
     await atelierApi.enregistrerPaiementViaCaisse({ idCommande: detailCommande.value.idCommande, montant, utilisateur: "frontend" });
     await loadCommandeDetail(detailCommande.value.idCommande);
     await reloadAll();
-    showToast("✅ Enregistré");
     notify(`Paiement enregistre via la caisse pour ${detailCommande.value.idCommande}`);
   } catch (err) {
     const message = readableError(err);
@@ -8420,7 +8433,6 @@ async function onPaiementRetouche(retouche) {
   try {
     await atelierApi.enregistrerPaiementRetoucheViaCaisse({ idRetouche: retouche.idRetouche, montant, utilisateur: "frontend" });
     await reloadAll();
-    showToast("✅ Enregistré");
     notify(`Paiement enregistre via la caisse pour ${retouche.idRetouche}`);
   } catch (err) {
     const message = readableError(err);
@@ -8451,7 +8463,6 @@ async function onPaiementRetoucheDetail() {
     await atelierApi.enregistrerPaiementRetoucheViaCaisse({ idRetouche: detailRetouche.value.idRetouche, montant, utilisateur: "frontend" });
     await loadRetoucheDetail(detailRetouche.value.idRetouche);
     await reloadAll();
-    showToast("✅ Enregistré");
     notify(`Paiement enregistre via la caisse pour ${detailRetouche.value.idRetouche}`);
   } catch (err) {
     const message = readableError(err);
@@ -9400,6 +9411,7 @@ async function loadRetoucheDetail(idRetouche) {
 
 <template>
   <OfflineBanner />
+  <GlobalToastHost :message="toast" :offset-for-offline-banner="!networkIsOnline" />
 
   <div v-if="!authReady" class="auth-shell">
     <article class="auth-card">
@@ -9533,7 +9545,6 @@ async function loadRetoucheDetail(idRetouche) {
             Mettre a jour
           </button>
           <button class="mini-btn" @click="reloadAll" :disabled="loading">Actualiser</button>
-          <div class="toast" :class="{ visible: toast }">{{ toast || "Pret" }}</div>
         </div>
       </header>
 
