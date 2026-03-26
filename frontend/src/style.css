@@ -900,6 +900,27 @@ body {
   border-bottom: none;
 }
 
+.activity-list--stacked li {
+  align-items: flex-start;
+}
+
+.activity-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.activity-copy strong {
+  color: #16324d;
+  font-size: 15px;
+}
+
+.activity-copy small {
+  color: #5a7391;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .alerts {
   border-color: #e4a29c;
   background: #fff3f2;

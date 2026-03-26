@@ -3,12 +3,24 @@ defineProps({
   items: {
     type: Array,
     default: () => []
+  },
+  columns: {
+    type: Number,
+    default: 2
+  },
+  compact: {
+    type: Boolean,
+    default: false
   }
 });
 </script>
 
 <template>
-  <div class="dashboard-metric-card-grid">
+  <div
+    class="dashboard-metric-card-grid"
+    :class="{ 'dashboard-metric-card-grid--compact': compact }"
+    :style="{ '--dashboard-metric-columns': Math.max(1, Number(columns) || 2) }"
+  >
     <article
       v-for="item in items"
       :key="item.label"
@@ -24,7 +36,7 @@ defineProps({
 <style scoped>
 .dashboard-metric-card-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--dashboard-metric-columns, 2), minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -66,5 +78,26 @@ defineProps({
 
 .dashboard-metric-card-grid__card[data-tone="slate"] strong {
   color: #2f4f74;
+}
+
+.dashboard-metric-card-grid--compact .dashboard-metric-card-grid__card {
+  gap: 4px;
+  padding: 12px;
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(22, 47, 78, 0.07);
+}
+
+.dashboard-metric-card-grid--compact .dashboard-metric-card-grid__card p {
+  font-size: 11px;
+}
+
+.dashboard-metric-card-grid--compact .dashboard-metric-card-grid__card strong {
+  font-size: 22px;
+}
+
+@media (max-width: 1260px) {
+  .dashboard-metric-card-grid--compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

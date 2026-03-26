@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 
 const props = defineProps({
   items: {
@@ -36,12 +36,30 @@ const emit = defineEmits([
 const uploadNote = ref("");
 const galleryInputRef = ref(null);
 const cameraInputRef = ref(null);
+const cameraVideoRef = ref(null);
+const cameraCanvasRef = ref(null);
 const noteDrafts = reactive({});
+const activeNoteMediaId = ref("");
 const prefersMobileCapture = ref(false);
+const cameraModalOpen = ref(false);
+const cameraLoading = ref(false);
+const cameraError = ref("");
 let mobileCaptureMediaQuery = null;
 let mobileCaptureListener = null;
+let cameraStream = null;
 
 const canAddMore = computed(() => props.items.length < 3);
+const galleryButtonLabel = computed(() => (prefersMobileCapture.value ? "Choisir dans la galerie" : "Ajouter une photo"));
+const galleryHelperText = computed(() =>
+  prefersMobileCapture.value ? "Importe une image deja enregistree sur le telephone. Le choix final depend du navigateur Android." : ""
+);
+const canUseDedicatedCamera = computed(
+  () =>
+    prefersMobileCapture.value &&
+    typeof navigator !== "undefined" &&
+    navigator?.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === "function"
+);
 
 function detectMobileCapturePreference() {
   if (typeof window === "undefined") return false;
@@ -64,16 +82,7 @@ function resetInput(target) {
   if (target?.value) target.value = "";
 }
 
-function triggerGalleryUpload() {
-  galleryInputRef.value?.click();
-}
-
-function triggerCameraUpload() {
-  cameraInputRef.value?.click();
-}
-
-function onPickFile(event, sourceType = "UPLOAD") {
-  const file = event?.target?.files?.[0];
+function emitUploadPayload(file, sourceType = "UPLOAD") {
   if (!file) return;
   emit("upload", {
     file,
@@ -81,11 +90,136 @@ function onPickFile(event, sourceType = "UPLOAD") {
     sourceType
   });
   uploadNote.value = "";
+}
+
+function triggerGalleryUpload() {
+  galleryInputRef.value?.click();
+}
+
+function stopCameraStream() {
+  if (cameraStream) {
+    for (const track of cameraStream.getTracks()) {
+      track.stop();
+    }
+  }
+  cameraStream = null;
+  if (cameraVideoRef.value) {
+    cameraVideoRef.value.srcObject = null;
+  }
+}
+
+function closeCameraCapture() {
+  cameraModalOpen.value = false;
+  cameraLoading.value = false;
+  cameraError.value = "";
+  stopCameraStream();
+}
+
+async function startDedicatedCamera() {
+  if (!canUseDedicatedCamera.value) {
+    cameraInputRef.value?.click();
+    return;
+  }
+
+  cameraModalOpen.value = true;
+  cameraLoading.value = true;
+  cameraError.value = "";
+  stopCameraStream();
+
+  try {
+    await nextTick();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1600 },
+        height: { ideal: 1200 }
+      }
+    });
+    cameraStream = stream;
+    if (cameraVideoRef.value) {
+      cameraVideoRef.value.srcObject = stream;
+      await cameraVideoRef.value.play();
+    }
+  } catch (err) {
+    const message = String(err?.message || "").trim();
+    cameraError.value = message || "Impossible d'acceder a la camera sur cet appareil.";
+    stopCameraStream();
+  } finally {
+    cameraLoading.value = false;
+  }
+}
+
+function triggerCameraUpload() {
+  void startDedicatedCamera();
+}
+
+async function fallbackToNativeCamera() {
+  closeCameraCapture();
+  await nextTick();
+  cameraInputRef.value?.click();
+}
+
+function onPickFile(event, sourceType = "UPLOAD") {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  emitUploadPayload(file, sourceType);
   resetInput(event?.target);
+}
+
+function captureCameraFrame() {
+  const video = cameraVideoRef.value;
+  const canvas = cameraCanvasRef.value;
+  if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
+    cameraError.value = "Impossible de capturer la photo pour le moment.";
+    return;
+  }
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    cameraError.value = "Le navigateur ne permet pas de preparer la capture.";
+    return;
+  }
+
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob(
+    (blob) => {
+      if (!blob) {
+        cameraError.value = "La photo n'a pas pu etre capturee.";
+        return;
+      }
+      const capturedFile =
+        typeof File === "function"
+          ? new File([blob], `camera-${Date.now()}.jpg`, { type: "image/jpeg" })
+          : blob;
+      emitUploadPayload(capturedFile, "CAMERA");
+      closeCameraCapture();
+    },
+    "image/jpeg",
+    0.92
+  );
 }
 
 function hasNoteChange(item) {
   return String(noteDrafts[item.idMedia] || "") !== String(item.note || "");
+}
+
+function isEditingNote(item) {
+  return activeNoteMediaId.value === item?.idMedia;
+}
+
+function startNoteEditing(item) {
+  activeNoteMediaId.value = item?.idMedia || "";
+}
+
+function finishNoteEditing(item) {
+  window.setTimeout(() => {
+    if (activeNoteMediaId.value !== (item?.idMedia || "")) return;
+    if (hasNoteChange(item)) return;
+    activeNoteMediaId.value = "";
+  }, 120);
 }
 
 function saveNote(item) {
@@ -93,6 +227,9 @@ function saveNote(item) {
     media: item,
     note: String(noteDrafts[item.idMedia] || "")
   });
+  if (activeNoteMediaId.value === item?.idMedia) {
+    activeNoteMediaId.value = "";
+  }
 }
 
 onMounted(() => {
@@ -111,6 +248,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  closeCameraCapture();
   if (typeof window !== "undefined" && mobileCaptureListener) {
     window.removeEventListener("resize", mobileCaptureListener);
   }
@@ -142,24 +280,33 @@ onUnmounted(() => {
         <input v-model="uploadNote" type="text" maxlength="500" placeholder="Ex: refaire le col, manches plus longues" />
       </label>
       <div class="row-actions">
-        <button class="mini-btn" :disabled="!canAddMore || uploading" @click="triggerGalleryUpload">
-          {{ prefersMobileCapture ? "Ajouter depuis galerie" : "Ajouter une photo" }}
+        <button
+          class="mini-btn"
+          :disabled="!canAddMore || uploading"
+          type="button"
+          aria-label="Choisir une image depuis la galerie"
+          @click="triggerGalleryUpload"
+        >
+          {{ galleryButtonLabel }}
         </button>
-        <button v-if="prefersMobileCapture" class="mini-btn" :disabled="!canAddMore || uploading" @click="triggerCameraUpload">Prendre une photo</button>
+        <button v-if="prefersMobileCapture" class="mini-btn" :disabled="!canAddMore || uploading" type="button" @click="triggerCameraUpload">
+          Prendre une photo
+        </button>
         <span class="helper" v-if="uploading">Upload en cours...</span>
       </div>
+      <p v-if="galleryHelperText" class="helper commande-media-picker-helper">{{ galleryHelperText }}</p>
       <input
         ref="galleryInputRef"
         class="commande-media-input-hidden"
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/*"
         @change="onPickFile($event, 'UPLOAD')"
       />
       <input
         ref="cameraInputRef"
         class="commande-media-input-hidden"
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/*"
         capture="environment"
         @change="onPickFile($event, 'CAMERA')"
       />
@@ -191,22 +338,184 @@ onUnmounted(() => {
           </div>
           <label class="form-row">
             <span>Note</span>
-            <input v-model="noteDrafts[item.idMedia]" type="text" maxlength="500" placeholder="Reference, detail, consigne..." />
+            <input
+              v-model="noteDrafts[item.idMedia]"
+              type="text"
+              maxlength="500"
+              placeholder="Reference, detail, consigne..."
+              @focus="startNoteEditing(item)"
+              @blur="finishNoteEditing(item)"
+            />
           </label>
           <div class="row-actions commande-media-actions">
             <button class="mini-btn" @click="emit('open', item)">Ouvrir</button>
-            <button class="mini-btn" :disabled="item.isPrimary || actionId === item.idMedia" @click="emit('set-primary', item)">Principale</button>
-            <button class="mini-btn" :disabled="item.position <= 1 || actionId === item.idMedia" @click="emit('move', { media: item, direction: -1 })">
+            <button
+              v-if="!prefersMobileCapture"
+              class="mini-btn"
+              :disabled="item.isPrimary || actionId === item.idMedia"
+              @click="emit('set-primary', item)"
+            >
+              Principale
+            </button>
+            <button
+              v-if="!prefersMobileCapture"
+              class="mini-btn"
+              :disabled="item.position <= 1 || actionId === item.idMedia"
+              @click="emit('move', { media: item, direction: -1 })"
+            >
               Monter
             </button>
-            <button class="mini-btn" :disabled="item.position >= items.length || actionId === item.idMedia" @click="emit('move', { media: item, direction: 1 })">
+            <button
+              v-if="!prefersMobileCapture"
+              class="mini-btn"
+              :disabled="item.position >= items.length || actionId === item.idMedia"
+              @click="emit('move', { media: item, direction: 1 })"
+            >
               Descendre
             </button>
-            <button class="mini-btn" :disabled="!hasNoteChange(item) || actionId === item.idMedia" @click="saveNote(item)">Sauver note</button>
+            <button
+              v-if="!prefersMobileCapture || isEditingNote(item) || hasNoteChange(item)"
+              class="mini-btn"
+              :disabled="!hasNoteChange(item) || actionId === item.idMedia"
+              @click="saveNote(item)"
+            >
+              Enregistrer note
+            </button>
             <button class="mini-btn" :disabled="actionId === item.idMedia" @click="emit('remove', item)">Supprimer</button>
           </div>
         </div>
       </article>
     </div>
   </article>
+
+  <div v-if="cameraModalOpen" class="modal-backdrop commande-camera-backdrop" @click.self="closeCameraCapture">
+    <div class="modal-card commande-camera-modal">
+      <header class="modal-header">
+        <div>
+          <h3>Prendre une photo</h3>
+          <p class="helper">Cadre bien le modele avant de capturer l'image.</p>
+        </div>
+      </header>
+      <section class="modal-body commande-camera-body">
+        <div class="commande-camera-preview">
+          <video
+            v-show="!cameraError"
+            ref="cameraVideoRef"
+            class="commande-camera-video"
+            autoplay
+            playsinline
+            muted
+          ></video>
+          <div v-if="cameraLoading" class="commande-camera-state helper">Ouverture de la camera...</div>
+          <div v-else-if="cameraError" class="commande-camera-state">
+            <strong>Camera indisponible</strong>
+            <p class="helper">{{ cameraError }}</p>
+          </div>
+        </div>
+        <canvas ref="cameraCanvasRef" class="commande-camera-canvas" aria-hidden="true"></canvas>
+        <div class="modal-actions commande-camera-actions">
+          <button class="mini-btn" type="button" @click="closeCameraCapture">Annuler</button>
+          <button
+            v-if="cameraError"
+            class="mini-btn"
+            type="button"
+            :disabled="!canAddMore || uploading"
+            @click="fallbackToNativeCamera"
+          >
+            Ouvrir le selecteur natif
+          </button>
+          <button
+            v-else
+            class="action-btn blue"
+            type="button"
+            :disabled="cameraLoading || !canAddMore || uploading"
+            @click="captureCameraFrame"
+          >
+            Capturer la photo
+          </button>
+        </div>
+      </section>
+    </div>
+  </div>
 </template>
+
+<style scoped>
+.commande-media-picker-helper {
+  margin: 0;
+}
+
+.commande-camera-backdrop {
+  padding: 0;
+  align-items: end;
+}
+
+.commande-camera-modal {
+  width: 100%;
+  max-width: none;
+  max-height: 100vh;
+  min-height: 100vh;
+  border-radius: 18px 18px 0 0;
+}
+
+.commande-camera-body {
+  gap: 14px;
+}
+
+.commande-camera-preview {
+  position: relative;
+  min-height: 320px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #09111d;
+  display: grid;
+  place-items: center;
+}
+
+.commande-camera-video {
+  width: 100%;
+  height: min(70vh, 520px);
+  object-fit: cover;
+  display: block;
+  background: #09111d;
+}
+
+.commande-camera-state {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  text-align: center;
+  padding: 24px;
+  color: #eef5ff;
+}
+
+.commande-camera-state strong {
+  font-size: 16px;
+}
+
+.commande-camera-canvas {
+  display: none;
+}
+
+.commande-camera-actions {
+  margin-top: 0;
+}
+
+@media (min-width: 768px) {
+  .commande-camera-backdrop {
+    padding: 16px;
+    align-items: center;
+  }
+
+  .commande-camera-modal {
+    width: min(760px, 100%);
+    max-width: 760px;
+    min-height: auto;
+    max-height: calc(100vh - 32px);
+    border-radius: 18px;
+  }
+
+  .commande-camera-video {
+    height: min(62vh, 520px);
+  }
+}
+</style>

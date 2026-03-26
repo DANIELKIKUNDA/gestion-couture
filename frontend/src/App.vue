@@ -49,6 +49,7 @@ import ClientCommandeHistoryMobileList from "./components/clients/ClientCommande
 import ClientConsultationOverviewCards from "./components/clients/ClientConsultationOverviewCards.vue";
 import ClientMesureHistoryMobileList from "./components/clients/ClientMesureHistoryMobileList.vue";
 import ClientRetoucheHistoryMobileList from "./components/clients/ClientRetoucheHistoryMobileList.vue";
+import ContactClientPanel from "./components/contacts/ContactClientPanel.vue";
 import DashboardActivityMobileList from "./components/dashboard/DashboardActivityMobileList.vue";
 import DashboardMetricCardGrid from "./components/dashboard/DashboardMetricCardGrid.vue";
 import DashboardRecentWorkMobileList from "./components/dashboard/DashboardRecentWorkMobileList.vue";
@@ -60,6 +61,7 @@ import FactureMobileList from "./components/facturation/FactureMobileList.vue";
 import GlobalToastHost from "./components/GlobalToastHost.vue";
 import MobileHeader from "./components/MobileHeader.vue";
 import MobileFilterBlock from "./components/mobile/MobileFilterBlock.vue";
+import MobileMediaViewer from "./components/mobile/MobileMediaViewer.vue";
 import MobilePageLayout from "./components/mobile/MobilePageLayout.vue";
 import MobilePrimaryActionBar from "./components/mobile/MobilePrimaryActionBar.vue";
 import ResponsivePagination from "./components/mobile/ResponsivePagination.vue";
@@ -129,6 +131,33 @@ function createEmptySystemDashboard() {
   };
 }
 
+function createEmptyDashboardContactBoard() {
+  return {
+    clientsARelancer: {
+      total: 0,
+      items: []
+    },
+    commandesPretesNonSignalees: {
+      total: 0,
+      items: []
+    },
+    retouchesPretesNonSignalees: {
+      total: 0,
+      items: []
+    }
+  };
+}
+
+function createContactFollowUpState() {
+  return reactive({
+    loading: false,
+    saving: false,
+    lastContact: null,
+    status: "A_RELANCER",
+    note: ""
+  });
+}
+
 const AUTH_PORTAL_STORAGE_KEY = "atelier.auth.portal.v1";
 const AUTH_ATELIER_SLUG_STORAGE_KEY = "atelier.auth.slug.v1";
 const AUTH_INVALID_CREDENTIALS_MESSAGE = "Email ou mot de passe incorrect";
@@ -137,7 +166,7 @@ const MOBILE_BREAKPOINT = 768;
 
 const currentRoute = ref("dashboard");
 const contentScrollRef = ref(null);
-const showScrollTopButton = ref(false);
+const mobileScrollButtonMode = ref("none");
 const isMobileViewport = ref(typeof window !== "undefined" ? window.innerWidth < MOBILE_BREAKPOINT : false);
 const isSidebarDrawerOpen = ref(false);
 const toast = computed(() => toastState.message);
@@ -166,6 +195,9 @@ let unsubscribeSyncEvents = null;
 let lastKnownNetworkOnline = true;
 let reconnectRefreshPromise = null;
 let syncUiRefreshTimer = null;
+let crossDeviceRefreshPromise = null;
+let crossDeviceRefreshTimer = null;
+let lastCrossDeviceRefreshAt = 0;
 let commandeMediaRenderSequence = 0;
 let contentScrollElement = null;
 
@@ -296,6 +328,9 @@ const dashboardPeriodOptions = [
   { value: "LAST_7", label: "7 derniers jours" },
   { value: "LAST_30", label: "30 derniers jours" }
 ];
+const dashboardContactBoard = ref(createEmptyDashboardContactBoard());
+const dashboardContactBoardLoading = ref(false);
+const dashboardContactBoardError = ref("");
 
 const wizard = reactive({
   open: false,
@@ -374,6 +409,15 @@ const detailCommande = ref(null);
 const detailPaiements = ref([]);
 const detailCommandeEvents = ref([]);
 const detailCommandeMedia = ref([]);
+const detailCommandeContactTemplateKey = ref("");
+const detailCommandeContactFollowUp = createContactFollowUpState();
+const commandeMediaViewer = reactive({
+  open: false,
+  items: [],
+  index: -1,
+  currentMediaId: "",
+  currentBlobUrl: ""
+});
 const detailPaiementsPagination = createPagination(10);
 const detailCommandeEventsPagination = createPagination(10);
 const detailLoading = ref(false);
@@ -384,11 +428,38 @@ const detailCommandeMediaUploading = ref(false);
 const detailCommandeMediaActionId = ref("");
 const detailCommandeMediaError = ref("");
 const detailError = ref("");
+const commandeMediaViewerCurrentItem = computed(() => {
+  if (commandeMediaViewer.index >= 0 && commandeMediaViewer.index < commandeMediaViewer.items.length) {
+    return commandeMediaViewer.items[commandeMediaViewer.index] || null;
+  }
+  if (commandeMediaViewer.currentMediaId) {
+    return commandeMediaViewer.items.find((item) => mediaActionKey(item) === commandeMediaViewer.currentMediaId) || null;
+  }
+  return null;
+});
+const commandeMediaViewerCanPrev = computed(() => commandeMediaViewer.index > 0);
+const commandeMediaViewerCanNext = computed(
+  () => commandeMediaViewer.index >= 0 && commandeMediaViewer.index < commandeMediaViewer.items.length - 1
+);
+const commandeMediaViewerTitle = computed(() => {
+  const item = commandeMediaViewerCurrentItem.value;
+  if (!item) return "Photo commande";
+  return String(item.nomFichierOriginal || "").trim() || `Photo ${Math.max(1, commandeMediaViewer.index + 1)}`;
+});
+const commandeMediaViewerSubtitle = computed(() => {
+  if (!commandeMediaViewerCurrentItem.value || commandeMediaViewer.items.length <= 1) return "";
+  return `Photo ${commandeMediaViewer.index + 1} sur ${commandeMediaViewer.items.length}`;
+});
+const commandeMediaViewerImageUrl = computed(
+  () => commandeMediaViewer.currentBlobUrl || commandeMediaViewerCurrentItem.value?.fileBlobUrl || ""
+);
 
 const selectedRetoucheId = ref("");
 const detailRetouche = ref(null);
 const detailRetouchePaiements = ref([]);
 const detailRetoucheEvents = ref([]);
+const detailRetoucheContactTemplateKey = ref("");
+const detailRetoucheContactFollowUp = createContactFollowUpState();
 const detailRetouchePaiementsPagination = createPagination(10);
 const detailRetoucheEventsPagination = createPagination(10);
 const detailRetoucheLoading = ref(false);
@@ -420,6 +491,8 @@ const CLIENT_CONSULT_SECTION_KEY = "atelier.clients_consult.section.v1";
 const clientConsultation = ref(null);
 const clientConsultationLoading = ref(false);
 const clientConsultationError = ref("");
+const clientConsultationContactTemplateKey = ref("");
+const clientConsultationContactFollowUp = createContactFollowUpState();
 const clientHistoryFilters = reactive({
   source: "ALL",
   typeHabit: "ALL",
@@ -509,6 +582,27 @@ const settingsRetouchePagination = reactive({
   page: 1,
   pageSize: 10
 });
+const contactTemplateFieldDefinitions = [
+  { key: "commandePrete", label: "Commande prete", group: "commandes" },
+  { key: "commandeSuivi", label: "Commande en cours", group: "commandes" },
+  { key: "commandeSolde", label: "Rappel solde commande", group: "commandes" },
+  { key: "commandeRetard", label: "Nouveau delai commande", group: "commandes" },
+  { key: "retouchePrete", label: "Retouche prete", group: "retouches" },
+  { key: "retoucheSuivi", label: "Retouche en cours", group: "retouches" },
+  { key: "retoucheSolde", label: "Rappel solde retouche", group: "retouches" },
+  { key: "retoucheDelai", label: "Date prevue retouche", group: "retouches" },
+  { key: "clientBonjour", label: "Relance simple", group: "client" },
+  { key: "clientRendezVous", label: "Rappel atelier", group: "client" },
+  { key: "clientMerci", label: "Message de remerciement", group: "client" }
+];
+const contactFollowUpStatusOptions = [
+  { value: "A_RELANCER", label: "A relancer" },
+  { value: "CONTACTE", label: "Contacte" },
+  { value: "EN_ATTENTE", label: "En attente" },
+  { value: "PROMIS", label: "Promis" },
+  { value: "TERMINE", label: "Termine" }
+];
+const contactFollowUpStatusLabels = Object.fromEntries(contactFollowUpStatusOptions.map((option) => [option.value, option.label]));
 const settingsConfirmModal = reactive({
   open: false,
   title: "",
@@ -533,6 +627,7 @@ const settingsCancelButtonRef = ref(null);
 const actionCancelButtonRef = ref(null);
 const settingsTabs = [
   { id: "identite", label: "Identite" },
+  { id: "contact", label: "Contact client" },
   { id: "commandes", label: "Commandes" },
   { id: "retouches", label: "Retouches" },
   { id: "mesures", label: "Mesures" },
@@ -883,6 +978,22 @@ const atelierSettingsDefault = {
     mentions: "Merci pour votre confiance.",
     afficherLogo: true
   },
+  contactClient: {
+    signatureAuto: true,
+    templates: {
+      commandePrete: "{salutation}\nVotre commande {reference} est prete. Merci de passer a l'atelier quand vous etes disponible.\n\n{signature}",
+      commandeSuivi: "{salutation}\nVotre commande {reference} est en cours de traitement. Nous vous recontacterons des qu'elle sera prete.\n\n{signature}",
+      commandeSolde: "{salutation}\nIl reste un solde de {montantRestant} pour votre commande {reference}. Merci pour votre confiance.\n\n{signature}",
+      commandeRetard: "{salutation}\nVotre commande {reference} demande un peu plus de temps. Nous vous informerons du nouveau delai au plus vite.\n\n{signature}",
+      retouchePrete: "{salutation}\nVotre retouche {reference} est prete. Vous pouvez passer a l'atelier quand vous voulez.\n\n{signature}",
+      retoucheSuivi: "{salutation}\nVotre retouche {reference} est en cours de traitement. Nous vous informerons des qu'elle sera finalisee.\n\n{signature}",
+      retoucheSolde: "{salutation}\nIl reste un solde de {montantRestant} pour votre retouche {reference}. Merci pour votre confiance.\n\n{signature}",
+      retoucheDelai: "{salutation}\nVotre retouche {reference} suit son traitement. Nous reviendrons vers vous avec la date prevue de retrait.\n\n{signature}",
+      clientBonjour: "{salutation}\nNous vous contactons depuis l'atelier pour faire le suivi de votre dossier.\n\n{signature}",
+      clientRendezVous: "{salutation}\nMerci de nous confirmer votre disponibilite pour votre prochain passage a l'atelier.\n\n{signature}",
+      clientMerci: "{salutation}\nMerci pour votre confiance. Nous restons disponibles si vous avez besoin d'un suivi complementaire.\n\n{signature}"
+    }
+  },
   securite: {
     rolesAutorises: ["PROPRIETAIRE"],
     confirmationAvantSauvegarde: true,
@@ -900,11 +1011,13 @@ const atelierRuntimeSettingsDefault = {
   identite: {
     nomAtelier: "Atelier",
     devise: "FC",
-    logoUrl: ""
+    logoUrl: "",
+    telephone: ""
   },
   commandes: cloneSettings(atelierSettingsDefault.commandes),
   retouches: cloneSettings(atelierSettingsDefault.retouches),
-  habits: cloneSettings(atelierSettingsDefault.habits)
+  habits: cloneSettings(atelierSettingsDefault.habits),
+  contactClient: cloneSettings(atelierSettingsDefault.contactClient)
 };
 const atelierRuntimeSettings = reactive(cloneSettings(atelierRuntimeSettingsDefault));
 const atelierRuntimeSettingsReady = ref(false);
@@ -932,11 +1045,13 @@ function buildRuntimeSettingsSubset(source) {
       identite: {
         nomAtelier: source.identite?.nomAtelier || next.identite.nomAtelier,
         devise: source.identite?.devise || next.identite.devise,
-        logoUrl: source.identite?.logoUrl || next.identite.logoUrl
+        logoUrl: source.identite?.logoUrl || next.identite.logoUrl,
+        telephone: source.identite?.telephone || next.identite.telephone
       },
       commandes: source.commandes || {},
       retouches: source.retouches || {},
-      habits: source.habits || {}
+      habits: source.habits || {},
+      contactClient: source.contactClient || {}
     });
   }
   return next;
@@ -949,6 +1064,7 @@ function applyRuntimeSettingsSubset(source) {
   atelierRuntimeSettings.commandes = next.commandes;
   atelierRuntimeSettings.retouches = next.retouches;
   atelierRuntimeSettings.habits = next.habits;
+  atelierRuntimeSettings.contactClient = next.contactClient;
 }
 
 function resetRuntimeSettings() {
@@ -1589,6 +1705,7 @@ function settingsTabIsDirty(tabId) {
   }
   const snapshot = settingsSnapshotParsed.value;
   if (tabId === "identite") return JSON.stringify(current.identite || {}) !== JSON.stringify(snapshot.identite || {});
+  if (tabId === "contact") return JSON.stringify(current.contactClient || {}) !== JSON.stringify(snapshot.contactClient || {});
   if (tabId === "commandes") return JSON.stringify(current.commandes || {}) !== JSON.stringify(snapshot.commandes || {});
   if (tabId === "retouches") return JSON.stringify(current.retouches || {}) !== JSON.stringify(snapshot.retouches || {});
   if (tabId === "mesures") return JSON.stringify(current.habits || {}) !== JSON.stringify(snapshot.habits || {});
@@ -2639,6 +2756,18 @@ const canReadVentes = computed(() =>
     PERMISSIONS.VOIR_BILANS_GLOBAUX
   ])
 );
+const canAccessContactFollowUpDashboard = computed(() =>
+  canReadClients.value ||
+  canCreateClient.value ||
+  hasPermission(PERMISSIONS.MODIFIER_CLIENT) ||
+  canReadCommandes.value ||
+  canCreateCommande.value ||
+  canReadRetouches.value ||
+  canCreateRetouche.value ||
+  canAccessSecurityModule.value ||
+  hasPermission(PERMISSIONS.VOIR_BILANS_GLOBAUX) ||
+  hasPermission(PERMISSIONS.CLOTURER_CAISSE)
+);
 
 function hasModuleAccessPermissions(moduleId) {
   if (moduleId === "systemAteliers") return hasPermission(PERMISSIONS.GERER_ATELIERS);
@@ -2824,16 +2953,66 @@ const mobileLayoutStyle = computed(() => ({
     : "calc(12px + env(safe-area-inset-bottom))"
 }));
 
-const showMobileScrollTopButton = computed(
-  () => Boolean(isMobileViewport.value && !isSidebarDrawerOpen.value && !hasBlockingMobileOverlay.value && showScrollTopButton.value)
+const activeMobileScrollButtonMode = computed(() =>
+  isMobileViewport.value && !isSidebarDrawerOpen.value && !hasBlockingMobileOverlay.value ? mobileScrollButtonMode.value : "none"
 );
 
-function updateScrollTopButtonVisibility() {
+const showMobileScrollTopButton = computed(() => activeMobileScrollButtonMode.value === "up");
+const showMobileScrollBottomButton = computed(() => activeMobileScrollButtonMode.value === "down");
+
+function updateMobileScrollButtonVisibility() {
   const container = contentScrollRef.value;
-  const nextVisible = Boolean(container && container.scrollTop > 280);
-  if (showScrollTopButton.value !== nextVisible) {
-    showScrollTopButton.value = nextVisible;
+  if (!container) {
+    mobileScrollButtonMode.value = "none";
+    return;
   }
+
+  const scrollTop = Math.max(0, Number(container.scrollTop || 0));
+  const maxScrollTop = Math.max(0, Number(container.scrollHeight || 0) - Number(container.clientHeight || 0));
+  const topThreshold = 96;
+  const bottomThreshold = 96;
+
+  if (maxScrollTop < 220) {
+    mobileScrollButtonMode.value = "none";
+    return;
+  }
+
+  const distanceFromBottom = Math.max(0, maxScrollTop - scrollTop);
+  const nearTop = scrollTop <= topThreshold;
+  const nearBottom = distanceFromBottom <= bottomThreshold;
+
+  if (nearTop) {
+    mobileScrollButtonMode.value = "down";
+    return;
+  }
+
+  if (nearBottom) {
+    mobileScrollButtonMode.value = "up";
+    return;
+  }
+
+  mobileScrollButtonMode.value = scrollTop / maxScrollTop < 0.5 ? "down" : "up";
+}
+
+function updateScrollTopButtonVisibility() {
+  updateMobileScrollButtonVisibility();
+}
+
+function scrollMainContentToBottom(behavior = "auto") {
+  nextTick(() => {
+    const container = contentScrollRef.value;
+    if (container && typeof container.scrollTo === "function") {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+      return;
+    }
+    if (typeof window !== "undefined" && typeof window.scrollTo === "function") {
+      const targetTop = Math.max(
+        0,
+        (document.documentElement?.scrollHeight || 0) - (window.innerHeight || document.documentElement?.clientHeight || 0)
+      );
+      window.scrollTo({ top: targetTop, behavior });
+    }
+  });
 }
 
 function handleContentScroll() {
@@ -2847,7 +3026,7 @@ function bindContentScrollListener() {
   }
 
   if (!contentScrollRef.value) {
-    showScrollTopButton.value = false;
+    mobileScrollButtonMode.value = "none";
     return;
   }
 
@@ -3316,8 +3495,10 @@ const detailRetoucheFacture = computed(() => {
 const factureDetailPrimaryAction = computed(() => {
   if (!detailFacture.value) return null;
   return {
-    label: "Generer PDF",
-    subtitle: "Creez un PDF propre de la facture depuis ce detail.",
+    label: isMobileViewport.value ? "Telecharger" : "Generer PDF",
+    subtitle: isMobileViewport.value
+      ? "Telechargez le document de la facture pour l'ouvrir depuis votre telephone."
+      : "Creez un PDF propre de la facture depuis ce detail.",
     tone: "blue",
     handler: () => onGenererPdfFacture(detailFacture.value)
   };
@@ -3626,6 +3807,603 @@ const clientCommandesPaged = computed(() => clientFilteredCommandes.value);
 const clientRetouchesPaged = computed(() => clientFilteredRetouches.value);
 const clientMesuresPaged = computed(() => clientFilteredMesures.value);
 
+const atelierContactRuntimeSource = computed(() => {
+  if (atelierRuntimeSettingsReady.value) return atelierRuntimeSettings;
+  return atelierSettings;
+});
+
+const atelierContactConfig = computed(() => atelierContactRuntimeSource.value?.contactClient || atelierSettingsDefault.contactClient);
+
+const atelierContactSignature = computed(() => {
+  const parts = [];
+  const identite = atelierContactRuntimeSource.value?.identite || atelierSettings.identite || {};
+  const nomAtelier = String(identite.nomAtelier || "").trim();
+  const telephone = String(identite.telephone || "").trim();
+  if (nomAtelier) parts.push(nomAtelier);
+  if (telephone) parts.push(telephone);
+  return parts.join(" - ");
+});
+
+function formatContactGreeting(name) {
+  const trimmed = String(name || "").trim();
+  return trimmed ? `Bonjour ${trimmed},` : "Bonjour,";
+}
+
+function buildContactTemplates(items = []) {
+  return items
+    .filter((item) => item && String(item.key || "").trim() && String(item.label || "").trim() && String(item.message || "").trim())
+    .map((item) => ({
+      key: String(item.key).trim(),
+      label: String(item.label).trim(),
+      message: String(item.message).trim()
+    }));
+}
+
+function renderContactTemplate(template, variables = {}) {
+  const source = String(template || "").trim();
+  if (!source) return "";
+  const rendered = source.replace(/\{(\w+)\}/g, (_, key) => String(variables?.[key] ?? ""));
+  return rendered.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function resolveConfiguredContactTemplate(key) {
+  const configured = String(atelierContactConfig.value?.templates?.[key] || "").trim();
+  if (configured) return configured;
+  return String(atelierSettingsDefault.contactClient?.templates?.[key] || "").trim();
+}
+
+function buildContactVariables({ nomClient = "", reference = "", montantRestant = "", signature = "" } = {}) {
+  return {
+    salutation: formatContactGreeting(nomClient),
+    clientNom: String(nomClient || "").trim(),
+    reference: String(reference || "").trim(),
+    montantRestant: String(montantRestant || "").trim(),
+    signature: signature && atelierContactConfig.value?.signatureAuto !== false ? signature : "",
+    atelierNom: String(atelierContactRuntimeSource.value?.identite?.nomAtelier || atelierSettings.identite?.nomAtelier || "").trim(),
+    atelierTelephone: String(atelierContactRuntimeSource.value?.identite?.telephone || atelierSettings.identite?.telephone || "").trim()
+  };
+}
+
+function humanizeContactLabel(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/[a-zàâçéèêëîïôûùüÿñæœ]/.test(text)) return text.trim();
+  return text
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .trim();
+}
+
+function resolveContactTemplateKey(templates, selectedKey) {
+  if (!Array.isArray(templates) || templates.length === 0) return "";
+  const key = String(selectedKey || "").trim();
+  if (key && templates.some((template) => template.key === key)) return key;
+  return templates[0].key;
+}
+
+function resolveContactMessagePreview(templates, selectedKey) {
+  const key = resolveContactTemplateKey(templates, selectedKey);
+  return templates.find((template) => template.key === key)?.message || "";
+}
+
+function normalizeDialTelephone(value) {
+  return String(value || "")
+    .trim()
+    .replace(/(?!^\+)[^\d]/g, "")
+    .replace(/^\+{2,}/, "+");
+}
+
+function normalizeWhatsAppTelephone(value) {
+  let digits = String(value || "").trim();
+  if (!digits) return "";
+  digits = digits.replace(/\s+/g, "");
+  if (digits.startsWith("+")) digits = digits.slice(1);
+  digits = digits.replace(/[^\d]/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.startsWith("243")) return digits;
+  if (digits.length === 10 && digits.startsWith("0")) return `243${digits.slice(1)}`;
+  return digits;
+}
+
+function buildPhoneDialHref(telephone) {
+  const normalized = normalizeDialTelephone(telephone);
+  return normalized ? `tel:${normalized}` : "";
+}
+
+function buildWhatsAppWebHref(telephone, message = "") {
+  const normalized = normalizeWhatsAppTelephone(telephone);
+  if (!normalized) return "";
+  const text = String(message || "").trim();
+  return text
+    ? `https://wa.me/${normalized}?text=${encodeURIComponent(text)}`
+    : `https://wa.me/${normalized}`;
+}
+
+function buildWhatsAppAppHref(telephone, message = "") {
+  const normalized = normalizeWhatsAppTelephone(telephone);
+  if (!normalized) return "";
+  const text = String(message || "").trim();
+  return text
+    ? `whatsapp://send?phone=${normalized}&text=${encodeURIComponent(text)}`
+    : `whatsapp://send?phone=${normalized}`;
+}
+
+function buildPreferredWhatsAppHref(telephone, message = "") {
+  return isMobileViewport.value
+    ? buildWhatsAppAppHref(telephone, message)
+    : buildWhatsAppWebHref(telephone, message);
+}
+
+async function copyTextToClipboard(text, successMessage = "Copie terminee.") {
+  const value = String(text || "").trim();
+  if (!value) {
+    notify("Aucune donnee a copier.");
+    return;
+  }
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      textarea.style.pointerEvents = "none";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (!copied) throw new Error("copy_failed");
+    }
+    notify(successMessage);
+  } catch (err) {
+    notify("Copie impossible sur cet appareil.");
+  }
+}
+
+function normalizeClientContactEntry(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  return {
+    idContact: String(raw.idContact || raw.id_contact || "").trim(),
+    canal: String(raw.canal || "").trim().toUpperCase(),
+    modeleKey: String(raw.modeleKey || raw.modele_key || "").trim(),
+    statut: String(raw.statut || "A_RELANCER").trim().toUpperCase(),
+    note: String(raw.note || "").trim(),
+    utilisateur: String(raw.utilisateur || "").trim(),
+    dateContact: raw.dateContact || raw.date_contact || "",
+    origineType: String(raw.origineType || raw.origine_type || "").trim().toUpperCase(),
+    origineId: String(raw.origineId || raw.origine_id || "").trim()
+  };
+}
+
+function resetContactFollowUpState(state) {
+  if (!state) return;
+  state.loading = false;
+  state.saving = false;
+  state.lastContact = null;
+  state.status = "A_RELANCER";
+  state.note = "";
+}
+
+function applyContactFollowUpSummary(state, payload) {
+  const lastContact = normalizeClientContactEntry(payload?.suivi?.dernierContact || null);
+  state.lastContact = lastContact;
+  state.status = lastContact?.statut || "A_RELANCER";
+  state.note = lastContact?.note || "";
+}
+
+function formatContactChannelLabel(value) {
+  const key = String(value || "").trim().toUpperCase();
+  if (key === "CALL") return "Appel";
+  if (key === "WHATSAPP") return "WhatsApp";
+  if (key === "COPY_NUMBER") return "Copie numero";
+  if (key === "COPY_MESSAGE") return "Copie message";
+  if (key === "NOTE") return "Suivi manuel";
+  return "Suivi";
+}
+
+function buildLastContactSummary(entry) {
+  if (!entry) return "";
+  const parts = [
+    formatContactChannelLabel(entry.canal),
+    contactFollowUpStatusLabels[entry.statut] || entry.statut || "A relancer"
+  ];
+  if (entry.dateContact) parts.push(formatDateTime(entry.dateContact));
+  if (entry.utilisateur) parts.push(entry.utilisateur);
+  return parts.filter(Boolean).join(" · ");
+}
+
+async function loadClientContactSummaryIntoState(state, idClient) {
+  resetContactFollowUpState(state);
+  const clientId = String(idClient || "").trim();
+  if (!clientId || !getNetworkState().online || !isRemoteEntityId(clientId)) return;
+  state.loading = true;
+  try {
+    const payload = await atelierApi.getClientContactSummary(clientId);
+    applyContactFollowUpSummary(state, payload);
+  } catch (err) {
+    state.lastContact = null;
+  } finally {
+    state.loading = false;
+  }
+}
+
+async function saveClientContactFollowUp({
+  state,
+  idClient,
+  canal = "NOTE",
+  modeleKey = "",
+  statut = "A_RELANCER",
+  note = "",
+  origineType = null,
+  origineId = null,
+  utilisateur = "",
+  quiet = false
+} = {}) {
+  const clientId = String(idClient || "").trim();
+  if (!state || !clientId || !getNetworkState().online || !isRemoteEntityId(clientId)) {
+    if (!quiet) notify("Suivi client indisponible hors ligne.");
+    return false;
+  }
+
+  if (!quiet) state.saving = true;
+  try {
+    const payload = await atelierApi.createClientContactEntry(clientId, {
+      canal,
+      modeleKey: modeleKey || null,
+      statut,
+      note,
+      origineType,
+      origineId,
+      utilisateur: utilisateur || authUser.value?.nom || authUser.value?.email || ""
+    });
+    applyContactFollowUpSummary(state, payload);
+    if (!quiet) notify("Suivi client enregistre.");
+    return true;
+  } catch (err) {
+    if (!quiet) notify(readableError(err));
+    return false;
+  } finally {
+    state.saving = false;
+  }
+}
+
+async function trackClientContactAction({
+  state,
+  profile,
+  canal,
+  modeleKey = "",
+  origineType = null,
+  origineId = null
+} = {}) {
+  const clientId = String(profile?.idClient || "").trim();
+  if (!clientId) return;
+  await saveClientContactFollowUp({
+    state,
+    idClient: clientId,
+    canal,
+    modeleKey,
+    statut: state?.status || "A_RELANCER",
+    note: state?.note || "",
+    origineType,
+    origineId,
+    quiet: true
+  });
+}
+
+const detailCommandeContactProfile = computed(() => {
+  if (!detailCommande.value) return null;
+  const directoryEntry = clientDirectory.value.get(detailCommande.value.idClient) || {};
+  const habitLabel = wizardAvailableHabitTypeOptions.value.find(
+    (option) => String(option.value || "").trim().toUpperCase() === String(detailCommande.value.typeHabit || "").trim().toUpperCase()
+  )?.label || humanizeContactLabel(detailCommande.value.typeHabit);
+  return {
+    idClient: String(detailCommande.value.idClient || "").trim(),
+    nomClient: String(detailCommande.value.clientNom || directoryEntry.nomComplet || "").trim(),
+    telephone: String(directoryEntry.telephone || "").trim(),
+    originId: String(detailCommande.value.idCommande || "").trim(),
+    reference: habitLabel ? `de ${habitLabel.toLowerCase()}` : "en cours",
+    soldeRestant: Number(detailSoldeRestant.value || 0)
+  };
+});
+
+const detailCommandeContactTemplates = computed(() => {
+  const profile = detailCommandeContactProfile.value;
+  if (!profile) return [];
+  const variables = buildContactVariables({
+    nomClient: profile.nomClient,
+    reference: profile.reference || "commande",
+    montantRestant: formatCurrency(profile.soldeRestant),
+    signature: atelierContactSignature.value
+  });
+  return buildContactTemplates([
+    {
+      key: "commande-prete",
+      label: "Commande prete",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("commandePrete"), variables)
+    },
+    {
+      key: "commande-suivi",
+      label: "Commande en cours",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("commandeSuivi"), variables)
+    },
+    {
+      key: "commande-solde",
+      label: "Rappel solde",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("commandeSolde"), variables)
+    },
+    {
+      key: "commande-retard",
+      label: "Nouveau delai",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("commandeRetard"), variables)
+    }
+  ]);
+});
+
+const detailCommandeContactSelectedTemplateKey = computed(() =>
+  resolveContactTemplateKey(detailCommandeContactTemplates.value, detailCommandeContactTemplateKey.value)
+);
+const detailCommandeContactMessagePreview = computed(() =>
+  resolveContactMessagePreview(detailCommandeContactTemplates.value, detailCommandeContactSelectedTemplateKey.value)
+);
+
+const detailRetoucheContactProfile = computed(() => {
+  if (!detailRetouche.value) return null;
+  const directoryEntry = clientDirectory.value.get(detailRetouche.value.idClient) || {};
+  const retoucheLabel =
+    availableRetoucheTypeDefinitions.value.find(
+      (row) => String(row.code || "").trim().toUpperCase() === String(detailRetouche.value.typeRetouche || "").trim().toUpperCase()
+    )?.libelle || humanizeContactLabel(detailRetouche.value.typeRetouche);
+  const habitLabel = wizardAvailableHabitTypeOptions.value.find(
+    (option) => String(option.value || "").trim().toUpperCase() === String(detailRetouche.value.typeHabit || "").trim().toUpperCase()
+  )?.label || humanizeContactLabel(detailRetouche.value.typeHabit);
+  return {
+    idClient: String(detailRetouche.value.idClient || "").trim(),
+    nomClient: String(detailRetouche.value.clientNom || directoryEntry.nomComplet || "").trim(),
+    telephone: String(directoryEntry.telephone || "").trim(),
+    originId: String(detailRetouche.value.idRetouche || "").trim(),
+    reference:
+      retoucheLabel && habitLabel
+        ? `${retoucheLabel.toLowerCase()} sur ${habitLabel.toLowerCase()}`
+        : retoucheLabel
+          ? retoucheLabel.toLowerCase()
+          : habitLabel
+            ? `sur ${habitLabel.toLowerCase()}`
+            : "en cours",
+    soldeRestant: Number(detailRetoucheSoldeRestant.value || 0)
+  };
+});
+
+const detailRetoucheContactTemplates = computed(() => {
+  const profile = detailRetoucheContactProfile.value;
+  if (!profile) return [];
+  const variables = buildContactVariables({
+    nomClient: profile.nomClient,
+    reference: profile.reference || "retouche",
+    montantRestant: formatCurrency(profile.soldeRestant),
+    signature: atelierContactSignature.value
+  });
+  return buildContactTemplates([
+    {
+      key: "retouche-prete",
+      label: "Retouche prete",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("retouchePrete"), variables)
+    },
+    {
+      key: "retouche-suivi",
+      label: "Retouche en cours",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("retoucheSuivi"), variables)
+    },
+    {
+      key: "retouche-solde",
+      label: "Rappel solde",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("retoucheSolde"), variables)
+    },
+    {
+      key: "retouche-delai",
+      label: "Date prevue",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("retoucheDelai"), variables)
+    }
+  ]);
+});
+
+const detailRetoucheContactSelectedTemplateKey = computed(() =>
+  resolveContactTemplateKey(detailRetoucheContactTemplates.value, detailRetoucheContactTemplateKey.value)
+);
+const detailRetoucheContactMessagePreview = computed(() =>
+  resolveContactMessagePreview(detailRetoucheContactTemplates.value, detailRetoucheContactSelectedTemplateKey.value)
+);
+
+const clientConsultationContactProfile = computed(() => {
+  if (!clientConsultationClient.value) return null;
+  return {
+    idClient: String(clientConsultationClient.value.idClient || "").trim(),
+    nomClient: String(clientConsultationClient.value.nomComplet || "").trim(),
+    telephone: String(clientConsultationClient.value.telephone || "").trim(),
+    originId: String(clientConsultationClient.value.idClient || "").trim(),
+    reference: "dossier client"
+  };
+});
+
+const clientConsultationContactTemplates = computed(() => {
+  const profile = clientConsultationContactProfile.value;
+  if (!profile) return [];
+  const variables = buildContactVariables({
+    nomClient: profile.nomClient,
+    reference: profile.reference || "client",
+    signature: atelierContactSignature.value
+  });
+  return buildContactTemplates([
+    {
+      key: "client-bonjour",
+      label: "Relance simple",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("clientBonjour"), variables)
+    },
+    {
+      key: "client-rendezvous",
+      label: "Rappel atelier",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("clientRendezVous"), variables)
+    },
+    {
+      key: "client-merci",
+      label: "Message de remerciement",
+      message: renderContactTemplate(resolveConfiguredContactTemplate("clientMerci"), variables)
+    }
+  ]);
+});
+
+const clientConsultationContactSelectedTemplateKey = computed(() =>
+  resolveContactTemplateKey(clientConsultationContactTemplates.value, clientConsultationContactTemplateKey.value)
+);
+const clientConsultationContactMessagePreview = computed(() =>
+  resolveContactMessagePreview(clientConsultationContactTemplates.value, clientConsultationContactSelectedTemplateKey.value)
+);
+
+watch(
+  () => detailCommande.value?.idCommande || "",
+  () => {
+    detailCommandeContactTemplateKey.value = "";
+  }
+);
+
+watch(
+  () => detailRetouche.value?.idRetouche || "",
+  () => {
+    detailRetoucheContactTemplateKey.value = "";
+  }
+);
+
+watch(
+  () => clientConsultationClient.value?.idClient || "",
+  () => {
+    clientConsultationContactTemplateKey.value = "";
+  }
+);
+
+function handleContactCall({ profile, state, origineType = null, origineId = null, modeleKey = "" } = {}) {
+  if (!normalizeDialTelephone(profile?.telephone)) {
+    notify("Numero client indisponible.");
+    return;
+  }
+  void trackClientContactAction({
+    state,
+    profile,
+    canal: "CALL",
+    modeleKey,
+    origineType,
+    origineId
+  });
+}
+
+function handleContactWhatsApp({ profile, message = "", state, origineType = null, origineId = null, modeleKey = "" } = {}) {
+  if (!normalizeWhatsAppTelephone(profile?.telephone)) {
+    notify("Numero WhatsApp indisponible.");
+    return;
+  }
+  void trackClientContactAction({
+    state,
+    profile,
+    canal: "WHATSAPP",
+    modeleKey,
+    origineType,
+    origineId
+  });
+}
+
+async function handleSaveContactFollowUp({ profile, state, origineType = null, origineId = null, modeleKey = "" } = {}) {
+  await saveClientContactFollowUp({
+    state,
+    idClient: profile?.idClient,
+    canal: "NOTE",
+    modeleKey,
+    statut: state?.status || "A_RELANCER",
+    note: state?.note || "",
+    origineType,
+    origineId
+  });
+}
+
+function normalizeDashboardContactSection(section, idKey) {
+  const payload = section && typeof section === "object" ? section : {};
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  return {
+    total: Math.max(0, Number(payload.total || 0)),
+    items: items
+      .map((item) => ({
+        ...item,
+        [idKey]: String(item?.[idKey] || "").trim()
+      }))
+      .filter((item) => item[idKey])
+  };
+}
+
+function normalizeDashboardContactBoard(payload) {
+  return {
+    clientsARelancer: normalizeDashboardContactSection(payload?.clientsARelancer, "idClient"),
+    commandesPretesNonSignalees: normalizeDashboardContactSection(payload?.commandesPretesNonSignalees, "idCommande"),
+    retouchesPretesNonSignalees: normalizeDashboardContactSection(payload?.retouchesPretesNonSignalees, "idRetouche")
+  };
+}
+
+async function loadDashboardContactBoard({ syncGlobalError = false } = {}) {
+  if (!isAuthenticated.value || isSystemManager.value || !canAccessContactFollowUpDashboard.value) {
+    dashboardContactBoard.value = createEmptyDashboardContactBoard();
+    dashboardContactBoardError.value = "";
+    dashboardContactBoardLoading.value = false;
+    return false;
+  }
+  if (!getNetworkState().online) {
+    dashboardContactBoard.value = createEmptyDashboardContactBoard();
+    dashboardContactBoardError.value = "Suivi client indisponible hors ligne.";
+    dashboardContactBoardLoading.value = false;
+    return false;
+  }
+
+  dashboardContactBoardLoading.value = true;
+  dashboardContactBoardError.value = "";
+  try {
+    const payload = await atelierApi.getClientContactDashboard(5);
+    dashboardContactBoard.value = normalizeDashboardContactBoard(payload);
+    return true;
+  } catch (err) {
+    dashboardContactBoard.value = createEmptyDashboardContactBoard();
+    dashboardContactBoardError.value = readableError(err);
+    if (syncGlobalError) appendError(err);
+    return false;
+  } finally {
+    dashboardContactBoardLoading.value = false;
+  }
+}
+
+function formatDashboardClientFollowUpDescription(item) {
+  if (!item) return "";
+  const parts = [contactFollowUpStatusLabels[String(item.statut || "").trim().toUpperCase()] || "A relancer"];
+  if (item.telephone) parts.push(item.telephone);
+  if (item.dateContact) parts.push(formatDateTime(item.dateContact));
+  return parts.filter(Boolean).join(" · ");
+}
+
+function formatDashboardPendingCommandeDescription(item) {
+  if (!item) return "";
+  const parts = [];
+  if (item.typeHabit) parts.push(item.typeHabit);
+  if (Number(item.soldeRestant || 0) > 0) parts.push(`Solde: ${formatCurrency(item.soldeRestant)}`);
+  if (item.datePrevue) parts.push(`Prevue: ${formatDateShort(item.datePrevue)}`);
+  return parts.filter(Boolean).join(" · ") || "Commande prete a signaler";
+}
+
+function formatDashboardPendingRetoucheDescription(item) {
+  if (!item) return "";
+  const parts = [];
+  if (item.typeRetouche) parts.push(item.typeRetouche);
+  else if (item.typeHabit) parts.push(item.typeHabit);
+  if (Number(item.soldeRestant || 0) > 0) parts.push(`Solde: ${formatCurrency(item.soldeRestant)}`);
+  if (item.datePrevue) parts.push(`Prevue: ${formatDateShort(item.datePrevue)}`);
+  return parts.filter(Boolean).join(" · ") || "Retouche prete a signaler";
+}
+
 function resolveHabitUiDefinition(typeHabit) {
   const type = String(typeHabit || "").trim().toUpperCase();
   if (!type) return null;
@@ -3870,6 +4648,44 @@ const dashboardSalesMobileCards = computed(() => [
   { label: "Benefice brut", value: formatCurrency(dashboardSalesMetrics.value.beneficeBrut), tone: "green" },
   { label: "Taux de marge", value: formatPercent(dashboardSalesMetrics.value.margeMoyenne), tone: "teal" }
 ]);
+
+const dashboardFollowUpCards = computed(() => [
+  { label: "Clients a relancer", value: dashboardContactBoard.value.clientsARelancer.total, tone: "amber" },
+  { label: "Commandes a signaler", value: dashboardContactBoard.value.commandesPretesNonSignalees.total, tone: "green" },
+  { label: "Retouches a signaler", value: dashboardContactBoard.value.retouchesPretesNonSignalees.total, tone: "teal" },
+  {
+    label: "Total a traiter",
+    value:
+      dashboardContactBoard.value.clientsARelancer.total +
+      dashboardContactBoard.value.commandesPretesNonSignalees.total +
+      dashboardContactBoard.value.retouchesPretesNonSignalees.total,
+    tone: "slate"
+  }
+]);
+
+const dashboardClientsToFollowUpMobileItems = computed(() =>
+  dashboardContactBoard.value.clientsARelancer.items.map((item) => ({
+    id: item.idClient,
+    libelle: item.nomClient || item.telephone || item.idClient,
+    description: formatDashboardClientFollowUpDescription(item)
+  }))
+);
+
+const dashboardCommandesToNotifyMobileItems = computed(() =>
+  dashboardContactBoard.value.commandesPretesNonSignalees.items.map((item) => ({
+    id: item.idCommande,
+    libelle: `${item.idCommande} - ${item.clientNom || item.idClient}`,
+    description: formatDashboardPendingCommandeDescription(item)
+  }))
+);
+
+const dashboardRetouchesToNotifyMobileItems = computed(() =>
+  dashboardContactBoard.value.retouchesPretesNonSignalees.items.map((item) => ({
+    id: item.idRetouche,
+    libelle: `${item.idRetouche} - ${item.clientNom || item.idClient}`,
+    description: formatDashboardPendingRetoucheDescription(item)
+  }))
+);
 
 function dateOnly(value) {
   if (!value) return "";
@@ -4560,6 +5376,8 @@ onMounted(async () => {
   window.addEventListener("popstate", onBrowserNavigation);
   window.addEventListener("beforeunload", onBeforeUnload);
   window.addEventListener("resize", updateViewportState);
+  window.addEventListener("focus", handleCrossDeviceFocus);
+  document.addEventListener("visibilitychange", handleCrossDeviceVisibilityChange);
   await nextTick();
   bindContentScrollListener();
   await hydrateAuthSession();
@@ -4574,6 +5392,7 @@ onMounted(async () => {
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute();
   }
   authReady.value = true;
+  scheduleCrossDeviceRefresh();
 });
 
 onUnmounted(() => {
@@ -4589,25 +5408,36 @@ onUnmounted(() => {
   window.removeEventListener("popstate", onBrowserNavigation);
   window.removeEventListener("beforeunload", onBeforeUnload);
   window.removeEventListener("resize", updateViewportState);
+  window.removeEventListener("focus", handleCrossDeviceFocus);
+  document.removeEventListener("visibilitychange", handleCrossDeviceVisibilityChange);
   if (contentScrollElement) {
     contentScrollElement.removeEventListener("scroll", handleContentScroll);
     contentScrollElement = null;
   }
   if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
   if (syncUiRefreshTimer) window.clearTimeout(syncUiRefreshTimer);
+  clearCrossDeviceRefreshTimer();
   clearSystemAteliersSearchDebounce();
   revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
   revokeSettingsLogoPreviewUrl();
 });
 
-watch(currentRoute, () => {
+watch(currentRoute, (routeName) => {
   if (isMobileViewport.value) {
     closeSidebarDrawer();
   }
+  if (routeName === "dashboard" && isAuthenticated.value && !loading.value) {
+    void loadDashboardContactBoard();
+  }
+  scheduleCrossDeviceRefresh();
   nextTick(() => {
     bindContentScrollListener();
-    updateScrollTopButtonVisibility();
+    updateMobileScrollButtonVisibility();
   });
+});
+
+watch([() => isAuthenticated.value, () => currentAtelierId.value, networkIsOnline], () => {
+  scheduleCrossDeviceRefresh();
 });
 
 watch(contentScrollRef, () => {
@@ -5743,6 +6573,9 @@ async function reloadAll() {
     ventes.value = [];
     factures.value = [];
     caisseJour.value = null;
+    dashboardContactBoard.value = createEmptyDashboardContactBoard();
+    dashboardContactBoardError.value = "";
+    dashboardContactBoardLoading.value = false;
     if (!getNetworkState().online) {
       loading.value = false;
       return;
@@ -5766,6 +6599,9 @@ async function reloadAll() {
   const shouldLoadCaisse = canAccessModule("caisse");
   const atelierId = currentAtelierId.value;
   if (!atelierId) {
+    dashboardContactBoard.value = createEmptyDashboardContactBoard();
+    dashboardContactBoardError.value = "";
+    dashboardContactBoardLoading.value = false;
     loading.value = false;
     return;
   }
@@ -5801,6 +6637,11 @@ async function reloadAll() {
       clientConsultation.value = null;
       clientConsultationLoading.value = false;
       clientConsultationError.value = OFFLINE_READ_MESSAGES.CLIENT_CONSULTATION;
+    }
+    if (currentRoute.value === "dashboard") {
+      dashboardContactBoard.value = createEmptyDashboardContactBoard();
+      dashboardContactBoardError.value = canAccessContactFollowUpDashboard.value ? "Suivi client indisponible hors ligne." : "";
+      dashboardContactBoardLoading.value = false;
     }
 
     loading.value = false;
@@ -5870,6 +6711,10 @@ async function reloadAll() {
     await loadClientConsultation(selectedClientConsultationId.value, true);
   }
 
+  if (currentRoute.value === "dashboard") {
+    await loadDashboardContactBoard();
+  }
+
   loading.value = false;
 }
 
@@ -5877,12 +6722,14 @@ async function loadClientConsultation(idClient, force = false) {
   if (!idClient) {
     clientConsultation.value = null;
     clientConsultationError.value = "";
+    resetContactFollowUpState(clientConsultationContactFollowUp);
     return;
   }
   if (!getNetworkState().online || !isRemoteEntityId(idClient)) {
     clientConsultation.value = null;
     clientConsultationLoading.value = false;
     clientConsultationError.value = OFFLINE_READ_MESSAGES.CLIENT_CONSULTATION;
+    resetContactFollowUpState(clientConsultationContactFollowUp);
     return;
   }
   if (!force && clientConsultation.value?.client?.idClient === idClient && !clientConsultationError.value) return;
@@ -5901,6 +6748,7 @@ async function loadClientConsultation(idClient, force = false) {
     });
     const normalized = normalizeClientConsultation(payload);
     clientConsultation.value = normalized;
+    void loadClientContactSummaryIntoState(clientConsultationContactFollowUp, normalized?.client?.idClient);
     const pg = normalized.historique?.pagination || {};
     clientPagination.commandesPage = Number(pg.commandes?.page || clientPagination.commandesPage);
     clientPagination.retouchesPage = Number(pg.retouches?.page || clientPagination.retouchesPage);
@@ -5908,6 +6756,7 @@ async function loadClientConsultation(idClient, force = false) {
   } catch (err) {
     clientConsultation.value = null;
     clientConsultationError.value = readableError(err);
+    resetContactFollowUpState(clientConsultationContactFollowUp);
   } finally {
     clientConsultationLoading.value = false;
   }
@@ -6368,6 +7217,219 @@ function scheduleSyncUiRefresh() {
     syncUiRefreshTimer = null;
     void refreshVisibleDataAfterReconnect();
   }, 250);
+}
+
+const CROSS_DEVICE_REFRESH_ROUTES = new Set(["dashboard", "commandes", "retouches", "commande-detail", "retouche-detail", "caisse"]);
+const CROSS_DEVICE_REFRESH_MIN_INTERVAL_MS = 2500;
+
+function getCrossDeviceRefreshInterval(routeName = currentRoute.value) {
+  if (routeName === "commande-detail" || routeName === "retouche-detail" || routeName === "caisse") return 10000;
+  if (routeName === "dashboard" || routeName === "commandes" || routeName === "retouches") return 15000;
+  return 0;
+}
+
+function hasBlockingUiStateForCrossDeviceRefresh() {
+  return (
+    wizard.open ||
+    retoucheWizard.open ||
+    factureEmission.open ||
+    systemAtelierModal.open ||
+    settingsConfirmModal.open ||
+    actionModal.open ||
+    commandeMediaViewer.open
+  );
+}
+
+function isEditableElementActive() {
+  if (typeof document === "undefined") return false;
+  const activeElement = document.activeElement;
+  if (!(activeElement instanceof HTMLElement)) return false;
+  if (activeElement.isContentEditable) return true;
+  const tagName = String(activeElement.tagName || "").trim().toUpperCase();
+  if (tagName === "TEXTAREA" || tagName === "SELECT") return true;
+  if (tagName !== "INPUT") return false;
+  const inputType = String(activeElement.getAttribute("type") || "text").trim().toLowerCase();
+  return !["button", "submit", "reset", "checkbox", "radio", "range", "file", "color", "hidden"].includes(inputType);
+}
+
+function shouldMaintainCrossDeviceRefreshTimer() {
+  if (!authReady.value || !isAuthenticated.value || isSystemManager.value || !currentAtelierId.value) return false;
+  if (!networkIsOnline.value) return false;
+  if (!CROSS_DEVICE_REFRESH_ROUTES.has(String(currentRoute.value || "").trim())) return false;
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
+  return true;
+}
+
+function canRunCrossDeviceRefreshNow() {
+  if (!shouldMaintainCrossDeviceRefreshTimer()) return false;
+  if (loading.value || detailLoading.value || detailRetoucheLoading.value || dashboardContactBoardLoading.value || syncInProgress.value) {
+    return false;
+  }
+  if (hasBlockingUiStateForCrossDeviceRefresh()) return false;
+  if (isEditableElementActive()) return false;
+  return true;
+}
+
+function clearCrossDeviceRefreshTimer() {
+  if (crossDeviceRefreshTimer) {
+    window.clearTimeout(crossDeviceRefreshTimer);
+    crossDeviceRefreshTimer = null;
+  }
+}
+
+async function refreshMainListsInBackground({ loadClients = false, loadCommandes = false, loadRetouches = false } = {}) {
+  const atelierId = currentAtelierId.value;
+  if (!atelierId || !getNetworkState().online) return false;
+
+  try {
+    const localFirst = await loadMainListsLocalFirst({
+      atelierId,
+      loadClients,
+      loadCommandes,
+      loadRetouches
+    });
+
+    if (!localFirst.online || !localFirst.refreshPromise) return false;
+
+    const refreshedMain = await localFirst.refreshPromise;
+    if (loadClients && refreshedMain?.clients) applyClientsRows(refreshedMain.clients);
+    if (loadCommandes && refreshedMain?.commandes) applyCommandesRows(refreshedMain.commandes);
+    if (loadRetouches && refreshedMain?.retouches) applyRetouchesRows(refreshedMain.retouches);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshDashboardContactBoardInBackground() {
+  if (!canAccessContactFollowUpDashboard.value || !networkIsOnline.value) return false;
+  try {
+    const payload = await atelierApi.getClientContactDashboard(5);
+    dashboardContactBoard.value = normalizeDashboardContactBoard(payload);
+    dashboardContactBoardError.value = "";
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshLatestCaisseDayInBackground() {
+  if (!canAccessModule("caisse") || !networkIsOnline.value) return false;
+  try {
+    const days = await atelierApi.listCaisseJours();
+    if (!Array.isArray(days) || days.length === 0) {
+      caisseJour.value = null;
+      return true;
+    }
+    const detail = await atelierApi.getCaisseJour(days[0].idCaisseJour || days[0].id_caisse_jour);
+    caisseJour.value = normalizeCaisse(detail);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshVisibleRouteInBackground({ force = false } = {}) {
+  if (crossDeviceRefreshPromise) return crossDeviceRefreshPromise;
+  if (!force && Date.now() - lastCrossDeviceRefreshAt < CROSS_DEVICE_REFRESH_MIN_INTERVAL_MS) return null;
+  if (!canRunCrossDeviceRefreshNow()) return null;
+
+  const routeName = String(currentRoute.value || "").trim();
+  crossDeviceRefreshPromise = (async () => {
+    lastCrossDeviceRefreshAt = Date.now();
+
+    if (routeName === "commande-detail" && selectedCommandeId.value) {
+      await loadAtelierRuntimeSettings();
+      await loadCommandeDetail(selectedCommandeId.value);
+      return true;
+    }
+
+    if (routeName === "retouche-detail" && selectedRetoucheId.value) {
+      await loadAtelierRuntimeSettings();
+      await loadRetoucheDetail(selectedRetoucheId.value);
+      return true;
+    }
+
+    if (routeName === "commandes") {
+      await loadAtelierRuntimeSettings();
+      await refreshMainListsInBackground({
+        loadClients: canReadClients.value,
+        loadCommandes: canReadCommandes.value
+      });
+      return true;
+    }
+
+    if (routeName === "retouches") {
+      await loadAtelierRuntimeSettings();
+      await refreshMainListsInBackground({
+        loadClients: canReadClients.value,
+        loadRetouches: canReadRetouches.value
+      });
+      return true;
+    }
+
+    if (routeName === "caisse") {
+      await loadAtelierRuntimeSettings();
+      await refreshLatestCaisseDayInBackground();
+      return true;
+    }
+
+    if (routeName === "dashboard") {
+      await loadAtelierRuntimeSettings();
+      await refreshMainListsInBackground({
+        loadClients: canReadClients.value,
+        loadCommandes: canReadCommandes.value,
+        loadRetouches: canReadRetouches.value
+      });
+      if (canReadVentes.value && networkIsOnline.value) {
+        try {
+          ventes.value = (await atelierApi.listVentes()).map(normalizeVente);
+        } catch {
+          // Keep the existing dashboard sales snapshot when the background refresh fails.
+        }
+      }
+      await refreshLatestCaisseDayInBackground();
+      await refreshDashboardContactBoardInBackground();
+      return true;
+    }
+
+    return false;
+  })();
+
+  try {
+    return await crossDeviceRefreshPromise;
+  } finally {
+    crossDeviceRefreshPromise = null;
+  }
+}
+
+function scheduleCrossDeviceRefresh() {
+  clearCrossDeviceRefreshTimer();
+  const interval = getCrossDeviceRefreshInterval();
+  if (!interval || !shouldMaintainCrossDeviceRefreshTimer()) return;
+
+  crossDeviceRefreshTimer = window.setTimeout(async () => {
+    crossDeviceRefreshTimer = null;
+    await refreshVisibleRouteInBackground();
+    scheduleCrossDeviceRefresh();
+  }, interval);
+}
+
+function handleCrossDeviceFocus() {
+  if (!shouldMaintainCrossDeviceRefreshTimer()) return;
+  void refreshVisibleRouteInBackground({ force: true });
+  scheduleCrossDeviceRefresh();
+}
+
+function handleCrossDeviceVisibilityChange() {
+  if (typeof document !== "undefined" && document.visibilityState === "visible") {
+    if (shouldMaintainCrossDeviceRefreshTimer()) {
+      void refreshVisibleRouteInBackground({ force: true });
+    }
+    scheduleCrossDeviceRefresh();
+    return;
+  }
+  clearCrossDeviceRefreshTimer();
 }
 
 function appendAuditError(message) {
@@ -7238,16 +8300,63 @@ async function openBlobPdfInNewTab(loadBlobUrl) {
   }
 }
 
+function buildDocumentDownloadName(baseName, extension = "html") {
+  const safeBaseName = String(baseName || "document")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const safeExtension = String(extension || "html")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  return `${safeBaseName || "document"}.${safeExtension || "html"}`;
+}
+
+function triggerBlobDocumentDownload(blobUrl, fileName) {
+  if (typeof document === "undefined") return;
+  const link = document.createElement("a");
+  link.href = blobUrl;
+  link.download = fileName || "document.html";
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+async function openDocumentForCurrentViewport(loadBlobUrl, { mobileFileName, mobileSuccessMessage } = {}) {
+  if (!isMobileViewport.value) {
+    await openBlobPdfInNewTab(loadBlobUrl);
+    return;
+  }
+  try {
+    const blobUrl = await loadBlobUrl();
+    triggerBlobDocumentDownload(blobUrl, mobileFileName || "document.html");
+    notify(mobileSuccessMessage || "Document telecharge. Ouvrez-le depuis vos telechargements si besoin.");
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+  } catch (err) {
+    notify(readableError(err));
+  }
+}
+
 async function exportClientConsultationPdf() {
   if (!clientConsultationClient.value?.idClient) return;
-  await openBlobPdfInNewTab(() =>
+  const clientName = clientConsultationClient.value.nomComplet || clientConsultationClient.value.telephone || clientConsultationClient.value.idClient;
+  await openDocumentForCurrentViewport(() =>
     atelierApi.getClientConsultationPdfBlobUrl(clientConsultationClient.value.idClient, {
       source: clientHistoryFilters.source,
       typeHabit: clientHistoryFilters.typeHabit,
       periode: clientHistoryFilters.periode,
       size: 200,
-      autoprint: 1
+      autoprint: isMobileViewport.value ? 0 : 1
     })
+  , {
+    mobileFileName: buildDocumentDownloadName(`fiche-client-${clientName}`),
+    mobileSuccessMessage: "Fiche client telechargee. Ouvrez-la depuis vos telechargements si besoin."
+  }
   );
 }
 
@@ -8771,13 +9880,21 @@ async function loadFactureDetail(idFacture) {
 
 async function onGenererPdfFacture(facture) {
   if (!facture?.idFacture) return;
-  await openBlobPdfInNewTab(() => atelierApi.getFacturePdfBlobUrl(facture.idFacture, { autoPrint: false }));
-  notify(`PDF pret: ${facture.numeroFacture}`);
+  await openDocumentForCurrentViewport(() => atelierApi.getFacturePdfBlobUrl(facture.idFacture, { autoPrint: false }), {
+    mobileFileName: buildDocumentDownloadName(`facture-${facture.numeroFacture || facture.idFacture}`),
+    mobileSuccessMessage: `Facture telechargee: ${facture.numeroFacture || facture.idFacture}`
+  });
+  if (!isMobileViewport.value) {
+    notify(`PDF pret: ${facture.numeroFacture}`);
+  }
 }
 
 async function onImprimerFacture(facture) {
   if (!facture?.idFacture) return;
-  await openBlobPdfInNewTab(() => atelierApi.getFacturePdfBlobUrl(facture.idFacture, { autoPrint: true }));
+  await openDocumentForCurrentViewport(() => atelierApi.getFacturePdfBlobUrl(facture.idFacture, { autoPrint: true }), {
+    mobileFileName: buildDocumentDownloadName(`facture-impression-${facture.numeroFacture || facture.idFacture}`),
+    mobileSuccessMessage: `Document d'impression telecharge: ${facture.numeroFacture || facture.idFacture}`
+  });
 }
 
 function onVoirFactureParOrigine(typeOrigine, idOrigine) {
@@ -8911,6 +10028,7 @@ async function loadCommandeDetail(idCommande) {
     detailError.value = OFFLINE_READ_MESSAGES.COMMANDE_DETAIL;
     detailCommandeMediaLoading.value = false;
     detailLoading.value = false;
+    resetContactFollowUpState(detailCommandeContactFollowUp);
     return;
   }
 
@@ -8942,6 +10060,7 @@ async function loadCommandeDetail(idCommande) {
       detailError.value = OFFLINE_READ_MESSAGES.COMMANDE_DETAIL;
       detailCommandeMediaLoading.value = false;
       detailLoading.value = false;
+      resetContactFollowUpState(detailCommandeContactFollowUp);
       return;
     }
 
@@ -8982,6 +10101,7 @@ async function loadCommandeDetail(idCommande) {
     }
   }
   detailLoading.value = false;
+  void loadClientContactSummaryIntoState(detailCommandeContactFollowUp, detailCommande.value?.idClient);
 
   detailCommandeMediaLoading.value = true;
   detailCommandeMediaError.value = "";
@@ -9019,6 +10139,7 @@ async function loadCommandeDetail(idCommande) {
         ? `${detailError.value} | ${OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL}`
         : OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL;
     }
+    resetContactFollowUpState(detailCommandeContactFollowUp);
     return;
   }
 
@@ -9047,9 +10168,55 @@ async function loadCommandeDetail(idCommande) {
   }
 }
 
+function closeCommandeMediaViewer() {
+  commandeMediaViewer.open = false;
+  commandeMediaViewer.items = [];
+  commandeMediaViewer.index = -1;
+  commandeMediaViewer.currentMediaId = "";
+  commandeMediaViewer.currentBlobUrl = "";
+}
+
+function showPreviousCommandeMediaInViewer() {
+  if (!commandeMediaViewerCanPrev.value) return;
+  commandeMediaViewer.index -= 1;
+  commandeMediaViewer.currentBlobUrl = "";
+  const nextItem = commandeMediaViewer.items[commandeMediaViewer.index] || null;
+  commandeMediaViewer.currentMediaId = nextItem ? mediaActionKey(nextItem) : "";
+}
+
+function showNextCommandeMediaInViewer() {
+  if (!commandeMediaViewerCanNext.value) return;
+  commandeMediaViewer.index += 1;
+  commandeMediaViewer.currentBlobUrl = "";
+  const nextItem = commandeMediaViewer.items[commandeMediaViewer.index] || null;
+  commandeMediaViewer.currentMediaId = nextItem ? mediaActionKey(nextItem) : "";
+}
+
+function downloadCommandeMediaFromViewer() {
+  if (!commandeMediaViewerImageUrl.value) return;
+  triggerBlobDocumentDownload(
+    commandeMediaViewerImageUrl.value,
+    buildDocumentDownloadName(commandeMediaViewerTitle.value || "photo-commande", "jpg")
+  );
+}
+
+function openCommandeMediaInViewer(item, blobUrl = "") {
+  const rows = Array.isArray(detailCommandeMedia.value) ? detailCommandeMedia.value : [];
+  const nextIndex = rows.findIndex((row) => mediaActionKey(row) === mediaActionKey(item));
+  commandeMediaViewer.items = rows;
+  commandeMediaViewer.index = nextIndex >= 0 ? nextIndex : 0;
+  commandeMediaViewer.currentMediaId = mediaActionKey(item);
+  commandeMediaViewer.currentBlobUrl = blobUrl || item?.fileBlobUrl || "";
+  commandeMediaViewer.open = true;
+}
+
 async function openCommandeMedia(item) {
   if (!detailCommande.value?.idCommande || !item?.idMedia) return;
   if (item?.fileBlobUrl) {
+    if (isMobileViewport.value) {
+      openCommandeMediaInViewer(item, item.fileBlobUrl);
+      return;
+    }
     window.open(item.fileBlobUrl, "_blank");
     return;
   }
@@ -9072,6 +10239,10 @@ async function openCommandeMedia(item) {
           fileBlobUrl: blobUrl
         };
       }
+    }
+    if (isMobileViewport.value) {
+      openCommandeMediaInViewer(item, blobUrl);
+      return;
     }
     window.open(blobUrl, "_blank");
   } catch (err) {
@@ -9305,6 +10476,7 @@ async function loadRetoucheDetail(idRetouche) {
     detailRetoucheEventsLoading.value = false;
     detailRetoucheError.value = OFFLINE_READ_MESSAGES.RETOUCHE_DETAIL;
     detailRetoucheLoading.value = false;
+    resetContactFollowUpState(detailRetoucheContactFollowUp);
     return;
   }
 
@@ -9333,6 +10505,7 @@ async function loadRetoucheDetail(idRetouche) {
       detailRetoucheEventsLoading.value = false;
       detailRetoucheError.value = OFFLINE_READ_MESSAGES.RETOUCHE_DETAIL;
       detailRetoucheLoading.value = false;
+      resetContactFollowUpState(detailRetoucheContactFollowUp);
       return;
     }
 
@@ -9371,6 +10544,7 @@ async function loadRetoucheDetail(idRetouche) {
     }
   }
   detailRetoucheLoading.value = false;
+  void loadClientContactSummaryIntoState(detailRetoucheContactFollowUp, detailRetouche.value?.idClient);
 
   if (!isRemoteEntityId(activeRetoucheId)) {
     detailRetouchePaiements.value = [];
@@ -9380,6 +10554,7 @@ async function loadRetoucheDetail(idRetouche) {
     detailRetoucheError.value = detailRetoucheError.value
       ? `${detailRetoucheError.value} | ${OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL}`
       : OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL;
+    resetContactFollowUpState(detailRetoucheContactFollowUp);
     return;
   }
 
@@ -9704,6 +10879,58 @@ async function loadRetoucheDetail(idRetouche) {
                 badge-label="Alerte"
               />
             </article>
+
+            <article v-if="canAccessContactFollowUpDashboard" class="panel">
+              <MobileSectionHeader
+                title="Suivi client"
+                subtitle="Relances et notifications a traiter rapidement."
+              />
+              <DashboardMetricCardGrid :items="dashboardFollowUpCards" />
+              <p v-if="dashboardContactBoardLoading" class="helper">Chargement du suivi client...</p>
+              <p v-else-if="dashboardContactBoardError" class="helper">{{ dashboardContactBoardError }}</p>
+            </article>
+
+            <article v-if="canAccessContactFollowUpDashboard" class="panel">
+              <MobileSectionHeader
+                title="Clients a relancer"
+                subtitle="Clients avec relance encore ouverte."
+              />
+              <DashboardActivityMobileList
+                :items="dashboardClientsToFollowUpMobileItems"
+                title="Relance client"
+                empty-label="Aucun client a relancer"
+                tone="warning"
+                badge-label="Relance"
+              />
+            </article>
+
+            <article v-if="canAccessContactFollowUpDashboard" class="panel">
+              <MobileSectionHeader
+                title="Commandes pretes a signaler"
+                subtitle="Commandes terminees sans suivi client enregistre."
+              />
+              <DashboardActivityMobileList
+                :items="dashboardCommandesToNotifyMobileItems"
+                title="Commande prete"
+                empty-label="Aucune commande en attente de signalement"
+                tone="info"
+                badge-label="Commande"
+              />
+            </article>
+
+            <article v-if="canAccessContactFollowUpDashboard" class="panel">
+              <MobileSectionHeader
+                title="Retouches pretes a signaler"
+                subtitle="Retouches terminees sans suivi client enregistre."
+              />
+              <DashboardActivityMobileList
+                :items="dashboardRetouchesToNotifyMobileItems"
+                title="Retouche prete"
+                empty-label="Aucune retouche en attente de signalement"
+                tone="info"
+                badge-label="Retouche"
+              />
+            </article>
           </template>
 
           <template #desktop>
@@ -9823,6 +11050,60 @@ async function loadRetoucheDetail(idRetouche) {
                   </ul>
                 </article>
               </div>
+            </div>
+
+            <article v-if="canAccessContactFollowUpDashboard" class="panel">
+              <h3>Suivi client</h3>
+              <DashboardMetricCardGrid :items="dashboardFollowUpCards" :columns="4" compact />
+              <p v-if="dashboardContactBoardLoading" class="helper">Chargement du suivi client...</p>
+              <p v-else-if="dashboardContactBoardError" class="helper">{{ dashboardContactBoardError }}</p>
+            </article>
+
+            <div v-if="canAccessContactFollowUpDashboard" class="stack">
+              <article class="panel">
+                <h3>Clients a relancer</h3>
+                <ul class="activity-list activity-list--stacked">
+                  <li v-for="item in dashboardContactBoard.clientsARelancer.items" :key="item.idClient">
+                    <div class="activity-copy">
+                      <strong>{{ item.nomClient || item.telephone || item.idClient }}</strong>
+                      <small>{{ formatDashboardClientFollowUpDescription(item) }}</small>
+                    </div>
+                  </li>
+                  <li v-if="dashboardContactBoard.clientsARelancer.items.length === 0">
+                    <span>Aucun client a relancer.</span>
+                  </li>
+                </ul>
+              </article>
+
+              <article class="panel">
+                <h3>Commandes pretes a signaler</h3>
+                <ul class="activity-list activity-list--stacked">
+                  <li v-for="item in dashboardContactBoard.commandesPretesNonSignalees.items" :key="item.idCommande">
+                    <div class="activity-copy">
+                      <strong>{{ `${item.idCommande} - ${item.clientNom || item.idClient}` }}</strong>
+                      <small>{{ formatDashboardPendingCommandeDescription(item) }}</small>
+                    </div>
+                  </li>
+                  <li v-if="dashboardContactBoard.commandesPretesNonSignalees.items.length === 0">
+                    <span>Aucune commande en attente de signalement.</span>
+                  </li>
+                </ul>
+              </article>
+
+              <article class="panel">
+                <h3>Retouches pretes a signaler</h3>
+                <ul class="activity-list activity-list--stacked">
+                  <li v-for="item in dashboardContactBoard.retouchesPretesNonSignalees.items" :key="item.idRetouche">
+                    <div class="activity-copy">
+                      <strong>{{ `${item.idRetouche} - ${item.clientNom || item.idClient}` }}</strong>
+                      <small>{{ formatDashboardPendingRetoucheDescription(item) }}</small>
+                    </div>
+                  </li>
+                  <li v-if="dashboardContactBoard.retouchesPretesNonSignalees.items.length === 0">
+                    <span>Aucune retouche en attente de signalement.</span>
+                  </li>
+                </ul>
+              </article>
             </div>
           </template>
         </ResponsiveDataContainer>
@@ -10447,7 +11728,9 @@ async function loadRetoucheDetail(idRetouche) {
             subtitle="Consultez l'historique, les mesures et les passages d'un client."
           >
             <template #actions>
-              <button class="mini-btn" @click="exportClientConsultationPdf" :disabled="!clientConsultationClient">Exporter PDF</button>
+              <button class="mini-btn" @click="exportClientConsultationPdf" :disabled="!clientConsultationClient">
+                {{ isMobileViewport ? "Telecharger la fiche" : "Exporter PDF" }}
+              </button>
             </template>
           </MobileSectionHeader>
           <div class="filters compact client-consultation-picker">
@@ -10493,6 +11776,35 @@ async function loadRetoucheDetail(idRetouche) {
         </ResponsiveDataContainer>
 
         <template v-else-if="clientConsultationClient">
+          <ContactClientPanel
+            title="Contacter le client"
+            subtitle="Appelez, ouvrez WhatsApp ou copiez un message depuis la fiche client."
+            :telephone="clientConsultationContactProfile?.telephone || ''"
+            :call-href="buildPhoneDialHref(clientConsultationContactProfile?.telephone)"
+            :whatsapp-href="buildPreferredWhatsAppHref(clientConsultationContactProfile?.telephone, clientConsultationContactMessagePreview)"
+            :whatsapp-fallback-href="buildWhatsAppWebHref(clientConsultationContactProfile?.telephone, clientConsultationContactMessagePreview)"
+            :whatsapp-target="isMobileViewport ? '_self' : '_blank'"
+            :templates="clientConsultationContactTemplates"
+            :selected-template-key="clientConsultationContactSelectedTemplateKey"
+            :message-preview="clientConsultationContactMessagePreview"
+            :disabled="clientConsultationLoading"
+            :last-contact-summary="buildLastContactSummary(clientConsultationContactFollowUp.lastContact)"
+            :last-contact-note="clientConsultationContactFollowUp.lastContact?.note || ''"
+            :follow-up-status="clientConsultationContactFollowUp.status"
+            :follow-up-note="clientConsultationContactFollowUp.note"
+            :status-options="contactFollowUpStatusOptions"
+            :tracking-loading="clientConsultationContactFollowUp.loading"
+            :tracking-saving="clientConsultationContactFollowUp.saving"
+            @update:selected-template-key="clientConsultationContactTemplateKey = $event"
+            @update:follow-up-status="clientConsultationContactFollowUp.status = $event"
+            @update:follow-up-note="clientConsultationContactFollowUp.note = $event"
+            @call="handleContactCall({ profile: clientConsultationContactProfile, state: clientConsultationContactFollowUp, origineType: 'CLIENT', origineId: clientConsultationContactProfile?.originId, modeleKey: clientConsultationContactSelectedTemplateKey })"
+            @whatsapp="handleContactWhatsApp({ profile: clientConsultationContactProfile, message: clientConsultationContactMessagePreview, state: clientConsultationContactFollowUp, origineType: 'CLIENT', origineId: clientConsultationContactProfile?.originId, modeleKey: clientConsultationContactSelectedTemplateKey })"
+            @copy-number="copyTextToClipboard(clientConsultationContactProfile?.telephone, 'Numero copie.')"
+            @copy-message="copyTextToClipboard(clientConsultationContactMessagePreview, 'Message copie.')"
+            @save-follow-up="handleSaveContactFollowUp({ profile: clientConsultationContactProfile, state: clientConsultationContactFollowUp, origineType: 'CLIENT', origineId: clientConsultationContactProfile?.originId, modeleKey: clientConsultationContactSelectedTemplateKey })"
+          />
+
           <ResponsiveDataContainer :mobile="isMobileViewport">
             <template #mobile>
               <ClientConsultationOverviewCards
@@ -11243,7 +12555,7 @@ async function loadRetoucheDetail(idRetouche) {
                   Voir facture
                 </button>
                 <button class="mini-btn" v-if="detailCommandeFacture" @click="onImprimerFactureParOrigine('COMMANDE', detailCommande.idCommande)">
-                  Imprimer facture
+                  {{ isMobileViewport ? "Telecharger facture" : "Imprimer facture" }}
                 </button>
                 <button v-if="!isMobileViewport && canPayerDetail" class="action-btn blue" @click="onPaiementDetail" :disabled="detailLoading || detailPaiementsLoading">
                   Payer
@@ -11330,6 +12642,35 @@ async function loadRetoucheDetail(idRetouche) {
                 </article>
               </template>
             </ResponsiveDataContainer>
+
+          <ContactClientPanel
+            title="Contacter le client"
+            :subtitle="detailCommandeContactProfile?.reference ? `Commande ${detailCommandeContactProfile.reference}` : 'Contact rapide depuis la commande.'"
+            :telephone="detailCommandeContactProfile?.telephone || ''"
+            :call-href="buildPhoneDialHref(detailCommandeContactProfile?.telephone)"
+            :whatsapp-href="buildPreferredWhatsAppHref(detailCommandeContactProfile?.telephone, detailCommandeContactMessagePreview)"
+            :whatsapp-fallback-href="buildWhatsAppWebHref(detailCommandeContactProfile?.telephone, detailCommandeContactMessagePreview)"
+            :whatsapp-target="isMobileViewport ? '_self' : '_blank'"
+            :templates="detailCommandeContactTemplates"
+            :selected-template-key="detailCommandeContactSelectedTemplateKey"
+            :message-preview="detailCommandeContactMessagePreview"
+              :disabled="detailLoading"
+              :last-contact-summary="buildLastContactSummary(detailCommandeContactFollowUp.lastContact)"
+              :last-contact-note="detailCommandeContactFollowUp.lastContact?.note || ''"
+              :follow-up-status="detailCommandeContactFollowUp.status"
+              :follow-up-note="detailCommandeContactFollowUp.note"
+              :status-options="contactFollowUpStatusOptions"
+              :tracking-loading="detailCommandeContactFollowUp.loading"
+              :tracking-saving="detailCommandeContactFollowUp.saving"
+              @update:selected-template-key="detailCommandeContactTemplateKey = $event"
+              @update:follow-up-status="detailCommandeContactFollowUp.status = $event"
+              @update:follow-up-note="detailCommandeContactFollowUp.note = $event"
+              @call="handleContactCall({ profile: detailCommandeContactProfile, state: detailCommandeContactFollowUp, origineType: 'COMMANDE', origineId: detailCommandeContactProfile?.originId, modeleKey: detailCommandeContactSelectedTemplateKey })"
+              @whatsapp="handleContactWhatsApp({ profile: detailCommandeContactProfile, message: detailCommandeContactMessagePreview, state: detailCommandeContactFollowUp, origineType: 'COMMANDE', origineId: detailCommandeContactProfile?.originId, modeleKey: detailCommandeContactSelectedTemplateKey })"
+              @copy-number="copyTextToClipboard(detailCommandeContactProfile?.telephone, 'Numero copie.')"
+              @copy-message="copyTextToClipboard(detailCommandeContactMessagePreview, 'Message copie.')"
+              @save-follow-up="handleSaveContactFollowUp({ profile: detailCommandeContactProfile, state: detailCommandeContactFollowUp, origineType: 'COMMANDE', origineId: detailCommandeContactProfile?.originId, modeleKey: detailCommandeContactSelectedTemplateKey })"
+            />
 
             <CommandeMediaGallery
               :items="detailCommandeMedia"
@@ -11534,7 +12875,7 @@ async function loadRetoucheDetail(idRetouche) {
                   Voir facture
                 </button>
                 <button class="mini-btn" v-if="detailRetoucheFacture" @click="onImprimerFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
-                  Imprimer facture
+                  {{ isMobileViewport ? "Telecharger facture" : "Imprimer facture" }}
                 </button>
                 <button
                   v-if="!isMobileViewport && canPayerRetoucheDetail"
@@ -11627,6 +12968,35 @@ async function loadRetoucheDetail(idRetouche) {
                 </article>
               </template>
             </ResponsiveDataContainer>
+
+            <ContactClientPanel
+              title="Contacter le client"
+              :subtitle="detailRetoucheContactProfile?.reference ? `Retouche ${detailRetoucheContactProfile.reference}` : 'Contact rapide depuis la retouche.'"
+              :telephone="detailRetoucheContactProfile?.telephone || ''"
+              :call-href="buildPhoneDialHref(detailRetoucheContactProfile?.telephone)"
+              :whatsapp-href="buildPreferredWhatsAppHref(detailRetoucheContactProfile?.telephone, detailRetoucheContactMessagePreview)"
+              :whatsapp-fallback-href="buildWhatsAppWebHref(detailRetoucheContactProfile?.telephone, detailRetoucheContactMessagePreview)"
+              :whatsapp-target="isMobileViewport ? '_self' : '_blank'"
+              :templates="detailRetoucheContactTemplates"
+              :selected-template-key="detailRetoucheContactSelectedTemplateKey"
+              :message-preview="detailRetoucheContactMessagePreview"
+              :disabled="detailRetoucheLoading"
+              :last-contact-summary="buildLastContactSummary(detailRetoucheContactFollowUp.lastContact)"
+              :last-contact-note="detailRetoucheContactFollowUp.lastContact?.note || ''"
+              :follow-up-status="detailRetoucheContactFollowUp.status"
+              :follow-up-note="detailRetoucheContactFollowUp.note"
+              :status-options="contactFollowUpStatusOptions"
+              :tracking-loading="detailRetoucheContactFollowUp.loading"
+              :tracking-saving="detailRetoucheContactFollowUp.saving"
+              @update:selected-template-key="detailRetoucheContactTemplateKey = $event"
+              @update:follow-up-status="detailRetoucheContactFollowUp.status = $event"
+              @update:follow-up-note="detailRetoucheContactFollowUp.note = $event"
+              @call="handleContactCall({ profile: detailRetoucheContactProfile, state: detailRetoucheContactFollowUp, origineType: 'RETOUCHE', origineId: detailRetoucheContactProfile?.originId, modeleKey: detailRetoucheContactSelectedTemplateKey })"
+              @whatsapp="handleContactWhatsApp({ profile: detailRetoucheContactProfile, message: detailRetoucheContactMessagePreview, state: detailRetoucheContactFollowUp, origineType: 'RETOUCHE', origineId: detailRetoucheContactProfile?.originId, modeleKey: detailRetoucheContactSelectedTemplateKey })"
+              @copy-number="copyTextToClipboard(detailRetoucheContactProfile?.telephone, 'Numero copie.')"
+              @copy-message="copyTextToClipboard(detailRetoucheContactMessagePreview, 'Message copie.')"
+              @save-follow-up="handleSaveContactFollowUp({ profile: detailRetoucheContactProfile, state: detailRetoucheContactFollowUp, origineType: 'RETOUCHE', origineId: detailRetoucheContactProfile?.originId, modeleKey: detailRetoucheContactSelectedTemplateKey })"
+            />
 
             <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
@@ -11816,7 +13186,7 @@ async function loadRetoucheDetail(idRetouche) {
                   Voir facture
                 </button>
                 <button class="mini-btn" v-if="detailVenteFacture" @click="onImprimerFactureParOrigine('VENTE', detailVente.idVente)">
-                  Imprimer facture
+                  {{ isMobileViewport ? "Telecharger facture" : "Imprimer facture" }}
                 </button>
                 <button
                   v-if="!isMobileViewport && detailVente && detailVente.statut === 'BROUILLON'"
@@ -12291,6 +13661,60 @@ async function loadRetoucheDetail(idRetouche) {
               <img :src="settingsDisplayedLogoPreview" alt="Logo atelier" />
             </div>
           </div>
+        </article>
+
+        <article v-show="settingsActiveTab === 'contact'" id="settings-contact" class="panel settings-section" role="tabpanel">
+          <h3>Contact client</h3>
+          <p class="helper">Configure les messages prets a envoyer depuis commande, retouche et fiche client.</p>
+          <div class="settings-grid">
+            <label class="helper">
+              <input v-model="atelierSettings.contactClient.signatureAuto" type="checkbox" :disabled="!settingsCanEdit" />
+              Ajouter automatiquement la signature atelier a la fin des messages
+            </label>
+          </div>
+          <p class="helper">Variables disponibles : {salutation}, {clientNom}, {reference}, {montantRestant}, {signature}, {atelierNom}, {atelierTelephone}</p>
+
+          <article class="panel">
+            <h4>Messages commande</h4>
+            <div class="settings-grid">
+              <div v-for="field in contactTemplateFieldDefinitions.filter((row) => row.group === 'commandes')" :key="`contact-${field.key}`" class="stack-form">
+                <label>{{ field.label }}</label>
+                <textarea
+                  v-model="atelierSettings.contactClient.templates[field.key]"
+                  rows="4"
+                  :disabled="!settingsCanEdit"
+                />
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <h4>Messages retouche</h4>
+            <div class="settings-grid">
+              <div v-for="field in contactTemplateFieldDefinitions.filter((row) => row.group === 'retouches')" :key="`contact-${field.key}`" class="stack-form">
+                <label>{{ field.label }}</label>
+                <textarea
+                  v-model="atelierSettings.contactClient.templates[field.key]"
+                  rows="4"
+                  :disabled="!settingsCanEdit"
+                />
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <h4>Messages fiche client</h4>
+            <div class="settings-grid">
+              <div v-for="field in contactTemplateFieldDefinitions.filter((row) => row.group === 'client')" :key="`contact-${field.key}`" class="stack-form">
+                <label>{{ field.label }}</label>
+                <textarea
+                  v-model="atelierSettings.contactClient.templates[field.key]"
+                  rows="4"
+                  :disabled="!settingsCanEdit"
+                />
+              </div>
+            </div>
+          </article>
         </article>
 
         <article v-show="settingsActiveTab === 'commandes'" id="settings-commandes" class="panel settings-section" role="tabpanel">
@@ -12991,7 +14415,7 @@ async function loadRetoucheDetail(idRetouche) {
                   v-if="detailFacture"
                   @click="onImprimerFacture(detailFacture)"
                 >
-                  Imprimer
+                  {{ isMobileViewport ? "Telecharger impression" : "Imprimer" }}
                 </button>
               </div>
             </article>
@@ -14218,7 +15642,32 @@ async function loadRetoucheDetail(idRetouche) {
     <ScrollTopButton
       v-if="showMobileScrollTopButton"
       label="Revenir en haut"
+      direction="up"
+      align="right"
       @click="scrollMainContentToTop('smooth')"
+    />
+
+    <ScrollTopButton
+      v-else-if="showMobileScrollBottomButton"
+      direction="down"
+      align="center"
+      :icon-only="true"
+      aria-label="Aller en bas"
+      @click="scrollMainContentToBottom('smooth')"
+    />
+
+    <MobileMediaViewer
+      :open="commandeMediaViewer.open"
+      :image-url="commandeMediaViewerImageUrl"
+      :title="commandeMediaViewerTitle"
+      :subtitle="commandeMediaViewerSubtitle"
+      :can-prev="commandeMediaViewerCanPrev"
+      :can-next="commandeMediaViewerCanNext"
+      :can-download="Boolean(commandeMediaViewerImageUrl)"
+      @close="closeCommandeMediaViewer"
+      @prev="showPreviousCommandeMediaInViewer"
+      @next="showNextCommandeMediaInViewer"
+      @download="downloadCommandeMediaFromViewer"
     />
 
   <SystemAtelierCreateModal

@@ -74,7 +74,7 @@ export function initializePwaService() {
   });
 
   updateServiceWorker = registerSW({
-    immediate: false,
+    immediate: true,
     onNeedRefresh() {
       isPwaUpdateAvailable.value = true;
     },

@@ -22,7 +22,7 @@ export default defineConfig({
         cacheId: pwaCacheId,
         cleanupOutdatedCaches: true,
         clientsClaim: true,
-        // `prompt` mode needs a waiting SW so the user can choose when to update.
+        // Prompt mode keeps a waiting SW so the operator can apply the update explicitly.
         skipWaiting: false,
         navigateFallback: "index.html",
         navigateFallbackDenylist: [/^\/api\//, /^\/health$/],
