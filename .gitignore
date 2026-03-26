@@ -12,6 +12,7 @@ backend*.log
 # Env
 .env
 deploy/.env.production
+deploy/.env.staging
 
 # Build
 /dist/
