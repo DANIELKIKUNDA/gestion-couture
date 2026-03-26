@@ -17,11 +17,13 @@ function buildRuntimePayload(current) {
     identite: {
       nomAtelier: String(merged?.identite?.nomAtelier || "Atelier").trim() || "Atelier",
       devise: String(merged?.identite?.devise || "FC").trim().toUpperCase() || "FC",
-      logoUrl: String(merged?.identite?.logoUrl || "").trim()
+      logoUrl: String(merged?.identite?.logoUrl || "").trim(),
+      telephone: String(merged?.identite?.telephone || "").trim()
     },
     commandes: cloneJson(merged?.commandes || {}),
     retouches: cloneJson(merged?.retouches || {}),
-    habits: cloneJson(merged?.habits || {})
+    habits: cloneJson(merged?.habits || {}),
+    contactClient: cloneJson(merged?.contactClient || {})
   };
 }
 

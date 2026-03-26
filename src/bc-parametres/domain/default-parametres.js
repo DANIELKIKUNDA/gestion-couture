@@ -101,6 +101,22 @@ export function buildDefaultAtelierParametresPayload({ nomAtelier = "Atelier", o
       mentions: "Merci pour votre confiance.",
       afficherLogo: true
     },
+    contactClient: {
+      signatureAuto: true,
+      templates: {
+        commandePrete: "{salutation}\nVotre commande {reference} est prete. Merci de passer a l'atelier quand vous etes disponible.\n\n{signature}",
+        commandeSuivi: "{salutation}\nVotre commande {reference} est en cours de traitement. Nous vous recontacterons des qu'elle sera prete.\n\n{signature}",
+        commandeSolde: "{salutation}\nIl reste un solde de {montantRestant} pour votre commande {reference}. Merci pour votre confiance.\n\n{signature}",
+        commandeRetard: "{salutation}\nVotre commande {reference} demande un peu plus de temps. Nous vous informerons du nouveau delai au plus vite.\n\n{signature}",
+        retouchePrete: "{salutation}\nVotre retouche {reference} est prete. Vous pouvez passer a l'atelier quand vous voulez.\n\n{signature}",
+        retoucheSuivi: "{salutation}\nVotre retouche {reference} est en cours de traitement. Nous vous informerons des qu'elle sera finalisee.\n\n{signature}",
+        retoucheSolde: "{salutation}\nIl reste un solde de {montantRestant} pour votre retouche {reference}. Merci pour votre confiance.\n\n{signature}",
+        retoucheDelai: "{salutation}\nVotre retouche {reference} suit son traitement. Nous reviendrons vers vous avec la date prevue de retrait.\n\n{signature}",
+        clientBonjour: "{salutation}\nNous vous contactons depuis l'atelier pour faire le suivi de votre dossier.\n\n{signature}",
+        clientRendezVous: "{salutation}\nMerci de nous confirmer votre disponibilite pour votre prochain passage a l'atelier.\n\n{signature}",
+        clientMerci: "{salutation}\nMerci pour votre confiance. Nous restons disponibles si vous avez besoin d'un suivi complementaire.\n\n{signature}"
+      }
+    },
     securite: {
       rolesAutorises: ["PROPRIETAIRE"],
       confirmationAvantSauvegarde: true,

@@ -1,6 +1,7 @@
 import express from "express";
 import { pool } from "../../../shared/infrastructure/db.js";
 import { ClientRepoPg } from "../../infrastructure/repositories/client-repo-pg.js";
+import { ClientContactRepoPg } from "../../infrastructure/repositories/client-contact-repo-pg.js";
 import { SerieMesuresRepoPg } from "../../infrastructure/repositories/serie-mesures-repo-pg.js";
 import { creerClient } from "../../application/use-cases/creer-client.js";
 import { modifierClient } from "../../application/use-cases/modifier-client.js";
@@ -28,6 +29,7 @@ import {
 
 const router = express.Router();
 const clientRepo = new ClientRepoPg();
+const clientContactRepo = new ClientContactRepoPg();
 const serieRepo = new SerieMesuresRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
 const requireClientReadAccess = requireAnyPermission([
@@ -55,6 +57,18 @@ const requireClientDeactivateAccess = requireAnyPermission([
   PERMISSIONS.GERER_UTILISATEURS,
   PERMISSIONS.VOIR_BILANS_GLOBAUX
 ]);
+const requireClientContactAccess = requireAnyPermission([
+  PERMISSIONS.VOIR_CLIENTS,
+  PERMISSIONS.CREER_CLIENT,
+  PERMISSIONS.MODIFIER_CLIENT,
+  PERMISSIONS.VOIR_COMMANDES,
+  PERMISSIONS.CREER_COMMANDE,
+  PERMISSIONS.VOIR_RETOUCHES,
+  PERMISSIONS.CREER_RETOUCHE,
+  PERMISSIONS.GERER_UTILISATEURS,
+  PERMISSIONS.VOIR_BILANS_GLOBAUX,
+  PERMISSIONS.CLOTURER_CAISSE
+]);
 const atelierConfigFallback = {
   nom: process.env.ATELIER_NOM || "Atelier de Couture",
   adresse: process.env.ATELIER_ADRESSE || "Adresse atelier",
@@ -73,6 +87,10 @@ function scopedClientRepo(req) {
 
 function scopedSerieRepo(req) {
   return serieRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedClientContactRepo(req) {
+  return clientContactRepo.forAtelier(atelierIdFromReq(req));
 }
 
 function scopedParametresRepo(req) {
@@ -225,6 +243,22 @@ function consultationPdfHtml(payload, autoPrint = false, atelierConfig = atelier
       ${autoPrint ? "<script>window.addEventListener('load', () => window.print());</script>" : ""}
     </body>
   </html>`;
+}
+
+const clientContactSchema = z.object({
+  canal: z.enum(["CALL", "WHATSAPP", "COPY_NUMBER", "COPY_MESSAGE", "NOTE"]).default("NOTE"),
+  modeleKey: z.string().trim().max(120).optional().nullable(),
+  statut: z.enum(["A_RELANCER", "CONTACTE", "EN_ATTENTE", "PROMIS", "TERMINE"]).default("A_RELANCER"),
+  note: z.string().trim().max(500).optional().default(""),
+  origineType: z.enum(["COMMANDE", "RETOUCHE", "CLIENT"]).optional().nullable(),
+  origineId: z.string().trim().max(120).optional().nullable(),
+  utilisateur: z.string().trim().max(160).optional().nullable()
+});
+
+function resolveContactUtilisateur(req, body = {}) {
+  const provided = String(body?.utilisateur || "").trim();
+  if (provided) return provided;
+  return String(req.auth?.email || req.auth?.utilisateurId || "atelier").trim();
 }
 
 // List clients
@@ -395,6 +429,82 @@ router.get("/clients/:id/consultation", requireClientReadAccess, async (req, res
           typeHabit,
           periode
         }
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/clients/contact-suivi/dashboard", requireClientContactAccess, async (req, res) => {
+  try {
+    const limit = positiveInt(req.query.limit, 5, 20);
+    const dashboard = await scopedClientContactRepo(req).getDashboardSummary(limit);
+    res.json(dashboard);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/clients/:id/contact-suivi", requireClientContactAccess, async (req, res) => {
+  const idClient = String(req.params.id || "").trim();
+  if (!idClient) return res.status(400).json({ error: "Client introuvable" });
+
+  try {
+    const client = await scopedClientRepo(req).getById(idClient);
+    if (!client) return res.status(404).json({ error: "Client introuvable" });
+
+    const lastContact = await scopedClientContactRepo(req).getLastByClientId(idClient);
+    const totalContacts = await scopedClientContactRepo(req).countByClientId(idClient);
+
+    res.json({
+      client: {
+        idClient: client.idClient,
+        nomComplet: `${client.nom || ""} ${client.prenom || ""}`.trim(),
+        telephone: String(client.telephone || "").trim()
+      },
+      suivi: {
+        totalContacts,
+        dernierContact: lastContact
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/clients/:id/contact-suivi", requireClientContactAccess, async (req, res) => {
+  const idClient = String(req.params.id || "").trim();
+  if (!idClient) return res.status(400).json({ error: "Client introuvable" });
+
+  const parsed = validateSchema(clientContactSchema, req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+  try {
+    const client = await scopedClientRepo(req).getById(idClient);
+    if (!client) return res.status(404).json({ error: "Client introuvable" });
+
+    const saved = await scopedClientContactRepo(req).create({
+      idClient,
+      origineType: parsed.data.origineType || null,
+      origineId: parsed.data.origineId || null,
+      canal: parsed.data.canal,
+      modeleKey: parsed.data.modeleKey || null,
+      statut: parsed.data.statut,
+      note: parsed.data.note || "",
+      utilisateur: resolveContactUtilisateur(req, parsed.data)
+    });
+    const totalContacts = await scopedClientContactRepo(req).countByClientId(idClient);
+
+    res.status(201).json({
+      client: {
+        idClient: client.idClient,
+        nomComplet: `${client.nom || ""} ${client.prenom || ""}`.trim(),
+        telephone: String(client.telephone || "").trim()
+      },
+      suivi: {
+        totalContacts,
+        dernierContact: saved
       }
     });
   } catch (err) {

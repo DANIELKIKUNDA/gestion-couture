@@ -158,6 +158,29 @@ export function validateParametresPayload(payload) {
   assertString(facturation.mentions, "Facturation.mentions", { optional: true });
   assertBoolean(facturation.afficherLogo, "Facturation.afficherLogo");
 
+  const contactClient = payload.contactClient || {};
+  assertBoolean(contactClient.signatureAuto, "ContactClient.signatureAuto");
+  const contactTemplates = contactClient.templates || {};
+  if (!contactTemplates || typeof contactTemplates !== "object" || Array.isArray(contactTemplates)) {
+    throw new Error("ContactClient.templates doit etre un objet");
+  }
+  const expectedContactTemplateKeys = [
+    "commandePrete",
+    "commandeSuivi",
+    "commandeSolde",
+    "commandeRetard",
+    "retouchePrete",
+    "retoucheSuivi",
+    "retoucheSolde",
+    "retoucheDelai",
+    "clientBonjour",
+    "clientRendezVous",
+    "clientMerci"
+  ];
+  for (const key of expectedContactTemplateKeys) {
+    assertString(contactTemplates[key], `ContactClient.templates.${key}`);
+  }
+
   const securite = payload.securite || {};
   assertArray(securite.rolesAutorises, "Securite.rolesAutorises");
   assertBoolean(securite.confirmationAvantSauvegarde, "Securite.confirmationAvantSauvegarde");

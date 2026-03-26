@@ -610,6 +610,24 @@ export const atelierApi = {
     return URL.createObjectURL(blob);
   },
 
+  getClientContactSummary(idClient) {
+    return request(`/clients/${encodeURIComponent(idClient)}/contact-suivi`, { method: "GET" });
+  },
+
+  createClientContactEntry(idClient, payload = {}) {
+    return request(`/clients/${encodeURIComponent(idClient)}/contact-suivi`, {
+      method: "POST",
+      body: JSON.stringify(payload || {})
+    });
+  },
+
+  getClientContactDashboard(limit = 5) {
+    const query = new URLSearchParams();
+    if (limit != null && limit !== "") query.set("limit", String(limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request(`/clients/contact-suivi/dashboard${suffix}`, { method: "GET" });
+  },
+
   listCommandes() {
     return request("/commandes", { method: "GET" });
   },
