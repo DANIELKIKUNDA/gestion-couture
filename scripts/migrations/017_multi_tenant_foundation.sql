@@ -1,11 +1,24 @@
-CREATE TABLE IF NOT EXISTS ateliers (
-  id_atelier TEXT PRIMARY KEY,
-  nom TEXT NOT NULL,
-  slug TEXT NOT NULL UNIQUE,
-  actif BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'ateliers'
+  ) THEN
+    EXECUTE $sql$
+      CREATE TABLE public.ateliers (
+        id_atelier TEXT PRIMARY KEY,
+        nom TEXT NOT NULL,
+        slug TEXT NOT NULL UNIQUE,
+        actif BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    $sql$;
+  END IF;
+END
+$$;
 
 INSERT INTO ateliers (id_atelier, nom, slug, actif)
 VALUES ('ATELIER', 'Atelier historique', 'atelier-historique', true)
@@ -16,24 +29,189 @@ SET
   actif = EXCLUDED.actif,
   updated_at = NOW();
 
-ALTER TABLE clients ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE series_mesures ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE commandes ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE commande_events ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE retouches ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE retouche_events ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE caisse_jour ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE caisse_bilan ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE articles ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE mouvements_stock ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE fournisseurs ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE stock_prix_historique ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE ventes ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE vente_lignes ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE factures ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE atelier_parametres ADD COLUMN IF NOT EXISTS atelier_id TEXT;
-ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS atelier_id TEXT NOT NULL DEFAULT 'ATELIER';
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'clients' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.clients ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'series_mesures'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'series_mesures' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.series_mesures ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'commandes' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.commandes ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_events'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'commande_events' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.commande_events ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'retouches' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.retouches ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouche_events'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'retouche_events' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.retouche_events ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_jour'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'caisse_jour' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.caisse_jour ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_operation'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'caisse_operation' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.caisse_operation ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_bilan'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'caisse_bilan' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.caisse_bilan ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'articles' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.articles ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'mouvements_stock'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'mouvements_stock' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.mouvements_stock ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'fournisseurs'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'fournisseurs' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.fournisseurs ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'stock_prix_historique'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'stock_prix_historique' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.stock_prix_historique ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ventes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'ventes' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.ventes ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.vente_lignes ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'factures'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'factures' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.factures ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'atelier_parametres'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'atelier_parametres' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.atelier_parametres ADD COLUMN atelier_id TEXT;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'utilisateurs'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'utilisateurs' AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.utilisateurs ADD COLUMN atelier_id TEXT NOT NULL DEFAULT 'ATELIER';
+  END IF;
+END
+$$;
 
 UPDATE utilisateurs
 SET atelier_id = 'ATELIER'
@@ -184,20 +362,176 @@ ALTER TABLE factures ALTER COLUMN atelier_id SET NOT NULL;
 ALTER TABLE atelier_parametres ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
 ALTER TABLE atelier_parametres ALTER COLUMN atelier_id SET NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_clients_atelier_id ON clients (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_series_mesures_atelier_id ON series_mesures (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_commandes_atelier_id ON commandes (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_commande_events_atelier_id ON commande_events (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_retouches_atelier_id ON retouches (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_retouche_events_atelier_id ON retouche_events (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_caisse_jour_atelier_id ON caisse_jour (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_caisse_operation_atelier_id ON caisse_operation (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_caisse_bilan_atelier_id ON caisse_bilan (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_articles_atelier_id ON articles (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_mouvements_stock_atelier_id ON mouvements_stock (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_fournisseurs_atelier_id ON fournisseurs (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_stock_prix_historique_atelier_id ON stock_prix_historique (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_ventes_atelier_id ON ventes (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_vente_lignes_atelier_id ON vente_lignes (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_factures_atelier_id ON factures (atelier_id);
-CREATE INDEX IF NOT EXISTS idx_atelier_parametres_atelier_id ON atelier_parametres (atelier_id);
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_clients_atelier_id'
+  ) THEN
+    CREATE INDEX idx_clients_atelier_id ON public.clients (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'series_mesures'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_series_mesures_atelier_id'
+  ) THEN
+    CREATE INDEX idx_series_mesures_atelier_id ON public.series_mesures (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_commandes_atelier_id'
+  ) THEN
+    CREATE INDEX idx_commandes_atelier_id ON public.commandes (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_events'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_commande_events_atelier_id'
+  ) THEN
+    CREATE INDEX idx_commande_events_atelier_id ON public.commande_events (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_retouches_atelier_id'
+  ) THEN
+    CREATE INDEX idx_retouches_atelier_id ON public.retouches (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouche_events'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_retouche_events_atelier_id'
+  ) THEN
+    CREATE INDEX idx_retouche_events_atelier_id ON public.retouche_events (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_jour'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_caisse_jour_atelier_id'
+  ) THEN
+    CREATE INDEX idx_caisse_jour_atelier_id ON public.caisse_jour (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_operation'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_caisse_operation_atelier_id'
+  ) THEN
+    CREATE INDEX idx_caisse_operation_atelier_id ON public.caisse_operation (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_bilan'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_caisse_bilan_atelier_id'
+  ) THEN
+    CREATE INDEX idx_caisse_bilan_atelier_id ON public.caisse_bilan (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_articles_atelier_id'
+  ) THEN
+    CREATE INDEX idx_articles_atelier_id ON public.articles (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'mouvements_stock'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_mouvements_stock_atelier_id'
+  ) THEN
+    CREATE INDEX idx_mouvements_stock_atelier_id ON public.mouvements_stock (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'fournisseurs'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_fournisseurs_atelier_id'
+  ) THEN
+    CREATE INDEX idx_fournisseurs_atelier_id ON public.fournisseurs (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'stock_prix_historique'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_stock_prix_historique_atelier_id'
+  ) THEN
+    CREATE INDEX idx_stock_prix_historique_atelier_id ON public.stock_prix_historique (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ventes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_ventes_atelier_id'
+  ) THEN
+    CREATE INDEX idx_ventes_atelier_id ON public.ventes (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_vente_lignes_atelier_id'
+  ) THEN
+    CREATE INDEX idx_vente_lignes_atelier_id ON public.vente_lignes (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'factures'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_factures_atelier_id'
+  ) THEN
+    CREATE INDEX idx_factures_atelier_id ON public.factures (atelier_id);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'atelier_parametres'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_atelier_parametres_atelier_id'
+  ) THEN
+    CREATE INDEX idx_atelier_parametres_atelier_id ON public.atelier_parametres (atelier_id);
+  END IF;
+END
+$$;

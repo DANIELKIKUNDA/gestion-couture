@@ -1,4 +1,22 @@
-ALTER TABLE role_permission_atelier ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'role_permission_atelier'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'role_permission_atelier'
+      AND column_name = 'atelier_id'
+  ) THEN
+    ALTER TABLE public.role_permission_atelier
+      ADD COLUMN atelier_id TEXT;
+  END IF;
+END
+$$;
 
 UPDATE role_permission_atelier
 SET atelier_id = 'ATELIER'
@@ -24,7 +42,24 @@ BEGIN
       ADD CONSTRAINT role_permission_atelier_atelier_role_permission_key
       UNIQUE (atelier_id, role, permission_code);
   END IF;
-END $$;
+END
+$$;
 
-CREATE INDEX IF NOT EXISTS idx_role_permission_atelier_atelier_id
-ON role_permission_atelier (atelier_id);
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'role_permission_atelier'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND indexname = 'idx_role_permission_atelier_atelier_id'
+  ) THEN
+    CREATE INDEX idx_role_permission_atelier_atelier_id
+      ON public.role_permission_atelier (atelier_id);
+  END IF;
+END
+$$;

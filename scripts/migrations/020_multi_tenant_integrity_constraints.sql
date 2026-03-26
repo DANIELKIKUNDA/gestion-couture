@@ -1,53 +1,193 @@
-CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_atelier_id_client_unique
-ON clients (atelier_id, id_client);
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_clients_atelier_id_client_unique'
+  ) THEN
+    CREATE UNIQUE INDEX idx_clients_atelier_id_client_unique
+      ON public.clients (atelier_id, id_client);
+  END IF;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_series_mesures_atelier_id_serie_unique
-ON series_mesures (atelier_id, id_serie_mesures);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'series_mesures'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_series_mesures_atelier_id_serie_unique'
+  ) THEN
+    CREATE UNIQUE INDEX idx_series_mesures_atelier_id_serie_unique
+      ON public.series_mesures (atelier_id, id_serie_mesures);
+  END IF;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_commandes_atelier_id_commande_unique
-ON commandes (atelier_id, id_commande);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_commandes_atelier_id_commande_unique'
+  ) THEN
+    CREATE UNIQUE INDEX idx_commandes_atelier_id_commande_unique
+      ON public.commandes (atelier_id, id_commande);
+  END IF;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_retouches_atelier_id_retouche_unique
-ON retouches (atelier_id, id_retouche);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_retouches_atelier_id_retouche_unique'
+  ) THEN
+    CREATE UNIQUE INDEX idx_retouches_atelier_id_retouche_unique
+      ON public.retouches (atelier_id, id_retouche);
+  END IF;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_caisse_jour_atelier_id_caisse_unique
-ON caisse_jour (atelier_id, id_caisse_jour);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_jour'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_caisse_jour_atelier_id_caisse_unique'
+  ) THEN
+    CREATE UNIQUE INDEX idx_caisse_jour_atelier_id_caisse_unique
+      ON public.caisse_jour (atelier_id, id_caisse_jour);
+  END IF;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_atelier_id_article_unique
-ON articles (atelier_id, id_article);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_articles_atelier_id_article_unique'
+  ) THEN
+    CREATE UNIQUE INDEX idx_articles_atelier_id_article_unique
+      ON public.articles (atelier_id, id_article);
+  END IF;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ventes_atelier_id_vente_unique
-ON ventes (atelier_id, id_vente);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ventes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_ventes_atelier_id_vente_unique'
+  ) THEN
+    CREATE UNIQUE INDEX idx_ventes_atelier_id_vente_unique
+      ON public.ventes (atelier_id, id_vente);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_series_mesures_atelier_client
-ON series_mesures (atelier_id, id_client);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'series_mesures'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_series_mesures_atelier_client'
+  ) THEN
+    CREATE INDEX idx_series_mesures_atelier_client
+      ON public.series_mesures (atelier_id, id_client);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_commandes_atelier_client
-ON commandes (atelier_id, id_client);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_commandes_atelier_client'
+  ) THEN
+    CREATE INDEX idx_commandes_atelier_client
+      ON public.commandes (atelier_id, id_client);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_commande_events_atelier_commande
-ON commande_events (atelier_id, id_commande);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_events'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_commande_events_atelier_commande'
+  ) THEN
+    CREATE INDEX idx_commande_events_atelier_commande
+      ON public.commande_events (atelier_id, id_commande);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_retouches_atelier_client
-ON retouches (atelier_id, id_client);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_retouches_atelier_client'
+  ) THEN
+    CREATE INDEX idx_retouches_atelier_client
+      ON public.retouches (atelier_id, id_client);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_retouche_events_atelier_retouche
-ON retouche_events (atelier_id, id_retouche);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouche_events'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_retouche_events_atelier_retouche'
+  ) THEN
+    CREATE INDEX idx_retouche_events_atelier_retouche
+      ON public.retouche_events (atelier_id, id_retouche);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_caisse_operation_atelier_caisse
-ON caisse_operation (atelier_id, id_caisse_jour);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_operation'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_caisse_operation_atelier_caisse'
+  ) THEN
+    CREATE INDEX idx_caisse_operation_atelier_caisse
+      ON public.caisse_operation (atelier_id, id_caisse_jour);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_mouvements_stock_atelier_article
-ON mouvements_stock (atelier_id, id_article);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'mouvements_stock'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_mouvements_stock_atelier_article'
+  ) THEN
+    CREATE INDEX idx_mouvements_stock_atelier_article
+      ON public.mouvements_stock (atelier_id, id_article);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_stock_prix_historique_atelier_article
-ON stock_prix_historique (atelier_id, id_article);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'stock_prix_historique'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_stock_prix_historique_atelier_article'
+  ) THEN
+    CREATE INDEX idx_stock_prix_historique_atelier_article
+      ON public.stock_prix_historique (atelier_id, id_article);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_vente_lignes_atelier_vente
-ON vente_lignes (atelier_id, id_vente);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_vente_lignes_atelier_vente'
+  ) THEN
+    CREATE INDEX idx_vente_lignes_atelier_vente
+      ON public.vente_lignes (atelier_id, id_vente);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_vente_lignes_atelier_article
-ON vente_lignes (atelier_id, id_article);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_vente_lignes_atelier_article'
+  ) THEN
+    CREATE INDEX idx_vente_lignes_atelier_article
+      ON public.vente_lignes (atelier_id, id_article);
+  END IF;
+END
+$$;
 
 INSERT INTO clients (id_client, atelier_id, nom, prenom, telephone, adresse, sexe, actif, date_creation)
 SELECT

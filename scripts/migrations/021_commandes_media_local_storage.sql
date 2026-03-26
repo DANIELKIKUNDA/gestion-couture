@@ -1,36 +1,85 @@
-CREATE TABLE IF NOT EXISTS commande_media (
-  id_media TEXT PRIMARY KEY,
-  atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
-  id_commande TEXT NOT NULL,
-  type_media TEXT NOT NULL DEFAULT 'IMAGE',
-  source_type TEXT NOT NULL DEFAULT 'UPLOAD',
-  chemin_original TEXT NOT NULL,
-  chemin_thumbnail TEXT NOT NULL,
-  nom_fichier_original TEXT NULL,
-  mime_type TEXT NOT NULL,
-  extension_stockage TEXT NOT NULL,
-  taille_originale_bytes INTEGER NOT NULL CHECK (taille_originale_bytes > 0),
-  largeur INTEGER NULL,
-  hauteur INTEGER NULL,
-  note TEXT NULL,
-  position INTEGER NOT NULL DEFAULT 1 CHECK (position BETWEEN 0 AND 3),
-  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
-  cree_par TEXT NULL,
-  date_creation TIMESTAMP NOT NULL DEFAULT NOW()
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'commande_media'
+  ) THEN
+    EXECUTE $sql$
+      CREATE TABLE public.commande_media (
+        id_media TEXT PRIMARY KEY,
+        atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
+        id_commande TEXT NOT NULL,
+        type_media TEXT NOT NULL DEFAULT 'IMAGE',
+        source_type TEXT NOT NULL DEFAULT 'UPLOAD',
+        chemin_original TEXT NOT NULL,
+        chemin_thumbnail TEXT NOT NULL,
+        nom_fichier_original TEXT NULL,
+        mime_type TEXT NOT NULL,
+        extension_stockage TEXT NOT NULL,
+        taille_originale_bytes INTEGER NOT NULL CHECK (taille_originale_bytes > 0),
+        largeur INTEGER NULL,
+        hauteur INTEGER NULL,
+        note TEXT NULL,
+        position INTEGER NOT NULL DEFAULT 1 CHECK (position BETWEEN 0 AND 3),
+        is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+        cree_par TEXT NULL,
+        date_creation TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    $sql$;
+  END IF;
+END
+$$;
 
-CREATE INDEX IF NOT EXISTS idx_commande_media_atelier_commande
-ON commande_media (atelier_id, id_commande, position);
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_media'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_commande_media_atelier_commande'
+  ) THEN
+    CREATE INDEX idx_commande_media_atelier_commande
+      ON public.commande_media (atelier_id, id_commande, position);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_commande_media_commande
-ON commande_media (id_commande);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_media'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_commande_media_commande'
+  ) THEN
+    CREATE INDEX idx_commande_media_commande
+      ON public.commande_media (id_commande);
+  END IF;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_commande_media_atelier_commande_position
-ON commande_media (atelier_id, id_commande, position);
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_media'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_commande_media_atelier_commande_position'
+  ) THEN
+    CREATE UNIQUE INDEX idx_commande_media_atelier_commande_position
+      ON public.commande_media (atelier_id, id_commande, position);
+  END IF;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_commande_media_primary_unique
-ON commande_media (atelier_id, id_commande)
-WHERE is_primary = true;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_media'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public' AND indexname = 'idx_commande_media_primary_unique'
+  ) THEN
+    CREATE UNIQUE INDEX idx_commande_media_primary_unique
+      ON public.commande_media (atelier_id, id_commande)
+      WHERE is_primary = true;
+  END IF;
+END
+$$;
 
 DO $$
 BEGIN
