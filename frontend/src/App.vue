@@ -200,6 +200,7 @@ let crossDeviceRefreshTimer = null;
 let lastCrossDeviceRefreshAt = 0;
 let commandeMediaRenderSequence = 0;
 let contentScrollElement = null;
+let globalErrorClearTimer = null;
 
 const systemAteliers = ref([]);
 const systemAteliersLoading = ref(false);
@@ -1206,7 +1207,7 @@ async function loadAtelierSettings() {
     }
   } catch (err) {
     if (err instanceof ApiError && (err.status === 401 || err.status === 403)) return;
-    settingsError.value = err instanceof ApiError ? err.message : "Erreur chargement parametres.";
+    settingsError.value = readableError(err);
     console.warn("Failed to load atelier settings (api)", err);
   } finally {
     settingsLoading.value = false;
@@ -2314,7 +2315,7 @@ async function saveAtelierSettings() {
     settingsEditMode.value = false;
     notify("Parametres atelier sauvegardes.");
   } catch (err) {
-    const message = err instanceof ApiError ? err.message : String(err?.message || "Erreur lors de la sauvegarde des parametres.");
+    const message = readableError(err);
     settingsError.value = message;
     notify(message);
   } finally {
@@ -2355,7 +2356,7 @@ async function uploadAtelierLogo() {
     clearSelectedAtelierLogo();
     notify("Logo atelier mis a jour.");
   } catch (err) {
-    const message = err instanceof ApiError ? err.message : String(err?.message || "Erreur lors de l'upload du logo.");
+    const message = readableError(err);
     settingsError.value = message;
     notify(message);
   } finally {
@@ -5417,12 +5418,14 @@ onUnmounted(() => {
   if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
   if (syncUiRefreshTimer) window.clearTimeout(syncUiRefreshTimer);
   clearCrossDeviceRefreshTimer();
+  clearGlobalErrorMessage();
   clearSystemAteliersSearchDebounce();
   revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
   revokeSettingsLogoPreviewUrl();
 });
 
 watch(currentRoute, (routeName) => {
+  clearGlobalErrorMessage();
   if (isMobileViewport.value) {
     closeSidebarDrawer();
   }
@@ -6559,7 +6562,7 @@ async function revokeSystemAtelierOwnerSessions() {
 
 async function reloadAll() {
   loading.value = true;
-  errorMessage.value = "";
+  clearGlobalErrorMessage();
   commandeActionsById.value = {};
   retoucheActionsById.value = {};
   detailCommandeActions.value = null;
@@ -7067,21 +7070,45 @@ async function loadAudit() {
 function appendError(err) {
   const msg = readableError(err);
   if (!msg) return;
-  const parts = errorMessage.value
-    ? errorMessage.value.split("|").map((item) => item.trim()).filter(Boolean)
-    : [];
-  if (parts.includes(msg)) {
-    errorMessage.value = parts.join(" | ");
-    return;
-  }
-  parts.push(msg);
-  errorMessage.value = parts.join(" | ");
+  setGlobalErrorMessage(msg);
 }
 
 function appendUiMessage(message) {
   const normalized = String(message || "").trim();
   if (!normalized) return;
   appendError(new Error(normalized));
+}
+
+function clearGlobalErrorMessage() {
+  if (globalErrorClearTimer) {
+    window.clearTimeout(globalErrorClearTimer);
+    globalErrorClearTimer = null;
+  }
+  errorMessage.value = "";
+}
+
+function setGlobalErrorMessage(message, timeoutMs = 7000) {
+  const normalized = String(message || "").trim();
+  if (!normalized) {
+    clearGlobalErrorMessage();
+    return;
+  }
+
+  if (globalErrorClearTimer) {
+    window.clearTimeout(globalErrorClearTimer);
+    globalErrorClearTimer = null;
+  }
+
+  errorMessage.value = normalized;
+
+  if (timeoutMs > 0 && typeof window !== "undefined") {
+    globalErrorClearTimer = window.setTimeout(() => {
+      globalErrorClearTimer = null;
+      if (errorMessage.value === normalized) {
+        errorMessage.value = "";
+      }
+    }, timeoutMs);
+  }
 }
 
 function applyClientsRows(rows = []) {
@@ -7456,6 +7483,9 @@ function readableError(err) {
   ) {
     return "Connexion indisponible. Verifiez votre reseau puis reessayez.";
   }
+  if (isTechnicalErrorMessage(message)) {
+    return "Une erreur est survenue. Veuillez reessayer.";
+  }
   if (message) {
     const translated = translateErrorMessage(message);
     if (translated) return translated;
@@ -7473,6 +7503,7 @@ function translateErrorMessage(message) {
     .filter(Boolean)
     .map((part) => {
       const lower = part.toLowerCase();
+      if (isTechnicalErrorMessage(part)) return "Une erreur est survenue. Veuillez reessayer.";
       if (lower.includes("string must contain at least 1 character")) return "Ce champ est obligatoire.";
       if (lower.includes("invalid email")) return "Adresse email invalide.";
       if (lower.includes("string must contain at least 8 character")) return "Le mot de passe doit contenir au moins 8 caracteres.";
@@ -7505,6 +7536,37 @@ function translateErrorMessage(message) {
       return part;
     })
     .join(" ");
+}
+
+function isTechnicalErrorMessage(message) {
+  const normalized = String(message || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) return false;
+
+  return [
+    /syntax error at or near/i,
+    /\bcolumn\b.+\bdoes not exist\b/i,
+    /\brelation\b.+\bdoes not exist\b/i,
+    /\btable\b.+\bdoes not exist\b/i,
+    /\bschema\b.+\bdoes not exist\b/i,
+    /\bduplicate key value violates\b/i,
+    /\bviolates\b.+\bconstraint\b/i,
+    /\bnull value in column\b/i,
+    /\binvalid input syntax\b/i,
+    /\balter table\b/i,
+    /\bcreate table\b/i,
+    /\bcreate index\b/i,
+    /\binsert into\b/i,
+    /\bupdate\b.+\bset\b/i,
+    /\bdelete from\b/i,
+    /\bselect\b.+\bfrom\b/i,
+    /\binternal_error\b/i,
+    /\bpostgres\b/i,
+    /\bpg_/i
+  ].some((pattern) => pattern.test(normalized));
 }
 
 function loginErrorMessage(err) {

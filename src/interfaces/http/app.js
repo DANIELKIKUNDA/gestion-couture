@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import { normalizeHttpErrorResponse, sendHttpError } from "../../shared/interfaces/http/http-error.js";
 
 import authRoutes from "../../bc-auth/interfaces/http/routes.js";
 import { authGuard } from "../../bc-auth/interfaces/http/middlewares/auth-guard.js";
@@ -54,6 +55,17 @@ export function createApp() {
   app.use(cors(resolveCorsOptions()));
   app.use(express.json({ limit: "2mb" }));
   app.use(morgan("dev"));
+  app.use((req, res, next) => {
+    const originalJson = res.json.bind(res);
+    res.json = (body) => {
+      const normalizedBody = normalizeHttpErrorResponse(res.statusCode, body, req);
+      if (normalizedBody?.code === "INTERNAL_ERROR" && res.statusCode < 500) {
+        res.status(500);
+      }
+      return originalJson(normalizedBody);
+    };
+    next();
+  });
   app.use(
     "/media",
     express.static(resolveMediaStorageRoot(), {
@@ -79,9 +91,8 @@ export function createApp() {
   app.use("/api", requireAuth, facturationRoutes);
   app.use("/api", requireAuth, parametresRoutes);
 
-  app.use((err, _req, res, _next) => {
-    const message = err?.message || "Erreur serveur";
-    res.status(500).json({ error: message });
+  app.use((err, req, res, _next) => {
+    sendHttpError(res, err, 500, req);
   });
 
   return app;

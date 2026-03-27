@@ -66,6 +66,10 @@ export class ApiError extends Error {
   }
 }
 
+function getApiErrorMessage(payload, fallback) {
+  return payload?.message || payload?.error || fallback;
+}
+
 let authLostHandler = null;
 let refreshPromise = null;
 let sessionMutationCounter = 0;
@@ -128,7 +132,7 @@ async function refreshAccessToken() {
       if (sessionMutationCounter === refreshSessionVersion) {
         setAccessToken("", { markMutation: false });
       }
-      throw new ApiError(payload?.error || "Session invalide", response.status || 401, payload);
+      throw new ApiError(getApiErrorMessage(payload, "Session invalide"), response.status || 401, payload);
     }
 
     if (sessionMutationCounter !== refreshSessionVersion) {
@@ -200,7 +204,7 @@ async function fetchBlobWithAuthRetry(path, options = {}) {
     if (!response.ok) {
       const text = await response.text();
       const payload = text ? tryParseJson(text) : null;
-      const message = payload?.error || text || `Erreur API (${response.status}) sur ${path}`;
+      const message = getApiErrorMessage(payload, text || `Erreur API (${response.status}) sur ${path}`);
       throw new ApiError(message, response.status, payload);
     }
 
@@ -266,7 +270,7 @@ async function requestWithRetry(path, options = {}) {
     const payload = text ? tryParseJson(text) : null;
 
     if (!response.ok) {
-      const message = payload?.error || `Erreur API (${response.status}) sur ${path}`;
+      const message = getApiErrorMessage(payload, `Erreur API (${response.status}) sur ${path}`);
       throw new ApiError(message, response.status, payload);
     }
 

@@ -19,6 +19,16 @@ const OPERATIONS_SQL = `
   ), '[]'::jsonb) AS operations_caisse
 `;
 
+const CLIENT_SNAPSHOT_SQL = `
+  COALESCE(
+    f.client_snapshot,
+    jsonb_build_object(
+      'nom', 'Client',
+      'contact', ''
+    )
+  ) AS client_snapshot
+`;
+
 function toFacture(row) {
   const normalizedType = String(row.type_origine || "").trim().toUpperCase();
   const operations = Array.isArray(row.operations_caisse) ? row.operations_caisse : [];
@@ -77,13 +87,7 @@ export class FactureRepoPg {
               f.numero_facture,
               COALESCE(f.type_origine, f.type_reference) AS type_origine,
               COALESCE(f.id_origine, f.id_reference) AS id_origine,
-              COALESCE(
-                f.client_snapshot,
-                jsonb_build_object(
-                  'nom', COALESCE(NULLIF(TRIM(COALESCE(cl.nom, '') || ' ' || COALESCE(cl.prenom, '')), ''), COALESCE(f.id_client, 'Client')),
-                  'contact', COALESCE(cl.telephone, '')
-                )
-              ) AS client_snapshot,
+              ${CLIENT_SNAPSHOT_SQL},
               COALESCE(f.date_emission, NOW()) AS date_emission,
               f.montant_total,
               f.reference_caisse,
@@ -93,7 +97,6 @@ export class FactureRepoPg {
               ) AS lignes_json,
               ${OPERATIONS_SQL}
        FROM factures f
-       LEFT JOIN clients cl ON cl.id_client = f.id_client AND cl.atelier_id = f.atelier_id
        WHERE f.type_origine = $1 AND f.id_origine = $2 AND f.atelier_id = $3
        LIMIT 1`,
       [typeOrigine, idOrigine, this.atelierId]
@@ -108,13 +111,7 @@ export class FactureRepoPg {
               f.numero_facture,
               COALESCE(f.type_origine, f.type_reference) AS type_origine,
               COALESCE(f.id_origine, f.id_reference) AS id_origine,
-              COALESCE(
-                f.client_snapshot,
-                jsonb_build_object(
-                  'nom', COALESCE(NULLIF(TRIM(COALESCE(cl.nom, '') || ' ' || COALESCE(cl.prenom, '')), ''), COALESCE(f.id_client, 'Client')),
-                  'contact', COALESCE(cl.telephone, '')
-                )
-              ) AS client_snapshot,
+              ${CLIENT_SNAPSHOT_SQL},
               COALESCE(f.date_emission, NOW()) AS date_emission,
               f.montant_total,
               f.reference_caisse,
@@ -124,7 +121,6 @@ export class FactureRepoPg {
               ) AS lignes_json,
               ${OPERATIONS_SQL}
        FROM factures f
-       LEFT JOIN clients cl ON cl.id_client = f.id_client AND cl.atelier_id = f.atelier_id
        WHERE f.id_facture = $1 AND f.atelier_id = $2`,
       [idFacture, this.atelierId]
     );
@@ -138,13 +134,7 @@ export class FactureRepoPg {
               f.numero_facture,
               COALESCE(f.type_origine, f.type_reference) AS type_origine,
               COALESCE(f.id_origine, f.id_reference) AS id_origine,
-              COALESCE(
-                f.client_snapshot,
-                jsonb_build_object(
-                  'nom', COALESCE(NULLIF(TRIM(COALESCE(cl.nom, '') || ' ' || COALESCE(cl.prenom, '')), ''), COALESCE(f.id_client, 'Client')),
-                  'contact', COALESCE(cl.telephone, '')
-                )
-              ) AS client_snapshot,
+              ${CLIENT_SNAPSHOT_SQL},
               COALESCE(f.date_emission, NOW()) AS date_emission,
               f.montant_total,
               f.reference_caisse,
@@ -154,7 +144,6 @@ export class FactureRepoPg {
               ) AS lignes_json,
               ${OPERATIONS_SQL}
        FROM factures f
-       LEFT JOIN clients cl ON cl.id_client = f.id_client AND cl.atelier_id = f.atelier_id
        WHERE f.atelier_id = $1
          AND COALESCE(f.type_origine, f.type_reference) IN ('COMMANDE', 'RETOUCHE', 'VENTE')
        ORDER BY f.date_emission DESC, f.numero_facture DESC`,
