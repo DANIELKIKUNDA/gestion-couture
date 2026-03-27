@@ -2383,11 +2383,34 @@ textarea:focus-visible {
     transition: transform 0.24s ease, box-shadow 0.24s ease;
     z-index: 40;
     box-shadow: none;
+    min-height: 100vh;
+    height: 100vh;
+    min-height: 100dvh;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .workspace.sidebar-open .classic-sidebar {
     transform: translateX(0);
     box-shadow: 0 18px 48px rgba(19, 52, 88, 0.28);
+  }
+
+  .classic-sidebar .menu {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .classic-sidebar .sidebar-user {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    background: rgba(237, 243, 251, 0.98);
+    backdrop-filter: blur(10px);
   }
 
   .classic-topbar {
