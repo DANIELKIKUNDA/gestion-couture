@@ -3,6 +3,7 @@ import { pool } from "../../../shared/infrastructure/db.js";
 import { CommandeRepoPg } from "../../infrastructure/repositories/commande-repo-pg.js";
 import { CommandeMediaRepoPg } from "../../infrastructure/repositories/commande-media-repo-pg.js";
 import { CommandeMediaStorageLocal } from "../../infrastructure/storage/commande-media-storage-local.js";
+import { ClientRepoPg } from "../../../bc-clients/infrastructure/repositories/client-repo-pg.js";
 import { creerCommande } from "../../application/use-cases/creer-commande.js";
 import { terminerTravail } from "../../application/use-cases/terminer-travail.js";
 import { appliquerPaiement } from "../../application/use-cases/appliquer-paiement.js";
@@ -13,6 +14,7 @@ import { listerCommandeMedia } from "../../application/use-cases/lister-commande
 import { ajouterCommandeMedia } from "../../application/use-cases/ajouter-commande-media.js";
 import { supprimerCommandeMedia } from "../../application/use-cases/supprimer-commande-media.js";
 import { mettreAJourCommandeMedia } from "../../application/use-cases/mettre-a-jour-commande-media.js";
+import { resolveCommandeClientForCreation, serializeCommandeClientConflict } from "../../application/services/resolve-commande-client.js";
 import { CaisseRepoPg } from "../../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
 import { requireFields, requireNumber, validateSchema } from "../../../shared/interfaces/validation.js";
 import { generateCommandeId } from "../../../shared/domain/id-generator.js";
@@ -30,6 +32,7 @@ const router = express.Router();
 const commandeRepo = new CommandeRepoPg();
 const commandeMediaRepo = new CommandeMediaRepoPg();
 const commandeMediaStorage = new CommandeMediaStorageLocal();
+const clientRepo = new ClientRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
 const requireCommandeReadAccess = requireAnyPermission([
   PERMISSIONS.VOIR_COMMANDES,
@@ -63,6 +66,10 @@ function scopedCommandeRepo(req) {
 
 function scopedCommandeMediaRepo(req) {
   return commandeMediaRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedClientRepo(req) {
+  return clientRepo.forAtelier(atelierIdFromReq(req));
 }
 
 function scopedParametresRepo(req) {
@@ -180,6 +187,11 @@ async function enregistrerEvenementCommande({
      VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
     [randomUUID(), atelierId, idCommande, typeEvent, JSON.stringify(eventPayload)]
   );
+}
+
+async function lockCommandeCreation(db, atelierId, idCommande) {
+  const lockKey = `commande:create:${String(atelierId || "").trim()}:${String(idCommande || "").trim()}`;
+  await db.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
 }
 
 function mapCommandeMedia(row) {
@@ -625,7 +637,21 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
   const schema = z
     .object({
       idCommande: z.string().min(1).optional(),
-      idClient: z.string().min(1),
+      idClient: z.string().min(1).optional(),
+      nouveauClient: z
+        .object({
+          idClient: z.string().min(1).optional(),
+          nom: z.string().min(1),
+          prenom: z.string().min(1),
+          telephone: z.string().min(1)
+        })
+        .optional(),
+      doublonDecision: z
+        .object({
+          action: z.enum(["USE_EXISTING", "UPDATE_EXISTING_PHONE", "CONFIRM_NEW"]),
+          idClient: z.string().min(1).optional()
+        })
+        .optional(),
       descriptionCommande: z.string().min(1),
       montantTotal: z.coerce.number(),
       typeHabit: z.string().min(1).optional(),
@@ -636,7 +662,12 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["idClient", "descriptionCommande", "montantTotal"]);
+  const hasExistingClient = Boolean(String(body.idClient || "").trim());
+  const hasNewClient = Boolean(body.nouveauClient);
+  if (hasExistingClient === hasNewClient) {
+    return res.status(400).json({ error: "Fournissez soit idClient, soit nouveauClient." });
+  }
+  const r1 = requireFields(body, ["descriptionCommande", "montantTotal"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   const r2 = requireNumber(body, "montantTotal");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
@@ -647,6 +678,8 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     const policyMeta = await loadCommandePolicy("commandes.create", req);
     const policyInput = policyMeta.payload || { commandes: policyMeta.policy };
     const repo = scopedCommandeRepo(req).withExecutor(dbClient);
+    const clients = scopedClientRepo(req).withExecutor(dbClient);
+    const atelierId = atelierIdFromReq(req);
     const requestedIdCommande = String(body.idCommande || "").trim();
     if (requestedIdCommande) {
       const existingCommande = await repo.getById(requestedIdCommande);
@@ -656,15 +689,35 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     }
 
     await dbClient.query("BEGIN");
+    const resolvedCommandeId = requestedIdCommande || generateCommandeId();
+    await lockCommandeCreation(dbClient, atelierId, resolvedCommandeId);
+    const existingCommande = await repo.getById(resolvedCommandeId);
+    if (existingCommande) {
+      await dbClient.query("COMMIT");
+      return res.status(200).json(existingCommande);
+    }
+
+    const clientResolution = await resolveCommandeClientForCreation({
+      idClient: body.idClient,
+      nouveauClient: body.nouveauClient,
+      doublonDecision: body.doublonDecision,
+      clientRepo: clients
+    });
+
     const commande = creerCommande({
-      ...body,
-      idCommande: requestedIdCommande || generateCommandeId()
+      idCommande: resolvedCommandeId,
+      idClient: clientResolution.idClient,
+      descriptionCommande: body.descriptionCommande,
+      montantTotal: body.montantTotal,
+      typeHabit: body.typeHabit,
+      mesuresHabit: body.mesuresHabit,
+      datePrevue: body.datePrevue
     }, {
       policy: policyInput
     });
     await repo.save(commande);
     await enregistrerEvenementCommande({
-      atelierId: atelierIdFromReq(req),
+      atelierId,
       idCommande: commande.idCommande,
       typeEvent: "COMMANDE_CREEE",
       utilisateur: acteur.utilisateur,
@@ -688,9 +741,22 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
         utilisateurNom: acteur.utilisateurNom
       }
     });
+    if (hasNewClient) {
+      return res.status(201).json({
+        commande,
+        client: clientResolution.client,
+        clientResolution: clientResolution.strategy
+      });
+    }
     res.status(201).json(commande);
   } catch (err) {
     await dbClient.query("ROLLBACK").catch(() => {});
+    if (Number(err?.status || 0) === 409) {
+      return res.status(409).json(serializeCommandeClientConflict(err));
+    }
+    if (Number(err?.status || 0) === 404) {
+      return res.status(404).json({ code: String(err.code || "NOT_FOUND"), message: err.message });
+    }
     res.status(400).json({ error: err.message });
   } finally {
     dbClient.release();

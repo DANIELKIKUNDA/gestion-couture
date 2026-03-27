@@ -15,7 +15,7 @@ import {
   saveCommandePhotoNoteOffline,
   setCommandePhotoPrimaryOffline
 } from "./services/media-local-store.js";
-import { createOfflineClient, createOfflineCommande, createOfflineRetouche } from "./services/offline-write-service.js";
+import { createOfflineCommande, createOfflineRetouche } from "./services/offline-write-service.js";
 import { getNetworkState, subscribeToNetworkState, useNetwork } from "./services/network-service.js";
 import { createServerClientId, createServerCommandeId, createServerRetoucheId } from "./services/server-id.js";
 import {
@@ -341,6 +341,7 @@ const wizard = reactive({
   existingClientId: "",
   resolvedClientId: "",
   requestCommandeId: "",
+  requestNewClientId: "",
   createdCommandeId: "",
   createdFactureId: "",
   submitting: false,
@@ -3139,6 +3140,49 @@ function searchClients(rawQuery) {
 
 const wizardClientSearchResults = computed(() => searchClients(wizardClientSearchQuery.value));
 const retoucheClientSearchResultsWizard = computed(() => searchClients(retoucheClientSearchQueryWizard.value));
+
+function normalizeClientDuplicateName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeClientDuplicatePhone(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+const wizardNewClientDraft = computed(() => ({
+  nom: String(wizard.newClient.nom || "").trim(),
+  prenom: String(wizard.newClient.prenom || "").trim(),
+  telephone: String(wizard.newClient.telephone || "").trim()
+}));
+
+const wizardExactPhoneDuplicateClient = computed(() => {
+  if (wizard.mode !== "new") return null;
+  const normalizedPhone = normalizeClientDuplicatePhone(wizardNewClientDraft.value.telephone);
+  if (!normalizedPhone) return null;
+  return clients.value.find((client) => normalizeClientDuplicatePhone(client.telephone) === normalizedPhone) || null;
+});
+
+const wizardProbableDuplicateClients = computed(() => {
+  if (wizard.mode !== "new") return [];
+  const normalizedNom = normalizeClientDuplicateName(wizardNewClientDraft.value.nom);
+  const normalizedPrenom = normalizeClientDuplicateName(wizardNewClientDraft.value.prenom);
+  if (!normalizedNom || !normalizedPrenom) return [];
+
+  return clients.value
+    .filter((client) => {
+      if (wizardExactPhoneDuplicateClient.value?.idClient === client.idClient) return false;
+      return (
+        normalizeClientDuplicateName(client.nom) === normalizedNom &&
+        normalizeClientDuplicateName(client.prenom) === normalizedPrenom
+      );
+    })
+    .slice(0, 3);
+});
 
 function buildClientInsight(consultation) {
   const synthese = consultation?.synthese || {};
@@ -8749,6 +8793,7 @@ function resetWizard() {
   wizard.existingClientId = "";
   wizard.resolvedClientId = "";
   wizard.requestCommandeId = "";
+  wizard.requestNewClientId = "";
   wizard.createdCommandeId = "";
   wizard.createdFactureId = "";
   wizard.submitting = false;
@@ -8824,6 +8869,140 @@ function selectWizardExistingClient(result) {
   wizardClientSearchOpen.value = false;
   wizardClientSearchIndex.value = -1;
   void loadWizardClientInsight(result.client.idClient);
+}
+
+function applyWizardExistingClient(client) {
+  if (!client?.idClient) return;
+  wizard.mode = "existing";
+  selectWizardExistingClient({
+    client,
+    nomComplet: formatClientDisplayName(client),
+    telephone: String(client.telephone || "").trim()
+  });
+  wizard.resolvedClientId = client.idClient;
+}
+
+function normalizeWizardDuplicateClient(raw) {
+  const normalized = normalizeClient(raw || {});
+  return normalized.idClient ? normalized : null;
+}
+
+async function resolveCommandeClientDuplicate(err, payload) {
+  if (!(err instanceof ApiError) || Number(err.status || 0) !== 409) return undefined;
+
+  const code = String(err.payload?.code || "").trim().toUpperCase();
+  if (code === "CLIENT_DUPLICATE_PHONE") {
+    const existingClient = normalizeWizardDuplicateClient(err.payload?.existingClient);
+    if (!existingClient) return undefined;
+    const confirmed = await openActionModal({
+      title: "Numero deja utilise",
+      message: `Ce numero appartient deja a ${formatClientDisplayName(existingClient)}. Utiliser ce client pour la commande ?`,
+      confirmLabel: "Utiliser ce client",
+      cancelLabel: "Annuler",
+      tone: "blue"
+    });
+    if (!confirmed) return null;
+    applyWizardExistingClient(existingClient);
+    return {
+      ...payload,
+      idClient: existingClient.idClient,
+      nouveauClient: undefined,
+      doublonDecision: undefined
+    };
+  }
+
+  if (code === "CLIENT_DUPLICATE_POSSIBLE") {
+    const duplicates = (Array.isArray(err.payload?.probableDuplicates) ? err.payload.probableDuplicates : [])
+      .map((row) => normalizeWizardDuplicateClient(row))
+      .filter(Boolean);
+    if (duplicates.length === 0) return undefined;
+
+    const modalFields = [];
+    if (duplicates.length > 1) {
+      modalFields.push({
+        key: "targetClientId",
+        label: "Client a examiner",
+        type: "select",
+        defaultValue: duplicates[0].idClient,
+        options: duplicates.map((client) => ({
+          value: client.idClient,
+          label: `${formatClientDisplayName(client)} — ${client.telephone || "Sans numero"}`
+        }))
+      });
+    }
+    modalFields.push({
+      key: "decision",
+      label: "Action a appliquer",
+      type: "select",
+      defaultValue: "USE_EXISTING",
+      options: [
+        { value: "USE_EXISTING", label: "Utiliser le client existant" },
+        { value: "UPDATE_EXISTING_PHONE", label: "Mettre a jour son numero" },
+        { value: "CONFIRM_NEW", label: "Confirmer un nouveau client" }
+      ]
+    });
+
+    const modalPayload = await openActionModal({
+      title: "Doublon client probable",
+      message:
+        "Un client au nom similaire existe deja. Vous pouvez reutiliser le client existant, mettre a jour son numero ou confirmer la creation d'un nouveau client.",
+      confirmLabel: "Continuer",
+      cancelLabel: "Annuler",
+      tone: "blue",
+      fields: modalFields
+    });
+    if (!modalPayload) return null;
+
+    const targetClientId = String(modalPayload.targetClientId || duplicates[0].idClient || "").trim();
+    const targetClient = duplicates.find((client) => client.idClient === targetClientId) || duplicates[0];
+    const decision = String(modalPayload.decision || "USE_EXISTING").trim().toUpperCase();
+
+    if (decision === "USE_EXISTING") {
+      applyWizardExistingClient(targetClient);
+      return {
+        ...payload,
+        idClient: targetClient.idClient,
+        nouveauClient: undefined,
+        doublonDecision: undefined
+      };
+    }
+
+    if (decision === "UPDATE_EXISTING_PHONE") {
+      return {
+        ...payload,
+        doublonDecision: {
+          action: "UPDATE_EXISTING_PHONE",
+          idClient: targetClient.idClient
+        }
+      };
+    }
+
+    return {
+      ...payload,
+      doublonDecision: {
+        action: "CONFIRM_NEW",
+        idClient: targetClient.idClient
+      }
+    };
+  }
+
+  return undefined;
+}
+
+async function submitCommandeWithDuplicateHandling(payload) {
+  let currentPayload = { ...payload };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await atelierApi.createCommande(currentPayload);
+    } catch (err) {
+      const resolvedPayload = await resolveCommandeClientDuplicate(err, currentPayload);
+      if (resolvedPayload === undefined) throw err;
+      if (resolvedPayload === null) return null;
+      currentPayload = resolvedPayload;
+    }
+  }
+
+  throw new Error("Creation de commande interrompue apres plusieurs tentatives.");
 }
 
 function onWizardClientSearchInput(event) {
@@ -8932,31 +9111,13 @@ async function onWizardStep1() {
       wizard.resolvedClientId = wizard.existingClientId;
     } else {
       if (!canCreateWizardClient.value) throw new Error("Creation de client non autorisee.");
-      const atelierId = currentAtelierId.value;
-      if (!atelierId) throw new Error("Atelier offline introuvable.");
       const payload = {
-        nom: wizard.newClient.nom,
-        prenom: wizard.newClient.prenom,
-        telephone: wizard.newClient.telephone
+        nom: String(wizard.newClient.nom || "").trim(),
+        prenom: String(wizard.newClient.prenom || "").trim(),
+        telephone: String(wizard.newClient.telephone || "").trim()
       };
       if (!payload.nom || !payload.prenom || !payload.telephone) throw new Error("Completez nom, prenom et telephone.");
-
-      let normalized = null;
-      if (getNetworkState().online) {
-        const created = await atelierApi.createClient(payload);
-        normalized = normalizeClient(created.client || created);
-        notify("Client enregistre.");
-      } else {
-        const created = await createOfflineClient({
-          atelierId,
-          client: payload
-        });
-        normalized = normalizeClient(created.client);
-        notify("Client enregistre hors ligne.");
-        void requestSync(atelierId);
-      }
-      upsertClientRow(normalized);
-      wizard.resolvedClientId = normalized.idClient;
+      wizard.resolvedClientId = "";
     }
 
     wizard.step = 2;
@@ -8972,7 +9133,6 @@ async function onWizardStep2() {
   wizard.submitting = true;
   try {
     if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
-    if (!wizard.resolvedClientId) throw new Error("Client non resolu.");
     const atelierId = currentAtelierId.value;
     if (!atelierId) throw new Error("Atelier offline introuvable.");
 
@@ -8995,29 +9155,55 @@ async function onWizardStep2() {
 
     const payload = {
       idCommande: wizard.requestCommandeId || createServerCommandeId(),
-      idClient: wizard.resolvedClientId,
       descriptionCommande: wizard.commande.descriptionCommande,
       montantTotal: montant,
       typeHabit: wizard.commande.typeHabit,
       mesuresHabit: mesuresSnapshot
     };
 
+    if (wizard.mode === "existing") {
+      if (!wizard.resolvedClientId) throw new Error("Client non resolu.");
+      payload.idClient = wizard.resolvedClientId;
+    } else {
+      const requestedClientId = wizard.requestNewClientId || createServerClientId();
+      wizard.requestNewClientId = requestedClientId;
+      payload.nouveauClient = {
+        idClient: requestedClientId,
+        nom: String(wizard.newClient.nom || "").trim(),
+        prenom: String(wizard.newClient.prenom || "").trim(),
+        telephone: String(wizard.newClient.telephone || "").trim()
+      };
+    }
+
     if (wizard.commande.datePrevue) payload.datePrevue = `${wizard.commande.datePrevue}T00:00:00.000Z`;
     wizard.requestCommandeId = payload.idCommande;
 
-    const useOfflinePath = !getNetworkState().online || !isRemoteEntityId(wizard.resolvedClientId);
+    const useOfflinePath =
+      !getNetworkState().online || (wizard.mode === "existing" && !isRemoteEntityId(wizard.resolvedClientId));
     let normalized = null;
     if (useOfflinePath) {
       const created = await createOfflineCommande({
         atelierId,
-        clientId: wizard.resolvedClientId,
+        clientId: wizard.mode === "existing" ? wizard.resolvedClientId : "",
+        newClient: wizard.mode === "new" ? payload.nouveauClient : null,
         commande: payload
       });
+      if (created?.client) {
+        const normalizedClient = normalizeClient(created.client);
+        upsertClientRow(normalizedClient);
+        wizard.resolvedClientId = normalizedClient.idClient;
+      }
       normalized = normalizeCommande(created.commande);
       void requestSync(atelierId);
     } else {
-      const created = await atelierApi.createCommande(payload);
-      normalized = normalizeCommande(created);
+      const created = await submitCommandeWithDuplicateHandling(payload);
+      if (!created) return;
+      if (created?.client) {
+        const normalizedClient = normalizeClient(created.client);
+        upsertClientRow(normalizedClient);
+        wizard.resolvedClientId = normalizedClient.idClient;
+      }
+      normalized = normalizeCommande(created?.commande || created);
     }
     wizard.createdCommandeId = normalized.idCommande;
     wizard.createdFactureId = "";
@@ -15842,7 +16028,7 @@ async function loadRetoucheDetail(idRetouche) {
         </header>
 
         <section v-if="wizard.step === 1" class="modal-body modal-body-wizard">
-          <p class="helper">Selectionner un client existant ou creer un client minimal pour cette commande.</p>
+          <p class="helper">Selectionner un client existant ou renseigner un nouveau client. L'enregistrement final se fait uniquement a la creation de la commande.</p>
 
           <div class="segmented">
             <button class="mini-btn" :class="{ active: wizard.mode === 'existing' }" @click="wizard.mode = 'existing'">Client existant</button>
@@ -15916,6 +16102,29 @@ async function loadRetoucheDetail(idRetouche) {
             <input v-model="wizard.newClient.prenom" type="text" />
             <label>Telephone</label>
             <input v-model="wizard.newClient.telephone" type="text" />
+
+            <div v-if="wizardExactPhoneDuplicateClient || wizardProbableDuplicateClients.length > 0" class="client-insight-card">
+              <p class="client-insight-title">Verification doublon</p>
+              <template v-if="wizardExactPhoneDuplicateClient">
+                <p class="client-insight-selected">
+                  Ce numero appartient deja a {{ formatClientDisplayName(wizardExactPhoneDuplicateClient) }}.
+                </p>
+                <button class="mini-btn" type="button" @click="applyWizardExistingClient(wizardExactPhoneDuplicateClient)">
+                  Utiliser ce client
+                </button>
+              </template>
+              <template v-else>
+                <p>
+                  Des clients au meme nom existent deja. Au clic final, vous pourrez reutiliser le client, mettre a jour son numero ou confirmer un nouveau client.
+                </p>
+                <ul class="client-insight-list">
+                  <li v-for="client in wizardProbableDuplicateClients" :key="`cmd-dup-${client.idClient}`">
+                    {{ formatClientDisplayName(client) }} - {{ client.telephone || "Sans numero" }}
+                    <button class="mini-btn" type="button" @click="applyWizardExistingClient(client)">Utiliser</button>
+                  </li>
+                </ul>
+              </template>
+            </div>
           </div>
 
           <div class="modal-actions wizard-modal-actions">

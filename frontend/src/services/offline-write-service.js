@@ -251,17 +251,31 @@ export async function createOfflineClient({ atelierId, client } = {}) {
   };
 }
 
-export async function createOfflineCommande({ atelierId, clientId, commande } = {}) {
+export async function createOfflineCommande({ atelierId, clientId, newClient, commande } = {}) {
   const scopedAtelierId = ensureAtelierId(atelierId);
   const timestamp = nowIso();
   let resolvedClient = null;
+  let clientQueueEntry = null;
   let createdCommande = null;
   let queueEntry = null;
 
   await runOfflineTransaction("rw", [TABLE_NAMES.CLIENTS, TABLE_NAMES.COMMANDES, TABLE_NAMES.SYNC_QUEUE], async () => {
-    resolvedClient = await resolveClientRecord(scopedAtelierId, clientId);
-    if (!resolvedClient) {
-      throw new Error("Client introuvable pour la creation offline de commande.");
+    if (newClient) {
+      resolvedClient = await putScopedEntityRecord(TABLE_NAMES.CLIENTS, scopedAtelierId, buildClientRecord(newClient, timestamp));
+      clientQueueEntry = await enqueueInTransaction(scopedAtelierId, {
+        status: "pending",
+        entityType: "client",
+        actionType: OFFLINE_WRITE_ACTIONS.CREATE_CLIENT,
+        entityLocalId: resolvedClient.localId,
+        entityServerId: "",
+        dependsOn: [],
+        payload: buildCreateClientPayload(resolvedClient)
+      });
+    } else {
+      resolvedClient = await resolveClientRecord(scopedAtelierId, clientId);
+      if (!resolvedClient) {
+        throw new Error("Client introuvable pour la creation offline de commande.");
+      }
     }
 
     createdCommande = await putScopedEntityRecord(
@@ -270,7 +284,7 @@ export async function createOfflineCommande({ atelierId, clientId, commande } = 
       buildCommandeRecord(commande, resolvedClient, timestamp)
     );
 
-    const dependsOn = await resolveClientDependencyQueueIds(scopedAtelierId, resolvedClient);
+    const dependsOn = await resolveClientDependencyQueueIds(scopedAtelierId, resolvedClient, clientQueueEntry);
     queueEntry = await enqueueInTransaction(scopedAtelierId, {
       status: "pending",
       entityType: "commande",
@@ -284,6 +298,7 @@ export async function createOfflineCommande({ atelierId, clientId, commande } = 
 
   return {
     client: resolvedClient,
+    clientQueueEntry,
     commande: createdCommande,
     queueEntry
   };
