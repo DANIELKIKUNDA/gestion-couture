@@ -29,97 +29,104 @@ BEGIN
       )
     $sql$;
   END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'commande_media'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname = 'idx_commande_media_atelier_commande'
+    ) THEN
+      CREATE INDEX idx_commande_media_atelier_commande
+        ON public.commande_media (atelier_id, id_commande, position);
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname = 'idx_commande_media_commande'
+    ) THEN
+      CREATE INDEX idx_commande_media_commande
+        ON public.commande_media (id_commande);
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname = 'idx_commande_media_atelier_commande_position'
+    ) THEN
+      CREATE UNIQUE INDEX idx_commande_media_atelier_commande_position
+        ON public.commande_media (atelier_id, id_commande, position);
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname = 'idx_commande_media_primary_unique'
+    ) THEN
+      CREATE UNIQUE INDEX idx_commande_media_primary_unique
+        ON public.commande_media (atelier_id, id_commande)
+        WHERE is_primary = true;
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'commande_media_atelier_fk'
+    ) THEN
+      ALTER TABLE public.commande_media
+        ADD CONSTRAINT commande_media_atelier_fk
+        FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'commande_media_commande_atelier_fk'
+    ) THEN
+      ALTER TABLE public.commande_media
+        ADD CONSTRAINT commande_media_commande_atelier_fk
+        FOREIGN KEY (atelier_id, id_commande)
+        REFERENCES public.commandes(atelier_id, id_commande)
+        ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'commande_media_type_media_check'
+    ) THEN
+      ALTER TABLE public.commande_media
+        ADD CONSTRAINT commande_media_type_media_check
+        CHECK (type_media = 'IMAGE');
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'commande_media_position_check'
+    ) THEN
+      ALTER TABLE public.commande_media
+        DROP CONSTRAINT commande_media_position_check;
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'commande_media_position_check'
+    ) THEN
+      ALTER TABLE public.commande_media
+        ADD CONSTRAINT commande_media_position_check
+        CHECK (position BETWEEN 0 AND 3);
+    END IF;
+  END IF;
 END
-$$;
-
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'commande_media'
-  ) AND NOT EXISTS (
-    SELECT 1 FROM pg_indexes
-    WHERE schemaname = 'public' AND indexname = 'idx_commande_media_atelier_commande'
-  ) THEN
-    CREATE INDEX idx_commande_media_atelier_commande
-      ON public.commande_media (atelier_id, id_commande, position);
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'commande_media'
-  ) AND NOT EXISTS (
-    SELECT 1 FROM pg_indexes
-    WHERE schemaname = 'public' AND indexname = 'idx_commande_media_commande'
-  ) THEN
-    CREATE INDEX idx_commande_media_commande
-      ON public.commande_media (id_commande);
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'commande_media'
-  ) AND NOT EXISTS (
-    SELECT 1 FROM pg_indexes
-    WHERE schemaname = 'public' AND indexname = 'idx_commande_media_atelier_commande_position'
-  ) THEN
-    CREATE UNIQUE INDEX idx_commande_media_atelier_commande_position
-      ON public.commande_media (atelier_id, id_commande, position);
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'commande_media'
-  ) AND NOT EXISTS (
-    SELECT 1 FROM pg_indexes
-    WHERE schemaname = 'public' AND indexname = 'idx_commande_media_primary_unique'
-  ) THEN
-    CREATE UNIQUE INDEX idx_commande_media_primary_unique
-      ON public.commande_media (atelier_id, id_commande)
-      WHERE is_primary = true;
-  END IF;
-END
-$$;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'commande_media_atelier_fk'
-  ) THEN
-    ALTER TABLE commande_media
-      ADD CONSTRAINT commande_media_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
-  END IF;
-END $$;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'commande_media_commande_atelier_fk'
-  ) THEN
-    ALTER TABLE commande_media
-      ADD CONSTRAINT commande_media_commande_atelier_fk
-      FOREIGN KEY (atelier_id, id_commande)
-      REFERENCES commandes(atelier_id, id_commande)
-      ON DELETE CASCADE;
-  END IF;
-END $$;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'commande_media_type_media_check'
-  ) THEN
-    ALTER TABLE commande_media
-      ADD CONSTRAINT commande_media_type_media_check
-      CHECK (type_media = 'IMAGE');
-  END IF;
-END $$;
-
-DO $$
-BEGIN
-  ALTER TABLE commande_media DROP CONSTRAINT IF EXISTS commande_media_position_check;
-  ALTER TABLE commande_media
-    ADD CONSTRAINT commande_media_position_check
-    CHECK (position BETWEEN 0 AND 3);
-END $$;
+$$ LANGUAGE plpgsql;

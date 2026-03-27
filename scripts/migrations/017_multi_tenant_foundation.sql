@@ -17,20 +17,16 @@ BEGIN
       )
     $sql$;
   END IF;
-END
-$$;
 
-INSERT INTO ateliers (id_atelier, nom, slug, actif)
-VALUES ('ATELIER', 'Atelier historique', 'atelier-historique', true)
-ON CONFLICT (id_atelier) DO UPDATE
-SET
-  nom = EXCLUDED.nom,
-  slug = EXCLUDED.slug,
-  actif = EXCLUDED.actif,
-  updated_at = NOW();
+  INSERT INTO public.ateliers (id_atelier, nom, slug, actif)
+  VALUES ('ATELIER', 'Atelier historique', 'atelier-historique', true)
+  ON CONFLICT (id_atelier) DO UPDATE
+  SET
+    nom = EXCLUDED.nom,
+    slug = EXCLUDED.slug,
+    actif = EXCLUDED.actif,
+    updated_at = NOW();
 
-DO $$
-BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.tables
     WHERE table_schema = 'public' AND table_name = 'clients'
@@ -210,160 +206,368 @@ BEGIN
   ) THEN
     ALTER TABLE public.utilisateurs ADD COLUMN atelier_id TEXT NOT NULL DEFAULT 'ATELIER';
   END IF;
-END
-$$;
 
-UPDATE utilisateurs
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'utilisateurs'
+  ) THEN
+    UPDATE public.utilisateurs
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE clients
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) THEN
+    UPDATE public.clients
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE series_mesures sm
-SET atelier_id = COALESCE(NULLIF(c.atelier_id, ''), 'ATELIER')
-FROM clients c
-WHERE sm.id_client = c.id_client
-  AND (sm.atelier_id IS NULL OR sm.atelier_id = '');
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'series_mesures'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) THEN
+    UPDATE public.series_mesures sm
+    SET atelier_id = COALESCE(NULLIF(c.atelier_id, ''), 'ATELIER')
+    FROM public.clients c
+    WHERE sm.id_client = c.id_client
+      AND (sm.atelier_id IS NULL OR sm.atelier_id = '');
 
-UPDATE series_mesures
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+    UPDATE public.series_mesures
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE commandes
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) THEN
+    UPDATE public.commandes
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE commande_events ce
-SET atelier_id = COALESCE(NULLIF(c.atelier_id, ''), 'ATELIER')
-FROM commandes c
-WHERE ce.id_commande = c.id_commande
-  AND (ce.atelier_id IS NULL OR ce.atelier_id = '');
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_events'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) THEN
+    UPDATE public.commande_events ce
+    SET atelier_id = COALESCE(NULLIF(c.atelier_id, ''), 'ATELIER')
+    FROM public.commandes c
+    WHERE ce.id_commande = c.id_commande
+      AND (ce.atelier_id IS NULL OR ce.atelier_id = '');
 
-UPDATE commande_events
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+    UPDATE public.commande_events
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE retouches
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) THEN
+    UPDATE public.retouches
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE retouche_events re
-SET atelier_id = COALESCE(NULLIF(r.atelier_id, ''), 'ATELIER')
-FROM retouches r
-WHERE re.id_retouche = r.id_retouche
-  AND (re.atelier_id IS NULL OR re.atelier_id = '');
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouche_events'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) THEN
+    UPDATE public.retouche_events re
+    SET atelier_id = COALESCE(NULLIF(r.atelier_id, ''), 'ATELIER')
+    FROM public.retouches r
+    WHERE re.id_retouche = r.id_retouche
+      AND (re.atelier_id IS NULL OR re.atelier_id = '');
 
-UPDATE retouche_events
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+    UPDATE public.retouche_events
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE caisse_jour
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_jour'
+  ) THEN
+    UPDATE public.caisse_jour
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE caisse_operation co
-SET atelier_id = COALESCE(NULLIF(cj.atelier_id, ''), 'ATELIER')
-FROM caisse_jour cj
-WHERE co.id_caisse_jour = cj.id_caisse_jour
-  AND (co.atelier_id IS NULL OR co.atelier_id = '');
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_operation'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_jour'
+  ) THEN
+    UPDATE public.caisse_operation co
+    SET atelier_id = COALESCE(NULLIF(cj.atelier_id, ''), 'ATELIER')
+    FROM public.caisse_jour cj
+    WHERE co.id_caisse_jour = cj.id_caisse_jour
+      AND (co.atelier_id IS NULL OR co.atelier_id = '');
 
-UPDATE caisse_operation
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+    UPDATE public.caisse_operation
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE caisse_bilan
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_bilan'
+  ) THEN
+    UPDATE public.caisse_bilan
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE articles
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) THEN
+    UPDATE public.articles
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE mouvements_stock ms
-SET atelier_id = COALESCE(NULLIF(a.atelier_id, ''), 'ATELIER')
-FROM articles a
-WHERE ms.id_article = a.id_article
-  AND (ms.atelier_id IS NULL OR ms.atelier_id = '');
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'mouvements_stock'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) THEN
+    UPDATE public.mouvements_stock ms
+    SET atelier_id = COALESCE(NULLIF(a.atelier_id, ''), 'ATELIER')
+    FROM public.articles a
+    WHERE ms.id_article = a.id_article
+      AND (ms.atelier_id IS NULL OR ms.atelier_id = '');
 
-UPDATE mouvements_stock
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+    UPDATE public.mouvements_stock
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE fournisseurs
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'fournisseurs'
+  ) THEN
+    UPDATE public.fournisseurs
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE stock_prix_historique sph
-SET atelier_id = COALESCE(NULLIF(a.atelier_id, ''), 'ATELIER')
-FROM articles a
-WHERE sph.id_article = a.id_article
-  AND (sph.atelier_id IS NULL OR sph.atelier_id = '');
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'stock_prix_historique'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) THEN
+    UPDATE public.stock_prix_historique sph
+    SET atelier_id = COALESCE(NULLIF(a.atelier_id, ''), 'ATELIER')
+    FROM public.articles a
+    WHERE sph.id_article = a.id_article
+      AND (sph.atelier_id IS NULL OR sph.atelier_id = '');
 
-UPDATE stock_prix_historique
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+    UPDATE public.stock_prix_historique
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE ventes
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ventes'
+  ) THEN
+    UPDATE public.ventes
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE vente_lignes vl
-SET atelier_id = COALESCE(NULLIF(v.atelier_id, ''), 'ATELIER')
-FROM ventes v
-WHERE vl.id_vente = v.id_vente
-  AND (vl.atelier_id IS NULL OR vl.atelier_id = '');
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ventes'
+  ) THEN
+    UPDATE public.vente_lignes vl
+    SET atelier_id = COALESCE(NULLIF(v.atelier_id, ''), 'ATELIER')
+    FROM public.ventes v
+    WHERE vl.id_vente = v.id_vente
+      AND (vl.atelier_id IS NULL OR vl.atelier_id = '');
 
-UPDATE vente_lignes
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+    UPDATE public.vente_lignes
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE factures
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'factures'
+  ) THEN
+    UPDATE public.factures
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-UPDATE atelier_parametres
-SET atelier_id = 'ATELIER'
-WHERE atelier_id IS NULL OR atelier_id = '';
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'atelier_parametres'
+  ) THEN
+    UPDATE public.atelier_parametres
+    SET atelier_id = 'ATELIER'
+    WHERE atelier_id IS NULL OR atelier_id = '';
+  END IF;
 
-ALTER TABLE clients ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE clients ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE series_mesures ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE series_mesures ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE commandes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE commandes ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE commande_events ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE commande_events ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE retouches ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE retouches ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE retouche_events ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE retouche_events ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE caisse_jour ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE caisse_jour ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE caisse_operation ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE caisse_operation ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE caisse_bilan ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE caisse_bilan ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE articles ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE articles ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE mouvements_stock ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE mouvements_stock ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE fournisseurs ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE fournisseurs ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE stock_prix_historique ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE stock_prix_historique ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE ventes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE ventes ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE vente_lignes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE vente_lignes ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE factures ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE factures ALTER COLUMN atelier_id SET NOT NULL;
-ALTER TABLE atelier_parametres ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
-ALTER TABLE atelier_parametres ALTER COLUMN atelier_id SET NOT NULL;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) THEN
+    ALTER TABLE public.clients ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.clients ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
 
-DO $$
-BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'series_mesures'
+  ) THEN
+    ALTER TABLE public.series_mesures ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.series_mesures ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) THEN
+    ALTER TABLE public.commandes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.commandes ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_events'
+  ) THEN
+    ALTER TABLE public.commande_events ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.commande_events ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) THEN
+    ALTER TABLE public.retouches ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.retouches ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouche_events'
+  ) THEN
+    ALTER TABLE public.retouche_events ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.retouche_events ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_jour'
+  ) THEN
+    ALTER TABLE public.caisse_jour ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.caisse_jour ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_operation'
+  ) THEN
+    ALTER TABLE public.caisse_operation ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.caisse_operation ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_bilan'
+  ) THEN
+    ALTER TABLE public.caisse_bilan ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.caisse_bilan ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) THEN
+    ALTER TABLE public.articles ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.articles ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'mouvements_stock'
+  ) THEN
+    ALTER TABLE public.mouvements_stock ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.mouvements_stock ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'fournisseurs'
+  ) THEN
+    ALTER TABLE public.fournisseurs ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.fournisseurs ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'stock_prix_historique'
+  ) THEN
+    ALTER TABLE public.stock_prix_historique ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.stock_prix_historique ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ventes'
+  ) THEN
+    ALTER TABLE public.ventes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.ventes ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes'
+  ) THEN
+    ALTER TABLE public.vente_lignes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.vente_lignes ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'factures'
+  ) THEN
+    ALTER TABLE public.factures ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.factures ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'atelier_parametres'
+  ) THEN
+    ALTER TABLE public.atelier_parametres ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE public.atelier_parametres ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
   IF EXISTS (
     SELECT 1 FROM information_schema.tables
     WHERE table_schema = 'public' AND table_name = 'clients'
@@ -534,4 +738,4 @@ BEGIN
     CREATE INDEX idx_atelier_parametres_atelier_id ON public.atelier_parametres (atelier_id);
   END IF;
 END
-$$;
+$$ LANGUAGE plpgsql;

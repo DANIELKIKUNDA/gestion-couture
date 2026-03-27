@@ -40,4 +40,4 @@ BEGIN
     END IF;
   END IF;
 END
-$$;
+$$ LANGUAGE plpgsql;

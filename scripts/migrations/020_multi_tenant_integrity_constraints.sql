@@ -186,378 +186,479 @@ BEGIN
     CREATE INDEX idx_vente_lignes_atelier_article
       ON public.vente_lignes (atelier_id, id_article);
   END IF;
-END
-$$;
 
-INSERT INTO clients (id_client, atelier_id, nom, prenom, telephone, adresse, sexe, actif, date_creation)
-SELECT
-  missing.id_client,
-  missing.atelier_id,
-  'Client migration',
-  'Placeholder',
-  CONCAT('MIG-', missing.atelier_id, '-', missing.id_client),
-  NULL,
-  NULL,
-  true,
-  NOW()
-FROM (
-  SELECT DISTINCT s.atelier_id, s.id_client
-  FROM series_mesures s
-  WHERE NOT EXISTS (
-    SELECT 1
-    FROM clients c
-    WHERE c.atelier_id = s.atelier_id
-      AND c.id_client = s.id_client
-  )
-  UNION
-  SELECT DISTINCT c.atelier_id, c.id_client
-  FROM commandes c
-  WHERE NOT EXISTS (
-    SELECT 1
-    FROM clients cl
-    WHERE cl.atelier_id = c.atelier_id
-      AND cl.id_client = c.id_client
-  )
-  UNION
-  SELECT DISTINCT r.atelier_id, r.id_client
-  FROM retouches r
-  WHERE NOT EXISTS (
-    SELECT 1
-    FROM clients cl
-    WHERE cl.atelier_id = r.atelier_id
-      AND cl.id_client = r.id_client
-  )
-) AS missing
-ON CONFLICT (id_client) DO NOTHING;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'series_mesures'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) THEN
+    INSERT INTO public.clients (id_client, atelier_id, nom, prenom, telephone, adresse, sexe, actif, date_creation)
+    SELECT
+      missing.id_client,
+      missing.atelier_id,
+      'Client migration',
+      'Placeholder',
+      CONCAT('MIG-', missing.atelier_id, '-', missing.id_client),
+      NULL,
+      NULL,
+      true,
+      NOW()
+    FROM (
+      SELECT DISTINCT s.atelier_id, s.id_client
+      FROM public.series_mesures s
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM public.clients c
+        WHERE c.atelier_id = s.atelier_id
+          AND c.id_client = s.id_client
+      )
+      UNION
+      SELECT DISTINCT c.atelier_id, c.id_client
+      FROM public.commandes c
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM public.clients cl
+        WHERE cl.atelier_id = c.atelier_id
+          AND cl.id_client = c.id_client
+      )
+      UNION
+      SELECT DISTINCT r.atelier_id, r.id_client
+      FROM public.retouches r
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM public.clients cl
+        WHERE cl.atelier_id = r.atelier_id
+          AND cl.id_client = r.id_client
+      )
+    ) AS missing
+    ON CONFLICT (id_client) DO NOTHING;
+  END IF;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'clients_atelier_fk'
   ) THEN
-    ALTER TABLE clients
+    ALTER TABLE public.clients
       ADD CONSTRAINT clients_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'series_mesures'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'series_mesures_atelier_fk'
   ) THEN
-    ALTER TABLE series_mesures
+    ALTER TABLE public.series_mesures
       ADD CONSTRAINT series_mesures_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'commandes_atelier_fk'
   ) THEN
-    ALTER TABLE commandes
+    ALTER TABLE public.commandes
       ADD CONSTRAINT commandes_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_events'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'commande_events_atelier_fk'
   ) THEN
-    ALTER TABLE commande_events
+    ALTER TABLE public.commande_events
       ADD CONSTRAINT commande_events_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'retouches_atelier_fk'
   ) THEN
-    ALTER TABLE retouches
+    ALTER TABLE public.retouches
       ADD CONSTRAINT retouches_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouche_events'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'retouche_events_atelier_fk'
   ) THEN
-    ALTER TABLE retouche_events
+    ALTER TABLE public.retouche_events
       ADD CONSTRAINT retouche_events_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_jour'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'caisse_jour_atelier_fk'
   ) THEN
-    ALTER TABLE caisse_jour
+    ALTER TABLE public.caisse_jour
       ADD CONSTRAINT caisse_jour_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_operation'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'caisse_operation_atelier_fk'
   ) THEN
-    ALTER TABLE caisse_operation
+    ALTER TABLE public.caisse_operation
       ADD CONSTRAINT caisse_operation_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_bilan'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'caisse_bilan_atelier_fk'
   ) THEN
-    ALTER TABLE caisse_bilan
+    ALTER TABLE public.caisse_bilan
       ADD CONSTRAINT caisse_bilan_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'articles_atelier_fk'
   ) THEN
-    ALTER TABLE articles
+    ALTER TABLE public.articles
       ADD CONSTRAINT articles_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'mouvements_stock'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'mouvements_stock_atelier_fk'
   ) THEN
-    ALTER TABLE mouvements_stock
+    ALTER TABLE public.mouvements_stock
       ADD CONSTRAINT mouvements_stock_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'fournisseurs'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'fournisseurs_atelier_fk'
   ) THEN
-    ALTER TABLE fournisseurs
+    ALTER TABLE public.fournisseurs
       ADD CONSTRAINT fournisseurs_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'stock_prix_historique'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'stock_prix_historique_atelier_fk'
   ) THEN
-    ALTER TABLE stock_prix_historique
+    ALTER TABLE public.stock_prix_historique
       ADD CONSTRAINT stock_prix_historique_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ventes'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'ventes_atelier_fk'
   ) THEN
-    ALTER TABLE ventes
+    ALTER TABLE public.ventes
       ADD CONSTRAINT ventes_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'vente_lignes_atelier_fk'
   ) THEN
-    ALTER TABLE vente_lignes
+    ALTER TABLE public.vente_lignes
       ADD CONSTRAINT vente_lignes_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'factures'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'factures_atelier_fk'
   ) THEN
-    ALTER TABLE factures
+    ALTER TABLE public.factures
       ADD CONSTRAINT factures_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'atelier_parametres'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'atelier_parametres_atelier_fk'
   ) THEN
-    ALTER TABLE atelier_parametres
+    ALTER TABLE public.atelier_parametres
       ADD CONSTRAINT atelier_parametres_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'utilisateurs'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'utilisateurs_atelier_fk'
-  ) AND to_regclass('utilisateurs') IS NOT NULL THEN
-    ALTER TABLE utilisateurs
+  ) THEN
+    ALTER TABLE public.utilisateurs
       ADD CONSTRAINT utilisateurs_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'role_permission_atelier'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ateliers'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'role_permission_atelier_atelier_fk'
-  ) AND to_regclass('role_permission_atelier') IS NOT NULL THEN
-    ALTER TABLE role_permission_atelier
+  ) THEN
+    ALTER TABLE public.role_permission_atelier
       ADD CONSTRAINT role_permission_atelier_atelier_fk
-      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+      FOREIGN KEY (atelier_id) REFERENCES public.ateliers(id_atelier);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'series_mesures'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'series_mesures_client_atelier_fk'
   ) THEN
-    ALTER TABLE series_mesures
+    ALTER TABLE public.series_mesures
       ADD CONSTRAINT series_mesures_client_atelier_fk
       FOREIGN KEY (atelier_id, id_client)
-      REFERENCES clients(atelier_id, id_client);
+      REFERENCES public.clients(atelier_id, id_client);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'commandes_client_atelier_fk'
   ) THEN
-    ALTER TABLE commandes
+    ALTER TABLE public.commandes
       ADD CONSTRAINT commandes_client_atelier_fk
       FOREIGN KEY (atelier_id, id_client)
-      REFERENCES clients(atelier_id, id_client);
+      REFERENCES public.clients(atelier_id, id_client);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commande_events'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'commandes'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'commande_events_commande_atelier_fk'
   ) THEN
-    ALTER TABLE commande_events
+    ALTER TABLE public.commande_events
       ADD CONSTRAINT commande_events_commande_atelier_fk
       FOREIGN KEY (atelier_id, id_commande)
-      REFERENCES commandes(atelier_id, id_commande)
+      REFERENCES public.commandes(atelier_id, id_commande)
       ON DELETE CASCADE;
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'retouches_client_atelier_fk'
   ) THEN
-    ALTER TABLE retouches
+    ALTER TABLE public.retouches
       ADD CONSTRAINT retouches_client_atelier_fk
       FOREIGN KEY (atelier_id, id_client)
-      REFERENCES clients(atelier_id, id_client);
+      REFERENCES public.clients(atelier_id, id_client);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouche_events'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'retouches'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'retouche_events_retouche_atelier_fk'
   ) THEN
-    ALTER TABLE retouche_events
+    ALTER TABLE public.retouche_events
       ADD CONSTRAINT retouche_events_retouche_atelier_fk
       FOREIGN KEY (atelier_id, id_retouche)
-      REFERENCES retouches(atelier_id, id_retouche)
+      REFERENCES public.retouches(atelier_id, id_retouche)
       ON DELETE CASCADE;
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_operation'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'caisse_jour'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'caisse_operation_caisse_atelier_fk'
   ) THEN
-    ALTER TABLE caisse_operation
+    ALTER TABLE public.caisse_operation
       ADD CONSTRAINT caisse_operation_caisse_atelier_fk
       FOREIGN KEY (atelier_id, id_caisse_jour)
-      REFERENCES caisse_jour(atelier_id, id_caisse_jour);
+      REFERENCES public.caisse_jour(atelier_id, id_caisse_jour);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'mouvements_stock'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'mouvements_stock_article_atelier_fk'
   ) THEN
-    ALTER TABLE mouvements_stock
+    ALTER TABLE public.mouvements_stock
       ADD CONSTRAINT mouvements_stock_article_atelier_fk
       FOREIGN KEY (atelier_id, id_article)
-      REFERENCES articles(atelier_id, id_article);
+      REFERENCES public.articles(atelier_id, id_article);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'stock_prix_historique'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'stock_prix_historique_article_atelier_fk'
   ) THEN
-    ALTER TABLE stock_prix_historique
+    ALTER TABLE public.stock_prix_historique
       ADD CONSTRAINT stock_prix_historique_article_atelier_fk
       FOREIGN KEY (atelier_id, id_article)
-      REFERENCES articles(atelier_id, id_article);
+      REFERENCES public.articles(atelier_id, id_article);
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ventes'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'vente_lignes_vente_atelier_fk'
   ) THEN
-    ALTER TABLE vente_lignes
+    ALTER TABLE public.vente_lignes
       ADD CONSTRAINT vente_lignes_vente_atelier_fk
       FOREIGN KEY (atelier_id, id_vente)
-      REFERENCES ventes(atelier_id, id_vente)
+      REFERENCES public.ventes(atelier_id, id_vente)
       ON DELETE CASCADE;
   END IF;
-END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'vente_lignes_article_atelier_fk'
   ) THEN
-    ALTER TABLE vente_lignes
+    ALTER TABLE public.vente_lignes
       ADD CONSTRAINT vente_lignes_article_atelier_fk
       FOREIGN KEY (atelier_id, id_article)
-      REFERENCES articles(atelier_id, id_article);
+      REFERENCES public.articles(atelier_id, id_article);
   END IF;
-END $$;
+END
+$$ LANGUAGE plpgsql;
