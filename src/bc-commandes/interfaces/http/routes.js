@@ -168,14 +168,14 @@ async function enregistrerEvenementCommande({
   ancienStatut = null,
   nouveauStatut = null,
   payload = {}
-}) {
+}, db = pool) {
   const eventPayload = {
     utilisateur,
     ancienStatut,
     nouveauStatut,
     ...payload
   };
-  await pool.query(
+  await db.query(
     `INSERT INTO commande_events (id_event, atelier_id, id_commande, type_event, payload, date_event)
      VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
     [randomUUID(), atelierId, idCommande, typeEvent, JSON.stringify(eventPayload)]
@@ -624,6 +624,7 @@ router.get("/commandes/:id/paiements", requireCommandeReadAccess, async (req, re
 router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
   const schema = z
     .object({
+      idCommande: z.string().min(1).optional(),
       idClient: z.string().min(1),
       descriptionCommande: z.string().min(1),
       montantTotal: z.coerce.number(),
@@ -640,17 +641,28 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
   const r2 = requireNumber(body, "montantTotal");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
 
+  const dbClient = await pool.connect();
   try {
     const acteur = resolveActeur(req);
     const policyMeta = await loadCommandePolicy("commandes.create", req);
     const policyInput = policyMeta.payload || { commandes: policyMeta.policy };
+    const repo = scopedCommandeRepo(req).withExecutor(dbClient);
+    const requestedIdCommande = String(body.idCommande || "").trim();
+    if (requestedIdCommande) {
+      const existingCommande = await repo.getById(requestedIdCommande);
+      if (existingCommande) {
+        return res.status(200).json(existingCommande);
+      }
+    }
+
+    await dbClient.query("BEGIN");
     const commande = creerCommande({
       ...body,
-      idCommande: generateCommandeId()
+      idCommande: requestedIdCommande || generateCommandeId()
     }, {
       policy: policyInput
     });
-    await scopedCommandeRepo(req).save(commande);
+    await repo.save(commande);
     await enregistrerEvenementCommande({
       atelierId: atelierIdFromReq(req),
       idCommande: commande.idCommande,
@@ -663,7 +675,8 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
         role: acteur.role,
         montantTotal: Number(commande.montantTotal || 0)
       }
-    });
+    }, dbClient);
+    await dbClient.query("COMMIT");
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
       role: acteur.role,
@@ -677,7 +690,10 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     });
     res.status(201).json(commande);
   } catch (err) {
+    await dbClient.query("ROLLBACK").catch(() => {});
     res.status(400).json({ error: err.message });
+  } finally {
+    dbClient.release();
   }
 });
 

@@ -2,16 +2,21 @@
 import { Retouche } from "../../domain/retouche.js";
 
 export class RetoucheRepoPg {
-  constructor(atelierId = "ATELIER") {
+  constructor(atelierId = "ATELIER", db = pool) {
     this.atelierId = String(atelierId || "ATELIER");
+    this.db = db;
   }
 
   forAtelier(atelierId) {
-    return new RetoucheRepoPg(atelierId);
+    return new RetoucheRepoPg(atelierId, this.db);
+  }
+
+  withExecutor(db) {
+    return new RetoucheRepoPg(this.atelierId, db || pool);
   }
 
   async getById(idRetouche) {
-    const res = await pool.query(
+    const res = await this.db.query(
       "SELECT id_retouche, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM retouches WHERE id_retouche = $1 AND atelier_id = $2",
       [idRetouche, this.atelierId]
     );
@@ -35,7 +40,7 @@ export class RetoucheRepoPg {
   }
 
   async save(retouche) {
-    await pool.query(
+    await this.db.query(
       `INSERT INTO retouches (id_retouche, atelier_id, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (id_retouche)

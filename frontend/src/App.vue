@@ -17,6 +17,7 @@ import {
 } from "./services/media-local-store.js";
 import { createOfflineClient, createOfflineCommande, createOfflineRetouche } from "./services/offline-write-service.js";
 import { getNetworkState, subscribeToNetworkState, useNetwork } from "./services/network-service.js";
+import { createServerClientId, createServerCommandeId, createServerRetoucheId } from "./services/server-id.js";
 import {
   applyPwaUpdate,
   dismissPwaOfflineReady,
@@ -339,6 +340,7 @@ const wizard = reactive({
   mode: "existing",
   existingClientId: "",
   resolvedClientId: "",
+  requestCommandeId: "",
   createdCommandeId: "",
   createdFactureId: "",
   submitting: false,
@@ -363,6 +365,8 @@ const retoucheWizard = reactive({
   mode: "existing",
   existingClientId: "",
   resolvedClientId: "",
+  requestRetoucheId: "",
+  requestNewClientId: "",
   createdRetoucheId: "",
   createdFactureId: "",
   submitting: false,
@@ -8744,6 +8748,7 @@ function resetWizard() {
   wizard.mode = "existing";
   wizard.existingClientId = "";
   wizard.resolvedClientId = "";
+  wizard.requestCommandeId = "";
   wizard.createdCommandeId = "";
   wizard.createdFactureId = "";
   wizard.submitting = false;
@@ -8779,6 +8784,8 @@ function resetRetoucheWizard() {
   retoucheWizard.mode = "existing";
   retoucheWizard.existingClientId = "";
   retoucheWizard.resolvedClientId = "";
+  retoucheWizard.requestRetoucheId = "";
+  retoucheWizard.requestNewClientId = "";
   retoucheWizard.createdRetoucheId = "";
   retoucheWizard.createdFactureId = "";
   retoucheWizard.submitting = false;
@@ -8917,6 +8924,7 @@ function onRetoucheClientSearchKeydown(event) {
 }
 
 async function onWizardStep1() {
+  if (wizard.submitting) return;
   wizard.submitting = true;
   try {
     if (wizard.mode === "existing") {
@@ -8960,6 +8968,7 @@ async function onWizardStep1() {
 }
 
 async function onWizardStep2() {
+  if (wizard.submitting) return;
   wizard.submitting = true;
   try {
     if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
@@ -8985,6 +8994,7 @@ async function onWizardStep2() {
     });
 
     const payload = {
+      idCommande: wizard.requestCommandeId || createServerCommandeId(),
       idClient: wizard.resolvedClientId,
       descriptionCommande: wizard.commande.descriptionCommande,
       montantTotal: montant,
@@ -8993,6 +9003,7 @@ async function onWizardStep2() {
     };
 
     if (wizard.commande.datePrevue) payload.datePrevue = `${wizard.commande.datePrevue}T00:00:00.000Z`;
+    wizard.requestCommandeId = payload.idCommande;
 
     const useOfflinePath = !getNetworkState().online || !isRemoteEntityId(wizard.resolvedClientId);
     let normalized = null;
@@ -9003,23 +9014,34 @@ async function onWizardStep2() {
         commande: payload
       });
       normalized = normalizeCommande(created.commande);
-      notify("Commande enregistree hors ligne.");
       void requestSync(atelierId);
     } else {
       const created = await atelierApi.createCommande(payload);
       normalized = normalizeCommande(created);
-      notify("Commande enregistree.");
     }
     wizard.createdCommandeId = normalized.idCommande;
     wizard.createdFactureId = "";
     prependCommandeRow(normalized);
-    if (!useOfflinePath && wizard.commande.emettreFacture === true) {
-      const facture = await emettreFactureDepuisOrigine("COMMANDE", normalized.idCommande, { ouvrirDetail: false });
-      wizard.createdFactureId = facture.idFacture || facture.id_facture || "";
-    } else if (useOfflinePath && wizard.commande.emettreFacture === true) {
-      notify("La facture sera disponible apres la synchronisation de la commande.");
+    closeWizard();
+    await openCommandeDetail(normalized.idCommande);
+
+    if (useOfflinePath && wizard.commande.emettreFacture === true) {
+      notify("Commande creee avec succes. La facture sera disponible apres la synchronisation.");
+      return;
     }
-    wizard.step = 3;
+
+    if (wizard.commande.emettreFacture === true) {
+      try {
+        const facture = await emettreFactureDepuisOrigine("COMMANDE", normalized.idCommande, { ouvrirDetail: false });
+        wizard.createdFactureId = facture.idFacture || facture.id_facture || "";
+        notify("Commande creee avec succes. Facture emise.");
+      } catch {
+        notify("Commande creee avec succes, mais impossible de creer la facture.");
+      }
+      return;
+    }
+
+    notify(useOfflinePath ? "Commande creee hors ligne avec succes." : "Commande creee avec succes.");
   } catch (err) {
     notify(readableError(err));
   } finally {
@@ -9028,6 +9050,7 @@ async function onWizardStep2() {
 }
 
 async function onRetoucheWizardStep1() {
+  if (retoucheWizard.submitting) return;
   retoucheWizard.submitting = true;
   try {
     if (retoucheWizard.mode === "existing") {
@@ -9053,6 +9076,7 @@ async function onRetoucheWizardStep1() {
 }
 
 async function onRetoucheWizardStep2() {
+  if (retoucheWizard.submitting) return;
   retoucheWizard.submitting = true;
   try {
     if (!canCreateRetouche.value) throw new Error("Creation de retouche non autorisee.");
@@ -9084,6 +9108,7 @@ async function onRetoucheWizardStep2() {
     }
 
     const payload = {
+      idRetouche: retoucheWizard.requestRetoucheId || createServerRetoucheId(),
       descriptionRetouche: String(retoucheWizard.retouche.descriptionRetouche || "").trim(),
       typeRetouche: retoucheWizard.retouche.typeRetouche,
       montantTotal: montant,
@@ -9094,7 +9119,10 @@ async function onRetoucheWizardStep2() {
       if (!retoucheWizard.resolvedClientId) throw new Error("Client non resolu.");
       payload.idClient = retoucheWizard.resolvedClientId;
     } else {
+      const requestedClientId = retoucheWizard.requestNewClientId || createServerClientId();
+      retoucheWizard.requestNewClientId = requestedClientId;
       payload.nouveauClient = {
+        idClient: requestedClientId,
         nom: String(retoucheWizard.newClient.nom || "").trim(),
         prenom: String(retoucheWizard.newClient.prenom || "").trim(),
         telephone: String(retoucheWizard.newClient.telephone || "").trim()
@@ -9102,6 +9130,7 @@ async function onRetoucheWizardStep2() {
     }
 
     if (retoucheWizard.retouche.datePrevue) payload.datePrevue = `${retoucheWizard.retouche.datePrevue}T00:00:00.000Z`;
+    retoucheWizard.requestRetoucheId = payload.idRetouche;
 
     const useOfflinePath =
       !getNetworkState().online || (retoucheWizard.mode === "existing" && !isRemoteEntityId(retoucheWizard.resolvedClientId));
@@ -9120,7 +9149,6 @@ async function onRetoucheWizardStep2() {
         retoucheWizard.resolvedClientId = normalizedClient.idClient;
       }
       normalized = normalizeRetouche(created.retouche);
-      notify("Retouche enregistree hors ligne.");
       void requestSync(atelierId);
     } else {
       const created = await atelierApi.createRetoucheWizard(payload);
@@ -9130,18 +9158,30 @@ async function onRetoucheWizardStep2() {
         retoucheWizard.resolvedClientId = normalizedClient.idClient;
       }
       normalized = normalizeRetouche(created.retouche || created);
-      notify("Retouche enregistree.");
     }
     retoucheWizard.createdRetoucheId = normalized.idRetouche;
     retoucheWizard.createdFactureId = "";
     prependRetoucheRow(normalized);
-    if (!useOfflinePath && retoucheWizard.retouche.emettreFacture === true) {
-      const facture = await emettreFactureDepuisOrigine("RETOUCHE", normalized.idRetouche, { ouvrirDetail: false });
-      retoucheWizard.createdFactureId = facture.idFacture || facture.id_facture || "";
-    } else if (useOfflinePath && retoucheWizard.retouche.emettreFacture === true) {
-      notify("La facture sera disponible apres la synchronisation de la retouche.");
+    closeRetoucheWizard();
+    await openRetoucheDetail(normalized.idRetouche);
+
+    if (useOfflinePath && retoucheWizard.retouche.emettreFacture === true) {
+      notify("Retouche creee avec succes. La facture sera disponible apres la synchronisation.");
+      return;
     }
-    retoucheWizard.step = 3;
+
+    if (retoucheWizard.retouche.emettreFacture === true) {
+      try {
+        const facture = await emettreFactureDepuisOrigine("RETOUCHE", normalized.idRetouche, { ouvrirDetail: false });
+        retoucheWizard.createdFactureId = facture.idFacture || facture.id_facture || "";
+        notify("Retouche creee avec succes. Facture emise.");
+      } catch {
+        notify("Retouche creee avec succes, mais impossible de creer la facture.");
+      }
+      return;
+    }
+
+    notify(useOfflinePath ? "Retouche creee hors ligne avec succes." : "Retouche creee avec succes.");
   } catch (err) {
     notify(readableError(err));
   } finally {
@@ -10028,6 +10068,7 @@ function closeFactureEmission() {
 }
 
 async function confirmerEmissionFacture() {
+  if (factureEmission.submitting) return;
   if (!factureEmission.idOrigine) {
     notify("Selectionne une origine.");
     return;

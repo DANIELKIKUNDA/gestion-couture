@@ -129,14 +129,14 @@ async function enregistrerEvenementRetouche({
   ancienStatut = null,
   nouveauStatut = null,
   payload = {}
-}) {
+}, db = pool) {
   const eventPayload = {
     utilisateur,
     ancienStatut,
     nouveauStatut,
     ...payload
   };
-  await pool.query(
+  await db.query(
     `INSERT INTO retouche_events (id_event, atelier_id, id_retouche, type_event, payload, date_event)
      VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
     [randomUUID(), atelierId, idRetouche, typeEvent, JSON.stringify(eventPayload)]
@@ -386,6 +386,7 @@ router.get("/retouches/:id/paiements", requireRetoucheReadAccess, async (req, re
 router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
   const schema = z
     .object({
+      idRetouche: z.string().min(1).optional(),
       idClient: z.string().min(1),
       descriptionRetouche: z.string().optional(),
       typeRetouche: z.string().min(1),
@@ -402,9 +403,18 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
   const r2 = requireNumber(body, "montantTotal");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
 
+  const dbClient = await pool.connect();
   try {
     const acteur = resolveActeur(req);
     const policy = await loadRetouchePolicy({ req });
+    const repo = scopedRetoucheRepo(req).withExecutor(dbClient);
+    const requestedIdRetouche = String(body.idRetouche || "").trim();
+    if (requestedIdRetouche) {
+      const existingRetouche = await repo.getById(requestedIdRetouche);
+      if (existingRetouche) {
+        return res.status(200).json(existingRetouche);
+      }
+    }
     const typeDefinition = getTypeRetoucheDefinition(body.typeRetouche, policy);
     const habitCompatible = isRetoucheHabitCompatible(typeDefinition, body.typeHabit);
     if (!habitCompatible) throw new Error("Type d'habit incompatible avec ce type de retouche");
@@ -417,13 +427,14 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     if (measuresRequired && measureDefinitions.length === 0) {
       throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche.");
     }
+    await dbClient.query("BEGIN");
     const retouche = deposerRetouche({
       ...body,
-      idRetouche: generateRetoucheId()
+      idRetouche: requestedIdRetouche || generateRetoucheId()
     }, {
       policy: { retouches: policy }
     });
-    await scopedRetoucheRepo(req).save(retouche);
+    await repo.save(retouche);
     await enregistrerEvenementRetouche({
       atelierId: atelierIdFromReq(req),
       idRetouche: retouche.idRetouche,
@@ -439,7 +450,8 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
         necessiteMesures: measuresRequired,
         mesures: mesureTargets
       }
-    });
+    }, dbClient);
+    await dbClient.query("COMMIT");
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
       role: acteur.role,
@@ -453,16 +465,21 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     });
     res.status(201).json(retouche);
   } catch (err) {
+    await dbClient.query("ROLLBACK").catch(() => {});
     res.status(400).json({ error: err.message });
+  } finally {
+    dbClient.release();
   }
 });
 
 router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) => {
   const schema = z
     .object({
+      idRetouche: z.string().min(1).optional(),
       idClient: z.string().min(1).optional(),
       nouveauClient: z
         .object({
+          idClient: z.string().min(1).optional(),
           nom: z.string().min(1),
           prenom: z.string().min(1),
           telephone: z.string().min(1)
@@ -493,6 +510,17 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
   try {
     const acteur = resolveActeur(req);
     const policy = await loadRetouchePolicy({ req });
+    const repo = scopedRetoucheRepo(req).withExecutor(dbClient);
+    const requestedIdRetouche = String(body.idRetouche || "").trim();
+    if (requestedIdRetouche) {
+      const existingRetouche = await repo.getById(requestedIdRetouche);
+      if (existingRetouche) {
+        return res.status(200).json({
+          retouche: existingRetouche,
+          client: null
+        });
+      }
+    }
     const typeDefinition = getTypeRetoucheDefinition(body.typeRetouche, policy);
     if (!isRetoucheHabitCompatible(typeDefinition, body.typeHabit)) {
       throw new Error("Type d'habit incompatible avec ce type de retouche");
@@ -512,9 +540,10 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     let createdClient = null;
     let idClient = String(body.idClient || "").trim();
     if (!idClient) {
+      const requestedIdClient = String(body.nouveauClient?.idClient || "").trim();
       createdClient = creerClient({
         ...body.nouveauClient,
-        idClient: generateClientId()
+        idClient: requestedIdClient || generateClientId()
       });
       idClient = createdClient.idClient;
       await dbClient.query(
@@ -537,7 +566,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     const retouche = deposerRetouche({
       ...body,
       idClient,
-      idRetouche: generateRetoucheId()
+      idRetouche: requestedIdRetouche || generateRetoucheId()
     }, {
       policy: { retouches: policy }
     });
@@ -591,7 +620,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
       client: createdClient
     });
   } catch (err) {
-    await dbClient.query("ROLLBACK");
+    await dbClient.query("ROLLBACK").catch(() => {});
     return res.status(400).json({ error: err.message });
   } finally {
     dbClient.release();

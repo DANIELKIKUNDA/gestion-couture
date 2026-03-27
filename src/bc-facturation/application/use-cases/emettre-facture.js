@@ -29,6 +29,14 @@ export async function emettreFacture({ input, factureRepo, origineReader, now = 
     lignes: origine.lignes
   });
 
-  await factureRepo.save(facture);
-  return facture;
+  try {
+    await factureRepo.save(facture);
+    return facture;
+  } catch (err) {
+    if (String(err?.code || "").trim() === "23505") {
+      const duplicate = await factureRepo.getByOrigine(typeOrigine, idOrigine);
+      if (duplicate) return duplicate;
+    }
+    throw err;
+  }
 }

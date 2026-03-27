@@ -2,12 +2,17 @@
 import { Commande } from "../../domain/commande.js";
 
 export class CommandeRepoPg {
-  constructor(atelierId = "ATELIER") {
+  constructor(atelierId = "ATELIER", db = pool) {
     this.atelierId = String(atelierId || "ATELIER");
+    this.db = db;
   }
 
   forAtelier(atelierId) {
-    return new CommandeRepoPg(atelierId);
+    return new CommandeRepoPg(atelierId, this.db);
+  }
+
+  withExecutor(db) {
+    return new CommandeRepoPg(this.atelierId, db || pool);
   }
 
   async existsByTypeHabit(typeHabit) {
@@ -19,7 +24,7 @@ export class CommandeRepoPg {
 
   // Fetch a Commande by ID and rehydrate the aggregate
   async getById(idCommande) {
-    const res = await pool.query(
+    const res = await this.db.query(
       "SELECT id_commande, id_client, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM commandes WHERE id_commande = $1 AND atelier_id = $2",
       [idCommande, this.atelierId]
     );
@@ -43,7 +48,7 @@ export class CommandeRepoPg {
 
   // Upsert Commande
   async save(commande) {
-    await pool.query(
+    await this.db.query(
       `INSERT INTO commandes (id_commande, atelier_id, id_client, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        ON CONFLICT (id_commande)

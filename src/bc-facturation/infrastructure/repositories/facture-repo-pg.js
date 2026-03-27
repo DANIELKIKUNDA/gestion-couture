@@ -14,7 +14,7 @@ const OPERATIONS_SQL = `
       )
     )
     FROM caisse_operation op
-    WHERE op.reference_metier = COALESCE(f.id_origine, f.id_reference)
+    WHERE op.reference_metier = f.id_origine
       AND op.atelier_id = f.atelier_id
   ), '[]'::jsonb) AS operations_caisse
 `;
@@ -85,8 +85,8 @@ export class FactureRepoPg {
     const res = await pool.query(
       `SELECT f.id_facture,
               f.numero_facture,
-              COALESCE(f.type_origine, f.type_reference) AS type_origine,
-              COALESCE(f.id_origine, f.id_reference) AS id_origine,
+              f.type_origine,
+              f.id_origine,
               ${CLIENT_SNAPSHOT_SQL},
               COALESCE(f.date_emission, NOW()) AS date_emission,
               f.montant_total,
@@ -109,8 +109,8 @@ export class FactureRepoPg {
     const res = await pool.query(
       `SELECT f.id_facture,
               f.numero_facture,
-              COALESCE(f.type_origine, f.type_reference) AS type_origine,
-              COALESCE(f.id_origine, f.id_reference) AS id_origine,
+              f.type_origine,
+              f.id_origine,
               ${CLIENT_SNAPSHOT_SQL},
               COALESCE(f.date_emission, NOW()) AS date_emission,
               f.montant_total,
@@ -132,8 +132,8 @@ export class FactureRepoPg {
     const res = await pool.query(
       `SELECT f.id_facture,
               f.numero_facture,
-              COALESCE(f.type_origine, f.type_reference) AS type_origine,
-              COALESCE(f.id_origine, f.id_reference) AS id_origine,
+              f.type_origine,
+              f.id_origine,
               ${CLIENT_SNAPSHOT_SQL},
               COALESCE(f.date_emission, NOW()) AS date_emission,
               f.montant_total,
@@ -145,7 +145,7 @@ export class FactureRepoPg {
               ${OPERATIONS_SQL}
        FROM factures f
        WHERE f.atelier_id = $1
-         AND COALESCE(f.type_origine, f.type_reference) IN ('COMMANDE', 'RETOUCHE', 'VENTE')
+         AND f.type_origine IN ('COMMANDE', 'RETOUCHE', 'VENTE')
        ORDER BY f.date_emission DESC, f.numero_facture DESC`,
       [this.atelierId]
     );
