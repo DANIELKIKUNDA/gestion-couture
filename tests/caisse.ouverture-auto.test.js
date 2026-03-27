@@ -158,8 +158,38 @@ async function testNouverturePasSiPrecedenteNonCloturee() {
   assert.equal(saveCalled, false, "aucune sauvegarde attendue");
 }
 
+async function testPremiereCaisseResteManuelle() {
+  let saveCalled = false;
+  let latestBeforeCalled = false;
+  const repo = {
+    async getByDate(dateJour) {
+      assert.equal(dateJour, "2026-05-28");
+      return null;
+    },
+    async getLatestBeforeDate(dateJour) {
+      assert.equal(dateJour, "2026-05-28");
+      latestBeforeCalled = true;
+      return null;
+    },
+    async save() {
+      saveCalled = true;
+    }
+  };
+
+  const opened = await ouvrirCaisseAutomatique({
+    caisseRepo: repo,
+    utilisateur: "system-auto",
+    now: new Date("2026-05-28T07:00:00.000Z")
+  });
+
+  assert.equal(opened, null, "la premiere caisse doit rester manuelle");
+  assert.equal(latestBeforeCalled, true, "la verification de precedente doit bien etre faite");
+  assert.equal(saveCalled, false, "aucune sauvegarde automatique n'est attendue");
+}
+
 await testOuvreApresHeureConfigureeEtReporteLeSoldePrecedent();
 await testNouverturePasAvantHeureDuDimanche();
 await testNouverturePasSiCaisseDuJourExiste();
 await testNouverturePasSiPrecedenteNonCloturee();
+await testPremiereCaisseResteManuelle();
 console.log("OK: caisse ouverture auto");

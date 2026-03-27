@@ -59,6 +59,14 @@ export async function ouvrirCaisseAutomatique({
   }
 
   const precedente = await caisseRepo.getLatestBeforeDate(dateJour);
+  if (!precedente) {
+    log("open-skip", {
+      reason: "premiere-caisse-manuelle-requise",
+      dateJour
+    });
+    return null;
+  }
+
   if (precedente && precedente.statutCaisse !== StatutCaisse.CLOTUREE) {
     log("open-skip", {
       reason: "caisse-precedente-non-cloturee",

@@ -43,6 +43,12 @@ export async function executerAutomationsCaisse({
       openedAt: now.toISOString(),
       timeZone
     });
+    logAutomation("close-skip", {
+      reason: "caisse-ouverte-ce-cycle",
+      idCaisseJour: caisseOuverte.idCaisseJour,
+      dateJour: caisseOuverte.date
+    });
+    return;
   }
   const caisseCloturee = await cloturerCaisseAutomatique({
     atelierId: resolvedAtelierId,

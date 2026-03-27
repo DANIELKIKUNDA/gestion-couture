@@ -44,6 +44,10 @@ export function selectionnerCaisseACloturer({ parts, caisseDuJour = null, caisse
   const caisseRetard = caisseOuverteLaPlusRecente(caissesAnterieures);
   if (caisseRetard) return caisseRetard;
 
+  // Cas particulier: une cloture configuree a minuit signifie "a la bascule du jour suivant".
+  // On ne doit donc jamais cloturer la caisse du jour pendant ce meme jour.
+  if (hour === 0 && minute === 0) return null;
+
   // Priorite 2: a partir de l'heure de cloture, fermer la caisse du jour si elle est ouverte.
   if (!isAfterOrAt(parts, hour, minute)) return null;
   if (!caisseDuJour || caisseDuJour.statutCaisse !== StatutCaisse.OUVERTE) return null;
