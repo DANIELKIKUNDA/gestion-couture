@@ -15835,13 +15835,13 @@ async function loadRetoucheDetail(idRetouche) {
     </div>
 
   <div v-if="wizard.open" class="modal-backdrop" @click.self="closeWizard">
-      <div class="modal-card">
+      <div class="modal-card modal-card-wizard">
         <header class="modal-header">
           <h3>Nouvelle commande</h3>
           <p>Etape {{ wizard.step }} / 3</p>
         </header>
 
-        <section v-if="wizard.step === 1" class="modal-body">
+        <section v-if="wizard.step === 1" class="modal-body modal-body-wizard">
           <p class="helper">Selectionner un client existant ou creer un client minimal pour cette commande.</p>
 
           <div class="segmented">
@@ -15918,13 +15918,13 @@ async function loadRetoucheDetail(idRetouche) {
             <input v-model="wizard.newClient.telephone" type="text" />
           </div>
 
-          <div class="modal-actions">
+          <div class="modal-actions wizard-modal-actions">
             <button class="mini-btn" @click="closeWizard">Annuler</button>
             <button class="action-btn blue" @click="onWizardStep1" :disabled="wizard.submitting">Continuer</button>
           </div>
         </section>
 
-        <section v-else-if="wizard.step === 2" class="modal-body stack-form">
+        <section v-else-if="wizard.step === 2" class="modal-body modal-body-wizard stack-form">
           <p class="helper">Creation de la commande liee au client selectionne.</p>
           <label>Type d'habit</label>
           <select v-model="wizard.commande.typeHabit">
@@ -15969,17 +15969,17 @@ async function loadRetoucheDetail(idRetouche) {
             Emettre facture apres creation (recommande)
           </label>
 
-          <div class="modal-actions">
+          <div class="modal-actions wizard-modal-actions">
             <button class="mini-btn" @click="wizard.step = 1">Retour</button>
             <button class="action-btn blue" @click="onWizardStep2" :disabled="wizard.submitting">Creer la commande</button>
           </div>
         </section>
 
-        <section v-else class="modal-body">
+        <section v-else class="modal-body modal-body-wizard">
           <p class="helper">Commande creee avec succes.</p>
           <p><strong>ID commande:</strong> {{ wizard.createdCommandeId }}</p>
           <p v-if="wizard.createdFactureId"><strong>ID facture:</strong> {{ wizard.createdFactureId }}</p>
-          <div class="modal-actions">
+          <div class="modal-actions wizard-modal-actions">
             <button class="action-btn green" @click="onWizardStep3Redirect">Voir le detail de la commande</button>
             <button v-if="wizard.createdFactureId" class="action-btn blue" @click="onWizardStep3FactureRedirect">Voir la facture</button>
           </div>
@@ -15989,13 +15989,13 @@ async function loadRetoucheDetail(idRetouche) {
   </div>
 
   <div v-if="retoucheWizard.open" class="modal-backdrop" @click.self="closeRetoucheWizard">
-    <div class="modal-card">
+    <div class="modal-card modal-card-wizard">
       <header class="modal-header">
         <h3>Nouvelle retouche</h3>
         <p>Etape {{ retoucheWizard.step }} / 3</p>
       </header>
 
-      <section v-if="retoucheWizard.step === 1" class="modal-body">
+      <section v-if="retoucheWizard.step === 1" class="modal-body modal-body-wizard">
         <p class="helper">Selectionner un client existant ou creer un client minimal pour cette retouche.</p>
 
         <div class="segmented">
@@ -16072,13 +16072,13 @@ async function loadRetoucheDetail(idRetouche) {
           <input v-model="retoucheWizard.newClient.telephone" type="text" />
         </div>
 
-        <div class="modal-actions">
+        <div class="modal-actions wizard-modal-actions">
           <button class="mini-btn" @click="closeRetoucheWizard">Annuler</button>
           <button class="action-btn blue" @click="onRetoucheWizardStep1" :disabled="retoucheWizard.submitting">Continuer</button>
         </div>
       </section>
 
-      <section v-else-if="retoucheWizard.step === 2" class="modal-body stack-form">
+      <section v-else-if="retoucheWizard.step === 2" class="modal-body modal-body-wizard stack-form">
         <p class="helper">Creation de la retouche liee au client selectionne.</p>
         <label>Type de retouche</label>
         <select v-model="retoucheWizard.retouche.typeRetouche">
@@ -16142,17 +16142,17 @@ async function loadRetoucheDetail(idRetouche) {
           Emettre facture apres creation (recommande)
         </label>
 
-        <div class="modal-actions">
+        <div class="modal-actions wizard-modal-actions">
           <button class="mini-btn" @click="retoucheWizard.step = 1">Retour</button>
           <button class="action-btn blue" @click="onRetoucheWizardStep2" :disabled="retoucheWizard.submitting">Creer la retouche</button>
         </div>
       </section>
 
-      <section v-else class="modal-body">
+      <section v-else class="modal-body modal-body-wizard">
         <p class="helper">Retouche creee avec succes.</p>
         <p><strong>ID retouche:</strong> {{ retoucheWizard.createdRetoucheId }}</p>
         <p v-if="retoucheWizard.createdFactureId"><strong>ID facture:</strong> {{ retoucheWizard.createdFactureId }}</p>
-        <div class="modal-actions">
+        <div class="modal-actions wizard-modal-actions">
           <button class="action-btn green" @click="onRetoucheWizardStep3Redirect">Voir le detail de la retouche</button>
           <button v-if="retoucheWizard.createdFactureId" class="action-btn blue" @click="onRetoucheWizardStep3FactureRedirect">
             Voir la facture

@@ -2003,6 +2003,8 @@ textarea:focus-visible {
   max-height: calc(100vh - 32px);
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .modal-card-sm {
@@ -2021,8 +2023,11 @@ textarea:focus-visible {
   padding: 14px;
   display: grid;
   gap: 10px;
+  flex: 1 1 auto;
   overflow-y: auto;
   min-height: 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .helper {
@@ -2524,6 +2529,9 @@ textarea:focus-visible {
   .modal-backdrop {
     padding: 0;
     align-items: end;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .modal-card,
@@ -2532,6 +2540,10 @@ textarea:focus-visible {
     max-width: none;
     max-height: 100vh;
     min-height: 100vh;
+    height: 100vh;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    height: 100dvh;
     border-radius: 18px 18px 0 0;
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
@@ -2540,6 +2552,47 @@ textarea:focus-visible {
   .modal-header,
   .modal-body {
     padding: 16px 14px;
+  }
+
+  .modal-card-wizard {
+    width: 100%;
+    max-width: none;
+    max-height: 100vh;
+    min-height: 100vh;
+    height: 100vh;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    height: 100dvh;
+  }
+
+  .modal-body-wizard {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .modal-body-wizard .stack-form,
+  .modal-body-wizard .form-grid,
+  .modal-body-wizard .form-row,
+  .modal-body-wizard label,
+  .modal-body-wizard input,
+  .modal-body-wizard select,
+  .modal-body-wizard textarea {
+    min-width: 0;
+  }
+
+  .wizard-modal-actions {
+    position: sticky;
+    bottom: 0;
+    margin-top: 14px;
+    padding: 12px 0 calc(6px + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.94) 24%, #ffffff 54%);
+    backdrop-filter: blur(10px);
+    z-index: 1;
   }
 
   .menu {
