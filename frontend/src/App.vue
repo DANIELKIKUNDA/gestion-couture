@@ -3184,6 +3184,36 @@ const wizardProbableDuplicateClients = computed(() => {
     .slice(0, 3);
 });
 
+const retoucheWizardNewClientDraft = computed(() => ({
+  nom: String(retoucheWizard.newClient.nom || "").trim(),
+  prenom: String(retoucheWizard.newClient.prenom || "").trim(),
+  telephone: String(retoucheWizard.newClient.telephone || "").trim()
+}));
+
+const retoucheWizardExactPhoneDuplicateClient = computed(() => {
+  if (retoucheWizard.mode !== "new") return null;
+  const normalizedPhone = normalizeClientDuplicatePhone(retoucheWizardNewClientDraft.value.telephone);
+  if (!normalizedPhone) return null;
+  return clients.value.find((client) => normalizeClientDuplicatePhone(client.telephone) === normalizedPhone) || null;
+});
+
+const retoucheWizardProbableDuplicateClients = computed(() => {
+  if (retoucheWizard.mode !== "new") return [];
+  const normalizedNom = normalizeClientDuplicateName(retoucheWizardNewClientDraft.value.nom);
+  const normalizedPrenom = normalizeClientDuplicateName(retoucheWizardNewClientDraft.value.prenom);
+  if (!normalizedNom || !normalizedPrenom) return [];
+
+  return clients.value
+    .filter((client) => {
+      if (retoucheWizardExactPhoneDuplicateClient.value?.idClient === client.idClient) return false;
+      return (
+        normalizeClientDuplicateName(client.nom) === normalizedNom &&
+        normalizeClientDuplicateName(client.prenom) === normalizedPrenom
+      );
+    })
+    .slice(0, 3);
+});
+
 function buildClientInsight(consultation) {
   const synthese = consultation?.synthese || {};
   const historique = consultation?.historique || {};
@@ -8882,6 +8912,17 @@ function applyWizardExistingClient(client) {
   wizard.resolvedClientId = client.idClient;
 }
 
+function applyRetoucheExistingClient(client) {
+  if (!client?.idClient) return;
+  retoucheWizard.mode = "existing";
+  selectRetoucheExistingClient({
+    client,
+    nomComplet: formatClientDisplayName(client),
+    telephone: String(client.telephone || "").trim()
+  });
+  retoucheWizard.resolvedClientId = client.idClient;
+}
+
 function normalizeWizardDuplicateClient(raw) {
   const normalized = normalizeClient(raw || {});
   return normalized.idClient ? normalized : null;
@@ -8989,6 +9030,108 @@ async function resolveCommandeClientDuplicate(err, payload) {
   return undefined;
 }
 
+async function resolveRetoucheClientDuplicate(err, payload) {
+  if (!(err instanceof ApiError) || Number(err.status || 0) !== 409) return undefined;
+
+  const code = String(err.payload?.code || "").trim().toUpperCase();
+  if (code === "CLIENT_DUPLICATE_PHONE") {
+    const existingClient = normalizeWizardDuplicateClient(err.payload?.existingClient);
+    if (!existingClient) return undefined;
+    const confirmed = await openActionModal({
+      title: "Numero deja utilise",
+      message: `Ce numero appartient deja a ${formatClientDisplayName(existingClient)}. Utiliser ce client pour la retouche ?`,
+      confirmLabel: "Utiliser ce client",
+      cancelLabel: "Annuler",
+      tone: "blue"
+    });
+    if (!confirmed) return null;
+    applyRetoucheExistingClient(existingClient);
+    return {
+      ...payload,
+      idClient: existingClient.idClient,
+      nouveauClient: undefined,
+      doublonDecision: undefined
+    };
+  }
+
+  if (code === "CLIENT_DUPLICATE_POSSIBLE") {
+    const duplicates = (Array.isArray(err.payload?.probableDuplicates) ? err.payload.probableDuplicates : [])
+      .map((row) => normalizeWizardDuplicateClient(row))
+      .filter(Boolean);
+    if (duplicates.length === 0) return undefined;
+
+    const modalFields = [];
+    if (duplicates.length > 1) {
+      modalFields.push({
+        key: "targetClientId",
+        label: "Client a examiner",
+        type: "select",
+        defaultValue: duplicates[0].idClient,
+        options: duplicates.map((client) => ({
+          value: client.idClient,
+          label: `${formatClientDisplayName(client)} — ${client.telephone || "Sans numero"}`
+        }))
+      });
+    }
+    modalFields.push({
+      key: "decision",
+      label: "Action a appliquer",
+      type: "select",
+      defaultValue: "USE_EXISTING",
+      options: [
+        { value: "USE_EXISTING", label: "Utiliser le client existant" },
+        { value: "UPDATE_EXISTING_PHONE", label: "Mettre a jour son numero" },
+        { value: "CONFIRM_NEW", label: "Confirmer un nouveau client" }
+      ]
+    });
+
+    const modalPayload = await openActionModal({
+      title: "Doublon client probable",
+      message:
+        "Un client au nom similaire existe deja. Vous pouvez reutiliser le client existant, mettre a jour son numero ou confirmer la creation d'un nouveau client.",
+      confirmLabel: "Continuer",
+      cancelLabel: "Annuler",
+      tone: "blue",
+      fields: modalFields
+    });
+    if (!modalPayload) return null;
+
+    const targetClientId = String(modalPayload.targetClientId || duplicates[0].idClient || "").trim();
+    const targetClient = duplicates.find((client) => client.idClient === targetClientId) || duplicates[0];
+    const decision = String(modalPayload.decision || "USE_EXISTING").trim().toUpperCase();
+
+    if (decision === "USE_EXISTING") {
+      applyRetoucheExistingClient(targetClient);
+      return {
+        ...payload,
+        idClient: targetClient.idClient,
+        nouveauClient: undefined,
+        doublonDecision: undefined
+      };
+    }
+
+    if (decision === "UPDATE_EXISTING_PHONE") {
+      return {
+        ...payload,
+        doublonDecision: {
+          action: "UPDATE_EXISTING_PHONE",
+          idClient: targetClient.idClient
+        }
+      };
+    }
+
+    return {
+      ...payload,
+      doublonDecision: {
+        action: "CONFIRM_NEW",
+        idClient: targetClient.idClient
+      }
+    };
+  }
+
+  return undefined;
+}
+
 async function submitCommandeWithDuplicateHandling(payload) {
   let currentPayload = { ...payload };
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -9003,6 +9146,22 @@ async function submitCommandeWithDuplicateHandling(payload) {
   }
 
   throw new Error("Creation de commande interrompue apres plusieurs tentatives.");
+}
+
+async function submitRetoucheWithDuplicateHandling(payload) {
+  let currentPayload = { ...payload };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await atelierApi.createRetoucheWizard(currentPayload);
+    } catch (err) {
+      const resolvedPayload = await resolveRetoucheClientDuplicate(err, currentPayload);
+      if (resolvedPayload === undefined) throw err;
+      if (resolvedPayload === null) return null;
+      currentPayload = resolvedPayload;
+    }
+  }
+
+  throw new Error("Creation de retouche interrompue apres plusieurs tentatives.");
 }
 
 function onWizardClientSearchInput(event) {
@@ -9337,7 +9496,8 @@ async function onRetoucheWizardStep2() {
       normalized = normalizeRetouche(created.retouche);
       void requestSync(atelierId);
     } else {
-      const created = await atelierApi.createRetoucheWizard(payload);
+      const created = await submitRetoucheWithDuplicateHandling(payload);
+      if (!created) return;
       if (created?.client) {
         const normalizedClient = normalizeClient(created.client);
         upsertClientRow(normalizedClient);
@@ -16279,6 +16439,29 @@ async function loadRetoucheDetail(idRetouche) {
           <input v-model="retoucheWizard.newClient.prenom" type="text" />
           <label>Telephone</label>
           <input v-model="retoucheWizard.newClient.telephone" type="text" />
+
+          <div v-if="retoucheWizardExactPhoneDuplicateClient || retoucheWizardProbableDuplicateClients.length > 0" class="client-insight-card">
+            <p class="client-insight-title">Verification doublon</p>
+            <template v-if="retoucheWizardExactPhoneDuplicateClient">
+              <p class="client-insight-selected">
+                Ce numero appartient deja a {{ formatClientDisplayName(retoucheWizardExactPhoneDuplicateClient) }}.
+              </p>
+              <button class="mini-btn" type="button" @click="applyRetoucheExistingClient(retoucheWizardExactPhoneDuplicateClient)">
+                Utiliser ce client
+              </button>
+            </template>
+            <template v-else>
+              <p>
+                Des clients au meme nom existent deja. Au clic final, vous pourrez reutiliser le client, mettre a jour son numero ou confirmer un nouveau client.
+              </p>
+              <ul class="client-insight-list">
+                <li v-for="client in retoucheWizardProbableDuplicateClients" :key="`ret-dup-${client.idClient}`">
+                  {{ formatClientDisplayName(client) }} - {{ client.telephone || "Sans numero" }}
+                  <button class="mini-btn" type="button" @click="applyRetoucheExistingClient(client)">Utiliser</button>
+                </li>
+              </ul>
+            </template>
+          </div>
         </div>
 
         <div class="modal-actions wizard-modal-actions">

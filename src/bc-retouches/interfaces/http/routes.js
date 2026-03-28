@@ -1,8 +1,8 @@
 import express from "express";
 import { pool } from "../../../shared/infrastructure/db.js";
 import { RetoucheRepoPg } from "../../infrastructure/repositories/retouche-repo-pg.js";
+import { ClientRepoPg } from "../../../bc-clients/infrastructure/repositories/client-repo-pg.js";
 import { deposerRetouche } from "../../application/use-cases/deposer-retouche.js";
-import { creerClient } from "../../../bc-clients/application/use-cases/creer-client.js";
 import { demarrerTravail } from "../../application/use-cases/demarrer-travail.js";
 import { terminerTravail } from "../../application/use-cases/terminer-travail.js";
 import { appliquerPaiement } from "../../application/use-cases/appliquer-paiement.js";
@@ -11,13 +11,14 @@ import { livrerRetouche } from "../../application/use-cases/livrer-retouche.js";
 import { annulerRetoucheViaCaisse } from "../../application/use-cases/annuler-retouche-via-caisse.js";
 import { CaisseRepoPg } from "../../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
 import { requireFields, requireNumber, validateSchema } from "../../../shared/interfaces/validation.js";
-import { generateClientId, generateRetoucheId } from "../../../shared/domain/id-generator.js";
+import { generateRetoucheId } from "../../../shared/domain/id-generator.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
 import { hasPermission, requireAnyPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
+import { resolveClientForCreation, serializeClientCreationConflict } from "../../../bc-clients/application/services/resolve-client-for-creation.js";
 import {
   getTypeRetoucheDefinition,
   isRetoucheHabitCompatible,
@@ -28,6 +29,7 @@ import {
 
 const router = express.Router();
 const retoucheRepo = new RetoucheRepoPg();
+const clientRepo = new ClientRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
 const requireRetoucheReadAccess = requireAnyPermission([
   PERMISSIONS.VOIR_RETOUCHES,
@@ -57,6 +59,10 @@ function atelierIdFromReq(req) {
 
 function scopedRetoucheRepo(req) {
   return retoucheRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedClientRepo(req) {
+  return clientRepo.forAtelier(atelierIdFromReq(req));
 }
 
 function scopedParametresRepo(req) {
@@ -141,6 +147,11 @@ async function enregistrerEvenementRetouche({
      VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
     [randomUUID(), atelierId, idRetouche, typeEvent, JSON.stringify(eventPayload)]
   );
+}
+
+async function lockRetoucheCreation(db, atelierId, idRetouche) {
+  const lockKey = `retouche:create:${String(atelierId || "").trim()}:${String(idRetouche || "").trim()}`;
+  await db.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
 }
 
 // List retouches
@@ -485,6 +496,12 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
           telephone: z.string().min(1)
         })
         .optional(),
+      doublonDecision: z
+        .object({
+          action: z.enum(["USE_EXISTING", "UPDATE_EXISTING_PHONE", "CONFIRM_NEW"]),
+          idClient: z.string().min(1).optional()
+        })
+        .optional(),
       descriptionRetouche: z.string().optional(),
       typeRetouche: z.string().min(1),
       montantTotal: z.coerce.number(),
@@ -511,6 +528,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     const acteur = resolveActeur(req);
     const policy = await loadRetouchePolicy({ req });
     const repo = scopedRetoucheRepo(req).withExecutor(dbClient);
+    const clients = scopedClientRepo(req).withExecutor(dbClient);
     const requestedIdRetouche = String(body.idRetouche || "").trim();
     if (requestedIdRetouche) {
       const existingRetouche = await repo.getById(requestedIdRetouche);
@@ -537,36 +555,28 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     await dbClient.query("BEGIN");
 
     const atelierId = atelierIdFromReq(req);
-    let createdClient = null;
-    let idClient = String(body.idClient || "").trim();
-    if (!idClient) {
-      const requestedIdClient = String(body.nouveauClient?.idClient || "").trim();
-      createdClient = creerClient({
-        ...body.nouveauClient,
-        idClient: requestedIdClient || generateClientId()
+    const resolvedRetoucheId = requestedIdRetouche || generateRetoucheId();
+    await lockRetoucheCreation(dbClient, atelierId, resolvedRetoucheId);
+    const existingRetouche = await repo.getById(resolvedRetoucheId);
+    if (existingRetouche) {
+      await dbClient.query("COMMIT");
+      return res.status(200).json({
+        retouche: existingRetouche,
+        client: null
       });
-      idClient = createdClient.idClient;
-      await dbClient.query(
-        `INSERT INTO clients (id_client, atelier_id, nom, prenom, telephone, adresse, sexe, actif, date_creation)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [
-          createdClient.idClient,
-          atelierId,
-          createdClient.nom,
-          createdClient.prenom,
-          createdClient.telephone,
-          createdClient.adresse,
-          createdClient.sexe,
-          createdClient.actif,
-          createdClient.dateCreation
-        ]
-      );
     }
+
+    const clientResolution = await resolveClientForCreation({
+      idClient: body.idClient,
+      nouveauClient: body.nouveauClient,
+      doublonDecision: body.doublonDecision,
+      clientRepo: clients
+    });
 
     const retouche = deposerRetouche({
       ...body,
-      idClient,
-      idRetouche: requestedIdRetouche || generateRetoucheId()
+      idClient: clientResolution.idClient,
+      idRetouche: resolvedRetoucheId
     }, {
       policy: { retouches: policy }
     });
@@ -617,10 +627,17 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     await dbClient.query("COMMIT");
     return res.status(201).json({
       retouche,
-      client: createdClient
+      client: hasNewClient ? clientResolution.client : null,
+      clientResolution: clientResolution.strategy
     });
   } catch (err) {
     await dbClient.query("ROLLBACK").catch(() => {});
+    if (Number(err?.status || 0) === 409) {
+      return res.status(409).json(serializeClientCreationConflict(err));
+    }
+    if (Number(err?.status || 0) === 404) {
+      return res.status(404).json({ code: String(err.code || "NOT_FOUND"), message: err.message });
+    }
     return res.status(400).json({ error: err.message });
   } finally {
     dbClient.release();
