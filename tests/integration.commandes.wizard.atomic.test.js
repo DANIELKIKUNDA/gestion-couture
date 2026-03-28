@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import { pool } from "../src/shared/infrastructure/db.js";
-import { createAuthenticatedSession, createClientViaApi, withAuth } from "./helpers/integration-fixtures.js";
+import {
+  createAuthenticatedSession,
+  createClientViaApi,
+  createDefaultParametresPayload,
+  saveAtelierParametres,
+  withAuth
+} from "./helpers/integration-fixtures.js";
 
 const pantalonMesuresCompletes = {
   longueur: 105,
@@ -430,6 +436,64 @@ async function run() {
   const confirmDuplicateCreation = await withAuth(session.client.post("/api/commandes"), session.token).send(confirmDuplicatePayload);
   assert.equal(confirmDuplicateCreation.status, 201, "la creation doit rester possible apres confirmation explicite");
   assert.equal(await countClientsByTelephone(atelierId, confirmDuplicatePayload.nouveauClient.telephone), 2, "la confirmation doit autoriser un nouveau client");
+
+  const atelierCustomHabitsId = `ATELIER_CMD_CUSTOM_${Date.now()}`;
+  const customSession = await createAuthenticatedSession({
+    atelierId: atelierCustomHabitsId,
+    emailPrefix: "cmd-wizard-custom",
+    nom: "Commande Wizard Custom"
+  });
+  await saveAtelierParametres({
+    atelierId: atelierCustomHabitsId,
+    payload: createDefaultParametresPayload({
+      habits: {
+        PANTALON: {
+          label: "Pantalon",
+          actif: true,
+          ordre: 1,
+          mesures: [
+            { code: "taille", label: "Taille", obligatoire: true, actif: true, ordre: 1, typeChamp: "number" },
+            { code: "hanche", label: "Hanche", obligatoire: true, actif: true, ordre: 2, typeChamp: "number" }
+          ]
+        }
+      }
+    })
+  });
+  const customPayer = await createClientViaApi({
+    client: customSession.client,
+    token: customSession.token,
+    nom: "Maman",
+    prenom: "Custom",
+    telephone: "+243810001778"
+  });
+  assert.equal(customPayer.status, 201, "client payeur attendu pour le test custom habits");
+
+  const customHabitPayload = {
+    idCommande: buildTestId("CMD"),
+    clientPayeurId: customPayer.body?.client?.idClient,
+    descriptionCommande: "Commande pantalon mesures custom",
+    montantTotal: 135,
+    typeHabit: "PANTALON",
+    mesuresHabit: {
+      taille: 44,
+      hanche: 58
+    },
+    lignesCommande: [
+      {
+        utiliseClientPayeur: true,
+        role: "PAYEUR_BENEFICIAIRE",
+        typeHabit: "PANTALON",
+        mesuresHabit: {
+          taille: 44,
+          hanche: 58
+        },
+        ordreAffichage: 1
+      }
+    ]
+  };
+  const customHabitCreation = await withAuth(customSession.client.post("/api/commandes"), customSession.token).send(customHabitPayload);
+  assert.equal(customHabitCreation.status, 201, "les mesures commande configurees par atelier doivent etre acceptees");
+  assert.equal(customHabitCreation.body?.idCommande || customHabitCreation.body?.commande?.idCommande, customHabitPayload.idCommande);
 }
 
 run()

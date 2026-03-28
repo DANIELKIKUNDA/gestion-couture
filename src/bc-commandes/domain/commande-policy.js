@@ -4,6 +4,12 @@
 
 export function resolveCommandePolicy(payload = null) {
   const commandes = payload?.commandes || payload || {};
+  const habits =
+    payload?.habits && typeof payload.habits === "object"
+      ? payload.habits
+      : commandes?.habits && typeof commandes.habits === "object"
+        ? commandes.habits
+        : null;
   const mesuresObligatoiresRaw = resolveAlias(commandes.mesuresObligatoiresPourCommande, commandes.mesuresObligatoires);
   const interdireRaw = resolveAlias(commandes.interdireEnregistrementSansToutesMesuresUtiles, commandes.interdictionSansMesures);
   const mesuresObligatoiresPourCommande = mesuresObligatoiresRaw === undefined ? true : mesuresObligatoiresRaw === true;
@@ -18,6 +24,7 @@ export function resolveCommandePolicy(payload = null) {
     uniteMesure: uniteMesure || "cm",
     valeursDecimalesAutorisees: valeursDecimalesAutorisees !== false,
     delaiParDefautCommande: Number.isFinite(delaiParDefautCommande) && delaiParDefautCommande >= 0 ? delaiParDefautCommande : 7,
+    habits,
     passageAutomatiqueEnCoursApresPremierPaiement: commandes.passageAutomatiqueEnCoursApresPremierPaiement !== false,
     livraisonAutoriseeSeulementSiPaiementTotal: commandes.livraisonAutoriseeSeulementSiPaiementTotal !== false,
     autoriserModificationMesuresApresCreation: commandes.autoriserModificationMesuresApresCreation !== false,
