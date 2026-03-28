@@ -345,11 +345,14 @@ const wizard = reactive({
   createdCommandeId: "",
   createdFactureId: "",
   submitting: false,
+  doublonDecisionAction: "",
+  doublonDecisionId: "",
   newClient: {
     nom: "",
     prenom: "",
     telephone: ""
   },
+  beneficiaires: [],
   commande: {
     descriptionCommande: "",
     montantTotal: "",
@@ -3214,6 +3217,219 @@ const retoucheWizardProbableDuplicateClients = computed(() => {
     .slice(0, 3);
 });
 
+let commandeBeneficiaireSequence = 0;
+
+function createCommandeBeneficiaire(source = "new") {
+  commandeBeneficiaireSequence += 1;
+  const mesuresHabit = {};
+  resetMesuresModel(mesuresHabit);
+  return {
+    uid: `benef-${commandeBeneficiaireSequence}`,
+    source,
+    existingClientId: "",
+    resolvedClientId: "",
+    doublonDecisionAction: "",
+    doublonDecisionId: "",
+    newClient: {
+      idClient: "",
+      nom: "",
+      prenom: "",
+      telephone: ""
+    },
+    typeHabit: "",
+    mesuresHabit,
+    prefillLoading: false,
+    prefill: null,
+    prefillDecision: "idle"
+  };
+}
+
+function findExactPhoneDuplicateForDraft(draft = {}, excludeClientId = "") {
+  const normalizedPhone = normalizeClientDuplicatePhone(draft.telephone);
+  if (!normalizedPhone) return null;
+  return (
+    clients.value.find((client) => {
+      if (excludeClientId && String(client.idClient || "") === String(excludeClientId || "")) return false;
+      return normalizeClientDuplicatePhone(client.telephone) === normalizedPhone;
+    }) || null
+  );
+}
+
+function findProbableDuplicatesForDraft(draft = {}, options = {}) {
+  const normalizedNom = normalizeClientDuplicateName(draft.nom);
+  const normalizedPrenom = normalizeClientDuplicateName(draft.prenom);
+  if (!normalizedNom || !normalizedPrenom) return [];
+  const excludeClientId = String(options.excludeClientId || "").trim();
+  const exactPhoneDuplicate = options.exactPhoneDuplicate || null;
+  return clients.value
+    .filter((client) => {
+      if (excludeClientId && String(client.idClient || "") === excludeClientId) return false;
+      if (exactPhoneDuplicate?.idClient && exactPhoneDuplicate.idClient === client.idClient) return false;
+      return (
+        normalizeClientDuplicateName(client.nom) === normalizedNom &&
+        normalizeClientDuplicateName(client.prenom) === normalizedPrenom
+      );
+    })
+    .slice(0, 4);
+}
+
+function getWizardDuplicateDecision() {
+  const action = String(wizard.doublonDecisionAction || "").trim().toUpperCase();
+  if (!action) return undefined;
+  return {
+    action,
+    idClient: String(wizard.doublonDecisionId || "").trim() || undefined
+  };
+}
+
+function clearWizardDuplicateDecision() {
+  wizard.doublonDecisionAction = "";
+  wizard.doublonDecisionId = "";
+}
+
+function getBeneficiaireDraft(beneficiaire) {
+  return {
+    nom: String(beneficiaire?.newClient?.nom || "").trim(),
+    prenom: String(beneficiaire?.newClient?.prenom || "").trim(),
+    telephone: String(beneficiaire?.newClient?.telephone || "").trim()
+  };
+}
+
+function getBeneficiaireExactPhoneDuplicate(beneficiaire) {
+  if (!beneficiaire || beneficiaire.source !== "new") return null;
+  return findExactPhoneDuplicateForDraft(getBeneficiaireDraft(beneficiaire));
+}
+
+function getBeneficiaireProbableDuplicates(beneficiaire) {
+  if (!beneficiaire || beneficiaire.source !== "new") return [];
+  return findProbableDuplicatesForDraft(getBeneficiaireDraft(beneficiaire), {
+    exactPhoneDuplicate: getBeneficiaireExactPhoneDuplicate(beneficiaire)
+  });
+}
+
+function resolveCommandeMesureFields(typeHabit) {
+  const def = resolveHabitUiDefinition(typeHabit);
+  if (!def) return [];
+  return [
+    ...def.required.map((key) => ({
+      key,
+      label: def.labels?.[key] || mesureLabelFromKey(key),
+      required: true,
+      inputType: def.fieldTypes?.[key] || "number"
+    })),
+    ...def.optional.map((key) => ({
+      key,
+      label: def.labels?.[key] || mesureLabelFromKey(key),
+      required: false,
+      inputType: def.fieldTypes?.[key] || "number"
+    }))
+  ];
+}
+
+function getBeneficiaireMeasureFields(beneficiaire) {
+  return resolveCommandeMesureFields(beneficiaire?.typeHabit || "");
+}
+
+function setWizardDuplicateDecision(action, client = null) {
+  wizard.doublonDecisionAction = String(action || "").trim().toUpperCase();
+  wizard.doublonDecisionId = String(client?.idClient || "").trim();
+}
+
+function setBeneficiaireDecision(beneficiaire, action, client = null) {
+  if (!beneficiaire) return;
+  beneficiaire.doublonDecisionAction = String(action || "").trim().toUpperCase();
+  beneficiaire.doublonDecisionId = String(client?.idClient || "").trim();
+}
+
+function includePayerAsBeneficiaire() {
+  const existingIndex = wizard.beneficiaires.findIndex((beneficiaire) => beneficiaire.source === "payer");
+  if (existingIndex >= 0) return;
+  const beneficiaire = createCommandeBeneficiaire("payer");
+  beneficiaire.typeHabit = wizard.commande.typeHabit || "";
+  wizard.beneficiaires.unshift(beneficiaire);
+}
+
+function addBeneficiaire(source = "new") {
+  wizard.beneficiaires.push(createCommandeBeneficiaire(source));
+}
+
+function removeBeneficiaire(uid) {
+  const index = wizard.beneficiaires.findIndex((beneficiaire) => beneficiaire.uid === uid);
+  if (index >= 0) wizard.beneficiaires.splice(index, 1);
+}
+
+function applyBeneficiaireExistingClient(beneficiaire, client) {
+  if (!beneficiaire || !client?.idClient) return;
+  beneficiaire.source = "existing";
+  beneficiaire.existingClientId = client.idClient;
+  beneficiaire.resolvedClientId = client.idClient;
+  beneficiaire.doublonDecisionAction = "";
+  beneficiaire.doublonDecisionId = "";
+  beneficiaire.newClient.nom = String(client.nom || "").trim();
+  beneficiaire.newClient.prenom = String(client.prenom || "").trim();
+  beneficiaire.newClient.telephone = String(client.telephone || "").trim();
+  void refreshBeneficiairePrefill(beneficiaire);
+}
+
+function markWizardCreateAnyway(client = null) {
+  setWizardDuplicateDecision("CONFIRM_NEW", client);
+}
+
+function markBeneficiaireCreateAnyway(beneficiaire, client = null) {
+  setBeneficiaireDecision(beneficiaire, "CONFIRM_NEW", client);
+}
+
+function markBeneficiaireUpdateExistingPhone(beneficiaire, client) {
+  setBeneficiaireDecision(beneficiaire, "UPDATE_EXISTING_PHONE", client);
+}
+
+async function refreshBeneficiairePrefill(beneficiaire) {
+  if (!beneficiaire) return;
+  beneficiaire.prefill = null;
+  beneficiaire.prefillDecision = "idle";
+  const typeHabit = String(beneficiaire.typeHabit || "").trim().toUpperCase();
+  if (!typeHabit) return;
+
+  let targetClientId = "";
+  if (beneficiaire.source === "payer") {
+    targetClientId = String(wizard.resolvedClientId || wizard.existingClientId || "").trim();
+  } else if (beneficiaire.source === "existing") {
+    targetClientId = String(beneficiaire.existingClientId || beneficiaire.resolvedClientId || "").trim();
+  }
+
+  if (!targetClientId) return;
+  beneficiaire.prefillLoading = true;
+  try {
+    const payload = await atelierApi.getClientLatestMeasures(targetClientId, typeHabit);
+    beneficiaire.prefill = payload?.prefill || null;
+  } catch {
+    beneficiaire.prefill = null;
+  } finally {
+    beneficiaire.prefillLoading = false;
+  }
+}
+
+function applyBeneficiairePrefill(beneficiaire, mode = "use") {
+  if (!beneficiaire?.prefill?.mesuresHabit?.valeurs) return;
+  beneficiaire.mesuresHabit = {};
+  resetMesuresModel(beneficiaire.mesuresHabit);
+  for (const [key, value] of Object.entries(beneficiaire.prefill.mesuresHabit.valeurs || {})) {
+    beneficiaire.mesuresHabit[key] = value;
+  }
+  beneficiaire.prefillDecision = mode === "modify" ? "modify" : "use";
+}
+
+function ignoreBeneficiairePrefill(beneficiaire) {
+  if (!beneficiaire) return;
+  beneficiaire.prefillDecision = "ignored";
+}
+
+const wizardSummary = computed(() => ({
+  nombreBeneficiaires: wizard.beneficiaires.length,
+  nombreLignes: wizard.beneficiaires.length,
+  montantTotal: Number(wizard.commande.montantTotal || 0) || 0
+}));
+
 function buildClientInsight(consultation) {
   const synthese = consultation?.synthese || {};
   const historique = consultation?.historique || {};
@@ -3454,6 +3670,26 @@ const canAnnulerDetail = computed(() => {
 });
 const canEmitCommandeDetailFacture = computed(() => Boolean(detailCommande.value && !detailCommandeFacture.value && detailCommande.value.statutCommande !== "ANNULEE"));
 const detailCommandeMesuresLines = computed(() => formatMesuresLines(detailCommande.value?.mesuresHabit));
+const detailCommandeBeneficiaryLines = computed(() => {
+  const lignes = Array.isArray(detailCommande.value?.lignesCommande) ? detailCommande.value.lignesCommande : [];
+  return lignes.map((ligne, index) => {
+    const directoryEntry = ligne.idClient ? clientDirectory.value.get(ligne.idClient) || null : null;
+    const nomComplet = `${String(ligne.nomAffiche || "").trim()} ${String(ligne.prenomAffiche || "").trim()}`.trim()
+      || directoryEntry?.nomComplet
+      || (ligne.idClient ? clientMap.value.get(ligne.idClient) : "")
+      || `Beneficiaire ${index + 1}`;
+    const mesures = ligne?.mesuresHabit?.valeurs && typeof ligne.mesuresHabit.valeurs === "object"
+      ? Object.keys(ligne.mesuresHabit.valeurs).length
+      : 0;
+    return {
+      id: ligne.idLigne || `ligne-${index + 1}`,
+      role: ligne.role,
+      nomComplet,
+      typeHabit: ligne.typeHabit,
+      mesuresCount: mesures
+    };
+  });
+});
 const commandeDetailPrimaryAction = computed(() => {
   if (canPayerDetail.value) {
     return {
@@ -8138,7 +8374,21 @@ function normalizeClientConsultation(raw) {
 
 function normalizeCommande(raw) {
   const idCommande = raw.idCommande || raw.id_commande || raw.id || raw.localId || raw.local_id || "";
-  const idClient = raw.idClient || raw.id_client || raw.clientId || raw.client_id || "";
+  const idClient = raw.clientPayeurId || raw.client_payeur_id || raw.idClient || raw.id_client || raw.clientId || raw.client_id || "";
+  const lignesCommande = Array.isArray(raw.lignesCommande || raw.lignes_commande)
+    ? (raw.lignesCommande || raw.lignes_commande).map((ligne) => ({
+        idLigne: ligne.idLigne || ligne.id_ligne || "",
+        idCommande: ligne.idCommande || ligne.id_commande || idCommande,
+        idClient: ligne.idClient || ligne.id_client || "",
+        role: ligne.role || "BENEFICIAIRE",
+        nomAffiche: ligne.nomAffiche || ligne.nom_affiche || "",
+        prenomAffiche: ligne.prenomAffiche || ligne.prenom_affiche || "",
+        typeHabit: ligne.typeHabit || ligne.type_habit || "",
+        mesuresHabit: ligne.mesuresHabit || ligne.mesures_habit_snapshot || null,
+        ordreAffichage: Number(ligne.ordreAffichage ?? ligne.ordre_affichage ?? 1),
+        dateCreation: ligne.dateCreation || ligne.date_creation || ""
+      }))
+    : [];
   return {
     localId: raw.localId || raw.local_id || (isRemoteEntityId(idCommande) ? "" : idCommande),
     serverId: raw.serverId || raw.server_id || (isRemoteEntityId(idCommande) ? idCommande : ""),
@@ -8147,6 +8397,7 @@ function normalizeCommande(raw) {
     lastSyncedAt: raw.lastSyncedAt || raw.last_synced_at || "",
     idCommande,
     idClient,
+    clientPayeurId: idClient,
     clientLocalId: raw.clientLocalId || raw.client_local_id || "",
     clientServerId: raw.clientServerId || raw.client_server_id || (isRemoteEntityId(idClient) ? idClient : ""),
     descriptionCommande: raw.descriptionCommande || raw.description || "",
@@ -8154,10 +8405,13 @@ function normalizeCommande(raw) {
     montantPaye: Number(raw.montantPaye ?? raw.montant_paye ?? 0),
     typeHabit: raw.typeHabit || raw.type_habit || "",
     mesuresHabit: raw.mesuresHabit || raw.mesures_habit_snapshot || null,
+    lignesCommande,
     statutCommande: raw.statutCommande || raw.statut || "CREEE",
     dateCreation: toIsoDate(raw.dateCreation || raw.date_creation),
     datePrevue: toIsoDate(raw.datePrevue || raw.date_prevue || raw.dateLivraison),
-    clientNom: raw.clientNom || raw.client_nom || ""
+    clientNom: raw.clientNom || raw.client_nom || "",
+    nombreLignes: Number(raw.nombreLignes ?? raw.nombre_lignes ?? lignesCommande.length ?? 0),
+    nombreBeneficiaires: Number(raw.nombreBeneficiaires ?? raw.nombre_beneficiaires ?? lignesCommande.length ?? 0)
   };
 }
 
@@ -8827,9 +9081,11 @@ function resetWizard() {
   wizard.createdCommandeId = "";
   wizard.createdFactureId = "";
   wizard.submitting = false;
+  clearWizardDuplicateDecision();
   wizard.newClient.nom = "";
   wizard.newClient.prenom = "";
   wizard.newClient.telephone = "";
+  wizard.beneficiaires.splice(0);
   wizard.commande.descriptionCommande = "";
   wizard.commande.montantTotal = "";
   wizard.commande.datePrevue = "";
@@ -8904,6 +9160,7 @@ function selectWizardExistingClient(result) {
 function applyWizardExistingClient(client) {
   if (!client?.idClient) return;
   wizard.mode = "existing";
+  clearWizardDuplicateDecision();
   selectWizardExistingClient({
     client,
     nomComplet: formatClientDisplayName(client),
@@ -8935,17 +9192,40 @@ async function resolveCommandeClientDuplicate(err, payload) {
   if (code === "CLIENT_DUPLICATE_PHONE") {
     const existingClient = normalizeWizardDuplicateClient(err.payload?.existingClient);
     if (!existingClient) return undefined;
-    const confirmed = await openActionModal({
+    const choice = await openActionModal({
       title: "Numero deja utilise",
-      message: `Ce numero appartient deja a ${formatClientDisplayName(existingClient)}. Utiliser ce client pour la commande ?`,
-      confirmLabel: "Utiliser ce client",
+      message: `Ce numero appartient deja a ${formatClientDisplayName(existingClient)}. Vous pouvez reutiliser ce client ou confirmer un nouveau client.`,
+      confirmLabel: "Continuer",
       cancelLabel: "Annuler",
-      tone: "blue"
+      tone: "blue",
+      fields: [
+        {
+          key: "decision",
+          label: "Action a appliquer",
+          type: "select",
+          defaultValue: "USE_EXISTING",
+          options: [
+            { value: "USE_EXISTING", label: "Utiliser ce client" },
+            { value: "CONFIRM_NEW", label: "Creer quand meme un nouveau client" }
+          ]
+        }
+      ]
     });
-    if (!confirmed) return null;
+    if (!choice) return null;
+    const decision = String(choice.decision || "USE_EXISTING").trim().toUpperCase();
+    if (decision === "CONFIRM_NEW") {
+      return {
+        ...payload,
+        doublonDecision: {
+          action: "CONFIRM_NEW",
+          idClient: existingClient.idClient
+        }
+      };
+    }
     applyWizardExistingClient(existingClient);
     return {
       ...payload,
+      clientPayeurId: existingClient.idClient,
       idClient: existingClient.idClient,
       nouveauClient: undefined,
       doublonDecision: undefined
@@ -9037,14 +9317,36 @@ async function resolveRetoucheClientDuplicate(err, payload) {
   if (code === "CLIENT_DUPLICATE_PHONE") {
     const existingClient = normalizeWizardDuplicateClient(err.payload?.existingClient);
     if (!existingClient) return undefined;
-    const confirmed = await openActionModal({
+    const choice = await openActionModal({
       title: "Numero deja utilise",
-      message: `Ce numero appartient deja a ${formatClientDisplayName(existingClient)}. Utiliser ce client pour la retouche ?`,
-      confirmLabel: "Utiliser ce client",
+      message: `Ce numero appartient deja a ${formatClientDisplayName(existingClient)}. Vous pouvez reutiliser ce client ou confirmer un nouveau client.`,
+      confirmLabel: "Continuer",
       cancelLabel: "Annuler",
-      tone: "blue"
+      tone: "blue",
+      fields: [
+        {
+          key: "decision",
+          label: "Action a appliquer",
+          type: "select",
+          defaultValue: "USE_EXISTING",
+          options: [
+            { value: "USE_EXISTING", label: "Utiliser ce client" },
+            { value: "CONFIRM_NEW", label: "Creer quand meme un nouveau client" }
+          ]
+        }
+      ]
     });
-    if (!confirmed) return null;
+    if (!choice) return null;
+    const decision = String(choice.decision || "USE_EXISTING").trim().toUpperCase();
+    if (decision === "CONFIRM_NEW") {
+      return {
+        ...payload,
+        doublonDecision: {
+          action: "CONFIRM_NEW",
+          idClient: existingClient.idClient
+        }
+      };
+    }
     applyRetoucheExistingClient(existingClient);
     return {
       ...payload,
@@ -9275,10 +9577,13 @@ async function onWizardStep1() {
         prenom: String(wizard.newClient.prenom || "").trim(),
         telephone: String(wizard.newClient.telephone || "").trim()
       };
-      if (!payload.nom || !payload.prenom || !payload.telephone) throw new Error("Completez nom, prenom et telephone.");
+      if (!payload.nom || !payload.prenom) throw new Error("Completez au minimum le nom et le prenom.");
       wizard.resolvedClientId = "";
     }
 
+    if (wizard.beneficiaires.length === 0) {
+      includePayerAsBeneficiaire();
+    }
     wizard.step = 2;
   } catch (err) {
     notify(readableError(err));
@@ -9292,6 +9597,38 @@ async function onWizardStep2() {
   wizard.submitting = true;
   try {
     if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
+    if (wizard.beneficiaires.length === 0) throw new Error("Ajoutez au moins un beneficiaire.");
+    const montant = Number(wizard.commande.montantTotal);
+    if (!String(wizard.commande.descriptionCommande || "").trim() || Number.isNaN(montant) || montant <= 0) {
+      throw new Error("Description et montant valide sont obligatoires.");
+    }
+    for (const beneficiaire of wizard.beneficiaires) {
+      if (!beneficiaire.typeHabit) {
+        throw new Error("Chaque beneficiaire doit avoir un type d'habit.");
+      }
+      if (beneficiaire.source === "existing" && !beneficiaire.existingClientId) {
+        throw new Error("Selectionnez le client du beneficiaire existant.");
+      }
+      if (beneficiaire.source === "new") {
+        const draft = getBeneficiaireDraft(beneficiaire);
+        if (!draft.nom || !draft.prenom) {
+          throw new Error("Completez l'identite de chaque nouveau beneficiaire.");
+        }
+      }
+    }
+    wizard.step = 3;
+  } catch (err) {
+    notify(readableError(err));
+  } finally {
+    wizard.submitting = false;
+  }
+}
+
+async function onWizardStep3() {
+  if (wizard.submitting) return;
+  wizard.submitting = true;
+  try {
+    if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
     const atelierId = currentAtelierId.value;
     if (!atelierId) throw new Error("Atelier offline introuvable.");
 
@@ -9299,30 +9636,59 @@ async function onWizardStep2() {
     if (!wizard.commande.descriptionCommande || Number.isNaN(montant) || montant <= 0) {
       throw new Error("Description et montant valide sont obligatoires.");
     }
-    if (!wizard.commande.typeHabit) throw new Error("Type d'habit obligatoire.");
+    if (wizard.beneficiaires.length === 0) throw new Error("Ajoutez au moins un beneficiaire.");
 
     const commandesConfig = wizardCommandesSettings.value || {};
     const mesuresObligatoires = commandesConfig.mesuresObligatoires !== false;
     const interdictionSansMesures = commandesConfig.interdictionSansMesures !== false;
-
-    const mesuresSnapshot = collectMesuresSnapshot({
-      typeHabit: wizard.commande.typeHabit,
-      mesuresModel: wizard.commande.mesuresHabit,
-      requireComplete: mesuresObligatoires && interdictionSansMesures,
-      requireAtLeastOne: mesuresObligatoires
+    const lignesCommande = wizard.beneficiaires.map((beneficiaire, index) => {
+      const mesuresSnapshot = collectMesuresSnapshot({
+        typeHabit: beneficiaire.typeHabit,
+        mesuresModel: beneficiaire.mesuresHabit,
+        requireComplete: mesuresObligatoires && interdictionSansMesures,
+        requireAtLeastOne: mesuresObligatoires
+      });
+      const linePayload = {
+        role: beneficiaire.source === "payer" ? "PAYEUR_BENEFICIAIRE" : "BENEFICIAIRE",
+        typeHabit: beneficiaire.typeHabit,
+        mesuresHabit: mesuresSnapshot,
+        ordreAffichage: index + 1
+      };
+      if (beneficiaire.source === "payer") {
+        linePayload.utiliseClientPayeur = true;
+      } else if (beneficiaire.source === "existing") {
+        linePayload.idClient = beneficiaire.existingClientId;
+      } else {
+        linePayload.nouveauClient = {
+          idClient: beneficiaire.newClient.idClient || createServerClientId(),
+          nom: String(beneficiaire.newClient.nom || "").trim(),
+          prenom: String(beneficiaire.newClient.prenom || "").trim(),
+          telephone: String(beneficiaire.newClient.telephone || "").trim()
+        };
+        if (beneficiaire.doublonDecisionAction) {
+          linePayload.doublonDecision = {
+            action: beneficiaire.doublonDecisionAction,
+            idClient: beneficiaire.doublonDecisionId || undefined
+          };
+        }
+      }
+      return linePayload;
     });
+
+    const referenceLine = lignesCommande[0];
 
     const payload = {
       idCommande: wizard.requestCommandeId || createServerCommandeId(),
       descriptionCommande: wizard.commande.descriptionCommande,
       montantTotal: montant,
-      typeHabit: wizard.commande.typeHabit,
-      mesuresHabit: mesuresSnapshot
+      typeHabit: referenceLine?.typeHabit || "",
+      mesuresHabit: referenceLine?.mesuresHabit || {},
+      lignesCommande
     };
 
     if (wizard.mode === "existing") {
       if (!wizard.resolvedClientId) throw new Error("Client non resolu.");
-      payload.idClient = wizard.resolvedClientId;
+      payload.clientPayeurId = wizard.resolvedClientId;
     } else {
       const requestedClientId = wizard.requestNewClientId || createServerClientId();
       wizard.requestNewClientId = requestedClientId;
@@ -9332,6 +9698,8 @@ async function onWizardStep2() {
         prenom: String(wizard.newClient.prenom || "").trim(),
         telephone: String(wizard.newClient.telephone || "").trim()
       };
+      const doublonDecision = getWizardDuplicateDecision();
+      if (doublonDecision) payload.doublonDecision = doublonDecision;
     }
 
     if (wizard.commande.datePrevue) payload.datePrevue = `${wizard.commande.datePrevue}T00:00:00.000Z`;
@@ -9352,6 +9720,9 @@ async function onWizardStep2() {
         upsertClientRow(normalizedClient);
         wizard.resolvedClientId = normalizedClient.idClient;
       }
+      for (const relatedClient of created?.relatedClients || []) {
+        upsertClientRow(normalizeClient(relatedClient));
+      }
       normalized = normalizeCommande(created.commande);
       void requestSync(atelierId);
     } else {
@@ -9361,6 +9732,9 @@ async function onWizardStep2() {
         const normalizedClient = normalizeClient(created.client);
         upsertClientRow(normalizedClient);
         wizard.resolvedClientId = normalizedClient.idClient;
+      }
+      for (const relatedClient of created?.clientsAssocies || []) {
+        upsertClientRow(normalizeClient(relatedClient));
       }
       normalized = normalizeCommande(created?.commande || created);
     }
@@ -9408,7 +9782,7 @@ async function onRetoucheWizardStep1() {
         prenom: String(retoucheWizard.newClient.prenom || "").trim(),
         telephone: String(retoucheWizard.newClient.telephone || "").trim()
       };
-      if (!payload.nom || !payload.prenom || !payload.telephone) throw new Error("Completez nom, prenom et telephone.");
+      if (!payload.nom || !payload.prenom) throw new Error("Completez au minimum le nom et le prenom.");
       retoucheWizard.resolvedClientId = "";
     }
 
@@ -13065,12 +13439,14 @@ async function loadRetoucheDetail(idRetouche) {
                 <article class="panel detail-grid" style="grid-template-columns: 1fr 1fr 1fr;">
                   <div>
                     <h4>Identite commande</h4>
-                    <p><strong>Client:</strong> {{ detailCommande.clientNom || detailCommande.idClient }}</p>
+                    <p><strong>Payeur:</strong> {{ detailCommande.clientNom || detailCommande.idClient }}</p>
                     <p><strong>Description:</strong> {{ detailCommande.descriptionCommande }}</p>
                     <p><strong>Statut:</strong> {{ detailCommande.statutCommande }}</p>
                     <p><strong>Facture:</strong> {{ detailCommandeFacture ? detailCommandeFacture.numeroFacture : "Non emise" }}</p>
                     <p><strong>Date creation:</strong> {{ detailCommande.dateCreation || "-" }}</p>
                     <p><strong>Date prevue:</strong> {{ detailCommande.datePrevue || "-" }}</p>
+                    <p><strong>Beneficiaires:</strong> {{ detailCommande.nombreBeneficiaires || detailCommandeBeneficiaryLines.length }}</p>
+                    <p><strong>Lignes:</strong> {{ detailCommande.nombreLignes || detailCommandeBeneficiaryLines.length }}</p>
                   </div>
                   <div>
                     <h4>Mesures de l'habit</h4>
@@ -13087,6 +13463,51 @@ async function loadRetoucheDetail(idRetouche) {
                     <p><strong>Montant total:</strong> {{ formatCurrency(detailCommande.montantTotal) }}</p>
                     <p><strong>Total paye:</strong> {{ formatCurrency(detailCommande.montantPaye) }}</p>
                     <p><strong>Solde restant:</strong> {{ formatCurrency(detailSoldeRestant) }}</p>
+                  </div>
+                </article>
+              </template>
+            </ResponsiveDataContainer>
+
+            <ResponsiveDataContainer v-if="detailCommandeBeneficiaryLines.length > 0" :mobile="isMobileViewport">
+              <template #mobile>
+                <article class="panel order-lines-panel">
+                  <div class="order-lines-head">
+                    <div>
+                      <p class="mobile-overline">Commande famille / groupe</p>
+                      <h4>Payeur et beneficiaires</h4>
+                    </div>
+                    <span class="status-chip">{{ detailCommandeBeneficiaryLines.length }} ligne(s)</span>
+                  </div>
+                  <div class="order-lines-list">
+                    <article v-for="ligne in detailCommandeBeneficiaryLines" :key="`cmd-line-mobile-${ligne.id}`" class="order-line-card">
+                      <div class="order-line-card-head">
+                        <strong>{{ ligne.nomComplet }}</strong>
+                        <span class="status-chip">{{ humanizeContactLabel(ligne.typeHabit) || ligne.typeHabit }}</span>
+                      </div>
+                      <p class="helper">{{ ligne.role === "PAYEUR_BENEFICIAIRE" ? "Payeur + beneficiaire" : "Beneficiaire" }}</p>
+                      <p class="helper">{{ ligne.mesuresCount }} mesure(s) renseignee(s)</p>
+                    </article>
+                  </div>
+                </article>
+              </template>
+              <template #desktop>
+                <article class="panel order-lines-panel">
+                  <div class="order-lines-head">
+                    <div>
+                      <p class="mobile-overline">Commande famille / groupe</p>
+                      <h4>Payeur et beneficiaires</h4>
+                    </div>
+                    <span class="status-chip">{{ detailCommandeBeneficiaryLines.length }} ligne(s)</span>
+                  </div>
+                  <div class="order-lines-list">
+                    <article v-for="ligne in detailCommandeBeneficiaryLines" :key="`cmd-line-desktop-${ligne.id}`" class="order-line-card">
+                      <div class="order-line-card-head">
+                        <strong>{{ ligne.nomComplet }}</strong>
+                        <span class="status-chip">{{ humanizeContactLabel(ligne.typeHabit) || ligne.typeHabit }}</span>
+                      </div>
+                      <p class="helper">{{ ligne.role === "PAYEUR_BENEFICIAIRE" ? "Payeur + beneficiaire" : "Beneficiaire" }}</p>
+                      <p class="helper">{{ ligne.mesuresCount }} mesure(s) renseignee(s)</p>
+                    </article>
                   </div>
                 </article>
               </template>
@@ -16260,8 +16681,8 @@ async function loadRetoucheDetail(idRetouche) {
             <input v-model="wizard.newClient.nom" type="text" />
             <label>Prenom</label>
             <input v-model="wizard.newClient.prenom" type="text" />
-            <label>Telephone</label>
-            <input v-model="wizard.newClient.telephone" type="text" />
+            <label>Telephone <span class="helper">(optionnel)</span></label>
+            <input v-model="wizard.newClient.telephone" type="text" placeholder="Ex: +243..." />
 
             <div v-if="wizardExactPhoneDuplicateClient || wizardProbableDuplicateClients.length > 0" class="client-insight-card">
               <p class="client-insight-title">Verification doublon</p>
@@ -16269,18 +16690,27 @@ async function loadRetoucheDetail(idRetouche) {
                 <p class="client-insight-selected">
                   Ce numero appartient deja a {{ formatClientDisplayName(wizardExactPhoneDuplicateClient) }}.
                 </p>
-                <button class="mini-btn" type="button" @click="applyWizardExistingClient(wizardExactPhoneDuplicateClient)">
-                  Utiliser ce client
-                </button>
+                <div class="inline-actions">
+                  <button class="mini-btn" type="button" @click="applyWizardExistingClient(wizardExactPhoneDuplicateClient)">
+                    Reutiliser ce client
+                  </button>
+                  <button class="mini-btn" type="button" @click="markWizardCreateAnyway(wizardExactPhoneDuplicateClient)">
+                    Creer quand meme
+                  </button>
+                </div>
               </template>
               <template v-else>
                 <p>
-                  Des clients au meme nom existent deja. Au clic final, vous pourrez reutiliser le client, mettre a jour son numero ou confirmer un nouveau client.
+                  Un client similaire a ete trouve. Vous pouvez reutiliser la fiche existante, mettre a jour son numero ou creer quand meme un nouveau client.
                 </p>
                 <ul class="client-insight-list">
                   <li v-for="client in wizardProbableDuplicateClients" :key="`cmd-dup-${client.idClient}`">
                     {{ formatClientDisplayName(client) }} - {{ client.telephone || "Sans numero" }}
-                    <button class="mini-btn" type="button" @click="applyWizardExistingClient(client)">Utiliser</button>
+                    <div class="inline-actions">
+                      <button class="mini-btn" type="button" @click="applyWizardExistingClient(client)">Reutiliser</button>
+                      <button class="mini-btn" type="button" @click="setWizardDuplicateDecision('UPDATE_EXISTING_PHONE', client)">Mettre a jour le numero</button>
+                      <button class="mini-btn" type="button" @click="markWizardCreateAnyway(client)">Creer quand meme</button>
+                    </div>
                   </li>
                 </ul>
               </template>
@@ -16294,39 +16724,18 @@ async function loadRetoucheDetail(idRetouche) {
         </section>
 
         <section v-else-if="wizard.step === 2" class="modal-body modal-body-wizard stack-form">
-          <p class="helper">Creation de la commande liee au client selectionne.</p>
-          <label>Type d'habit</label>
-          <select v-model="wizard.commande.typeHabit">
-            <option value="">Choisir un type d'habit</option>
-            <option v-for="option in wizardAvailableHabitTypeOptions" :key="`cmd-habit-${option.value}`" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-
-          <template v-if="wizard.commande.typeHabit">
-            <label>Mesures (cm)</label>
-            <div class="form-grid">
-              <div v-for="field in commandeMesureFields" :key="`cmd-mes-${field.key}`" class="form-row">
-                <label>{{ mesureDisplayLabel(field) }} <span v-if="field.required">*</span></label>
-                <select
-                  v-if="mesureInputType(field) === 'select'"
-                  v-model="wizard.commande.mesuresHabit[field.key]"
-                >
-                  <option value="">Choisir</option>
-                  <option value="courtes">courtes</option>
-                  <option value="longues">longues</option>
-                </select>
-                <input
-                  v-else
-                  v-model="wizard.commande.mesuresHabit[field.key]"
-                  :type="mesureInputType(field) === 'number' ? 'number' : 'text'"
-                  min="0"
-                  :step="mesureInputType(field) === 'number' ? '0.1' : undefined"
-                  :placeholder="mesurePlaceholder(field)"
-                />
-              </div>
+          <div class="wizard-stage-head">
+            <div>
+              <p class="mobile-overline">Beneficiaires</p>
+              <h4>Qui est concerne par cette commande ?</h4>
+              <p class="helper">Ajoutez une ou plusieurs personnes, puis choisissez pour chacune le type d'habit et les mesures.</p>
             </div>
-          </template>
+            <div class="wizard-stage-actions">
+              <button class="mini-btn" type="button" @click="includePayerAsBeneficiaire">Inclure le client payeur</button>
+              <button class="mini-btn" type="button" @click="addBeneficiaire('new')">+ Ajouter un beneficiaire</button>
+            </div>
+          </div>
+
           <label>Description commande</label>
           <input v-model="wizard.commande.descriptionCommande" type="text" />
           <label>Montant total (FC)</label>
@@ -16338,19 +16747,193 @@ async function loadRetoucheDetail(idRetouche) {
             Emettre facture apres creation (recommande)
           </label>
 
+          <div class="wizard-beneficiary-list">
+            <article v-for="beneficiaire in wizard.beneficiaires" :key="beneficiaire.uid" class="beneficiary-card">
+              <div class="beneficiary-card-head">
+                <div>
+                  <p class="mobile-overline">{{ beneficiaire.source === 'payer' ? 'Payeur inclus' : 'Beneficiaire' }}</p>
+                  <h4>{{ beneficiaire.source === 'payer' ? 'Client payeur' : 'Personne concernee' }}</h4>
+                </div>
+                <button v-if="beneficiaire.source !== 'payer'" class="mini-btn" type="button" @click="removeBeneficiaire(beneficiaire.uid)">Retirer</button>
+              </div>
+
+              <div v-if="beneficiaire.source !== 'payer'" class="segmented segmented-wrap">
+                <button class="mini-btn" :class="{ active: beneficiaire.source === 'existing' }" type="button" @click="beneficiaire.source = 'existing'">
+                  Client existant
+                </button>
+                <button class="mini-btn" :class="{ active: beneficiaire.source === 'new' }" type="button" @click="beneficiaire.source = 'new'">
+                  Nouveau beneficiaire
+                </button>
+              </div>
+
+              <div v-if="beneficiaire.source === 'existing'" class="stack-form">
+                <label>Beneficiaire existant</label>
+                <select
+                  v-model="beneficiaire.existingClientId"
+                  @change="
+                    beneficiaire.resolvedClientId = beneficiaire.existingClientId;
+                    refreshBeneficiairePrefill(beneficiaire);
+                  "
+                >
+                  <option value="">Choisir un client</option>
+                  <option v-for="client in clientsActifs" :key="`benef-existing-${beneficiaire.uid}-${client.idClient}`" :value="client.idClient">
+                    {{ formatClientDisplayName(client) }}{{ client.telephone ? ` — ${client.telephone}` : ' — Sans numero' }}
+                  </option>
+                </select>
+              </div>
+
+              <div v-else-if="beneficiaire.source === 'new'" class="stack-form">
+                <label>Nom</label>
+                <input v-model="beneficiaire.newClient.nom" type="text" />
+                <label>Prenom</label>
+                <input v-model="beneficiaire.newClient.prenom" type="text" />
+                <label>Telephone <span class="helper">(optionnel)</span></label>
+                <input v-model="beneficiaire.newClient.telephone" type="text" placeholder="Ex: +243..." />
+
+                <div v-if="getBeneficiaireExactPhoneDuplicate(beneficiaire) || getBeneficiaireProbableDuplicates(beneficiaire).length > 0" class="client-insight-card">
+                  <p class="client-insight-title">Suggestion client</p>
+                  <template v-if="getBeneficiaireExactPhoneDuplicate(beneficiaire)">
+                    <p class="client-insight-selected">
+                      Ce numero semble deja associe a {{ formatClientDisplayName(getBeneficiaireExactPhoneDuplicate(beneficiaire)) }}.
+                    </p>
+                    <div class="inline-actions">
+                      <button class="mini-btn" type="button" @click="applyBeneficiaireExistingClient(beneficiaire, getBeneficiaireExactPhoneDuplicate(beneficiaire))">
+                        Reutiliser
+                      </button>
+                      <button class="mini-btn" type="button" @click="markBeneficiaireCreateAnyway(beneficiaire, getBeneficiaireExactPhoneDuplicate(beneficiaire))">
+                        Creer quand meme
+                      </button>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <ul class="client-insight-list">
+                      <li v-for="client in getBeneficiaireProbableDuplicates(beneficiaire)" :key="`benef-dup-${beneficiaire.uid}-${client.idClient}`">
+                        {{ formatClientDisplayName(client) }} - {{ client.telephone || "Sans numero" }}
+                        <div class="inline-actions">
+                          <button class="mini-btn" type="button" @click="applyBeneficiaireExistingClient(beneficiaire, client)">Reutiliser</button>
+                          <button class="mini-btn" type="button" @click="markBeneficiaireUpdateExistingPhone(beneficiaire, client)">Mettre a jour le numero</button>
+                          <button class="mini-btn" type="button" @click="markBeneficiaireCreateAnyway(beneficiaire, client)">Creer quand meme</button>
+                        </div>
+                      </li>
+                    </ul>
+                  </template>
+                </div>
+              </div>
+
+              <div class="stack-form">
+                <label>Type d'habit</label>
+                <select v-model="beneficiaire.typeHabit" @change="refreshBeneficiairePrefill(beneficiaire)">
+                  <option value="">Choisir un type d'habit</option>
+                  <option v-for="option in wizardAvailableHabitTypeOptions" :key="`benef-habit-${beneficiaire.uid}-${option.value}`" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+
+              <div v-if="beneficiaire.prefillLoading" class="client-insight-card">
+                <p class="helper">Recherche des dernieres mesures...</p>
+              </div>
+              <div
+                v-else-if="beneficiaire.prefill && beneficiaire.prefillDecision === 'idle'"
+                class="client-insight-card"
+              >
+                <p class="client-insight-title">Mesures precedentes trouvees</p>
+                <p class="helper">Derniere utilisation : {{ formatDateShort(beneficiaire.prefill.dateDerniereUtilisation) }}</p>
+                <div class="inline-actions">
+                  <button class="mini-btn" type="button" @click="applyBeneficiairePrefill(beneficiaire, 'use')">Utiliser</button>
+                  <button class="mini-btn" type="button" @click="applyBeneficiairePrefill(beneficiaire, 'modify')">Modifier</button>
+                  <button class="mini-btn" type="button" @click="ignoreBeneficiairePrefill(beneficiaire)">Ignorer</button>
+                </div>
+              </div>
+
+              <template v-if="beneficiaire.typeHabit">
+                <label>Mesures (cm)</label>
+                <div class="form-grid">
+                  <div v-for="field in getBeneficiaireMeasureFields(beneficiaire)" :key="`benef-mes-${beneficiaire.uid}-${field.key}`" class="form-row">
+                    <label>{{ mesureDisplayLabel(field) }} <span v-if="field.required">*</span></label>
+                    <select
+                      v-if="mesureInputType(field) === 'select'"
+                      v-model="beneficiaire.mesuresHabit[field.key]"
+                    >
+                      <option value="">Choisir</option>
+                      <option value="courtes">courtes</option>
+                      <option value="longues">longues</option>
+                    </select>
+                    <input
+                      v-else
+                      v-model="beneficiaire.mesuresHabit[field.key]"
+                      :type="mesureInputType(field) === 'number' ? 'number' : 'text'"
+                      min="0"
+                      :step="mesureInputType(field) === 'number' ? '0.1' : undefined"
+                      :placeholder="mesurePlaceholder(field)"
+                    />
+                  </div>
+                </div>
+              </template>
+            </article>
+          </div>
+
           <div class="modal-actions wizard-modal-actions">
             <button class="mini-btn" @click="wizard.step = 1">Retour</button>
-            <button class="action-btn blue" @click="onWizardStep2" :disabled="wizard.submitting">Creer la commande</button>
+            <button class="action-btn blue" @click="onWizardStep2" :disabled="wizard.submitting">Continuer vers le resume</button>
           </div>
         </section>
 
-        <section v-else class="modal-body modal-body-wizard">
-          <p class="helper">Commande creee avec succes.</p>
-          <p><strong>ID commande:</strong> {{ wizard.createdCommandeId }}</p>
-          <p v-if="wizard.createdFactureId"><strong>ID facture:</strong> {{ wizard.createdFactureId }}</p>
+        <section v-else class="modal-body modal-body-wizard stack-form">
+          <div class="wizard-stage-head">
+            <div>
+              <p class="mobile-overline">Resume</p>
+              <h4>Verification finale</h4>
+              <p class="helper">Relisez les informations avant de valider la commande.</p>
+            </div>
+          </div>
+
+          <div class="client-insight-card">
+            <p class="client-insight-title">Client payeur</p>
+            <p class="client-insight-selected">
+              {{ wizard.mode === 'existing' ? wizardClientSearchQuery : `${wizard.newClient.nom} ${wizard.newClient.prenom}`.trim() }}
+            </p>
+          </div>
+
+          <div class="beneficiary-summary-grid">
+            <article class="summary-pill-card">
+              <span>Beneficiaires</span>
+              <strong>{{ wizardSummary.nombreBeneficiaires }}</strong>
+            </article>
+            <article class="summary-pill-card">
+              <span>Lignes</span>
+              <strong>{{ wizardSummary.nombreLignes }}</strong>
+            </article>
+            <article class="summary-pill-card">
+              <span>Montant</span>
+              <strong>{{ formatCurrency(wizardSummary.montantTotal) }}</strong>
+            </article>
+          </div>
+
+          <div class="wizard-beneficiary-list compact">
+            <article v-for="beneficiaire in wizard.beneficiaires" :key="`summary-${beneficiaire.uid}`" class="beneficiary-card">
+              <div class="beneficiary-card-head">
+                <div>
+                  <p class="mobile-overline">{{ beneficiaire.source === 'payer' ? 'Payeur + beneficiaire' : 'Beneficiaire' }}</p>
+                  <h4>
+                    {{
+                      beneficiaire.source === 'payer'
+                        ? (wizard.mode === 'existing' ? wizardClientSearchQuery : `${wizard.newClient.nom} ${wizard.newClient.prenom}`.trim())
+                        : beneficiaire.source === 'existing'
+                          ? formatClientDisplayName(clients.find((client) => client.idClient === beneficiaire.existingClientId) || {})
+                          : `${beneficiaire.newClient.nom} ${beneficiaire.newClient.prenom}`.trim()
+                    }}
+                  </h4>
+                </div>
+                <span class="status-chip">{{ humanizeContactLabel(beneficiaire.typeHabit) || beneficiaire.typeHabit }}</span>
+              </div>
+              <p class="helper">Mesures renseignees : {{ Object.keys(beneficiaire.mesuresHabit || {}).filter((key) => beneficiaire.mesuresHabit[key]).length }}</p>
+            </article>
+          </div>
+
           <div class="modal-actions wizard-modal-actions">
-            <button class="action-btn green" @click="onWizardStep3Redirect">Voir le detail de la commande</button>
-            <button v-if="wizard.createdFactureId" class="action-btn blue" @click="onWizardStep3FactureRedirect">Voir la facture</button>
+            <button class="mini-btn" @click="wizard.step = 2">Retour</button>
+            <button class="action-btn green" @click="onWizardStep3" :disabled="wizard.submitting">Creer la commande</button>
           </div>
         </section>
       </div>

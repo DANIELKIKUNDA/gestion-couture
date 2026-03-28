@@ -26,6 +26,7 @@ import {
   filterHistoriques,
   statutFidelite
 } from "../../domain/consultation-client.js";
+import { getLatestMeasuresForClientAndType } from "../../application/services/measure-prefill-service.js";
 
 const router = express.Router();
 const clientRepo = new ClientRepoPg();
@@ -294,10 +295,22 @@ router.get("/clients/:id/consultation", requireClientReadAccess, async (req, res
     }
 
     const commandesResult = await pool.query(
-      `SELECT id_commande, date_creation, type_habit, statut, montant_total, montant_paye, mesures_habit_snapshot
-       FROM commandes
-       WHERE id_client = $1 AND atelier_id = $2
-       ORDER BY date_creation DESC`,
+      `SELECT DISTINCT ON (c.id_commande)
+              c.id_commande,
+              c.date_creation,
+              COALESCE(l.type_habit, c.type_habit) AS type_habit,
+              c.statut,
+              c.montant_total,
+              c.montant_paye,
+              COALESCE(l.mesures_habit_snapshot, c.mesures_habit_snapshot) AS mesures_habit_snapshot
+       FROM commandes c
+       LEFT JOIN commande_lignes l
+         ON l.id_commande = c.id_commande
+        AND l.atelier_id = c.atelier_id
+        AND l.id_client = $1
+       WHERE c.atelier_id = $2
+         AND (c.id_client = $1 OR l.id_client = $1)
+       ORDER BY c.id_commande, c.date_creation DESC`,
       [idClient, atelierIdFromReq(req)]
     );
 
@@ -535,8 +548,22 @@ router.get("/clients/:id/consultation/pdf", requireClientReadAccess, async (req,
     if (clientResult.rowCount === 0) return res.status(404).json({ error: "Client introuvable" });
 
     const commandesResult = await pool.query(
-      `SELECT id_commande, date_creation, type_habit, statut, montant_total, montant_paye, mesures_habit_snapshot
-       FROM commandes WHERE id_client = $1 AND atelier_id = $2 ORDER BY date_creation DESC`,
+      `SELECT DISTINCT ON (c.id_commande)
+              c.id_commande,
+              c.date_creation,
+              COALESCE(l.type_habit, c.type_habit) AS type_habit,
+              c.statut,
+              c.montant_total,
+              c.montant_paye,
+              COALESCE(l.mesures_habit_snapshot, c.mesures_habit_snapshot) AS mesures_habit_snapshot
+       FROM commandes c
+       LEFT JOIN commande_lignes l
+         ON l.id_commande = c.id_commande
+        AND l.atelier_id = c.atelier_id
+        AND l.id_client = $1
+       WHERE c.atelier_id = $2
+         AND (c.id_client = $1 OR l.id_client = $1)
+       ORDER BY c.id_commande, c.date_creation DESC`,
       [idClient, atelierIdFromReq(req)]
     );
     const retouchesResult = await pool.query(
@@ -626,21 +653,22 @@ router.get("/clients/:id/consultation/pdf", requireClientReadAccess, async (req,
 router.post("/clients", requireClientCreateAccess, async (req, res) => {
   const schema = z
     .object({
+      idClient: z.string().min(1).optional(),
       nom: z.string().min(1),
       prenom: z.string().min(1),
-      telephone: z.string().min(1)
+      telephone: z.string().optional().default("")
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["nom", "prenom", "telephone"]);
+  const r1 = requireFields(body, ["nom", "prenom"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
 
   try {
     const client = creerClient({
       ...body,
-      idClient: generateClientId()
+      idClient: body.idClient || generateClientId()
     });
     await scopedClientRepo(req).save(client);
     res.status(201).json({
@@ -660,6 +688,30 @@ router.post("/clients", requireClientCreateAccess, async (req, res) => {
         source: "domain"
       });
     }
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/clients/:id/mesures/derniere", requireClientReadAccess, async (req, res) => {
+  const idClient = String(req.params.id || "").trim();
+  const typeHabit = String(req.query.typeHabit || "").trim().toUpperCase();
+  if (!idClient) return res.status(400).json({ error: "Client introuvable" });
+  if (!typeHabit) return res.status(400).json({ error: "Type d'habit obligatoire" });
+
+  try {
+    const client = await scopedClientRepo(req).getById(idClient);
+    if (!client) return res.status(404).json({ error: "Client introuvable" });
+    const latest = await getLatestMeasuresForClientAndType({
+      idClient,
+      typeHabit,
+      serieRepo: scopedSerieRepo(req)
+    });
+    res.json({
+      idClient,
+      typeHabit,
+      prefill: latest
+    });
+  } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });

@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS clients (
   atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
   nom TEXT NOT NULL,
   prenom TEXT NOT NULL,
-  telephone TEXT NOT NULL,
+  telephone TEXT NULL,
   adresse TEXT NULL,
   sexe TEXT NULL,
   actif BOOLEAN NOT NULL DEFAULT true,

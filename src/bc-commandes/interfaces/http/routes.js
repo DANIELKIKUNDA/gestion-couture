@@ -1,9 +1,11 @@
 import express from "express";
 import { pool } from "../../../shared/infrastructure/db.js";
 import { CommandeRepoPg } from "../../infrastructure/repositories/commande-repo-pg.js";
+import { CommandeLigneRepoPg } from "../../infrastructure/repositories/commande-ligne-repo-pg.js";
 import { CommandeMediaRepoPg } from "../../infrastructure/repositories/commande-media-repo-pg.js";
 import { CommandeMediaStorageLocal } from "../../infrastructure/storage/commande-media-storage-local.js";
 import { ClientRepoPg } from "../../../bc-clients/infrastructure/repositories/client-repo-pg.js";
+import { SerieMesuresRepoPg } from "../../../bc-clients/infrastructure/repositories/serie-mesures-repo-pg.js";
 import { creerCommande } from "../../application/use-cases/creer-commande.js";
 import { terminerTravail } from "../../application/use-cases/terminer-travail.js";
 import { appliquerPaiement } from "../../application/use-cases/appliquer-paiement.js";
@@ -27,12 +29,16 @@ import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/r
 import { resolveCommandePolicy } from "../../domain/commande-policy.js";
 import { processCommandeMediaImage } from "../../infrastructure/storage/commande-media-image.js";
 import { cleanupCommandeMediaUpload, commandeMediaUploadSingle } from "./commande-media-upload.js";
+import { resolveCommandeLignesForCreation } from "../../application/services/resolve-commande-lignes-for-creation.js";
+import { saveLatestMeasuresForClientAndType } from "../../../bc-clients/application/services/measure-prefill-service.js";
 
 const router = express.Router();
 const commandeRepo = new CommandeRepoPg();
+const commandeLigneRepo = new CommandeLigneRepoPg();
 const commandeMediaRepo = new CommandeMediaRepoPg();
 const commandeMediaStorage = new CommandeMediaStorageLocal();
 const clientRepo = new ClientRepoPg();
+const serieRepo = new SerieMesuresRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
 const requireCommandeReadAccess = requireAnyPermission([
   PERMISSIONS.VOIR_COMMANDES,
@@ -68,8 +74,16 @@ function scopedCommandeMediaRepo(req) {
   return commandeMediaRepo.forAtelier(atelierIdFromReq(req));
 }
 
+function scopedCommandeLigneRepo(req) {
+  return commandeLigneRepo.forAtelier(atelierIdFromReq(req));
+}
+
 function scopedClientRepo(req) {
   return clientRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedSerieRepo(req) {
+  return serieRepo.forAtelier(atelierIdFromReq(req));
 }
 
 function scopedParametresRepo(req) {
@@ -214,6 +228,61 @@ function mapCommandeMedia(row) {
   };
 }
 
+function buildClientFullName(nom, prenom) {
+  const fullName = `${String(nom || "").trim()} ${String(prenom || "").trim()}`.trim();
+  return fullName || null;
+}
+
+function buildLegacyCommandeLine(row) {
+  if (!row?.type_habit || !row?.mesures_habit_snapshot) return [];
+  const clientNom = buildClientFullName(row.nom, row.prenom) || "";
+  const [nomAffiche = "", ...reste] = clientNom.split(" ");
+  return [
+    {
+      idLigne: `LEGACY-${row.id_commande}`,
+      idCommande: row.id_commande,
+      idClient: row.id_client,
+      role: "PAYEUR_BENEFICIAIRE",
+      nomAffiche,
+      prenomAffiche: reste.join(" ").trim(),
+      typeHabit: row.type_habit,
+      mesuresHabit: row.mesures_habit_snapshot,
+      ordreAffichage: 1,
+      dateCreation: row.date_creation
+    }
+  ];
+}
+
+async function loadCommandeLignesMap(db, atelierId, commandeIds = []) {
+  const ids = Array.from(new Set((commandeIds || []).map((value) => String(value || "").trim()).filter(Boolean)));
+  if (ids.length === 0) return new Map();
+  const result = await db.query(
+    `SELECT id_ligne, atelier_id, id_commande, id_client, role, nom_affiche, prenom_affiche, type_habit, mesures_habit_snapshot, ordre_affichage, date_creation
+     FROM commande_lignes
+     WHERE atelier_id = $1 AND id_commande = ANY($2::text[])
+     ORDER BY ordre_affichage ASC, date_creation ASC`,
+    [atelierId, ids]
+  );
+  const map = new Map();
+  for (const row of result.rows) {
+    const current = map.get(row.id_commande) || [];
+    current.push({
+      idLigne: row.id_ligne,
+      idCommande: row.id_commande,
+      idClient: row.id_client,
+      role: row.role,
+      nomAffiche: row.nom_affiche || "",
+      prenomAffiche: row.prenom_affiche || "",
+      typeHabit: row.type_habit,
+      mesuresHabit: row.mesures_habit_snapshot,
+      ordreAffichage: Number(row.ordre_affichage || 1),
+      dateCreation: row.date_creation
+    });
+    map.set(row.id_commande, current);
+  }
+  return map;
+}
+
 // List commandes
 router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
   try {
@@ -229,7 +298,19 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
               c.mesures_habit_snapshot,
               c.statut,
               cl.nom,
-              cl.prenom
+              cl.prenom,
+              COALESCE((
+                SELECT COUNT(*)::int
+                FROM commande_lignes l
+                WHERE l.atelier_id = c.atelier_id
+                  AND l.id_commande = c.id_commande
+              ), CASE WHEN c.type_habit IS NOT NULL THEN 1 ELSE 0 END) AS nombre_lignes,
+              COALESCE((
+                SELECT COUNT(DISTINCT COALESCE(NULLIF(l.id_client, ''), LOWER(TRIM(l.nom_affiche)) || '::' || LOWER(TRIM(l.prenom_affiche))))::int
+                FROM commande_lignes l
+                WHERE l.atelier_id = c.atelier_id
+                  AND l.id_commande = c.id_commande
+              ), CASE WHEN c.id_client IS NOT NULL THEN 1 ELSE 0 END) AS nombre_beneficiaires
        FROM commandes c
        LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
        WHERE c.atelier_id = $1
@@ -240,6 +321,7 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
     const rows = result.rows.map((row) => ({
       idCommande: row.id_commande,
       idClient: row.id_client,
+      clientPayeurId: row.id_client,
       clientNom: row.nom && row.prenom ? `${row.nom} ${row.prenom}` : null,
       descriptionCommande: row.description,
       dateCreation: row.date_creation,
@@ -248,7 +330,9 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
       montantPaye: Number(row.montant_paye),
       typeHabit: row.type_habit,
       mesuresHabit: row.mesures_habit_snapshot,
-      statutCommande: row.statut
+      statutCommande: row.statut,
+      nombreLignes: Number(row.nombre_lignes || 0),
+      nombreBeneficiaires: Number(row.nombre_beneficiaires || 0)
     }));
 
     res.json(rows);
@@ -274,6 +358,18 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
         c.statut,
         cl.nom,
         cl.prenom,
+        COALESCE((
+          SELECT COUNT(*)::int
+          FROM commande_lignes l
+          WHERE l.atelier_id = c.atelier_id
+            AND l.id_commande = c.id_commande
+        ), CASE WHEN c.type_habit IS NOT NULL THEN 1 ELSE 0 END) AS nombre_lignes,
+        COALESCE((
+          SELECT COUNT(DISTINCT COALESCE(NULLIF(l.id_client, ''), LOWER(TRIM(l.nom_affiche)) || '::' || LOWER(TRIM(l.prenom_affiche))))::int
+          FROM commande_lignes l
+          WHERE l.atelier_id = c.atelier_id
+            AND l.id_commande = c.id_commande
+        ), CASE WHEN c.id_client IS NOT NULL THEN 1 ELSE 0 END) AS nombre_beneficiaires,
         COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' THEN op.montant ELSE 0 END), 0) AS total_paiements,
         COALESCE(COUNT(op.id_operation), 0) AS nombre_paiements
       FROM commandes c
@@ -289,6 +385,7 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
       result.rows.map((row) => ({
         idCommande: row.id_commande,
         idClient: row.id_client,
+        clientPayeurId: row.id_client,
         clientNom: row.nom && row.prenom ? `${row.nom} ${row.prenom}` : null,
         descriptionCommande: row.description,
         dateCreation: row.date_creation,
@@ -298,6 +395,8 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
         typeHabit: row.type_habit,
         mesuresHabit: row.mesures_habit_snapshot,
         statutCommande: row.statut,
+        nombreLignes: Number(row.nombre_lignes || 0),
+        nombreBeneficiaires: Number(row.nombre_beneficiaires || 0),
         totalPaiements: Number(row.total_paiements),
         nombrePaiements: Number(row.nombre_paiements)
       }))
@@ -332,9 +431,12 @@ router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
     if (result.rowCount === 0) return res.status(404).json({ error: "Commande introuvable" });
 
     const row = result.rows[0];
+    const lignes = await scopedCommandeLigneRepo(req).listByCommandeId(req.params.id);
+    const resolvedLignes = lignes.length > 0 ? lignes : buildLegacyCommandeLine(row);
     res.json({
       idCommande: row.id_commande,
       idClient: row.id_client,
+      clientPayeurId: row.id_client,
       clientNom: row.nom && row.prenom ? `${row.nom} ${row.prenom}` : null,
       descriptionCommande: row.description,
       dateCreation: row.date_creation,
@@ -343,7 +445,12 @@ router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
       montantPaye: Number(row.montant_paye),
       typeHabit: row.type_habit,
       mesuresHabit: row.mesures_habit_snapshot,
-      statutCommande: row.statut
+      statutCommande: row.statut,
+      nombreLignes: resolvedLignes.length,
+      nombreBeneficiaires: new Set(
+        resolvedLignes.map((ligne) => ligne.idClient || `${ligne.nomAffiche}::${ligne.prenomAffiche}`)
+      ).size,
+      lignesCommande: resolvedLignes
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -637,13 +744,14 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
   const schema = z
     .object({
       idCommande: z.string().min(1).optional(),
+      clientPayeurId: z.string().min(1).optional(),
       idClient: z.string().min(1).optional(),
       nouveauClient: z
         .object({
           idClient: z.string().min(1).optional(),
           nom: z.string().min(1),
           prenom: z.string().min(1),
-          telephone: z.string().min(1)
+          telephone: z.string().optional().default("")
         })
         .optional(),
       doublonDecision: z
@@ -651,6 +759,38 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
           action: z.enum(["USE_EXISTING", "UPDATE_EXISTING_PHONE", "CONFIRM_NEW"]),
           idClient: z.string().min(1).optional()
         })
+        .optional(),
+      lignesCommande: z
+        .array(
+          z
+            .object({
+              idLigne: z.string().min(1).optional(),
+              idClient: z.string().min(1).optional(),
+              utiliseClientPayeur: z.boolean().optional(),
+              source: z.enum(["PAYEUR"]).optional(),
+              role: z.enum(["BENEFICIAIRE", "PAYEUR_BENEFICIAIRE"]).optional(),
+              nomAffiche: z.string().optional(),
+              prenomAffiche: z.string().optional(),
+              typeHabit: z.string().min(1),
+              mesuresHabit: z.any().optional(),
+              ordreAffichage: z.coerce.number().int().positive().optional(),
+              nouveauClient: z
+                .object({
+                  idClient: z.string().min(1).optional(),
+                  nom: z.string().min(1),
+                  prenom: z.string().min(1),
+                  telephone: z.string().optional().default("")
+                })
+                .optional(),
+              doublonDecision: z
+                .object({
+                  action: z.enum(["USE_EXISTING", "UPDATE_EXISTING_PHONE", "CONFIRM_NEW"]),
+                  idClient: z.string().min(1).optional()
+                })
+                .optional()
+            })
+            .passthrough()
+        )
         .optional(),
       descriptionCommande: z.string().min(1),
       montantTotal: z.coerce.number(),
@@ -662,10 +802,11 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const hasExistingClient = Boolean(String(body.idClient || "").trim());
+  const payerClientId = String(body.clientPayeurId || body.idClient || "").trim();
+  const hasExistingClient = Boolean(payerClientId);
   const hasNewClient = Boolean(body.nouveauClient);
   if (hasExistingClient === hasNewClient) {
-    return res.status(400).json({ error: "Fournissez soit idClient, soit nouveauClient." });
+    return res.status(400).json({ error: "Fournissez soit clientPayeurId, soit nouveauClient." });
   }
   const r1 = requireFields(body, ["descriptionCommande", "montantTotal"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
@@ -678,7 +819,9 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     const policyMeta = await loadCommandePolicy("commandes.create", req);
     const policyInput = policyMeta.payload || { commandes: policyMeta.policy };
     const repo = scopedCommandeRepo(req).withExecutor(dbClient);
+    const lignesRepo = scopedCommandeLigneRepo(req).withExecutor(dbClient);
     const clients = scopedClientRepo(req).withExecutor(dbClient);
+    const mesuresRepo = scopedSerieRepo(req).withExecutor(dbClient);
     const atelierId = atelierIdFromReq(req);
     const requestedIdCommande = String(body.idCommande || "").trim();
     if (requestedIdCommande) {
@@ -698,10 +841,20 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     }
 
     const clientResolution = await resolveCommandeClientForCreation({
-      idClient: body.idClient,
+      idClient: payerClientId,
       nouveauClient: body.nouveauClient,
       doublonDecision: body.doublonDecision,
       clientRepo: clients
+    });
+
+    const lignesResolution = await resolveCommandeLignesForCreation({
+      body: {
+        ...body,
+        idClient: payerClientId
+      },
+      clientPayeurResolution: clientResolution,
+      clientRepo: clients,
+      policy: policyInput
     });
 
     const commande = creerCommande({
@@ -709,13 +862,25 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
       idClient: clientResolution.idClient,
       descriptionCommande: body.descriptionCommande,
       montantTotal: body.montantTotal,
-      typeHabit: body.typeHabit,
-      mesuresHabit: body.mesuresHabit,
+      typeHabit: lignesResolution.typeHabitReference,
+      mesuresHabit: lignesResolution.mesuresHabitReference?.valeurs || lignesResolution.mesuresHabitReference || null,
       datePrevue: body.datePrevue
     }, {
       policy: policyInput
     });
     await repo.save(commande);
+    await lignesRepo.replaceForCommande(commande.idCommande, lignesResolution.lignesCommande);
+    for (const ligne of lignesResolution.lignesCommande) {
+      if (!ligne.idClient) continue;
+      await saveLatestMeasuresForClientAndType({
+        idClient: ligne.idClient,
+        typeHabit: ligne.typeHabit,
+        mesuresSnapshot: ligne.mesuresHabit,
+        prisePar: acteur.utilisateur,
+        observations: `Commande ${commande.idCommande}`,
+        serieRepo: mesuresRepo
+      });
+    }
     await enregistrerEvenementCommande({
       atelierId,
       idCommande: commande.idCommande,
@@ -726,7 +891,9 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
         utilisateurId: acteur.utilisateurId,
         utilisateurNom: acteur.utilisateurNom,
         role: acteur.role,
-        montantTotal: Number(commande.montantTotal || 0)
+        montantTotal: Number(commande.montantTotal || 0),
+        nombreLignes: lignesResolution.nombreLignes,
+        nombreBeneficiaires: lignesResolution.nombreBeneficiaires
       }
     }, dbClient);
     await dbClient.query("COMMIT");
@@ -741,14 +908,37 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
         utilisateurNom: acteur.utilisateurNom
       }
     });
+    const clientIdsAssocies = Array.from(
+      new Set(
+        [clientResolution.idClient, ...lignesResolution.lignesCommande.map((ligne) => ligne.idClient)]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+      )
+    );
+    const clientsAssocies = [];
+    for (const idClientAssocie of clientIdsAssocies) {
+      const clientAssocie = await clients.getById(idClientAssocie);
+      if (clientAssocie) clientsAssocies.push(clientAssocie);
+    }
+    const commandeResponse = {
+      ...commande,
+      clientPayeurId: commande.idClient,
+      nombreLignes: lignesResolution.nombreLignes,
+      nombreBeneficiaires: lignesResolution.nombreBeneficiaires,
+      lignesCommande: lignesResolution.lignesCommande
+    };
     if (hasNewClient) {
       return res.status(201).json({
-        commande,
+        commande: commandeResponse,
         client: clientResolution.client,
-        clientResolution: clientResolution.strategy
+        clientResolution: clientResolution.strategy,
+        clientsAssocies
       });
     }
-    res.status(201).json(commande);
+    res.status(201).json({
+      ...commandeResponse,
+      clientsAssocies
+    });
   } catch (err) {
     await dbClient.query("ROLLBACK").catch(() => {});
     if (Number(err?.status || 0) === 409) {

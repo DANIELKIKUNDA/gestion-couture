@@ -2,6 +2,7 @@ import { ApiError, atelierApi } from "./api.js";
 import { getEntityByLocalId, getEntityTableName, getServerIdByLocalId, persistSyncedEntityRecord } from "./id-mapper.js";
 import { SYNC_QUEUE_STATUSES, TABLE_NAMES, offlineDb, runOfflineTransaction } from "./local-db.js";
 import { OFFLINE_MEDIA_ACTIONS } from "./media-local-store.js";
+import { isOfflineEntityId } from "./local-id.js";
 import { getQueueEntry, listPending } from "./sync-queue.js";
 import { getTabId, isOnline, subscribeToNetworkState } from "./network-service.js";
 import { OFFLINE_WRITE_ACTIONS } from "./offline-write-service.js";
@@ -441,6 +442,7 @@ async function refreshPendingActionsCount(atelierId) {
 async function resolveClientServerId(atelierId, payload = {}, localRecord = null) {
   const directServerId =
     normalizeString(payload.clientServerId) ||
+    (!isOfflineEntityId(normalizeString(payload.idClient)) ? normalizeString(payload.idClient) : "") ||
     normalizeString(localRecord?.clientServerId);
   if (directServerId) return directServerId;
 
@@ -459,6 +461,23 @@ async function resolveClientServerId(atelierId, payload = {}, localRecord = null
     throw new SyncDependencyBlockedError("Le client parent n'est pas encore synchronise.");
   }
 
+  return mappedServerId;
+}
+
+async function resolveBeneficiaryClientServerId(atelierId, line = {}) {
+  const lineIdClient = normalizeString(line.idClient);
+  const directServerId = normalizeString(line.clientServerId) || (!isOfflineEntityId(lineIdClient) ? lineIdClient : "");
+  if (directServerId && !normalizeString(line.clientLocalId)) return directServerId;
+
+  const candidateLocalId = normalizeString(line.clientLocalId) || normalizeString(line.idClient);
+  if (!candidateLocalId) {
+    throw new SyncPermanentError("Reference beneficiaire manquante pour cette synchronisation.");
+  }
+
+  const mappedServerId = await getServerIdByLocalId(atelierId, "client", candidateLocalId);
+  if (!mappedServerId) {
+    throw new SyncDependencyBlockedError("Un beneficiaire n'est pas encore synchronise.");
+  }
   return mappedServerId;
 }
 
@@ -486,14 +505,46 @@ async function resolveCommandeServerId(atelierId, payload = {}, localRecord = nu
   return mappedServerId;
 }
 
-function buildCommandeApiPayload(payload = {}, clientServerId) {
+async function buildCommandeApiPayload(atelierId, payload = {}, localRecord = {}, clientServerId = "") {
   const requestPayload = {
-    idClient: clientServerId,
     descriptionCommande: normalizeString(payload.descriptionCommande),
     montantTotal: Number(payload.montantTotal || 0),
     typeHabit: normalizeString(payload.typeHabit),
     mesuresHabit: payload.mesuresHabit || {}
   };
+  if (payload.nouveauClient && typeof payload.nouveauClient === "object") {
+    requestPayload.nouveauClient = payload.nouveauClient;
+  } else {
+    requestPayload.idClient = clientServerId;
+  }
+  const sourceLines = Array.isArray(payload.lignesCommande)
+    ? payload.lignesCommande
+    : Array.isArray(localRecord?.lignesCommande)
+      ? localRecord.lignesCommande
+      : [];
+  if (sourceLines.length > 0) {
+    const lines = [];
+    for (const rawLine of sourceLines) {
+      const line = rawLine && typeof rawLine === "object" ? rawLine : {};
+      const requestLine = {
+        role: normalizeString(line.role),
+        typeHabit: normalizeString(line.typeHabit),
+        mesuresHabit: line.mesuresHabit || {},
+        ordreAffichage: Number(line.ordreAffichage || 1),
+        nomAffiche: normalizeString(line.nomAffiche),
+        prenomAffiche: normalizeString(line.prenomAffiche)
+      };
+      if (line.utiliseClientPayeur === true || normalizeString(line.source) === "PAYEUR") {
+        requestLine.utiliseClientPayeur = true;
+      } else if (line.nouveauClient && typeof line.nouveauClient === "object") {
+        requestLine.nouveauClient = line.nouveauClient;
+      } else {
+        requestLine.idClient = await resolveBeneficiaryClientServerId(atelierId, line);
+      }
+      lines.push(requestLine);
+    }
+    requestPayload.lignesCommande = lines;
+  }
   if (payload.datePrevue) {
     requestPayload.datePrevue = payload.datePrevue;
   }
@@ -510,17 +561,59 @@ function buildCommandePhotoUpdatePayload(localRecord = {}) {
 
 function buildRetoucheApiPayload(payload = {}, clientServerId) {
   const requestPayload = {
-    idClient: clientServerId,
     descriptionRetouche: normalizeString(payload.descriptionRetouche),
     typeRetouche: normalizeString(payload.typeRetouche),
     montantTotal: Number(payload.montantTotal || 0),
     typeHabit: normalizeString(payload.typeHabit),
     mesuresHabit: payload.mesuresHabit || {}
   };
+  if (payload.nouveauClient && typeof payload.nouveauClient === "object") {
+    requestPayload.nouveauClient = payload.nouveauClient;
+  } else {
+    requestPayload.idClient = clientServerId;
+  }
   if (payload.datePrevue) {
     requestPayload.datePrevue = payload.datePrevue;
   }
   return requestPayload;
+}
+
+function buildCommandeEmbeddedClientResults(payload = {}, localRecord = {}, response = {}) {
+  const related = [];
+  const clientsAssocies = Array.isArray(response?.clientsAssocies) ? response.clientsAssocies : [];
+  if (payload?.nouveauClient && normalizeString(localRecord?.clientLocalId)) {
+    const matched = clientsAssocies.find((client) => normalizeString(client?.idClient) === normalizeString(payload.nouveauClient?.idClient));
+    if (matched) {
+      related.push({
+        localId: normalizeString(localRecord.clientLocalId),
+        serverPayload: matched
+      });
+    }
+  }
+
+  const sourceLines = Array.isArray(payload?.lignesCommande) ? payload.lignesCommande : [];
+  for (const line of sourceLines) {
+    const localId = normalizeString(line?.clientLocalId);
+    if (!localId || !(line?.nouveauClient && typeof line.nouveauClient === "object")) continue;
+    const matched = clientsAssocies.find((client) => normalizeString(client?.idClient) === normalizeString(line.nouveauClient?.idClient));
+    if (matched) {
+      related.push({
+        localId,
+        serverPayload: matched
+      });
+    }
+  }
+  return related;
+}
+
+function buildRetoucheEmbeddedClientResults(payload = {}, localRecord = {}, response = {}) {
+  if (!(payload?.nouveauClient && normalizeString(localRecord?.clientLocalId) && response?.client)) return [];
+  return [
+    {
+      localId: normalizeString(localRecord.clientLocalId),
+      serverPayload: response.client
+    }
+  ];
 }
 
 async function executeQueueEntry(atelierId, entry) {
@@ -547,13 +640,16 @@ async function executeQueueEntry(atelierId, entry) {
       throw new SyncPermanentError("Commande locale introuvable pour la synchronisation.");
     }
 
-    const clientServerId = await resolveClientServerId(atelierId, entry.payload, localRecord);
-    const response = await atelierApi.createCommande(buildCommandeApiPayload(entry.payload || {}, clientServerId));
+    const clientServerId = entry.payload?.nouveauClient ? "" : await resolveClientServerId(atelierId, entry.payload, localRecord);
+    const response = await atelierApi.createCommande(await buildCommandeApiPayload(atelierId, entry.payload || {}, localRecord, clientServerId));
     return {
       entityType: "commande",
       localRecord,
-      serverPayload: response,
-      references: { clientServerId }
+      serverPayload: response?.commande || response,
+      references: {
+        clientServerId: normalizeString(response?.client?.idClient || clientServerId)
+      },
+      relatedClients: buildCommandeEmbeddedClientResults(entry.payload || {}, localRecord, response || {})
     };
   }
 
@@ -563,13 +659,14 @@ async function executeQueueEntry(atelierId, entry) {
       throw new SyncPermanentError("Retouche locale introuvable pour la synchronisation.");
     }
 
-    const clientServerId = await resolveClientServerId(atelierId, entry.payload, localRecord);
+    const clientServerId = entry.payload?.nouveauClient ? "" : await resolveClientServerId(atelierId, entry.payload, localRecord);
     const response = await atelierApi.createRetouche(buildRetoucheApiPayload(entry.payload || {}, clientServerId));
     return {
       entityType: "retouche",
       localRecord,
       serverPayload: response?.retouche || response,
-      references: { clientServerId }
+      references: { clientServerId: normalizeString(response?.client?.idClient || clientServerId) },
+      relatedClients: buildRetoucheEmbeddedClientResults(entry.payload || {}, localRecord, response || {})
     };
   }
 
@@ -670,10 +767,14 @@ async function executeQueueEntry(atelierId, entry) {
 async function commitSuccessfulJob(atelierId, entry, result) {
   const timestamp = nowIso();
   const entityTableName = getEntityTableName(result.entityType);
+  const hasRelatedClients = Array.isArray(result?.relatedClients) && result.relatedClients.length > 0;
+  const transactionTables = hasRelatedClients
+    ? [entityTableName, TABLE_NAMES.CLIENTS, TABLE_NAMES.SYNC_QUEUE]
+    : [entityTableName, TABLE_NAMES.SYNC_QUEUE];
   let updatedEntity = null;
   let updatedQueueEntry = null;
 
-  await runOfflineTransaction("rw", [entityTableName, TABLE_NAMES.SYNC_QUEUE], async () => {
+  await runOfflineTransaction("rw", transactionTables, async () => {
     const persisted = await persistSyncedEntityRecord({
       atelierId,
       entityType: result.entityType,
@@ -683,6 +784,19 @@ async function commitSuccessfulJob(atelierId, entry, result) {
       timestamp
     });
     updatedEntity = persisted.entity;
+
+    if (hasRelatedClients) {
+      for (const clientRef of result.relatedClients) {
+        await persistSyncedEntityRecord({
+          atelierId,
+          entityType: "client",
+          localRecord: clientRef?.localId ? { localId: clientRef.localId } : null,
+          serverPayload: clientRef?.serverPayload || {},
+          references: {},
+          timestamp
+        });
+      }
+    }
 
     const current = await queueTable().get(entry.queueId);
     if (!current || current.atelierId !== atelierId) {

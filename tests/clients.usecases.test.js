@@ -11,6 +11,14 @@ function run() {
   });
   assert.equal(c.nom, "Doe");
 
+  const sansTelephone = creerClient({
+    idClient: "CL-2",
+    nom: "Doe",
+    prenom: "Junior",
+    telephone: ""
+  });
+  assert.equal(sansTelephone.telephone, "");
+
   const serie = enregistrerSerieMesures({
     idSerieMesures: "SM-1",
     idClient: "CL-1",

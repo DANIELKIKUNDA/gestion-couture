@@ -15,10 +15,12 @@ export function assertNonEmpty(value, label) {
 }
 
 export function assertPhone(value) {
-  // Simple phone validation (can be improved)
-  if (!value || !/^\+?[0-9]{6,15}$/.test(String(value))) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (!/^\+?[0-9]{6,15}$/.test(normalized)) {
     throw new Error("Telephone invalide");
   }
+  return normalized;
 }
 
 export function assertMesures(ensembleMesures) {
@@ -26,7 +28,12 @@ export function assertMesures(ensembleMesures) {
     throw new Error("L'ensemble des mesures doit etre un tableau non vide");
   }
   for (const m of ensembleMesures) {
-    if (!m.nomMesure || typeof m.valeur !== "number" || m.valeur <= 0) {
+    const nomMesure = String(m?.nomMesure || "").trim();
+    const valeur = m?.valeur;
+    const valeurTexte = String(valeur || "").trim();
+    const valeurNumeriqueValide = typeof valeur === "number" && Number.isFinite(valeur) && valeur > 0;
+    const valeurTexteValide = typeof valeur === "string" && valeurTexte.length > 0;
+    if (!nomMesure || (!valeurNumeriqueValide && !valeurTexteValide)) {
       throw new Error("mesure invalide");
     }
   }

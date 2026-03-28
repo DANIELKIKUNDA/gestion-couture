@@ -20,6 +20,10 @@ export function generateCommandeId() {
   return buildId("CMD");
 }
 
+export function generateCommandeLigneId() {
+  return buildId("CLG");
+}
+
 export function generateRetoucheId() {
   return buildId("RET");
 }

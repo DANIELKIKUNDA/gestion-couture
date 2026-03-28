@@ -114,13 +114,13 @@ export async function resolveClientForCreation({
   }
 
   const normalizedClient = normalizeNewClientPayload(nouveauClient);
-  if (!normalizedClient?.nom || !normalizedClient?.prenom || !normalizedClient?.telephone) {
-    throw createClientCreationError(400, "CLIENT_DATA_INVALID", "Completez nom, prenom et telephone.");
+  if (!normalizedClient?.nom || !normalizedClient?.prenom) {
+    throw createClientCreationError(400, "CLIENT_DATA_INVALID", "Completez au minimum le nom et le prenom.");
   }
 
   const decision = normalizeDuplicateDecision(doublonDecision);
-  const exactPhoneMatch = await clientRepo.findByTelephone(normalizedClient.telephone);
-  if (exactPhoneMatch) {
+  const exactPhoneMatch = normalizedClient.telephone ? await clientRepo.findByTelephone(normalizedClient.telephone) : null;
+  if (exactPhoneMatch && decision.action !== "CONFIRM_NEW") {
     if (decision.action === "USE_EXISTING" && (!decision.idClient || decision.idClient === exactPhoneMatch.idClient)) {
       return {
         idClient: exactPhoneMatch.idClient,
@@ -134,7 +134,12 @@ export async function resolveClientForCreation({
   const probableDuplicates = (await clientRepo.findProbableDuplicates({
     nom: normalizedClient.nom,
     prenom: normalizedClient.prenom
-  })).filter((client) => normalizePhoneDigits(client.telephone) !== normalizePhoneDigits(normalizedClient.telephone));
+  })).filter((client) => {
+    if (exactPhoneMatch?.idClient && client.idClient === exactPhoneMatch.idClient) return false;
+    const existingDigits = normalizePhoneDigits(client.telephone);
+    const incomingDigits = normalizePhoneDigits(normalizedClient.telephone);
+    return !incomingDigits || existingDigits !== incomingDigits;
+  });
 
   if (probableDuplicates.length > 0) {
     if (decision.action === "USE_EXISTING") {
@@ -154,9 +159,11 @@ export async function resolveClientForCreation({
       if (!target) {
         throw buildProbableDuplicateError(probableDuplicates);
       }
-      const phoneOwner = await clientRepo.findByTelephone(normalizedClient.telephone);
-      if (phoneOwner && phoneOwner.idClient !== target.idClient) {
-        throw buildDuplicatePhoneError(phoneOwner);
+      if (normalizedClient.telephone) {
+        const phoneOwner = await clientRepo.findByTelephone(normalizedClient.telephone);
+        if (phoneOwner && phoneOwner.idClient !== target.idClient) {
+          throw buildDuplicatePhoneError(phoneOwner);
+        }
       }
       target.modifier({
         nom: normalizedClient.nom,
@@ -180,7 +187,7 @@ export async function resolveClientForCreation({
     idClient: normalizedClient.idClient || generateClientId(),
     nom: normalizedClient.nom,
     prenom: normalizedClient.prenom,
-    telephone: normalizedClient.telephone
+    telephone: normalizedClient.telephone || ""
   });
   await clientRepo.save(client);
 

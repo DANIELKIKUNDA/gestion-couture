@@ -23,6 +23,7 @@ export class OrigineFactureReaderPg {
       `SELECT c.id_commande,
               c.description,
               c.montant_total,
+              c.type_habit,
               cl.nom || ' ' || cl.prenom AS client_nom,
               cl.telephone AS client_contact
        FROM commandes c
@@ -32,19 +33,43 @@ export class OrigineFactureReaderPg {
     );
     if (res.rowCount === 0) return null;
     const row = res.rows[0];
+    const lignesRes = await pool.query(
+      `SELECT nom_affiche, prenom_affiche, type_habit
+       FROM commande_lignes
+       WHERE id_commande = $1 AND atelier_id = $2
+       ORDER BY ordre_affichage ASC, date_creation ASC`,
+      [idCommande, this.atelierId]
+    );
+    const lignes = lignesRes.rows.length > 0
+      ? lignesRes.rows.map((ligne) => {
+          const beneficiaire = `${String(ligne.nom_affiche || "").trim()} ${String(ligne.prenom_affiche || "").trim()}`.trim();
+          const habit = String(ligne.type_habit || "").trim();
+          return {
+            description: beneficiaire ? `${habit || "Habit"} - ${beneficiaire}` : habit || row.description || "Commande atelier",
+            quantite: 1,
+            prix: 0
+          };
+        })
+      : [
+          {
+            description: row.description || row.type_habit || "Commande atelier",
+            quantite: 1,
+            prix: Number(row.montant_total)
+          }
+        ];
+    if (lignesRes.rows.length > 0) {
+      const unitPrice = Number(row.montant_total) / Math.max(1, lignes.length);
+      for (const ligne of lignes) {
+        ligne.prix = unitPrice;
+      }
+    }
     return {
       typeOrigine: "COMMANDE",
       idOrigine: row.id_commande,
       client: clientSnapshot(row),
       montantTotal: Number(row.montant_total),
       referenceCaisse: null,
-      lignes: [
-        {
-          description: row.description || "Commande atelier",
-          quantite: 1,
-          prix: Number(row.montant_total)
-        }
-      ]
+      lignes
     };
   }
 

@@ -7,7 +7,7 @@ export class Client {
       assertNonEmpty(idClient, "idClient");
       assertNonEmpty(nom, "nom");
       assertNonEmpty(prenom, "prenom");
-      assertPhone(telephone);
+      telephone = assertPhone(telephone);
     } catch (e) {
       throw new ClientInvalide(e.message);
     }
@@ -25,7 +25,7 @@ export class Client {
   modifier({ nom, prenom, telephone, adresse, sexe }) {
     if (nom) this.nom = nom;
     if (prenom) this.prenom = prenom;
-    if (telephone) this.telephone = telephone;
+    if (telephone !== undefined) this.telephone = assertPhone(telephone);
     if (adresse !== undefined) this.adresse = adresse;
     if (sexe !== undefined) this.sexe = sexe;
   }

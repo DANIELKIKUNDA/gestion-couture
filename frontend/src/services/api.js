@@ -1010,6 +1010,15 @@ export const atelierApi = {
     });
   },
 
+  getClientLatestMeasures(idClient, typeHabit) {
+    const query = new URLSearchParams();
+    assignIfPresent(query, "typeHabit", typeHabit);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request(`/clients/${encodeURIComponent(idClient)}/mesures/derniere${suffix}`, {
+      method: "GET"
+    });
+  },
+
   createCommande(input) {
     return request("/commandes", {
       method: "POST",

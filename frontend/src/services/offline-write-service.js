@@ -6,6 +6,7 @@ import {
   runOfflineTransaction
 } from "./local-db.js";
 import { createLocalClientId, createLocalCommandeId, createLocalRetoucheId, isOfflineEntityId } from "./local-id.js";
+import { createServerClientId } from "./server-id.js";
 import { enqueueInTransaction, findLatestActiveEntryByEntityLocalId } from "./sync-queue.js";
 
 export const OFFLINE_WRITE_ACTIONS = Object.freeze({
@@ -106,14 +107,15 @@ function buildClientRecord(input, timestamp) {
   const nom = normalizeString(input?.nom);
   const prenom = normalizeString(input?.prenom);
   const telephone = normalizeString(input?.telephone);
-  if (!nom || !prenom || !telephone) {
-    throw new Error("Nom, prenom et telephone sont obligatoires pour creer un client offline.");
+  if (!nom || !prenom) {
+    throw new Error("Nom et prenom sont obligatoires pour creer un client offline.");
   }
 
   const localId = createLocalClientId();
+  const idClient = normalizeString(input?.idClient) || createServerClientId();
   return {
     ...buildPendingEntityBase(localId, timestamp),
-    idClient: localId,
+    idClient,
     nom,
     prenom,
     telephone,
@@ -121,7 +123,25 @@ function buildClientRecord(input, timestamp) {
   };
 }
 
-function buildCommandeRecord(input, clientRecord, timestamp) {
+function buildCreateClientPayload(clientRecord) {
+  return {
+    idClient: normalizeString(clientRecord?.idClient),
+    nom: normalizeString(clientRecord?.nom),
+    prenom: normalizeString(clientRecord?.prenom),
+    telephone: normalizeString(clientRecord?.telephone)
+  };
+}
+
+function buildClientReferenceDraft(clientRecord) {
+  return {
+    idClient: normalizeString(clientRecord?.idClient),
+    nom: normalizeString(clientRecord?.nom),
+    prenom: normalizeString(clientRecord?.prenom),
+    telephone: normalizeString(clientRecord?.telephone)
+  };
+}
+
+function buildCommandeRecord(input, clientRecord, timestamp, options = {}) {
   const descriptionCommande = normalizeString(input?.descriptionCommande);
   const typeHabit = normalizeString(input?.typeHabit);
   const datePrevue = toNullableIsoTimestamp(input?.datePrevue);
@@ -141,21 +161,26 @@ function buildCommandeRecord(input, clientRecord, timestamp) {
     ...buildPendingEntityBase(localId, timestamp),
     idCommande: localId,
     idClient: resolvedClientId,
+    clientPayeurId: resolvedClientId,
     clientLocalId,
     clientServerId,
+    clientPayeurLocalId: clientLocalId,
+    clientPayeurServerId: clientServerId,
     clientNom: buildClientDisplayName(clientRecord),
     descriptionCommande,
     montantTotal: normalizeMontant(input?.montantTotal, "Montant total"),
     montantPaye: 0,
     typeHabit,
     mesuresHabit: cloneSerializable(input?.mesuresHabit || {}),
+    lignesCommande: cloneSerializable(input?.lignesCommande || []),
     statutCommande: "CREEE",
     dateCreation: timestamp,
-    datePrevue
+    datePrevue,
+    nouveauClient: options.isNewClient ? buildClientReferenceDraft(clientRecord) : null
   };
 }
 
-function buildRetoucheRecord(input, clientRecord, timestamp) {
+function buildRetoucheRecord(input, clientRecord, timestamp, options = {}) {
   const descriptionRetouche = normalizeString(input?.descriptionRetouche);
   const typeRetouche = normalizeString(input?.typeRetouche);
   const typeHabit = normalizeString(input?.typeHabit);
@@ -187,43 +212,135 @@ function buildRetoucheRecord(input, clientRecord, timestamp) {
     mesuresHabit: cloneSerializable(input?.mesuresHabit || {}),
     statutRetouche: "DEPOSEE",
     dateDepot: timestamp,
-    datePrevue
-  };
-}
-
-function buildCreateClientPayload(clientRecord) {
-  return {
-    nom: normalizeString(clientRecord?.nom),
-    prenom: normalizeString(clientRecord?.prenom),
-    telephone: normalizeString(clientRecord?.telephone)
+    datePrevue,
+    nouveauClient: options.isNewClient ? buildClientReferenceDraft(clientRecord) : null
   };
 }
 
 function buildCreateCommandePayload(commandeRecord) {
-  return {
-    idClient: normalizeString(commandeRecord?.clientServerId || commandeRecord?.clientLocalId || commandeRecord?.idClient),
-    clientLocalId: normalizeString(commandeRecord?.clientLocalId),
-    clientServerId: normalizeString(commandeRecord?.clientServerId),
+  const requestPayload = {
     descriptionCommande: normalizeString(commandeRecord?.descriptionCommande),
     montantTotal: Number(commandeRecord?.montantTotal || 0),
     typeHabit: normalizeString(commandeRecord?.typeHabit),
     mesuresHabit: cloneSerializable(commandeRecord?.mesuresHabit || {}),
-    datePrevue: commandeRecord?.datePrevue || null
+    lignesCommande: cloneSerializable(commandeRecord?.lignesCommande || [])
   };
+  const payerServerId = normalizeString(commandeRecord?.clientPayeurServerId || commandeRecord?.clientServerId);
+  const payerLocalId = normalizeString(commandeRecord?.clientPayeurLocalId || commandeRecord?.clientLocalId);
+  if (commandeRecord?.nouveauClient && typeof commandeRecord.nouveauClient === "object") {
+    requestPayload.nouveauClient = cloneSerializable(commandeRecord.nouveauClient);
+  } else {
+    requestPayload.idClient = payerServerId || payerLocalId || normalizeString(commandeRecord?.clientPayeurId || commandeRecord?.idClient);
+    requestPayload.clientLocalId = payerLocalId;
+    requestPayload.clientServerId = payerServerId;
+  }
+  if (commandeRecord?.datePrevue) {
+    requestPayload.datePrevue = commandeRecord.datePrevue;
+  }
+  return requestPayload;
 }
 
 function buildCreateRetouchePayload(retoucheRecord) {
-  return {
-    idClient: normalizeString(retoucheRecord?.clientServerId || retoucheRecord?.clientLocalId || retoucheRecord?.idClient),
-    clientLocalId: normalizeString(retoucheRecord?.clientLocalId),
-    clientServerId: normalizeString(retoucheRecord?.clientServerId),
+  const requestPayload = {
     descriptionRetouche: normalizeString(retoucheRecord?.descriptionRetouche),
     typeRetouche: normalizeString(retoucheRecord?.typeRetouche),
     montantTotal: Number(retoucheRecord?.montantTotal || 0),
     typeHabit: normalizeString(retoucheRecord?.typeHabit),
-    mesuresHabit: cloneSerializable(retoucheRecord?.mesuresHabit || {}),
-    datePrevue: retoucheRecord?.datePrevue || null
+    mesuresHabit: cloneSerializable(retoucheRecord?.mesuresHabit || {})
   };
+  if (retoucheRecord?.nouveauClient && typeof retoucheRecord.nouveauClient === "object") {
+    requestPayload.nouveauClient = cloneSerializable(retoucheRecord.nouveauClient);
+  } else {
+    requestPayload.idClient =
+      normalizeString(retoucheRecord?.clientServerId) ||
+      normalizeString(retoucheRecord?.clientLocalId) ||
+      normalizeString(retoucheRecord?.idClient);
+    requestPayload.clientLocalId = normalizeString(retoucheRecord?.clientLocalId);
+    requestPayload.clientServerId = normalizeString(retoucheRecord?.clientServerId);
+  }
+  if (retoucheRecord?.datePrevue) {
+    requestPayload.datePrevue = retoucheRecord.datePrevue;
+  }
+  return requestPayload;
+}
+
+async function createEmbeddedOfflineClient(scopedAtelierId, clientInput, timestamp) {
+  return putScopedEntityRecord(TABLE_NAMES.CLIENTS, scopedAtelierId, buildClientRecord(clientInput, timestamp));
+}
+
+async function prepareCommandeLignesOffline(scopedAtelierId, lines = [], payerRecord, timestamp) {
+  const preparedLines = [];
+  const relatedClients = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] && typeof lines[index] === "object" ? lines[index] : {};
+    const nextLine = {
+      ...cloneSerializable(line),
+      typeHabit: normalizeString(line.typeHabit),
+      mesuresHabit: cloneSerializable(line.mesuresHabit || {}),
+      role: normalizeString(line.role || (line.utiliseClientPayeur === true || line.source === "PAYEUR" ? "PAYEUR_BENEFICIAIRE" : "BENEFICIAIRE")),
+      ordreAffichage: Number(line.ordreAffichage || index + 1) || index + 1,
+      nomAffiche: normalizeString(line.nomAffiche),
+      prenomAffiche: normalizeString(line.prenomAffiche)
+    };
+
+    if (line.utiliseClientPayeur === true || line.source === "PAYEUR") {
+      nextLine.utiliseClientPayeur = true;
+      nextLine.role = "PAYEUR_BENEFICIAIRE";
+      nextLine.idClient = normalizeString(payerRecord?.idClient);
+      nextLine.clientLocalId = normalizeString(payerRecord?.localId);
+      nextLine.clientServerId = normalizeString(payerRecord?.serverId);
+      nextLine.nomAffiche = nextLine.nomAffiche || normalizeString(payerRecord?.nom);
+      nextLine.prenomAffiche = nextLine.prenomAffiche || normalizeString(payerRecord?.prenom);
+      preparedLines.push(nextLine);
+      continue;
+    }
+
+    if (line.nouveauClient) {
+      const createdClient = await createEmbeddedOfflineClient(scopedAtelierId, line.nouveauClient, timestamp);
+      relatedClients.push(createdClient);
+      nextLine.idClient = normalizeString(createdClient.idClient);
+      nextLine.clientLocalId = normalizeString(createdClient.localId);
+      nextLine.clientServerId = normalizeString(createdClient.serverId);
+      nextLine.nouveauClient = buildClientReferenceDraft(createdClient);
+      nextLine.nomAffiche = nextLine.nomAffiche || normalizeString(createdClient.nom);
+      nextLine.prenomAffiche = nextLine.prenomAffiche || normalizeString(createdClient.prenom);
+      preparedLines.push(nextLine);
+      continue;
+    }
+
+    if (line.idClient) {
+      const existingClient = await resolveClientRecord(scopedAtelierId, line.idClient);
+      if (!existingClient) {
+        throw new Error("Beneficiaire introuvable pour la creation offline de commande.");
+      }
+      nextLine.idClient = normalizeString(existingClient.idClient);
+      nextLine.clientLocalId = normalizeString(existingClient.localId);
+      nextLine.clientServerId = normalizeString(existingClient.serverId);
+      nextLine.nomAffiche = nextLine.nomAffiche || normalizeString(existingClient.nom);
+      nextLine.prenomAffiche = nextLine.prenomAffiche || normalizeString(existingClient.prenom);
+    }
+
+    preparedLines.push(nextLine);
+  }
+
+  return {
+    lines: preparedLines,
+    relatedClients
+  };
+}
+
+async function collectCommandeDependencyQueueIds(scopedAtelierId, payerRecord, lines = []) {
+  const dependencyIds = new Set(await resolveClientDependencyQueueIds(scopedAtelierId, payerRecord));
+  for (const line of lines) {
+    if (line?.nouveauClient) continue;
+    const clientLocalId = normalizeString(line?.clientLocalId);
+    if (!clientLocalId) continue;
+    const clientRecord = await resolveClientRecord(scopedAtelierId, clientLocalId);
+    if (!clientRecord) continue;
+    const queueIds = await resolveClientDependencyQueueIds(scopedAtelierId, clientRecord);
+    for (const queueId of queueIds) dependencyIds.add(queueId);
+  }
+  return Array.from(dependencyIds);
 }
 
 export async function createOfflineClient({ atelierId, client } = {}) {
@@ -255,22 +372,14 @@ export async function createOfflineCommande({ atelierId, clientId, newClient, co
   const scopedAtelierId = ensureAtelierId(atelierId);
   const timestamp = nowIso();
   let resolvedClient = null;
-  let clientQueueEntry = null;
+  let relatedClients = [];
   let createdCommande = null;
   let queueEntry = null;
 
   await runOfflineTransaction("rw", [TABLE_NAMES.CLIENTS, TABLE_NAMES.COMMANDES, TABLE_NAMES.SYNC_QUEUE], async () => {
     if (newClient) {
-      resolvedClient = await putScopedEntityRecord(TABLE_NAMES.CLIENTS, scopedAtelierId, buildClientRecord(newClient, timestamp));
-      clientQueueEntry = await enqueueInTransaction(scopedAtelierId, {
-        status: "pending",
-        entityType: "client",
-        actionType: OFFLINE_WRITE_ACTIONS.CREATE_CLIENT,
-        entityLocalId: resolvedClient.localId,
-        entityServerId: "",
-        dependsOn: [],
-        payload: buildCreateClientPayload(resolvedClient)
-      });
+      resolvedClient = await createEmbeddedOfflineClient(scopedAtelierId, newClient, timestamp);
+      relatedClients = [resolvedClient];
     } else {
       resolvedClient = await resolveClientRecord(scopedAtelierId, clientId);
       if (!resolvedClient) {
@@ -278,13 +387,28 @@ export async function createOfflineCommande({ atelierId, clientId, newClient, co
       }
     }
 
+    const preparedLines = await prepareCommandeLignesOffline(
+      scopedAtelierId,
+      Array.isArray(commande?.lignesCommande) ? commande.lignesCommande : [],
+      resolvedClient,
+      timestamp
+    );
+    relatedClients = [...relatedClients, ...preparedLines.relatedClients];
     createdCommande = await putScopedEntityRecord(
       TABLE_NAMES.COMMANDES,
       scopedAtelierId,
-      buildCommandeRecord(commande, resolvedClient, timestamp)
+      buildCommandeRecord(
+        {
+          ...commande,
+          lignesCommande: preparedLines.lines
+        },
+        resolvedClient,
+        timestamp,
+        { isNewClient: Boolean(newClient) }
+      )
     );
 
-    const dependsOn = await resolveClientDependencyQueueIds(scopedAtelierId, resolvedClient, clientQueueEntry);
+    const dependsOn = await collectCommandeDependencyQueueIds(scopedAtelierId, resolvedClient, preparedLines.lines);
     queueEntry = await enqueueInTransaction(scopedAtelierId, {
       status: "pending",
       entityType: "commande",
@@ -298,7 +422,7 @@ export async function createOfflineCommande({ atelierId, clientId, newClient, co
 
   return {
     client: resolvedClient,
-    clientQueueEntry,
+    relatedClients,
     commande: createdCommande,
     queueEntry
   };
@@ -308,22 +432,12 @@ export async function createOfflineRetouche({ atelierId, clientId, newClient, re
   const scopedAtelierId = ensureAtelierId(atelierId);
   const timestamp = nowIso();
   let resolvedClient = null;
-  let clientQueueEntry = null;
   let createdRetouche = null;
   let queueEntry = null;
 
   await runOfflineTransaction("rw", [TABLE_NAMES.CLIENTS, TABLE_NAMES.RETOUCHES, TABLE_NAMES.SYNC_QUEUE], async () => {
     if (newClient) {
-      resolvedClient = await putScopedEntityRecord(TABLE_NAMES.CLIENTS, scopedAtelierId, buildClientRecord(newClient, timestamp));
-      clientQueueEntry = await enqueueInTransaction(scopedAtelierId, {
-        status: "pending",
-        entityType: "client",
-        actionType: OFFLINE_WRITE_ACTIONS.CREATE_CLIENT,
-        entityLocalId: resolvedClient.localId,
-        entityServerId: "",
-        dependsOn: [],
-        payload: buildCreateClientPayload(resolvedClient)
-      });
+      resolvedClient = await createEmbeddedOfflineClient(scopedAtelierId, newClient, timestamp);
     } else {
       resolvedClient = await resolveClientRecord(scopedAtelierId, clientId);
       if (!resolvedClient) {
@@ -334,10 +448,10 @@ export async function createOfflineRetouche({ atelierId, clientId, newClient, re
     createdRetouche = await putScopedEntityRecord(
       TABLE_NAMES.RETOUCHES,
       scopedAtelierId,
-      buildRetoucheRecord(retouche, resolvedClient, timestamp)
+      buildRetoucheRecord(retouche, resolvedClient, timestamp, { isNewClient: Boolean(newClient) })
     );
 
-    const dependsOn = await resolveClientDependencyQueueIds(scopedAtelierId, resolvedClient, clientQueueEntry);
+    const dependsOn = newClient ? [] : await resolveClientDependencyQueueIds(scopedAtelierId, resolvedClient);
     queueEntry = await enqueueInTransaction(scopedAtelierId, {
       status: "pending",
       entityType: "retouche",
@@ -351,7 +465,6 @@ export async function createOfflineRetouche({ atelierId, clientId, newClient, re
 
   return {
     client: resolvedClient,
-    clientQueueEntry,
     retouche: createdRetouche,
     queueEntry
   };

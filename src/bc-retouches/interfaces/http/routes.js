@@ -2,6 +2,7 @@ import express from "express";
 import { pool } from "../../../shared/infrastructure/db.js";
 import { RetoucheRepoPg } from "../../infrastructure/repositories/retouche-repo-pg.js";
 import { ClientRepoPg } from "../../../bc-clients/infrastructure/repositories/client-repo-pg.js";
+import { SerieMesuresRepoPg } from "../../../bc-clients/infrastructure/repositories/serie-mesures-repo-pg.js";
 import { deposerRetouche } from "../../application/use-cases/deposer-retouche.js";
 import { demarrerTravail } from "../../application/use-cases/demarrer-travail.js";
 import { terminerTravail } from "../../application/use-cases/terminer-travail.js";
@@ -19,6 +20,7 @@ import { hasPermission, requireAnyPermission, requirePermission } from "../../..
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
 import { resolveClientForCreation, serializeClientCreationConflict } from "../../../bc-clients/application/services/resolve-client-for-creation.js";
+import { saveLatestMeasuresForClientAndType } from "../../../bc-clients/application/services/measure-prefill-service.js";
 import {
   getTypeRetoucheDefinition,
   isRetoucheHabitCompatible,
@@ -30,6 +32,7 @@ import {
 const router = express.Router();
 const retoucheRepo = new RetoucheRepoPg();
 const clientRepo = new ClientRepoPg();
+const serieRepo = new SerieMesuresRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
 const requireRetoucheReadAccess = requireAnyPermission([
   PERMISSIONS.VOIR_RETOUCHES,
@@ -63,6 +66,10 @@ function scopedRetoucheRepo(req) {
 
 function scopedClientRepo(req) {
   return clientRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedSerieRepo(req) {
+  return serieRepo.forAtelier(atelierIdFromReq(req));
 }
 
 function scopedParametresRepo(req) {
@@ -419,6 +426,7 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     const acteur = resolveActeur(req);
     const policy = await loadRetouchePolicy({ req });
     const repo = scopedRetoucheRepo(req).withExecutor(dbClient);
+    const mesuresRepo = scopedSerieRepo(req).withExecutor(dbClient);
     const requestedIdRetouche = String(body.idRetouche || "").trim();
     if (requestedIdRetouche) {
       const existingRetouche = await repo.getById(requestedIdRetouche);
@@ -446,6 +454,14 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
       policy: { retouches: policy }
     });
     await repo.save(retouche);
+    await saveLatestMeasuresForClientAndType({
+      idClient: retouche.idClient,
+      typeHabit: retouche.typeHabit,
+      mesuresSnapshot: retouche.mesuresHabit,
+      prisePar: acteur.utilisateur,
+      observations: `Retouche ${retouche.idRetouche}`,
+      serieRepo: mesuresRepo
+    });
     await enregistrerEvenementRetouche({
       atelierId: atelierIdFromReq(req),
       idRetouche: retouche.idRetouche,
@@ -493,7 +509,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
           idClient: z.string().min(1).optional(),
           nom: z.string().min(1),
           prenom: z.string().min(1),
-          telephone: z.string().min(1)
+          telephone: z.string().optional().default("")
         })
         .optional(),
       doublonDecision: z
@@ -529,6 +545,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     const policy = await loadRetouchePolicy({ req });
     const repo = scopedRetoucheRepo(req).withExecutor(dbClient);
     const clients = scopedClientRepo(req).withExecutor(dbClient);
+    const mesuresRepo = scopedSerieRepo(req).withExecutor(dbClient);
     const requestedIdRetouche = String(body.idRetouche || "").trim();
     if (requestedIdRetouche) {
       const existingRetouche = await repo.getById(requestedIdRetouche);
@@ -599,6 +616,14 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
         JSON.stringify(retouche.mesuresHabit)
       ]
     );
+    await saveLatestMeasuresForClientAndType({
+      idClient: retouche.idClient,
+      typeHabit: retouche.typeHabit,
+      mesuresSnapshot: retouche.mesuresHabit,
+      prisePar: acteur.utilisateur,
+      observations: `Retouche ${retouche.idRetouche}`,
+      serieRepo: mesuresRepo
+    });
 
     const measuresRequired = typeDefinition.necessiteMesures === true;
     await dbClient.query(

@@ -179,6 +179,62 @@ BEGIN
   END IF;
 END $$;
 
+CREATE TABLE IF NOT EXISTS commande_lignes (
+  id_ligne TEXT PRIMARY KEY,
+  atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
+  id_commande TEXT NOT NULL,
+  id_client TEXT NULL,
+  role TEXT NOT NULL CHECK (role IN ('BENEFICIAIRE', 'PAYEUR_BENEFICIAIRE')),
+  nom_affiche TEXT NOT NULL DEFAULT '',
+  prenom_affiche TEXT NOT NULL DEFAULT '',
+  type_habit TEXT NOT NULL,
+  mesures_habit_snapshot JSONB NOT NULL,
+  ordre_affichage INTEGER NOT NULL DEFAULT 1 CHECK (ordre_affichage > 0),
+  date_creation TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_commande_lignes_atelier_commande
+ON commande_lignes (atelier_id, id_commande, ordre_affichage);
+
+CREATE INDEX IF NOT EXISTS idx_commande_lignes_atelier_client
+ON commande_lignes (atelier_id, id_client);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'commande_lignes_atelier_fk'
+  ) THEN
+    ALTER TABLE commande_lignes
+      ADD CONSTRAINT commande_lignes_atelier_fk
+      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'commande_lignes_commande_atelier_fk'
+  ) THEN
+    ALTER TABLE commande_lignes
+      ADD CONSTRAINT commande_lignes_commande_atelier_fk
+      FOREIGN KEY (atelier_id, id_commande)
+      REFERENCES commandes(atelier_id, id_commande)
+      ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'commande_lignes_client_atelier_fk'
+  ) THEN
+    ALTER TABLE commande_lignes
+      ADD CONSTRAINT commande_lignes_client_atelier_fk
+      FOREIGN KEY (atelier_id, id_client)
+      REFERENCES clients(atelier_id, id_client);
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS commande_media (
   id_media TEXT PRIMARY KEY,
   atelier_id TEXT NOT NULL DEFAULT 'ATELIER',

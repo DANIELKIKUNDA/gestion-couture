@@ -47,6 +47,14 @@ async function countRetouchesById(atelierId, idRetouche) {
   return Number(result.rows[0]?.total || 0);
 }
 
+async function getClientLatestMeasures(session, idClient, typeHabit) {
+  const response = await withAuth(
+    session.client.get(`/api/clients/${encodeURIComponent(idClient)}/mesures/derniere`).query({ typeHabit }),
+    session.token
+  );
+  return response;
+}
+
 async function run() {
   const atelierId = `ATELIER_RET_WIZ_${Date.now()}`;
   const session = await createAuthenticatedSession({
@@ -181,6 +189,62 @@ async function run() {
   const marieClients = await findClientsByIdentity(atelierId, "Marie", "Samba");
   assert.equal(marieClients.length, 1, "la mise a jour numero ne doit pas creer de doublon client");
   assert.equal(String(marieClients[0]?.telephone || "").trim(), probableDuplicatePayload.nouveauClient.telephone);
+
+  const sansTelephonePayload = {
+    idRetouche: buildTestId("RET"),
+    nouveauClient: {
+      idClient: buildTestId("CLI"),
+      nom: "Junior",
+      prenom: "SansNumero",
+      telephone: ""
+    },
+    descriptionRetouche: "Retouche sans telephone",
+    typeRetouche: "OURLET",
+    montantTotal: 35,
+    typeHabit: "ROBE",
+    mesuresHabit: {
+      longueur: 141
+    }
+  };
+
+  const sansTelephoneCreation = await withAuth(session.client.post("/api/retouches/wizard"), session.token).send(sansTelephonePayload);
+  assert.equal(sansTelephoneCreation.status, 201, "une retouche avec client sans telephone doit etre autorisee");
+  assert.equal(String(sansTelephoneCreation.body?.client?.telephone || ""), "");
+
+  const prefillRetouche = await getClientLatestMeasures(session, sansTelephonePayload.nouveauClient.idClient, "ROBE");
+  assert.equal(prefillRetouche.status, 200, "la retouche doit aussi mettre a jour la derniere mesure connue");
+  assert.equal(Number(prefillRetouche.body?.prefill?.mesuresHabit?.valeurs?.longueur || 0), 141);
+
+  const probableSansNumeroPayload = {
+    idRetouche: buildTestId("RET"),
+    nouveauClient: {
+      idClient: buildTestId("CLI"),
+      nom: "Junior",
+      prenom: "SansNumero",
+      telephone: ""
+    },
+    descriptionRetouche: "Retouche doublon probable sans numero",
+    typeRetouche: "OURLET",
+    montantTotal: 38,
+    typeHabit: "ROBE",
+    mesuresHabit: {
+      longueur: 143
+    }
+  };
+
+  const probableSansNumero = await withAuth(session.client.post("/api/retouches/wizard"), session.token).send(probableSansNumeroPayload);
+  assert.equal(probableSansNumero.status, 409, "un doublon probable sans telephone doit etre signale");
+  assert.equal(probableSansNumero.body?.code, "CLIENT_DUPLICATE_POSSIBLE");
+
+  const confirmSansNumero = await withAuth(session.client.post("/api/retouches/wizard"), session.token).send({
+    ...probableSansNumeroPayload,
+    doublonDecision: {
+      action: "CONFIRM_NEW",
+      idClient: sansTelephonePayload.nouveauClient.idClient
+    }
+  });
+  assert.equal(confirmSansNumero.status, 201, "la creation reste possible apres confirmation explicite");
+  assert.equal((await findClientsByIdentity(atelierId, "Junior", "SansNumero")).length >= 2, true);
 }
 
 run()

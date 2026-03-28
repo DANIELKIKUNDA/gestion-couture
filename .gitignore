@@ -23,6 +23,7 @@ storage/
 !src/**/infrastructure/storage/*.js
 backups/
 deploy/certbot/
+projet.tar.gz
 
 # Vite
 .vite/

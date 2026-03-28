@@ -51,6 +51,25 @@ async function countCommandesById(atelierId, idCommande) {
   return Number(result.rows[0]?.total || 0);
 }
 
+async function getCommandeLignes(atelierId, idCommande) {
+  const result = await pool.query(
+    `SELECT id_ligne, id_client, role, nom_affiche, prenom_affiche, type_habit, mesures_habit_snapshot, ordre_affichage
+     FROM commande_lignes
+     WHERE atelier_id = $1 AND id_commande = $2
+     ORDER BY ordre_affichage ASC, date_creation ASC`,
+    [atelierId, idCommande]
+  );
+  return result.rows;
+}
+
+async function getClientLatestMeasures(session, idClient, typeHabit) {
+  const response = await withAuth(
+    session.client.get(`/api/clients/${encodeURIComponent(idClient)}/mesures/derniere`).query({ typeHabit }),
+    session.token
+  );
+  return response;
+}
+
 async function run() {
   const atelierId = `ATELIER_CMD_WIZ_${Date.now()}`;
   const session = await createAuthenticatedSession({
@@ -183,6 +202,234 @@ async function run() {
   const marieClients = await findClientsByIdentity(atelierId, "Marie", "Samba");
   assert.equal(marieClients.length, 1, "la mise a jour numero ne doit pas creer de doublon client");
   assert.equal(String(marieClients[0]?.telephone || "").trim(), probableDuplicatePayload.nouveauClient.telephone);
+
+  const famillePayload = {
+    idCommande: buildTestId("CMD"),
+    nouveauClient: {
+      idClient: buildTestId("CLI"),
+      nom: "Clarisse",
+      prenom: "Maman",
+      telephone: ""
+    },
+    descriptionCommande: "Commande famille",
+    montantTotal: 320,
+    datePrevue: "2026-04-15",
+    lignesCommande: [
+      {
+        source: "PAYEUR",
+        role: "PAYEUR_BENEFICIAIRE",
+        typeHabit: "ROBE",
+        mesuresHabit: {
+          poitrine: 92,
+          taille: 74,
+          hanche: 102,
+          longueur: 144
+        }
+      },
+      {
+        nouveauClient: {
+          idClient: buildTestId("CLI"),
+          nom: "Junior",
+          prenom: "Moke",
+          telephone: ""
+        },
+        role: "BENEFICIAIRE",
+        typeHabit: "PANTALON",
+        mesuresHabit: pantalonMesuresCompletes
+      },
+      {
+        nouveauClient: {
+          idClient: buildTestId("CLI"),
+          nom: "Sarah",
+          prenom: "Moke",
+          telephone: ""
+        },
+        role: "BENEFICIAIRE",
+        typeHabit: "ROBE",
+        mesuresHabit: {
+          poitrine: 80,
+          taille: 64,
+          hanche: 88,
+          longueur: 122
+        }
+      }
+    ]
+  };
+
+  const familleCreation = await withAuth(session.client.post("/api/commandes"), session.token).send(famillePayload);
+  assert.equal(familleCreation.status, 201, "la commande famille doit etre creee");
+  assert.equal(familleCreation.body?.commande?.nombreLignes, 3);
+  assert.equal(familleCreation.body?.commande?.nombreBeneficiaires, 3);
+  assert.equal(Array.isArray(familleCreation.body?.commande?.lignesCommande), true);
+  assert.equal(familleCreation.body.commande.lignesCommande.length, 3);
+  assert.equal(String(familleCreation.body?.client?.telephone || ""), "", "le client payeur sans telephone doit etre autorise");
+  assert.equal(Array.isArray(familleCreation.body?.clientsAssocies), true);
+  assert.equal(familleCreation.body.clientsAssocies.length, 3, "les trois clients associes doivent etre renvoyes");
+
+  const familleLignes = await getCommandeLignes(atelierId, famillePayload.idCommande);
+  assert.equal(familleLignes.length, 3, "les lignes de commande doivent etre persistées");
+  assert.equal(familleLignes[0]?.role, "PAYEUR_BENEFICIAIRE");
+  assert.equal(familleLignes[0]?.id_client, famillePayload.nouveauClient.idClient, "le payeur inclus ne doit pas etre duplique");
+  assert.equal(
+    String(familleLignes[1]?.mesures_habit_snapshot?.valeurs?.tourTaille || ""),
+    String(pantalonMesuresCompletes.tourTaille),
+    "les mesures de ligne doivent etre conservees"
+  );
+
+  const mesurePrefillPantalon = await getClientLatestMeasures(session, famillePayload.lignesCommande[1].nouveauClient.idClient, "PANTALON");
+  assert.equal(mesurePrefillPantalon.status, 200, "les dernieres mesures par type doivent etre consultables");
+  assert.equal(mesurePrefillPantalon.body?.prefill?.typeHabit, "PANTALON");
+  assert.equal(Number(mesurePrefillPantalon.body?.prefill?.mesuresHabit?.valeurs?.tourTaille || 0), pantalonMesuresCompletes.tourTaille);
+
+  const updatedPantalonMeasures = {
+    longueur: 107,
+    tourTaille: 86,
+    tourHanche: 98,
+    largeurBas: 19,
+    hauteurFourche: 29
+  };
+  const mesureMajPayload = {
+    idCommande: buildTestId("CMD"),
+    clientPayeurId: famillePayload.lignesCommande[1].nouveauClient.idClient,
+    descriptionCommande: "Nouvelle prise de mesures pantalon",
+    montantTotal: 95,
+    typeHabit: "PANTALON",
+    mesuresHabit: updatedPantalonMeasures
+  };
+  const mesureMajCreation = await withAuth(session.client.post("/api/commandes"), session.token).send(mesureMajPayload);
+  assert.equal(mesureMajCreation.status, 201, "la commande simple existante doit rester compatible");
+
+  const mesurePrefillMaj = await getClientLatestMeasures(session, famillePayload.lignesCommande[1].nouveauClient.idClient, "PANTALON");
+  assert.equal(Number(mesurePrefillMaj.body?.prefill?.mesuresHabit?.valeurs?.tourTaille || 0), updatedPantalonMeasures.tourTaille);
+  const mesurePrefillAutreType = await getClientLatestMeasures(session, famillePayload.lignesCommande[1].nouveauClient.idClient, "ROBE");
+  assert.equal(mesurePrefillAutreType.status, 200);
+  assert.equal(mesurePrefillAutreType.body?.prefill, null, "le pre-remplissage doit rester contextualise par type d'habit");
+
+  const papaPayeurPayload = {
+    idCommande: buildTestId("CMD"),
+    nouveauClient: {
+      idClient: buildTestId("CLI"),
+      nom: "Patrick",
+      prenom: "Papa",
+      telephone: ""
+    },
+    descriptionCommande: "Commande enfants seulement",
+    montantTotal: 220,
+    lignesCommande: [
+      {
+        nouveauClient: {
+          idClient: buildTestId("CLI"),
+          nom: "Enfant",
+          prenom: "Un",
+          telephone: ""
+        },
+        role: "BENEFICIAIRE",
+        typeHabit: "PANTALON",
+        mesuresHabit: pantalonMesuresCompletes
+      },
+      {
+        nouveauClient: {
+          idClient: buildTestId("CLI"),
+          nom: "Enfant",
+          prenom: "Deux",
+          telephone: ""
+        },
+        role: "BENEFICIAIRE",
+        typeHabit: "ROBE",
+        mesuresHabit: {
+          poitrine: 70,
+          taille: 60,
+          hanche: 76,
+          longueur: 118
+        }
+      }
+    ]
+  };
+
+  const papaPayeurCreation = await withAuth(session.client.post("/api/commandes"), session.token).send(papaPayeurPayload);
+  assert.equal(papaPayeurCreation.status, 201, "le payeur sans ligne doit etre autorise");
+  assert.equal(papaPayeurCreation.body?.commande?.nombreLignes, 2);
+  assert.equal(papaPayeurCreation.body?.commande?.nombreBeneficiaires, 2);
+  const papaPayeurLignes = await getCommandeLignes(atelierId, papaPayeurPayload.idCommande);
+  assert.equal(papaPayeurLignes.length, 2);
+  assert.equal(
+    papaPayeurLignes.some((ligne) => ligne.id_client === papaPayeurPayload.nouveauClient.idClient),
+    false,
+    "le payeur seul ne doit pas etre cree comme ligne inutile"
+  );
+
+  const existingPayer = await createClientViaApi({
+    client: session.client,
+    token: session.token,
+    nom: "Chef",
+    prenom: "Chorale",
+    telephone: "+243810001777"
+  });
+  assert.equal(existingPayer.status, 201);
+
+  const choralePayload = {
+    idCommande: buildTestId("CMD"),
+    clientPayeurId: existingPayer.body?.client?.idClient,
+    descriptionCommande: "Commande chorale",
+    montantTotal: 480,
+    lignesCommande: [
+      {
+        utiliseClientPayeur: true,
+        role: "PAYEUR_BENEFICIAIRE",
+        typeHabit: "CHEMISE",
+        mesuresHabit: {
+          poitrine: 108,
+          longueurChemise: 76,
+          typeManches: "longues",
+          longueurManches: 61,
+          poignet: 18,
+          carrure: 46
+        }
+      },
+      {
+        nomAffiche: "Membre",
+        prenomAffiche: "Un",
+        role: "BENEFICIAIRE",
+        typeHabit: "CHEMISE",
+        mesuresHabit: {
+          poitrine: 100,
+          longueurChemise: 72,
+          typeManches: "courtes",
+          poignet: 17,
+          carrure: 43
+        }
+      }
+    ]
+  };
+
+  const choraleCreation = await withAuth(session.client.post("/api/commandes"), session.token).send(choralePayload);
+  assert.equal(choraleCreation.status, 201, "la commande groupe doit etre creee");
+  assert.equal(choraleCreation.body?.nombreBeneficiaires, 2);
+  const choraleLignes = await getCommandeLignes(atelierId, choralePayload.idCommande);
+  assert.equal(choraleLignes[0]?.id_client, existingPayer.body?.client?.idClient, "le payeur existant inclus doit etre reutilise");
+  assert.equal(choraleLignes[1]?.id_client, null, "un beneficiaire libre sans fiche client doit rester possible");
+
+  const confirmDuplicatePayload = {
+    idCommande: buildTestId("CMD"),
+    nouveauClient: {
+      idClient: buildTestId("CLI"),
+      nom: "Jean",
+      prenom: "Diallo",
+      telephone: "+243810001003"
+    },
+    doublonDecision: {
+      action: "CONFIRM_NEW",
+      idClient: existingPhoneClientId
+    },
+    descriptionCommande: "Commande doublon confirme",
+    montantTotal: 170,
+    typeHabit: "PANTALON",
+    mesuresHabit: pantalonMesuresCompletes
+  };
+
+  const confirmDuplicateCreation = await withAuth(session.client.post("/api/commandes"), session.token).send(confirmDuplicatePayload);
+  assert.equal(confirmDuplicateCreation.status, 201, "la creation doit rester possible apres confirmation explicite");
+  assert.equal(await countClientsByTelephone(atelierId, confirmDuplicatePayload.nouveauClient.telephone), 2, "la confirmation doit autoriser un nouveau client");
 }
 
 run()

@@ -62,6 +62,85 @@ export async function ensureAtelier(idAtelier, slug = null, nom = null) {
   );
 }
 
+export async function ensureCommandeFamilleSchema() {
+  await pool.query(`
+    ALTER TABLE clients
+    ALTER COLUMN telephone DROP NOT NULL
+  `).catch(() => {});
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF to_regclass('public.commande_lignes') IS NULL THEN
+        BEGIN
+          CREATE TABLE public.commande_lignes (
+            id_ligne TEXT PRIMARY KEY,
+            atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
+            id_commande TEXT NOT NULL,
+            id_client TEXT NULL,
+            role TEXT NOT NULL CHECK (role IN ('BENEFICIAIRE', 'PAYEUR_BENEFICIAIRE')),
+            nom_affiche TEXT NOT NULL DEFAULT '',
+            prenom_affiche TEXT NOT NULL DEFAULT '',
+            type_habit TEXT NOT NULL,
+            mesures_habit_snapshot JSONB NOT NULL,
+            ordre_affichage INTEGER NOT NULL DEFAULT 1 CHECK (ordre_affichage > 0),
+            date_creation TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+        EXCEPTION
+          WHEN duplicate_table OR duplicate_object THEN
+            NULL;
+        END;
+      END IF;
+    END
+    $$ LANGUAGE plpgsql;
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_commande_lignes_atelier_commande
+    ON commande_lignes (atelier_id, id_commande, ordre_affichage)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_commande_lignes_atelier_client
+    ON commande_lignes (atelier_id, id_client)
+  `);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'commande_lignes_commande_atelier_fk'
+      ) THEN
+        ALTER TABLE commande_lignes
+          ADD CONSTRAINT commande_lignes_commande_atelier_fk
+          FOREIGN KEY (atelier_id, id_commande)
+          REFERENCES commandes(atelier_id, id_commande)
+          ON DELETE CASCADE;
+      END IF;
+    END
+    $$ LANGUAGE plpgsql;
+  `);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'commande_lignes_client_atelier_fk'
+      ) THEN
+        ALTER TABLE commande_lignes
+          ADD CONSTRAINT commande_lignes_client_atelier_fk
+          FOREIGN KEY (atelier_id, id_client)
+          REFERENCES clients(atelier_id, id_client);
+      END IF;
+    END
+    $$ LANGUAGE plpgsql;
+  `);
+}
+
 export function withAuth(req, token) {
   return req.set("Authorization", `Bearer ${token}`);
 }
@@ -79,6 +158,7 @@ export async function createAuthenticatedSession({
   const utilisateurRepo = new UtilisateurRepoPg();
   const rolePermissionRepo = new RolePermissionAtelierRepoPg();
 
+  await ensureCommandeFamilleSchema();
   await ensureAtelier(atelierId, slugify(atelierId), `Atelier ${atelierId}`);
   await rolePermissionRepo.save({
     atelierId,
@@ -120,7 +200,7 @@ export async function createClientViaApi({ client, token, nom = "Client", prenom
   const response = await withAuth(client.post("/api/clients"), token).send({
     nom,
     prenom,
-    telephone: telephone || `+243${Date.now().toString().slice(-9)}`
+    telephone: telephone === undefined ? `+243${Date.now().toString().slice(-9)}` : telephone
   });
   return response;
 }

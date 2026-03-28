@@ -1462,6 +1462,123 @@ body {
   gap: 4px;
 }
 
+.wizard-stage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #dbe7f4;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at top right, rgba(78, 122, 182, 0.14), transparent 38%),
+    linear-gradient(180deg, #fbfdff 0%, #f3f8ff 100%);
+  box-shadow: 0 12px 30px rgba(27, 63, 103, 0.08);
+}
+
+.wizard-stage-head h4,
+.order-lines-head h4 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  color: #15314f;
+}
+
+.wizard-stage-head .helper,
+.order-lines-head .helper {
+  margin: 4px 0 0;
+}
+
+.wizard-stage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.helper-inline-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.segmented-wrap {
+  flex-wrap: wrap;
+}
+
+.wizard-beneficiary-list {
+  display: grid;
+  gap: 14px;
+}
+
+.beneficiary-card,
+.order-line-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #d9e5f1;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f9fbff 100%);
+  box-shadow: 0 14px 34px rgba(23, 57, 95, 0.08);
+}
+
+.beneficiary-card-head,
+.order-line-card-head,
+.order-lines-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.beneficiary-card-head h4,
+.order-line-card-head strong {
+  margin: 4px 0 0;
+  color: #163757;
+}
+
+.beneficiary-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summary-pill-card {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid #dbe7f4;
+  background: linear-gradient(180deg, #ffffff 0%, #f4f8fd 100%);
+  box-shadow: 0 10px 24px rgba(27, 63, 103, 0.06);
+}
+
+.summary-pill-card span {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6d86a0;
+}
+
+.summary-pill-card strong {
+  font-size: 20px;
+  color: #163757;
+}
+
+.wizard-beneficiary-list.compact .beneficiary-card {
+  gap: 8px;
+}
+
+.order-lines-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.order-lines-list {
+  display: grid;
+  gap: 12px;
+}
+
 .filters select,
 .filters input,
 .stack-form select,
@@ -2616,6 +2733,26 @@ textarea:focus-visible {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.94) 24%, #ffffff 54%);
     backdrop-filter: blur(10px);
     z-index: 1;
+  }
+
+  .wizard-stage-head,
+  .order-lines-head,
+  .beneficiary-card-head,
+  .order-line-card-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .wizard-stage-actions {
+    justify-content: stretch;
+  }
+
+  .wizard-stage-actions > * {
+    width: 100%;
+  }
+
+  .beneficiary-summary-grid {
+    grid-template-columns: 1fr;
   }
 
   .menu {
