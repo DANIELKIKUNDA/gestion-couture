@@ -1,4 +1,5 @@
 import { pool } from "../../../shared/infrastructure/db.js";
+import { hasCommandeLignesTable } from "./commande-ligne-schema.js";
 
 function mapCommandeLigne(row) {
   return {
@@ -30,6 +31,9 @@ export class CommandeLigneRepoPg {
   }
 
   async listByCommandeId(idCommande) {
+    if (!(await hasCommandeLignesTable(this.db))) {
+      return [];
+    }
     const res = await this.db.query(
       `SELECT id_ligne, id_commande, id_client, role, nom_affiche, prenom_affiche, type_habit, mesures_habit_snapshot, ordre_affichage, date_creation
        FROM commande_lignes
@@ -41,13 +45,23 @@ export class CommandeLigneRepoPg {
   }
 
   async replaceForCommande(idCommande, lignes = []) {
+    const normalizedLignes = Array.isArray(lignes) ? lignes.filter(Boolean) : [];
+    if (!(await hasCommandeLignesTable(this.db))) {
+      if (normalizedLignes.length > 1) {
+        const err = new Error("Le serveur doit finaliser sa mise a jour avant les commandes avec plusieurs beneficiaires.");
+        err.code = "COMMANDE_LIGNES_SCHEMA_REQUIRED";
+        err.status = 400;
+        throw err;
+      }
+      return;
+    }
     await this.db.query(
       `DELETE FROM commande_lignes
        WHERE atelier_id = $1 AND id_commande = $2`,
       [this.atelierId, idCommande]
     );
 
-    for (const ligne of lignes) {
+    for (const ligne of normalizedLignes) {
       await this.db.query(
         `INSERT INTO commande_lignes (
           id_ligne,

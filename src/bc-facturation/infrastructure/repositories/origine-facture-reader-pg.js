@@ -1,4 +1,5 @@
 import { pool } from "../../../shared/infrastructure/db.js";
+import { hasCommandeLignesTable } from "../../../bc-commandes/infrastructure/repositories/commande-ligne-schema.js";
 
 function clientSnapshot(row) {
   const nom = String(row.client_nom || "").trim();
@@ -33,13 +34,15 @@ export class OrigineFactureReaderPg {
     );
     if (res.rowCount === 0) return null;
     const row = res.rows[0];
-    const lignesRes = await pool.query(
-      `SELECT nom_affiche, prenom_affiche, type_habit
-       FROM commande_lignes
-       WHERE id_commande = $1 AND atelier_id = $2
-       ORDER BY ordre_affichage ASC, date_creation ASC`,
-      [idCommande, this.atelierId]
-    );
+    const lignesRes = (await hasCommandeLignesTable(pool))
+      ? await pool.query(
+          `SELECT nom_affiche, prenom_affiche, type_habit
+           FROM commande_lignes
+           WHERE id_commande = $1 AND atelier_id = $2
+           ORDER BY ordre_affichage ASC, date_creation ASC`,
+          [idCommande, this.atelierId]
+        )
+      : { rows: [] };
     const lignes = lignesRes.rows.length > 0
       ? lignesRes.rows.map((ligne) => {
           const beneficiaire = `${String(ligne.nom_affiche || "").trim()} ${String(ligne.prenom_affiche || "").trim()}`.trim();

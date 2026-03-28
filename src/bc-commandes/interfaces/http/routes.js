@@ -31,6 +31,7 @@ import { processCommandeMediaImage } from "../../infrastructure/storage/commande
 import { cleanupCommandeMediaUpload, commandeMediaUploadSingle } from "./commande-media-upload.js";
 import { resolveCommandeLignesForCreation } from "../../application/services/resolve-commande-lignes-for-creation.js";
 import { saveLatestMeasuresForClientAndType } from "../../../bc-clients/application/services/measure-prefill-service.js";
+import { hasCommandeLignesTable } from "../../infrastructure/repositories/commande-ligne-schema.js";
 
 const router = express.Router();
 const commandeRepo = new CommandeRepoPg();
@@ -256,6 +257,7 @@ function buildLegacyCommandeLine(row) {
 async function loadCommandeLignesMap(db, atelierId, commandeIds = []) {
   const ids = Array.from(new Set((commandeIds || []).map((value) => String(value || "").trim()).filter(Boolean)));
   if (ids.length === 0) return new Map();
+  if (!(await hasCommandeLignesTable(db))) return new Map();
   const result = await db.query(
     `SELECT id_ligne, atelier_id, id_commande, id_client, role, nom_affiche, prenom_affiche, type_habit, mesures_habit_snapshot, ordre_affichage, date_creation
      FROM commande_lignes
@@ -286,35 +288,55 @@ async function loadCommandeLignesMap(db, atelierId, commandeIds = []) {
 // List commandes
 router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
   try {
+    const commandesLignesReady = await hasCommandeLignesTable(pool);
     const result = await pool.query(
-      `SELECT c.id_commande,
-              c.id_client,
-              c.description,
-              c.date_creation,
-              c.date_prevue,
-              c.montant_total,
-              c.montant_paye,
-              c.type_habit,
-              c.mesures_habit_snapshot,
-              c.statut,
-              cl.nom,
-              cl.prenom,
-              COALESCE((
-                SELECT COUNT(*)::int
-                FROM commande_lignes l
-                WHERE l.atelier_id = c.atelier_id
-                  AND l.id_commande = c.id_commande
-              ), CASE WHEN c.type_habit IS NOT NULL THEN 1 ELSE 0 END) AS nombre_lignes,
-              COALESCE((
-                SELECT COUNT(DISTINCT COALESCE(NULLIF(l.id_client, ''), LOWER(TRIM(l.nom_affiche)) || '::' || LOWER(TRIM(l.prenom_affiche))))::int
-                FROM commande_lignes l
-                WHERE l.atelier_id = c.atelier_id
-                  AND l.id_commande = c.id_commande
-              ), CASE WHEN c.id_client IS NOT NULL THEN 1 ELSE 0 END) AS nombre_beneficiaires
-       FROM commandes c
-       LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
-       WHERE c.atelier_id = $1
-       ORDER BY c.date_creation DESC`,
+      commandesLignesReady
+        ? `SELECT c.id_commande,
+                  c.id_client,
+                  c.description,
+                  c.date_creation,
+                  c.date_prevue,
+                  c.montant_total,
+                  c.montant_paye,
+                  c.type_habit,
+                  c.mesures_habit_snapshot,
+                  c.statut,
+                  cl.nom,
+                  cl.prenom,
+                  COALESCE((
+                    SELECT COUNT(*)::int
+                    FROM commande_lignes l
+                    WHERE l.atelier_id = c.atelier_id
+                      AND l.id_commande = c.id_commande
+                  ), CASE WHEN c.type_habit IS NOT NULL THEN 1 ELSE 0 END) AS nombre_lignes,
+                  COALESCE((
+                    SELECT COUNT(DISTINCT COALESCE(NULLIF(l.id_client, ''), LOWER(TRIM(l.nom_affiche)) || '::' || LOWER(TRIM(l.prenom_affiche))))::int
+                    FROM commande_lignes l
+                    WHERE l.atelier_id = c.atelier_id
+                      AND l.id_commande = c.id_commande
+                  ), CASE WHEN c.id_client IS NOT NULL THEN 1 ELSE 0 END) AS nombre_beneficiaires
+           FROM commandes c
+           LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
+           WHERE c.atelier_id = $1
+           ORDER BY c.date_creation DESC`
+        : `SELECT c.id_commande,
+                  c.id_client,
+                  c.description,
+                  c.date_creation,
+                  c.date_prevue,
+                  c.montant_total,
+                  c.montant_paye,
+                  c.type_habit,
+                  c.mesures_habit_snapshot,
+                  c.statut,
+                  cl.nom,
+                  cl.prenom,
+                  CASE WHEN c.type_habit IS NOT NULL THEN 1 ELSE 0 END AS nombre_lignes,
+                  CASE WHEN c.id_client IS NOT NULL THEN 1 ELSE 0 END AS nombre_beneficiaires
+           FROM commandes c
+           LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
+           WHERE c.atelier_id = $1
+           ORDER BY c.date_creation DESC`,
       [atelierIdFromReq(req)]
     );
 
@@ -344,40 +366,65 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
 // Audit commandes (read-only)
 router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX), async (req, res) => {
   try {
+    const commandesLignesReady = await hasCommandeLignesTable(pool);
     const result = await pool.query(
-      `SELECT
-        c.id_commande,
-        c.id_client,
-        c.description,
-        c.date_creation,
-        c.date_prevue,
-        c.montant_total,
-        c.montant_paye,
-        c.type_habit,
-        c.mesures_habit_snapshot,
-        c.statut,
-        cl.nom,
-        cl.prenom,
-        COALESCE((
-          SELECT COUNT(*)::int
-          FROM commande_lignes l
-          WHERE l.atelier_id = c.atelier_id
-            AND l.id_commande = c.id_commande
-        ), CASE WHEN c.type_habit IS NOT NULL THEN 1 ELSE 0 END) AS nombre_lignes,
-        COALESCE((
-          SELECT COUNT(DISTINCT COALESCE(NULLIF(l.id_client, ''), LOWER(TRIM(l.nom_affiche)) || '::' || LOWER(TRIM(l.prenom_affiche))))::int
-          FROM commande_lignes l
-          WHERE l.atelier_id = c.atelier_id
-            AND l.id_commande = c.id_commande
-        ), CASE WHEN c.id_client IS NOT NULL THEN 1 ELSE 0 END) AS nombre_beneficiaires,
-        COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' THEN op.montant ELSE 0 END), 0) AS total_paiements,
-        COALESCE(COUNT(op.id_operation), 0) AS nombre_paiements
-      FROM commandes c
-      LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
-      LEFT JOIN caisse_operation op ON op.reference_metier = c.id_commande AND op.motif = 'PAIEMENT_COMMANDE' AND op.atelier_id = c.atelier_id
-      WHERE c.atelier_id = $1
-      GROUP BY c.id_commande, cl.nom, cl.prenom
-      ORDER BY c.date_creation DESC`,
+      commandesLignesReady
+        ? `SELECT
+            c.id_commande,
+            c.id_client,
+            c.description,
+            c.date_creation,
+            c.date_prevue,
+            c.montant_total,
+            c.montant_paye,
+            c.type_habit,
+            c.mesures_habit_snapshot,
+            c.statut,
+            cl.nom,
+            cl.prenom,
+            COALESCE((
+              SELECT COUNT(*)::int
+              FROM commande_lignes l
+              WHERE l.atelier_id = c.atelier_id
+                AND l.id_commande = c.id_commande
+            ), CASE WHEN c.type_habit IS NOT NULL THEN 1 ELSE 0 END) AS nombre_lignes,
+            COALESCE((
+              SELECT COUNT(DISTINCT COALESCE(NULLIF(l.id_client, ''), LOWER(TRIM(l.nom_affiche)) || '::' || LOWER(TRIM(l.prenom_affiche))))::int
+              FROM commande_lignes l
+              WHERE l.atelier_id = c.atelier_id
+                AND l.id_commande = c.id_commande
+            ), CASE WHEN c.id_client IS NOT NULL THEN 1 ELSE 0 END) AS nombre_beneficiaires,
+            COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' THEN op.montant ELSE 0 END), 0) AS total_paiements,
+            COALESCE(COUNT(op.id_operation), 0) AS nombre_paiements
+          FROM commandes c
+          LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
+          LEFT JOIN caisse_operation op ON op.reference_metier = c.id_commande AND op.motif = 'PAIEMENT_COMMANDE' AND op.atelier_id = c.atelier_id
+          WHERE c.atelier_id = $1
+          GROUP BY c.id_commande, cl.nom, cl.prenom
+          ORDER BY c.date_creation DESC`
+        : `SELECT
+            c.id_commande,
+            c.id_client,
+            c.description,
+            c.date_creation,
+            c.date_prevue,
+            c.montant_total,
+            c.montant_paye,
+            c.type_habit,
+            c.mesures_habit_snapshot,
+            c.statut,
+            cl.nom,
+            cl.prenom,
+            CASE WHEN c.type_habit IS NOT NULL THEN 1 ELSE 0 END AS nombre_lignes,
+            CASE WHEN c.id_client IS NOT NULL THEN 1 ELSE 0 END AS nombre_beneficiaires,
+            COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' THEN op.montant ELSE 0 END), 0) AS total_paiements,
+            COALESCE(COUNT(op.id_operation), 0) AS nombre_paiements
+          FROM commandes c
+          LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
+          LEFT JOIN caisse_operation op ON op.reference_metier = c.id_commande AND op.motif = 'PAIEMENT_COMMANDE' AND op.atelier_id = c.atelier_id
+          WHERE c.atelier_id = $1
+          GROUP BY c.id_commande, cl.nom, cl.prenom
+          ORDER BY c.date_creation DESC`,
       [atelierIdFromReq(req)]
     );
 

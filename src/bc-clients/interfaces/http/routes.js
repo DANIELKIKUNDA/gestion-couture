@@ -13,6 +13,7 @@ import { DomainError } from "../../domain/errors.js";
 import { requireFields, validateSchema } from "../../../shared/interfaces/validation.js";
 import { generateClientId, generateSerieMesuresId } from "../../../shared/domain/id-generator.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
+import { hasCommandeLignesTable } from "../../../bc-commandes/infrastructure/repositories/commande-ligne-schema.js";
 import { z } from "zod";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
 import { requireAnyPermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
@@ -262,6 +263,45 @@ function resolveContactUtilisateur(req, body = {}) {
   return String(req.auth?.email || req.auth?.utilisateurId || "atelier").trim();
 }
 
+async function loadCommandesForConsultation(idClient, atelierId, db = pool) {
+  if (await hasCommandeLignesTable(db)) {
+    const result = await db.query(
+      `SELECT DISTINCT ON (c.id_commande)
+              c.id_commande,
+              c.date_creation,
+              COALESCE(l.type_habit, c.type_habit) AS type_habit,
+              c.statut,
+              c.montant_total,
+              c.montant_paye,
+              COALESCE(l.mesures_habit_snapshot, c.mesures_habit_snapshot) AS mesures_habit_snapshot
+       FROM commandes c
+       LEFT JOIN commande_lignes l
+         ON l.id_commande = c.id_commande
+        AND l.atelier_id = c.atelier_id
+        AND l.id_client = $1
+       WHERE c.atelier_id = $2
+         AND (c.id_client = $1 OR l.id_client = $1)
+       ORDER BY c.id_commande, c.date_creation DESC`,
+      [idClient, atelierId]
+    );
+    return result;
+  }
+
+  return db.query(
+    `SELECT c.id_commande,
+            c.date_creation,
+            c.type_habit,
+            c.statut,
+            c.montant_total,
+            c.montant_paye,
+            c.mesures_habit_snapshot
+     FROM commandes c
+     WHERE c.id_client = $1 AND c.atelier_id = $2
+     ORDER BY c.date_creation DESC`,
+    [idClient, atelierId]
+  );
+}
+
 // List clients
 router.get("/clients", requireClientReadAccess, async (req, res) => {
   try {
@@ -294,25 +334,7 @@ router.get("/clients/:id/consultation", requireClientReadAccess, async (req, res
       return res.status(404).json({ error: "Client introuvable" });
     }
 
-    const commandesResult = await pool.query(
-      `SELECT DISTINCT ON (c.id_commande)
-              c.id_commande,
-              c.date_creation,
-              COALESCE(l.type_habit, c.type_habit) AS type_habit,
-              c.statut,
-              c.montant_total,
-              c.montant_paye,
-              COALESCE(l.mesures_habit_snapshot, c.mesures_habit_snapshot) AS mesures_habit_snapshot
-       FROM commandes c
-       LEFT JOIN commande_lignes l
-         ON l.id_commande = c.id_commande
-        AND l.atelier_id = c.atelier_id
-        AND l.id_client = $1
-       WHERE c.atelier_id = $2
-         AND (c.id_client = $1 OR l.id_client = $1)
-       ORDER BY c.id_commande, c.date_creation DESC`,
-      [idClient, atelierIdFromReq(req)]
-    );
+    const commandesResult = await loadCommandesForConsultation(idClient, atelierIdFromReq(req));
 
     const retouchesResult = await pool.query(
       `SELECT id_retouche, date_depot, type_habit, type_retouche, statut, montant_total, montant_paye, mesures_habit_snapshot
@@ -547,25 +569,7 @@ router.get("/clients/:id/consultation/pdf", requireClientReadAccess, async (req,
     );
     if (clientResult.rowCount === 0) return res.status(404).json({ error: "Client introuvable" });
 
-    const commandesResult = await pool.query(
-      `SELECT DISTINCT ON (c.id_commande)
-              c.id_commande,
-              c.date_creation,
-              COALESCE(l.type_habit, c.type_habit) AS type_habit,
-              c.statut,
-              c.montant_total,
-              c.montant_paye,
-              COALESCE(l.mesures_habit_snapshot, c.mesures_habit_snapshot) AS mesures_habit_snapshot
-       FROM commandes c
-       LEFT JOIN commande_lignes l
-         ON l.id_commande = c.id_commande
-        AND l.atelier_id = c.atelier_id
-        AND l.id_client = $1
-       WHERE c.atelier_id = $2
-         AND (c.id_client = $1 OR l.id_client = $1)
-       ORDER BY c.id_commande, c.date_creation DESC`,
-      [idClient, atelierIdFromReq(req)]
-    );
+    const commandesResult = await loadCommandesForConsultation(idClient, atelierIdFromReq(req));
     const retouchesResult = await pool.query(
       `SELECT id_retouche, date_depot, type_habit, type_retouche, statut, montant_total, montant_paye, mesures_habit_snapshot
        FROM retouches WHERE id_client = $1 AND atelier_id = $2 ORDER BY date_depot DESC`,
