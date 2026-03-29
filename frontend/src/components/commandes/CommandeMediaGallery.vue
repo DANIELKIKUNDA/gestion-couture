@@ -313,7 +313,7 @@ onUnmounted(() => {
     </div>
 
     <div v-if="error" class="helper commande-media-error">{{ error }}</div>
-    <div v-if="loading" class="helper">Chargement des references...</div>
+    <div v-if="loading && items.length === 0" class="helper">Chargement des references...</div>
 
     <div v-else-if="items.length === 0" class="commande-media-empty">
       <strong>Aucune photo pour cette commande.</strong>
@@ -386,6 +386,7 @@ onUnmounted(() => {
         </div>
       </article>
     </div>
+    <div v-if="loading && items.length > 0" class="helper commande-media-loading-inline">Mise a jour des references...</div>
   </article>
 
   <div v-if="cameraModalOpen" class="modal-backdrop commande-camera-backdrop" @click.self="closeCameraCapture">

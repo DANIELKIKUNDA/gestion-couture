@@ -199,6 +199,12 @@ let syncUiRefreshTimer = null;
 let crossDeviceRefreshPromise = null;
 let crossDeviceRefreshTimer = null;
 let lastCrossDeviceRefreshAt = 0;
+let commandeDetailLoadPromise = null;
+let commandeDetailLoadTargetId = "";
+let commandeDetailLoadRequestId = 0;
+let retoucheDetailLoadPromise = null;
+let retoucheDetailLoadTargetId = "";
+let retoucheDetailLoadRequestId = 0;
 let commandeMediaRenderSequence = 0;
 let contentScrollElement = null;
 let globalErrorClearTimer = null;
@@ -2944,15 +2950,12 @@ const hasBlockingMobileOverlay = computed(
     )
 );
 
-const shouldHideMobileBottomNavForRoute = computed(() => currentRoute.value === "parametres");
-
 const showMobileBottomNav = computed(
   () =>
     Boolean(
       isMobileViewport.value &&
         mobileNavItems.value.length > 0 &&
-        !hasBlockingMobileOverlay.value &&
-        !shouldHideMobileBottomNavForRoute.value
+        !hasBlockingMobileOverlay.value
     )
 );
 
@@ -5283,6 +5286,7 @@ async function loadCommandeActionsForId(idCommande, { force = false, detail = fa
     if (detail) detailCommandeActions.value = cached;
     return cached;
   }
+  const previous = readActionEntry(commandeActionsById, id);
   try {
     const payload = await atelierApi.getCommandeActions(id);
     const normalized = normalizeActionFlags(payload);
@@ -5290,9 +5294,9 @@ async function loadCommandeActionsForId(idCommande, { force = false, detail = fa
     if (detail) detailCommandeActions.value = normalized;
     return normalized;
   } catch {
-    commandeActionsById.value = { ...commandeActionsById.value, [id]: null };
-    if (detail) detailCommandeActions.value = null;
-    return null;
+    commandeActionsById.value = { ...commandeActionsById.value, [id]: previous };
+    if (detail) detailCommandeActions.value = previous;
+    return previous;
   }
 }
 
@@ -5309,6 +5313,7 @@ async function loadRetoucheActionsForId(idRetouche, { force = false, detail = fa
     if (detail) detailRetoucheActions.value = cached;
     return cached;
   }
+  const previous = readActionEntry(retoucheActionsById, id);
   try {
     const payload = await atelierApi.getRetoucheActions(id);
     const normalized = normalizeActionFlags(payload);
@@ -5316,9 +5321,9 @@ async function loadRetoucheActionsForId(idRetouche, { force = false, detail = fa
     if (detail) detailRetoucheActions.value = normalized;
     return normalized;
   } catch {
-    retoucheActionsById.value = { ...retoucheActionsById.value, [id]: null };
-    if (detail) detailRetoucheActions.value = null;
-    return null;
+    retoucheActionsById.value = { ...retoucheActionsById.value, [id]: previous };
+    if (detail) detailRetoucheActions.value = previous;
+    return previous;
   }
 }
 
@@ -6879,8 +6884,6 @@ async function reloadAll() {
   clearGlobalErrorMessage();
   commandeActionsById.value = {};
   retoucheActionsById.value = {};
-  detailCommandeActions.value = null;
-  detailRetoucheActions.value = null;
 
   if (isSystemManager.value) {
     clients.value = [];
@@ -7513,6 +7516,59 @@ async function setDetailCommandeMediaRows(rows = [], commande = detailCommande.v
   detailCommandeMedia.value = nextRows;
 }
 
+function isSameCommandeDetailTarget(idCommande) {
+  return String(detailCommande.value?.idCommande || "").trim() === String(idCommande || "").trim();
+}
+
+function isSameRetoucheDetailTarget(idRetouche) {
+  return String(detailRetouche.value?.idRetouche || "").trim() === String(idRetouche || "").trim();
+}
+
+async function refreshCommandeMediaForDetail({
+  atelierId = currentAtelierId.value,
+  commande = detailCommande.value,
+  idCommande = "",
+  preserveExisting = true
+} = {}) {
+  const activeCommandeId = String(idCommande || commande?.idCommande || "").trim();
+  const targetCommande = commande || (activeCommandeId ? { idCommande: activeCommandeId } : null);
+  if (!atelierId || !activeCommandeId || !targetCommande) {
+    if (!preserveExisting) {
+      await setDetailCommandeMediaRows([], targetCommande || detailCommande.value);
+    }
+    detailCommandeMediaLoading.value = false;
+    return;
+  }
+
+  detailCommandeMediaLoading.value = true;
+  detailCommandeMediaError.value = "";
+  try {
+    const mediaLocalFirst = await loadCommandeMediaLocalFirst({
+      atelierId,
+      commande: targetCommande
+    });
+
+    if (Array.isArray(mediaLocalFirst.cached) && (mediaLocalFirst.cached.length > 0 || !preserveExisting || detailCommandeMedia.value.length === 0)) {
+      await setDetailCommandeMediaRows(mediaLocalFirst.cached || [], targetCommande);
+    }
+
+    if (mediaLocalFirst.online && isRemoteEntityId(activeCommandeId) && mediaLocalFirst.refreshPromise) {
+      const mediaRows = await atelierApi.listCommandeMedia(activeCommandeId);
+      const normalizedMedia = (mediaRows || []).map(normalizeCommandeMedia).sort((a, b) => a.position - b.position);
+      await setDetailCommandeMediaRows(normalizedMedia, targetCommande);
+    } else if (!mediaLocalFirst.hasCachedData && !mediaLocalFirst.online && isRemoteEntityId(activeCommandeId)) {
+      detailCommandeMediaError.value = OFFLINE_READ_MESSAGES.COMMANDE_MEDIA;
+    }
+  } catch (err) {
+    if (!preserveExisting) {
+      await setDetailCommandeMediaRows([], targetCommande);
+    }
+    detailCommandeMediaError.value = readableError(err);
+  } finally {
+    detailCommandeMediaLoading.value = false;
+  }
+}
+
 function isLocalEntity(id) {
   const normalized = String(id || "").trim();
   return Boolean(normalized) && normalized.startsWith("loc_");
@@ -7533,14 +7589,15 @@ async function refreshVisibleDataAfterReconnect() {
 
   reconnectRefreshPromise = (async () => {
     await loadAtelierRuntimeSettings();
-    await reloadAll();
     if (currentRoute.value === "commande-detail" && selectedCommandeId.value) {
       await loadCommandeDetail(selectedCommandeId.value);
       return;
     }
     if (currentRoute.value === "retouche-detail" && selectedRetoucheId.value) {
       await loadRetoucheDetail(selectedRetoucheId.value);
+      return;
     }
+    await reloadAll();
   })();
 
   try {
@@ -7603,7 +7660,23 @@ function shouldMaintainCrossDeviceRefreshTimer() {
 
 function canRunCrossDeviceRefreshNow() {
   if (!shouldMaintainCrossDeviceRefreshTimer()) return false;
-  if (loading.value || detailLoading.value || detailRetoucheLoading.value || dashboardContactBoardLoading.value || syncInProgress.value) {
+  if (
+    loading.value ||
+    detailLoading.value ||
+    detailRetoucheLoading.value ||
+    detailCommandeMediaLoading.value ||
+    detailPaiementsLoading.value ||
+    detailCommandeEventsLoading.value ||
+    detailRetouchePaiementsLoading.value ||
+    detailRetoucheEventsLoading.value ||
+    dashboardContactBoardLoading.value ||
+    syncInProgress.value ||
+    detailCommandeMediaUploading.value ||
+    Boolean(detailCommandeMediaActionId.value) ||
+    reconnectRefreshPromise ||
+    commandeDetailLoadPromise ||
+    retoucheDetailLoadPromise
+  ) {
     return false;
   }
   if (hasBlockingUiStateForCrossDeviceRefresh()) return false;
@@ -10832,50 +10905,30 @@ function placeholderAction(label) {
   notify(`Action: ${label}`);
 }
 
-async function loadCommandeDetail(idCommande) {
-  if (!idCommande) return;
-  detailLoading.value = true;
-  detailError.value = "";
-  detailCommandeActions.value = null;
-  detailCommandeMediaLoading.value = true;
-  detailCommandeMediaError.value = "";
-  await setDetailCommandeMediaRows([]);
-
-  const atelierId = currentAtelierId.value;
-  if (!atelierId) {
-    detailCommande.value = null;
-    detailPaiements.value = [];
-    detailCommandeEvents.value = [];
-    detailPaiementsLoading.value = false;
-    detailCommandeEventsLoading.value = false;
-    detailError.value = OFFLINE_READ_MESSAGES.COMMANDE_DETAIL;
-    detailCommandeMediaLoading.value = false;
-    detailLoading.value = false;
-    resetContactFollowUpState(detailCommandeContactFollowUp);
-    return;
+async function loadCommandeDetail(idCommande, { preserveExisting = true } = {}) {
+  const requestedId = String(idCommande || "").trim();
+  if (!requestedId) return null;
+  if (commandeDetailLoadPromise && commandeDetailLoadTargetId === requestedId) {
+    return commandeDetailLoadPromise;
   }
 
-  let activeCommandeId = String(idCommande || "").trim();
-  let hasCachedDetail = false;
+  const requestId = ++commandeDetailLoadRequestId;
+  commandeDetailLoadTargetId = requestedId;
+  const keepCurrentDetailVisible = preserveExisting && isSameCommandeDetailTarget(requestedId);
 
-  const localFirst = await loadCommandeDetailLocalFirst({
-    atelierId,
-    idCommande: activeCommandeId
-  });
-
-  if (localFirst.cached) {
-    detailCommande.value = normalizeCommande(localFirst.cached);
-    activeCommandeId = detailCommande.value?.idCommande || activeCommandeId;
-    hasCachedDetail = true;
-    detailLoading.value = false;
-  }
-
-  if (!localFirst.online) {
-    if (!hasCachedDetail) {
-      detailCommande.value = null;
+  commandeDetailLoadPromise = (async () => {
+    detailLoading.value = true;
+    if (!keepCurrentDetailVisible) {
+      detailError.value = "";
       detailCommandeActions.value = null;
-      await setDetailCommandeMediaRows([]);
+      detailCommandeMediaLoading.value = true;
       detailCommandeMediaError.value = "";
+      await setDetailCommandeMediaRows([]);
+    }
+
+    const atelierId = currentAtelierId.value;
+    if (!atelierId) {
+      detailCommande.value = null;
       detailPaiements.value = [];
       detailCommandeEvents.value = [];
       detailPaiementsLoading.value = false;
@@ -10884,110 +10937,140 @@ async function loadCommandeDetail(idCommande) {
       detailCommandeMediaLoading.value = false;
       detailLoading.value = false;
       resetContactFollowUpState(detailCommandeContactFollowUp);
-      return;
+      return null;
     }
 
-    detailPaiements.value = [];
-    detailCommandeEvents.value = [];
-    detailPaiementsLoading.value = false;
-    detailCommandeEventsLoading.value = false;
-    detailError.value = OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL;
-  } else {
-    try {
-      const refreshed = await localFirst.refreshPromise;
-      if (refreshed?.row) {
-        detailCommande.value = normalizeCommande(refreshed.row);
-        activeCommandeId = detailCommande.value?.idCommande || activeCommandeId;
-      } else if (!hasCachedDetail) {
-        throw new Error("Commande introuvable");
-      }
-      if (isRemoteEntityId(activeCommandeId)) {
-        void loadCommandeActionsForId(activeCommandeId, { force: true, detail: true });
-      }
-    } catch (err) {
-      if (hasCachedDetail) {
-        detailError.value = readableError(err);
-      } else {
+    let activeCommandeId = requestedId;
+    let hasCachedDetail = false;
+
+    const localFirst = await loadCommandeDetailLocalFirst({
+      atelierId,
+      idCommande: activeCommandeId
+    });
+    if (requestId !== commandeDetailLoadRequestId) return null;
+
+    if (localFirst.cached) {
+      detailCommande.value = normalizeCommande(localFirst.cached);
+      activeCommandeId = detailCommande.value?.idCommande || activeCommandeId;
+      hasCachedDetail = true;
+    }
+
+    if (!localFirst.online) {
+      if (!hasCachedDetail) {
         detailCommande.value = null;
         detailCommandeActions.value = null;
         await setDetailCommandeMediaRows([]);
         detailCommandeMediaError.value = "";
-        detailCommandeMediaLoading.value = false;
         detailPaiements.value = [];
         detailCommandeEvents.value = [];
         detailPaiementsLoading.value = false;
         detailCommandeEventsLoading.value = false;
-        detailError.value = readableError(err);
+        detailError.value = OFFLINE_READ_MESSAGES.COMMANDE_DETAIL;
+        detailCommandeMediaLoading.value = false;
         detailLoading.value = false;
-        return;
+        resetContactFollowUpState(detailCommandeContactFollowUp);
+        return null;
+      }
+
+      detailPaiements.value = [];
+      detailCommandeEvents.value = [];
+      detailPaiementsLoading.value = false;
+      detailCommandeEventsLoading.value = false;
+      detailError.value = OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL;
+    } else {
+      try {
+        const refreshed = await localFirst.refreshPromise;
+        if (requestId !== commandeDetailLoadRequestId) return null;
+        if (refreshed?.row) {
+          detailCommande.value = normalizeCommande(refreshed.row);
+          activeCommandeId = detailCommande.value?.idCommande || activeCommandeId;
+        } else if (!hasCachedDetail) {
+          throw new Error("Commande introuvable");
+        }
+        if (isRemoteEntityId(activeCommandeId)) {
+          void loadCommandeActionsForId(activeCommandeId, { force: true, detail: true });
+        }
+      } catch (err) {
+        if (requestId !== commandeDetailLoadRequestId) return null;
+        if (hasCachedDetail) {
+          detailError.value = readableError(err);
+        } else {
+          detailCommande.value = null;
+          detailCommandeActions.value = null;
+          await setDetailCommandeMediaRows([]);
+          detailCommandeMediaError.value = "";
+          detailCommandeMediaLoading.value = false;
+          detailPaiements.value = [];
+          detailCommandeEvents.value = [];
+          detailPaiementsLoading.value = false;
+          detailCommandeEventsLoading.value = false;
+          detailError.value = readableError(err);
+          detailLoading.value = false;
+          return null;
+        }
       }
     }
-  }
-  detailLoading.value = false;
-  void loadClientContactSummaryIntoState(detailCommandeContactFollowUp, detailCommande.value?.idClient);
 
-  detailCommandeMediaLoading.value = true;
-  detailCommandeMediaError.value = "";
-  try {
-    const mediaLocalFirst = await loadCommandeMediaLocalFirst({
+    if (requestId !== commandeDetailLoadRequestId) return null;
+    detailLoading.value = false;
+    void loadClientContactSummaryIntoState(detailCommandeContactFollowUp, detailCommande.value?.idClient);
+
+    await refreshCommandeMediaForDetail({
       atelierId,
-      commande: detailCommande.value || {
-        idCommande: activeCommandeId
-      }
+      idCommande: activeCommandeId,
+      commande: detailCommande.value || { idCommande: activeCommandeId },
+      preserveExisting: keepCurrentDetailVisible || hasCachedDetail
     });
+    if (requestId !== commandeDetailLoadRequestId) return null;
 
-    await setDetailCommandeMediaRows(mediaLocalFirst.cached || [], detailCommande.value);
-
-    if (mediaLocalFirst.online && isRemoteEntityId(activeCommandeId) && mediaLocalFirst.refreshPromise) {
-      const mediaRows = await atelierApi.listCommandeMedia(activeCommandeId);
-      const normalizedMedia = (mediaRows || []).map(normalizeCommandeMedia).sort((a, b) => a.position - b.position);
-      await setDetailCommandeMediaRows(normalizedMedia, detailCommande.value);
-    } else if (!mediaLocalFirst.hasCachedData && !mediaLocalFirst.online && isRemoteEntityId(activeCommandeId)) {
-      detailCommandeMediaError.value = OFFLINE_READ_MESSAGES.COMMANDE_MEDIA;
+    if (!localFirst.online || !isRemoteEntityId(activeCommandeId)) {
+      detailPaiements.value = [];
+      detailCommandeEvents.value = [];
+      detailPaiementsLoading.value = false;
+      detailCommandeEventsLoading.value = false;
+      if (!String(detailError.value || "").includes(OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL)) {
+        detailError.value = detailError.value
+          ? `${detailError.value} | ${OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL}`
+          : OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL;
+      }
+      resetContactFollowUpState(detailCommandeContactFollowUp);
+      return detailCommande.value;
     }
-  } catch (err) {
-    await setDetailCommandeMediaRows([]);
-    detailCommandeMediaError.value = readableError(err);
-  } finally {
-    detailCommandeMediaLoading.value = false;
-  }
 
-  if (!localFirst.online || !isRemoteEntityId(activeCommandeId)) {
-    detailPaiements.value = [];
-    detailCommandeEvents.value = [];
-    detailPaiementsLoading.value = false;
-    detailCommandeEventsLoading.value = false;
-    if (!String(detailError.value || "").includes(OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL)) {
-      detailError.value = detailError.value
-        ? `${detailError.value} | ${OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL}`
-        : OFFLINE_READ_MESSAGES.COMMANDE_SUPPLEMENTAL;
+    detailPaiementsLoading.value = true;
+    try {
+      const paiements = await atelierApi.listPaiementsCommande(activeCommandeId);
+      detailPaiements.value = (paiements || []).map(normalizePaiement);
+    } catch (err) {
+      detailPaiements.value = [];
+      detailError.value = detailError.value ? `${detailError.value} | ${readableError(err)}` : readableError(err);
+    } finally {
+      detailPaiementsLoading.value = false;
     }
-    resetContactFollowUpState(detailCommandeContactFollowUp);
-    return;
-  }
 
-  detailPaiementsLoading.value = true;
-  try {
-    const paiements = await atelierApi.listPaiementsCommande(activeCommandeId);
-    detailPaiements.value = (paiements || []).map(normalizePaiement);
-  } catch (err) {
-    detailPaiements.value = [];
-    detailError.value = detailError.value ? `${detailError.value} | ${readableError(err)}` : readableError(err);
-  } finally {
-    detailPaiementsLoading.value = false;
-  }
+    detailCommandeEventsLoading.value = true;
+    try {
+      const events = await atelierApi.listCommandeEvents(activeCommandeId);
+      detailCommandeEvents.value = (events || [])
+        .map(normalizeWorkflowEvent)
+        .sort((a, b) => new Date(b.dateEvent).getTime() - new Date(a.dateEvent).getTime());
+    } catch (err) {
+      detailCommandeEvents.value = [];
+      detailError.value = detailError.value ? `${detailError.value} | ${readableError(err)}` : readableError(err);
+    } finally {
+      detailCommandeEventsLoading.value = false;
+    }
 
-  detailCommandeEventsLoading.value = true;
+    return detailCommande.value;
+  })();
+
   try {
-    const events = await atelierApi.listCommandeEvents(activeCommandeId);
-    detailCommandeEvents.value = (events || [])
-      .map(normalizeWorkflowEvent)
-      .sort((a, b) => new Date(b.dateEvent).getTime() - new Date(a.dateEvent).getTime());
-  } catch (err) {
-    detailCommandeEvents.value = [];
-    detailError.value = detailError.value ? `${detailError.value} | ${readableError(err)}` : readableError(err);
+    return await commandeDetailLoadPromise;
   } finally {
-    detailCommandeEventsLoading.value = false;
+    if (commandeDetailLoadRequestId === requestId) {
+      commandeDetailLoadPromise = null;
+      commandeDetailLoadTargetId = "";
+    }
   }
 }
 
@@ -11110,7 +11193,11 @@ async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD" }) {
     if (note) formData.append("note", note);
     if (sourceType) formData.append("sourceType", sourceType);
     await atelierApi.uploadCommandeMedia(detailCommande.value.idCommande, formData);
-    await loadCommandeDetail(detailCommande.value.idCommande);
+    await refreshCommandeMediaForDetail({
+      commande: detailCommande.value,
+      idCommande: detailCommande.value.idCommande,
+      preserveExisting: true
+    });
     notify(`Photo ajoutee a ${detailCommande.value.idCommande}`);
   } catch (err) {
     detailCommandeMediaError.value = readableError(err);
@@ -11149,7 +11236,11 @@ async function setCommandeMediaPrimary(item) {
     }
 
     await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, item.serverId || item.idMedia, { isPrimary: true });
-    await loadCommandeDetail(detailCommande.value.idCommande);
+    await refreshCommandeMediaForDetail({
+      commande: detailCommande.value,
+      idCommande: detailCommande.value.idCommande,
+      preserveExisting: true
+    });
     notify("Photo principale mise a jour");
   } catch (err) {
     detailCommandeMediaError.value = readableError(err);
@@ -11189,7 +11280,11 @@ async function moveCommandeMedia({ media, direction = 0 }) {
     }
 
     await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, media.serverId || media.idMedia, { position: nextPosition });
-    await loadCommandeDetail(detailCommande.value.idCommande);
+    await refreshCommandeMediaForDetail({
+      commande: detailCommande.value,
+      idCommande: detailCommande.value.idCommande,
+      preserveExisting: true
+    });
   } catch (err) {
     detailCommandeMediaError.value = readableError(err);
   } finally {
@@ -11228,7 +11323,11 @@ async function saveCommandeMediaNote({ media, note = "" }) {
     }
 
     await atelierApi.updateCommandeMedia(detailCommande.value.idCommande, media.serverId || media.idMedia, { note });
-    await loadCommandeDetail(detailCommande.value.idCommande);
+    await refreshCommandeMediaForDetail({
+      commande: detailCommande.value,
+      idCommande: detailCommande.value.idCommande,
+      preserveExisting: true
+    });
     notify("Note photo enregistree");
   } catch (err) {
     detailCommandeMediaError.value = readableError(err);
@@ -11275,7 +11374,11 @@ async function deleteCommandeMedia(item) {
     }
 
     await atelierApi.deleteCommandeMedia(detailCommande.value.idCommande, item.serverId || item.idMedia);
-    await loadCommandeDetail(detailCommande.value.idCommande);
+    await refreshCommandeMediaForDetail({
+      commande: detailCommande.value,
+      idCommande: detailCommande.value.idCommande,
+      preserveExisting: true
+    });
     notify("Photo supprimee");
   } catch (err) {
     detailCommandeMediaError.value = readableError(err);
@@ -11284,44 +11387,27 @@ async function deleteCommandeMedia(item) {
   }
 }
 
-async function loadRetoucheDetail(idRetouche) {
-  if (!idRetouche) return;
-  detailRetoucheLoading.value = true;
-  detailRetoucheError.value = "";
-  detailRetoucheActions.value = null;
-
-  const atelierId = currentAtelierId.value;
-  if (!atelierId) {
-    detailRetouche.value = null;
-    detailRetouchePaiements.value = [];
-    detailRetoucheEvents.value = [];
-    detailRetouchePaiementsLoading.value = false;
-    detailRetoucheEventsLoading.value = false;
-    detailRetoucheError.value = OFFLINE_READ_MESSAGES.RETOUCHE_DETAIL;
-    detailRetoucheLoading.value = false;
-    resetContactFollowUpState(detailRetoucheContactFollowUp);
-    return;
+async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) {
+  const requestedId = String(idRetouche || "").trim();
+  if (!requestedId) return null;
+  if (retoucheDetailLoadPromise && retoucheDetailLoadTargetId === requestedId) {
+    return retoucheDetailLoadPromise;
   }
 
-  let activeRetoucheId = String(idRetouche || "").trim();
-  let hasCachedDetail = false;
+  const requestId = ++retoucheDetailLoadRequestId;
+  retoucheDetailLoadTargetId = requestedId;
+  const keepCurrentDetailVisible = preserveExisting && isSameRetoucheDetailTarget(requestedId);
 
-  const localFirst = await loadRetoucheDetailLocalFirst({
-    atelierId,
-    idRetouche: activeRetoucheId
-  });
-
-  if (localFirst.cached) {
-    detailRetouche.value = normalizeRetouche(localFirst.cached);
-    activeRetoucheId = detailRetouche.value?.idRetouche || activeRetoucheId;
-    hasCachedDetail = true;
-    detailRetoucheLoading.value = false;
-  }
-
-  if (!localFirst.online) {
-    if (!hasCachedDetail) {
-      detailRetouche.value = null;
+  retoucheDetailLoadPromise = (async () => {
+    detailRetoucheLoading.value = true;
+    if (!keepCurrentDetailVisible) {
+      detailRetoucheError.value = "";
       detailRetoucheActions.value = null;
+    }
+
+    const atelierId = currentAtelierId.value;
+    if (!atelierId) {
+      detailRetouche.value = null;
       detailRetouchePaiements.value = [];
       detailRetoucheEvents.value = [];
       detailRetouchePaiementsLoading.value = false;
@@ -11329,80 +11415,126 @@ async function loadRetoucheDetail(idRetouche) {
       detailRetoucheError.value = OFFLINE_READ_MESSAGES.RETOUCHE_DETAIL;
       detailRetoucheLoading.value = false;
       resetContactFollowUpState(detailRetoucheContactFollowUp);
-      return;
+      return null;
     }
 
-    detailRetouchePaiements.value = [];
-    detailRetoucheEvents.value = [];
-    detailRetouchePaiementsLoading.value = false;
-    detailRetoucheEventsLoading.value = false;
-    detailRetoucheError.value = OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL;
-    return;
-  }
+    let activeRetoucheId = requestedId;
+    let hasCachedDetail = false;
 
-  try {
-    const refreshed = await localFirst.refreshPromise;
-    if (refreshed?.row) {
-      detailRetouche.value = normalizeRetouche(refreshed.row);
+    const localFirst = await loadRetoucheDetailLocalFirst({
+      atelierId,
+      idRetouche: activeRetoucheId
+    });
+    if (requestId !== retoucheDetailLoadRequestId) return null;
+
+    if (localFirst.cached) {
+      detailRetouche.value = normalizeRetouche(localFirst.cached);
       activeRetoucheId = detailRetouche.value?.idRetouche || activeRetoucheId;
-    } else if (!hasCachedDetail) {
-      throw new Error("Retouche introuvable");
+      hasCachedDetail = true;
     }
-    if (isRemoteEntityId(activeRetoucheId)) {
-      void loadRetoucheActionsForId(activeRetoucheId, { force: true, detail: true });
-    }
-  } catch (err) {
-    if (hasCachedDetail) {
-      detailRetoucheError.value = readableError(err);
-    } else {
-      detailRetouche.value = null;
-      detailRetoucheActions.value = null;
+
+    if (!localFirst.online) {
+      if (!hasCachedDetail) {
+        detailRetouche.value = null;
+        detailRetoucheActions.value = null;
+        detailRetouchePaiements.value = [];
+        detailRetoucheEvents.value = [];
+        detailRetouchePaiementsLoading.value = false;
+        detailRetoucheEventsLoading.value = false;
+        detailRetoucheError.value = OFFLINE_READ_MESSAGES.RETOUCHE_DETAIL;
+        detailRetoucheLoading.value = false;
+        resetContactFollowUpState(detailRetoucheContactFollowUp);
+        return null;
+      }
+
       detailRetouchePaiements.value = [];
       detailRetoucheEvents.value = [];
       detailRetouchePaiementsLoading.value = false;
       detailRetoucheEventsLoading.value = false;
-      detailRetoucheError.value = readableError(err);
+      detailRetoucheError.value = OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL;
       detailRetoucheLoading.value = false;
-      return;
+      return detailRetouche.value;
     }
-  }
-  detailRetoucheLoading.value = false;
-  void loadClientContactSummaryIntoState(detailRetoucheContactFollowUp, detailRetouche.value?.idClient);
 
-  if (!isRemoteEntityId(activeRetoucheId)) {
-    detailRetouchePaiements.value = [];
-    detailRetoucheEvents.value = [];
-    detailRetouchePaiementsLoading.value = false;
-    detailRetoucheEventsLoading.value = false;
-    detailRetoucheError.value = detailRetoucheError.value
-      ? `${detailRetoucheError.value} | ${OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL}`
-      : OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL;
-    resetContactFollowUpState(detailRetoucheContactFollowUp);
-    return;
-  }
+    try {
+      const refreshed = await localFirst.refreshPromise;
+      if (requestId !== retoucheDetailLoadRequestId) return null;
+      if (refreshed?.row) {
+        detailRetouche.value = normalizeRetouche(refreshed.row);
+        activeRetoucheId = detailRetouche.value?.idRetouche || activeRetoucheId;
+      } else if (!hasCachedDetail) {
+        throw new Error("Retouche introuvable");
+      }
+      if (isRemoteEntityId(activeRetoucheId)) {
+        void loadRetoucheActionsForId(activeRetoucheId, { force: true, detail: true });
+      }
+    } catch (err) {
+      if (requestId !== retoucheDetailLoadRequestId) return null;
+      if (hasCachedDetail) {
+        detailRetoucheError.value = readableError(err);
+      } else {
+        detailRetouche.value = null;
+        detailRetoucheActions.value = null;
+        detailRetouchePaiements.value = [];
+        detailRetoucheEvents.value = [];
+        detailRetouchePaiementsLoading.value = false;
+        detailRetoucheEventsLoading.value = false;
+        detailRetoucheError.value = readableError(err);
+        detailRetoucheLoading.value = false;
+        return null;
+      }
+    }
 
-  detailRetouchePaiementsLoading.value = true;
+    if (requestId !== retoucheDetailLoadRequestId) return null;
+    detailRetoucheLoading.value = false;
+    void loadClientContactSummaryIntoState(detailRetoucheContactFollowUp, detailRetouche.value?.idClient);
+
+    if (!isRemoteEntityId(activeRetoucheId)) {
+      detailRetouchePaiements.value = [];
+      detailRetoucheEvents.value = [];
+      detailRetouchePaiementsLoading.value = false;
+      detailRetoucheEventsLoading.value = false;
+      detailRetoucheError.value = detailRetoucheError.value
+        ? `${detailRetoucheError.value} | ${OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL}`
+        : OFFLINE_READ_MESSAGES.RETOUCHE_SUPPLEMENTAL;
+      resetContactFollowUpState(detailRetoucheContactFollowUp);
+      return detailRetouche.value;
+    }
+
+    detailRetouchePaiementsLoading.value = true;
+    try {
+      const paiements = await atelierApi.listPaiementsRetouche(activeRetoucheId);
+      detailRetouchePaiements.value = (paiements || []).map(normalizePaiement);
+    } catch (err) {
+      detailRetouchePaiements.value = [];
+      detailRetoucheError.value = detailRetoucheError.value ? `${detailRetoucheError.value} | ${readableError(err)}` : readableError(err);
+    } finally {
+      detailRetouchePaiementsLoading.value = false;
+    }
+
+    detailRetoucheEventsLoading.value = true;
+    try {
+      const events = await atelierApi.listRetoucheEvents(activeRetoucheId);
+      detailRetoucheEvents.value = (events || [])
+        .map(normalizeWorkflowEvent)
+        .sort((a, b) => new Date(b.dateEvent).getTime() - new Date(a.dateEvent).getTime());
+    } catch (err) {
+      detailRetoucheEvents.value = [];
+      detailRetoucheError.value = detailRetoucheError.value ? `${detailRetoucheError.value} | ${readableError(err)}` : readableError(err);
+    } finally {
+      detailRetoucheEventsLoading.value = false;
+    }
+
+    return detailRetouche.value;
+  })();
+
   try {
-    const paiements = await atelierApi.listPaiementsRetouche(activeRetoucheId);
-    detailRetouchePaiements.value = (paiements || []).map(normalizePaiement);
-  } catch (err) {
-    detailRetouchePaiements.value = [];
-    detailRetoucheError.value = detailRetoucheError.value ? `${detailRetoucheError.value} | ${readableError(err)}` : readableError(err);
+    return await retoucheDetailLoadPromise;
   } finally {
-    detailRetouchePaiementsLoading.value = false;
-  }
-
-  detailRetoucheEventsLoading.value = true;
-  try {
-    const events = await atelierApi.listRetoucheEvents(activeRetoucheId);
-    detailRetoucheEvents.value = (events || [])
-      .map(normalizeWorkflowEvent)
-      .sort((a, b) => new Date(b.dateEvent).getTime() - new Date(a.dateEvent).getTime());
-  } catch (err) {
-    detailRetoucheEvents.value = [];
-    detailRetoucheError.value = detailRetoucheError.value ? `${detailRetoucheError.value} | ${readableError(err)}` : readableError(err);
-  } finally {
-    detailRetoucheEventsLoading.value = false;
+    if (retoucheDetailLoadRequestId === requestId) {
+      retoucheDetailLoadPromise = null;
+      retoucheDetailLoadTargetId = "";
+    }
   }
 }
 </script>
@@ -13401,7 +13533,7 @@ async function loadRetoucheDetail(idRetouche) {
             </article>
           </template>
 
-          <ResponsiveDataContainer v-if="detailError" :mobile="isMobileViewport">
+          <ResponsiveDataContainer v-show="!detailCommande && !!detailError" :mobile="isMobileViewport">
             <template #mobile>
               <MobileStateError title="Detail commande" :description="detailError" />
             </template>
@@ -13413,7 +13545,7 @@ async function loadRetoucheDetail(idRetouche) {
             </template>
           </ResponsiveDataContainer>
 
-          <ResponsiveDataContainer v-else-if="detailLoading" :mobile="isMobileViewport">
+          <ResponsiveDataContainer v-show="!detailCommande && detailLoading && !detailError" :mobile="isMobileViewport">
             <template #mobile>
               <MobileStateLoading title="Chargement de la commande" description="Preparation des informations detaillees..." />
             </template>
@@ -13424,7 +13556,7 @@ async function loadRetoucheDetail(idRetouche) {
             </template>
           </ResponsiveDataContainer>
 
-          <template v-else-if="detailCommande">
+          <div v-show="!!detailCommande">
             <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
                 <CommandeDetailOverviewCards
@@ -13702,7 +13834,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </article>
               </template>
             </ResponsiveDataContainer>
-          </template>
+          </div>
 
           <template #action>
             <MobilePrimaryActionBar
@@ -13773,7 +13905,7 @@ async function loadRetoucheDetail(idRetouche) {
             </article>
           </template>
 
-          <ResponsiveDataContainer v-if="detailRetoucheError" :mobile="isMobileViewport">
+          <ResponsiveDataContainer v-show="!detailRetouche && !!detailRetoucheError" :mobile="isMobileViewport">
             <template #mobile>
               <MobileStateError title="Detail retouche" :description="detailRetoucheError" />
             </template>
@@ -13785,7 +13917,7 @@ async function loadRetoucheDetail(idRetouche) {
             </template>
           </ResponsiveDataContainer>
 
-          <ResponsiveDataContainer v-else-if="detailRetoucheLoading" :mobile="isMobileViewport">
+          <ResponsiveDataContainer v-show="!detailRetouche && detailRetoucheLoading && !detailRetoucheError" :mobile="isMobileViewport">
             <template #mobile>
               <MobileStateLoading title="Chargement de la retouche" description="Preparation des informations detaillees..." />
             </template>
@@ -13796,7 +13928,7 @@ async function loadRetoucheDetail(idRetouche) {
             </template>
           </ResponsiveDataContainer>
 
-          <template v-else-if="detailRetouche">
+          <div v-show="!!detailRetouche">
             <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
                 <RetoucheDetailOverviewCards
@@ -14014,7 +14146,7 @@ async function loadRetoucheDetail(idRetouche) {
                 </article>
               </template>
             </ResponsiveDataContainer>
-          </template>
+          </div>
 
           <template #action>
             <MobilePrimaryActionBar
