@@ -5,17 +5,73 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function buildFullName(nom, prenom) {
+  return `${String(nom || "").trim()} ${String(prenom || "").trim()}`.trim();
+}
+
+function buildEntityIdentity({ idClient = "", nom = "", prenom = "", telephone = "" } = {}) {
+  return {
+    idClient: normalizeText(idClient) || null,
+    nom: normalizeText(nom),
+    prenom: normalizeText(prenom),
+    telephone: normalizeText(telephone),
+    nomComplet: buildFullName(nom, prenom)
+  };
+}
+
+function isoDateOnly(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function isPositiveNumber(value) {
+  return Number.isFinite(Number(value)) && Number(value) > 0;
+}
+
+function isCommandeClosed(statut) {
+  return statut === "LIVREE" || statut === "ANNULEE";
+}
+
+function isRetoucheClosed(statut) {
+  return statut === "LIVREE" || statut === "ANNULEE";
+}
+
+function buildCommandeFlags(row) {
+  const statut = String(row.statut || "").trim().toUpperCase();
+  const soldeRestant = Math.max(0, Number(row.montant_total || 0) - Number(row.montant_paye || 0));
+  const today = new Date().toISOString().slice(0, 10);
+  const datePrevue = isoDateOnly(row.date_prevue);
+  return {
+    enRetard: Boolean(datePrevue && datePrevue < today && !isCommandeClosed(statut)),
+    termineeNonLivree: statut === "TERMINEE",
+    soldeOuvert: soldeRestant > 0
+  };
+}
+
+function buildRetoucheFlags(row) {
+  const statut = String(row.statut || "").trim().toUpperCase();
+  const soldeRestant = Math.max(0, Number(row.montant_total || 0) - Number(row.montant_paye || 0));
+  const today = new Date().toISOString().slice(0, 10);
+  const datePrevue = isoDateOnly(row.date_prevue);
+  return {
+    enRetard: Boolean(datePrevue && datePrevue < today && !isRetoucheClosed(statut)),
+    termineeNonLivree: statut === "TERMINEE",
+    soldeOuvert: soldeRestant > 0
+  };
+}
+
 function mapSummaryRow(row) {
   return {
     idDossier: row.id_dossier,
     idResponsableClient: row.id_responsable_client,
-    responsable: {
+    responsable: buildEntityIdentity({
       idClient: row.id_responsable_client,
-      nom: row.nom_responsable_snapshot || "",
-      prenom: row.prenom_responsable_snapshot || "",
-      telephone: row.telephone_responsable_snapshot || "",
-      nomComplet: `${String(row.nom_responsable_snapshot || "").trim()} ${String(row.prenom_responsable_snapshot || "").trim()}`.trim()
-    },
+      nom: row.nom_responsable_snapshot,
+      prenom: row.prenom_responsable_snapshot,
+      telephone: row.telephone_responsable_snapshot
+    }),
     typeDossier: row.type_dossier,
     statutDossier: row.statut,
     notes: row.notes || "",
@@ -30,36 +86,115 @@ function mapSummaryRow(row) {
 }
 
 function mapCommandeRow(row) {
+  const soldeRestant = Math.max(0, Number(row.montant_total || 0) - Number(row.montant_paye || 0));
   return {
     idCommande: row.id_commande,
     idClient: row.id_client,
     dossierId: row.id_dossier || null,
     clientPayeurId: row.id_client,
+    clientNom: buildFullName(row.client_nom, row.client_prenom) || null,
     descriptionCommande: row.description,
     dateCreation: row.date_creation,
     datePrevue: row.date_prevue,
     montantTotal: Number(row.montant_total || 0),
     montantPaye: Number(row.montant_paye || 0),
+    soldeRestant,
     statutCommande: row.statut,
     typeHabit: row.type_habit || "",
     nombreLignes: Number(row.nombre_lignes || 0),
-    nombreBeneficiaires: Number(row.nombre_beneficiaires || 0)
+    nombreBeneficiaires: Number(row.nombre_beneficiaires || 0),
+    beneficiairesResume: [],
+    flagsMetier: buildCommandeFlags(row)
   };
 }
 
 function mapRetoucheRow(row) {
+  const soldeRestant = Math.max(0, Number(row.montant_total || 0) - Number(row.montant_paye || 0));
   return {
     idRetouche: row.id_retouche,
     idClient: row.id_client,
     dossierId: row.id_dossier || null,
+    clientNom: buildFullName(row.client_nom, row.client_prenom) || null,
     descriptionRetouche: row.description,
     typeRetouche: row.type_retouche,
     dateDepot: row.date_depot,
     datePrevue: row.date_prevue,
     montantTotal: Number(row.montant_total || 0),
     montantPaye: Number(row.montant_paye || 0),
+    soldeRestant,
     statutRetouche: row.statut,
-    typeHabit: row.type_habit || ""
+    typeHabit: row.type_habit || "",
+    beneficiaire: buildEntityIdentity({
+      idClient: row.id_client,
+      nom: row.client_nom,
+      prenom: row.client_prenom,
+      telephone: row.client_telephone
+    }),
+    flagsMetier: buildRetoucheFlags(row)
+  };
+}
+
+function attachCommandeBeneficiaires(commandes, commandeLignesRows) {
+  const byCommande = new Map(commandes.map((commande) => [commande.idCommande, []]));
+  for (const row of commandeLignesRows || []) {
+    const items = byCommande.get(row.id_commande);
+    if (!items) continue;
+    items.push({
+      idClient: normalizeText(row.id_client) || null,
+      nomComplet: buildFullName(row.nom_affiche || row.client_nom, row.prenom_affiche || row.client_prenom),
+      telephone: normalizeText(row.client_telephone),
+      role: row.role,
+      typeHabit: row.type_habit || ""
+    });
+  }
+
+  for (const commande of commandes) {
+    const beneficiaires = byCommande.get(commande.idCommande) || [];
+    if (beneficiaires.length > 0) {
+      commande.beneficiairesResume = beneficiaires;
+      continue;
+    }
+    commande.beneficiairesResume = [
+      {
+        idClient: normalizeText(commande.clientPayeurId) || null,
+        nomComplet: commande.clientNom || "",
+        telephone: "",
+        role: "PAYEUR_BENEFICIAIRE",
+        typeHabit: commande.typeHabit || ""
+      }
+    ].filter((row) => row.nomComplet || row.idClient);
+  }
+}
+
+function buildSynthese(base, commandes, retouches) {
+  const participants = new Set();
+
+  for (const commande of commandes) {
+    for (const beneficiaire of commande.beneficiairesResume || []) {
+      const key = normalizeText(beneficiaire.idClient) || normalizeText(beneficiaire.nomComplet).toLowerCase();
+      if (key) participants.add(key);
+    }
+  }
+
+  for (const retouche of retouches) {
+    const beneficiaire = retouche.beneficiaire || {};
+    const key = normalizeText(beneficiaire.idClient) || normalizeText(beneficiaire.nomComplet).toLowerCase();
+    if (key) participants.add(key);
+  }
+
+  const documentsAvecSolde =
+    commandes.filter((commande) => isPositiveNumber(commande.soldeRestant)).length +
+    retouches.filter((retouche) => isPositiveNumber(retouche.soldeRestant)).length;
+
+  return {
+    totalBeneficiaires: participants.size,
+    documentsAvecSolde,
+    commandesEnCours: commandes.filter((commande) => !isCommandeClosed(commande.statutCommande) && commande.statutCommande !== "TERMINEE").length,
+    retouchesEnCours: retouches.filter((retouche) => !isRetoucheClosed(retouche.statutRetouche) && retouche.statutRetouche !== "TERMINEE").length,
+    totalMontant: Number(base.totalMontant || 0),
+    totalPaye: Number(base.totalPaye || 0),
+    soldeRestant: Math.max(0, Number(base.soldeRestant || 0)),
+    derniereActivite: base.dateDerniereActivite || null
   };
 }
 
@@ -228,7 +363,7 @@ export class DossierRepoPg {
     const dossier = await this.getById(idDossier);
     if (!dossier) return null;
 
-    const [summaryList, commandesRes, retouchesRes] = await Promise.all([
+    const [summaryList, commandesRes, commandeLignesRes, retouchesRes] = await Promise.all([
       this.db.query(
         `SELECT d.id_dossier,
                 d.id_responsable_client,
@@ -294,6 +429,8 @@ export class DossierRepoPg {
                 c.montant_paye,
                 c.statut,
                 c.type_habit,
+                cl.nom AS client_nom,
+                cl.prenom AS client_prenom,
                 COALESCE((
                   SELECT COUNT(*)::int
                   FROM commande_lignes l
@@ -307,9 +444,32 @@ export class DossierRepoPg {
                     AND l.id_commande = c.id_commande
                 ), CASE WHEN c.id_client IS NOT NULL THEN 1 ELSE 0 END) AS nombre_beneficiaires
          FROM commandes c
+         LEFT JOIN clients cl ON cl.id_client = c.id_client AND cl.atelier_id = c.atelier_id
          WHERE c.atelier_id = $1
            AND c.id_dossier = $2
          ORDER BY c.date_creation DESC`,
+        [this.atelierId, idDossier]
+      ),
+      this.db.query(
+        `SELECT l.id_commande,
+                l.id_client,
+                l.role,
+                l.nom_affiche,
+                l.prenom_affiche,
+                l.type_habit,
+                c.telephone AS client_telephone,
+                c.nom AS client_nom,
+                c.prenom AS client_prenom
+         FROM commande_lignes l
+         LEFT JOIN clients c ON c.id_client = l.id_client AND c.atelier_id = l.atelier_id
+         WHERE l.atelier_id = $1
+           AND l.id_commande IN (
+             SELECT id_commande
+             FROM commandes
+             WHERE atelier_id = $1
+               AND id_dossier = $2
+           )
+         ORDER BY l.id_commande ASC, l.ordre_affichage ASC, l.date_creation ASC`,
         [this.atelierId, idDossier]
       ),
       this.db.query(
@@ -323,8 +483,12 @@ export class DossierRepoPg {
                 r.montant_total,
                 r.montant_paye,
                 r.statut,
-                r.type_habit
+                r.type_habit,
+                c.nom AS client_nom,
+                c.prenom AS client_prenom,
+                c.telephone AS client_telephone
          FROM retouches r
+         LEFT JOIN clients c ON c.id_client = r.id_client AND c.atelier_id = r.atelier_id
          WHERE r.atelier_id = $1
            AND r.id_dossier = $2
          ORDER BY r.date_depot DESC`,
@@ -333,25 +497,30 @@ export class DossierRepoPg {
     ]);
 
     const summary = summaryList.rows[0] ? mapSummaryRow(summaryList.rows[0]) : null;
+    const commandes = commandesRes.rows.map(mapCommandeRow);
+    attachCommandeBeneficiaires(commandes, commandeLignesRes.rows);
+    const retouches = retouchesRes.rows.map(mapRetoucheRow);
+    const base = summary || mapSummaryRow({
+      id_dossier: dossier.idDossier,
+      id_responsable_client: dossier.idResponsableClient,
+      nom_responsable_snapshot: dossier.nomResponsableSnapshot,
+      prenom_responsable_snapshot: dossier.prenomResponsableSnapshot,
+      telephone_responsable_snapshot: dossier.telephoneResponsableSnapshot,
+      type_dossier: dossier.typeDossier,
+      statut: dossier.statut,
+      notes: dossier.notes,
+      date_creation: dossier.dateCreation,
+      date_derniere_activite: dossier.dateDerniereActivite,
+      total_commandes: 0,
+      total_retouches: 0,
+      total_montant: 0,
+      total_paye: 0
+    });
     return {
-      ...(summary || mapSummaryRow({
-        id_dossier: dossier.idDossier,
-        id_responsable_client: dossier.idResponsableClient,
-        nom_responsable_snapshot: dossier.nomResponsableSnapshot,
-        prenom_responsable_snapshot: dossier.prenomResponsableSnapshot,
-        telephone_responsable_snapshot: dossier.telephoneResponsableSnapshot,
-        type_dossier: dossier.typeDossier,
-        statut: dossier.statut,
-        notes: dossier.notes,
-        date_creation: dossier.dateCreation,
-        date_derniere_activite: dossier.dateDerniereActivite,
-        total_commandes: 0,
-        total_retouches: 0,
-        total_montant: 0,
-        total_paye: 0
-      })),
-      commandes: commandesRes.rows.map(mapCommandeRow),
-      retouches: retouchesRes.rows.map(mapRetoucheRow)
+      ...base,
+      synthese: buildSynthese(base, commandes, retouches),
+      commandes,
+      retouches
     };
   }
 }

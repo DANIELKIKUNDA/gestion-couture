@@ -89,6 +89,23 @@ async function main() {
   assert.equal(detailRes.body?.totalRetouches, 1);
   assert.equal(detailRes.body?.commandes?.[0]?.dossierId, dossier.idDossier);
   assert.equal(detailRes.body?.retouches?.[0]?.dossierId, dossier.idDossier);
+  assert.equal(detailRes.body?.commandes?.[0]?.soldeRestant, 120);
+  assert.equal(detailRes.body?.commandes?.[0]?.beneficiairesResume?.length, 1);
+  assert.equal(detailRes.body?.commandes?.[0]?.beneficiairesResume?.[0]?.role, "PAYEUR_BENEFICIAIRE");
+  assert.equal(detailRes.body?.commandes?.[0]?.flagsMetier?.soldeOuvert, true);
+  assert.equal(detailRes.body?.commandes?.[0]?.flagsMetier?.termineeNonLivree, false);
+  assert.equal(detailRes.body?.retouches?.[0]?.soldeRestant, 30);
+  assert.equal(detailRes.body?.retouches?.[0]?.beneficiaire?.idClient, responsable.idClient);
+  assert.equal(detailRes.body?.retouches?.[0]?.flagsMetier?.soldeOuvert, true);
+  assert.equal(detailRes.body?.retouches?.[0]?.flagsMetier?.termineeNonLivree, false);
+  assert.equal(detailRes.body?.synthese?.totalBeneficiaires, 1);
+  assert.equal(detailRes.body?.synthese?.documentsAvecSolde, 2);
+  assert.equal(detailRes.body?.synthese?.commandesEnCours, 1);
+  assert.equal(detailRes.body?.synthese?.retouchesEnCours, 1);
+  assert.equal(detailRes.body?.synthese?.totalMontant, 150);
+  assert.equal(detailRes.body?.synthese?.totalPaye, 0);
+  assert.equal(detailRes.body?.synthese?.soldeRestant, 150);
+  assert.ok(detailRes.body?.synthese?.derniereActivite);
 
   console.log("integration.dossiers.test.js: OK");
 }
