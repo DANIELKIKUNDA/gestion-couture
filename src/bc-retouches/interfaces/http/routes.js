@@ -19,6 +19,7 @@ import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
 import { hasPermission, requireAnyPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
+import { DossierRepoPg } from "../../../bc-dossiers/infrastructure/repositories/dossier-repo-pg.js";
 import { resolveClientForCreation, serializeClientCreationConflict } from "../../../bc-clients/application/services/resolve-client-for-creation.js";
 import { saveLatestMeasuresForClientAndType } from "../../../bc-clients/application/services/measure-prefill-service.js";
 import {
@@ -34,6 +35,7 @@ const retoucheRepo = new RetoucheRepoPg();
 const clientRepo = new ClientRepoPg();
 const serieRepo = new SerieMesuresRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
+const dossierRepo = new DossierRepoPg();
 const requireRetoucheReadAccess = requireAnyPermission([
   PERMISSIONS.VOIR_RETOUCHES,
   PERMISSIONS.VOIR_BILANS_GLOBAUX,
@@ -78,6 +80,10 @@ function scopedParametresRepo(req) {
 
 function scopedCaisseRepo(req) {
   return new CaisseRepoPg(atelierIdFromReq(req));
+}
+
+function scopedDossierRepo(req) {
+  return dossierRepo.forAtelier(atelierIdFromReq(req));
 }
 
 async function loadRetouchePolicy(options = null) {
@@ -167,6 +173,7 @@ router.get("/retouches", requireRetoucheReadAccess, async (req, res) => {
     const result = await pool.query(
       `SELECT r.id_retouche,
               r.id_client,
+              r.id_dossier,
               r.description,
               r.type_retouche,
               r.date_depot,
@@ -188,6 +195,7 @@ router.get("/retouches", requireRetoucheReadAccess, async (req, res) => {
     const rows = result.rows.map((row) => ({
       idRetouche: row.id_retouche,
       idClient: row.id_client,
+      dossierId: row.id_dossier || null,
       clientNom: row.nom && row.prenom ? `${row.nom} ${row.prenom}` : null,
       descriptionRetouche: row.description,
       typeRetouche: row.type_retouche,
@@ -233,6 +241,7 @@ router.get("/audit/retouches", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
       `SELECT
         r.id_retouche,
         r.id_client,
+        r.id_dossier,
         r.description,
         r.type_retouche,
         r.date_depot,
@@ -259,6 +268,7 @@ router.get("/audit/retouches", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
       result.rows.map((row) => ({
         idRetouche: row.id_retouche,
         idClient: row.id_client,
+        dossierId: row.id_dossier || null,
         clientNom: row.nom && row.prenom ? `${row.nom} ${row.prenom}` : null,
         descriptionRetouche: row.description,
         typeRetouche: row.type_retouche,
@@ -284,6 +294,7 @@ router.get("/retouches/:id", requireRetoucheReadAccess, async (req, res) => {
     const result = await pool.query(
       `SELECT r.id_retouche,
               r.id_client,
+              r.id_dossier,
               r.description,
               r.type_retouche,
               r.date_depot,
@@ -307,6 +318,7 @@ router.get("/retouches/:id", requireRetoucheReadAccess, async (req, res) => {
     res.json({
       idRetouche: row.id_retouche,
       idClient: row.id_client,
+      dossierId: row.id_dossier || null,
       clientNom: row.nom && row.prenom ? `${row.nom} ${row.prenom}` : null,
       descriptionRetouche: row.description,
       typeRetouche: row.type_retouche,
@@ -405,6 +417,7 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
   const schema = z
     .object({
       idRetouche: z.string().min(1).optional(),
+      idDossier: z.string().min(1).optional(),
       idClient: z.string().min(1),
       descriptionRetouche: z.string().optional(),
       typeRetouche: z.string().min(1),
@@ -427,7 +440,9 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     const policy = await loadRetouchePolicy({ req });
     const repo = scopedRetoucheRepo(req).withExecutor(dbClient);
     const mesuresRepo = scopedSerieRepo(req).withExecutor(dbClient);
+    const dossiers = scopedDossierRepo(req).withExecutor(dbClient);
     const requestedIdRetouche = String(body.idRetouche || "").trim();
+    const requestedDossierId = String(body.idDossier || "").trim() || null;
     if (requestedIdRetouche) {
       const existingRetouche = await repo.getById(requestedIdRetouche);
       if (existingRetouche) {
@@ -447,13 +462,23 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
       throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche.");
     }
     await dbClient.query("BEGIN");
+    if (requestedDossierId) {
+      const existingDossier = await dossiers.getById(requestedDossierId);
+      if (!existingDossier) {
+        throw Object.assign(new Error("Dossier introuvable."), { status: 404, code: "DOSSIER_NOT_FOUND" });
+      }
+    }
     const retouche = deposerRetouche({
       ...body,
       idRetouche: requestedIdRetouche || generateRetoucheId()
     }, {
       policy: { retouches: policy }
     });
+    retouche.dossierId = requestedDossierId;
     await repo.save(retouche);
+    if (requestedDossierId) {
+      await dossiers.touch(requestedDossierId, acteur.utilisateur);
+    }
     await saveLatestMeasuresForClientAndType({
       idClient: retouche.idClient,
       typeHabit: retouche.typeHabit,
@@ -490,7 +515,10 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
         utilisateurNom: acteur.utilisateurNom
       }
     });
-    res.status(201).json(retouche);
+    res.status(201).json({
+      ...retouche,
+      dossierId: retouche.dossierId || null
+    });
   } catch (err) {
     await dbClient.query("ROLLBACK").catch(() => {});
     res.status(400).json({ error: err.message });
@@ -503,6 +531,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
   const schema = z
     .object({
       idRetouche: z.string().min(1).optional(),
+      idDossier: z.string().min(1).optional(),
       idClient: z.string().min(1).optional(),
       nouveauClient: z
         .object({
@@ -546,7 +575,9 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     const repo = scopedRetoucheRepo(req).withExecutor(dbClient);
     const clients = scopedClientRepo(req).withExecutor(dbClient);
     const mesuresRepo = scopedSerieRepo(req).withExecutor(dbClient);
+    const dossiers = scopedDossierRepo(req).withExecutor(dbClient);
     const requestedIdRetouche = String(body.idRetouche || "").trim();
+    const requestedDossierId = String(body.idDossier || "").trim() || null;
     if (requestedIdRetouche) {
       const existingRetouche = await repo.getById(requestedIdRetouche);
       if (existingRetouche) {
@@ -583,6 +614,13 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
       });
     }
 
+    if (requestedDossierId) {
+      const existingDossier = await dossiers.getById(requestedDossierId);
+      if (!existingDossier) {
+        throw Object.assign(new Error("Dossier introuvable."), { status: 404, code: "DOSSIER_NOT_FOUND" });
+      }
+    }
+
     const clientResolution = await resolveClientForCreation({
       idClient: body.idClient,
       nouveauClient: body.nouveauClient,
@@ -597,14 +635,16 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     }, {
       policy: { retouches: policy }
     });
+    retouche.dossierId = requestedDossierId;
 
     await dbClient.query(
-      `INSERT INTO retouches (id_retouche, atelier_id, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      `INSERT INTO retouches (id_retouche, atelier_id, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [
         retouche.idRetouche,
         atelierId,
         retouche.idClient,
+        retouche.dossierId,
         retouche.descriptionRetouche,
         retouche.typeRetouche,
         retouche.dateDepot,
@@ -616,6 +656,9 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
         JSON.stringify(retouche.mesuresHabit)
       ]
     );
+    if (requestedDossierId) {
+      await dossiers.touch(requestedDossierId, acteur.utilisateur);
+    }
     await saveLatestMeasuresForClientAndType({
       idClient: retouche.idClient,
       typeHabit: retouche.typeHabit,
@@ -651,7 +694,10 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
 
     await dbClient.query("COMMIT");
     return res.status(201).json({
-      retouche,
+      retouche: {
+        ...retouche,
+        dossierId: retouche.dossierId || null
+      },
       client: hasNewClient ? clientResolution.client : null,
       clientResolution: clientResolution.strategy
     });

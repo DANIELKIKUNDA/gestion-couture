@@ -12,6 +12,7 @@ import { securityPolicy } from "../../bc-auth/interfaces/http/middlewares/securi
 import commandesRoutes from "../../bc-commandes/interfaces/http/routes.js";
 import retouchesRoutes from "../../bc-retouches/interfaces/http/routes.js";
 import clientsRoutes from "../../bc-clients/interfaces/http/routes.js";
+import dossiersRoutes from "../../bc-dossiers/interfaces/http/routes.js";
 import stockRoutes from "../../bc-stock/interfaces/http/routes.js";
 import caisseRoutes from "../../bc-caisse/interfaces/http/routes.js";
 import facturationRoutes from "../../bc-facturation/interfaces/http/routes.js";
@@ -86,6 +87,7 @@ export function createApp() {
   app.use("/api", requireAuth, commandesRoutes);
   app.use("/api", requireAuth, retouchesRoutes);
   app.use("/api", requireAuth, clientsRoutes);
+  app.use("/api", requireAuth, dossiersRoutes);
   app.use("/api", requireAuth, stockRoutes);
   app.use("/api", requireAuth, caisseRoutes);
   app.use("/api", requireAuth, facturationRoutes);

@@ -17,7 +17,7 @@ export class RetoucheRepoPg {
 
   async getById(idRetouche) {
     const res = await this.db.query(
-      "SELECT id_retouche, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM retouches WHERE id_retouche = $1 AND atelier_id = $2",
+      "SELECT id_retouche, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM retouches WHERE id_retouche = $1 AND atelier_id = $2",
       [idRetouche, this.atelierId]
     );
     if (res.rowCount === 0) return null;
@@ -26,6 +26,7 @@ export class RetoucheRepoPg {
     return new Retouche({
       idRetouche: row.id_retouche,
       idClient: row.id_client,
+      dossierId: row.id_dossier,
       descriptionRetouche: row.description,
       typeRetouche: row.type_retouche,
       dateDepot: row.date_depot,
@@ -41,15 +42,16 @@ export class RetoucheRepoPg {
 
   async save(retouche) {
     await this.db.query(
-      `INSERT INTO retouches (id_retouche, atelier_id, id_client, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `INSERT INTO retouches (id_retouche, atelier_id, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (id_retouche)
-       DO UPDATE SET atelier_id=$2, id_client=$3, description=$4, type_retouche=$5, date_depot=$6, date_prevue=$7,
-         montant_total=$8, montant_paye=$9, statut=$10, type_habit=$11, mesures_habit_snapshot=$12`,
+       DO UPDATE SET atelier_id=$2, id_client=$3, id_dossier=$4, description=$5, type_retouche=$6, date_depot=$7, date_prevue=$8,
+         montant_total=$9, montant_paye=$10, statut=$11, type_habit=$12, mesures_habit_snapshot=$13`,
       [
         retouche.idRetouche,
         this.atelierId,
         retouche.idClient,
+        retouche.dossierId,
         retouche.descriptionRetouche,
         retouche.typeRetouche,
         retouche.dateDepot,

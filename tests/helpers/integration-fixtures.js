@@ -141,6 +141,71 @@ export async function ensureCommandeFamilleSchema() {
   `);
 }
 
+export async function ensureDossierSchema() {
+  await ensureCommandeFamilleSchema();
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF to_regclass('public.dossiers') IS NULL THEN
+        BEGIN
+          CREATE TABLE public.dossiers (
+            id_dossier TEXT PRIMARY KEY,
+            atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
+            id_responsable_client TEXT NOT NULL,
+            nom_responsable_snapshot TEXT NOT NULL DEFAULT '',
+            prenom_responsable_snapshot TEXT NOT NULL DEFAULT '',
+            telephone_responsable_snapshot TEXT NOT NULL DEFAULT '',
+            type_dossier TEXT NOT NULL DEFAULT 'INDIVIDUEL',
+            statut TEXT NOT NULL DEFAULT 'ACTIF',
+            notes TEXT NULL,
+            cree_par TEXT NULL,
+            modifie_par_dernier TEXT NULL,
+            date_creation TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            date_derniere_activite TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+        EXCEPTION
+          WHEN duplicate_table OR duplicate_object THEN
+            NULL;
+        END;
+      END IF;
+    END
+    $$ LANGUAGE plpgsql;
+  `);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'commandes'
+          AND column_name = 'id_dossier'
+      ) THEN
+        ALTER TABLE commandes ADD COLUMN id_dossier TEXT NULL;
+      END IF;
+    END
+    $$ LANGUAGE plpgsql;
+  `).catch(() => {});
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'retouches'
+          AND column_name = 'id_dossier'
+      ) THEN
+        ALTER TABLE retouches ADD COLUMN id_dossier TEXT NULL;
+      END IF;
+    END
+    $$ LANGUAGE plpgsql;
+  `).catch(() => {});
+}
+
 export function withAuth(req, token) {
   return req.set("Authorization", `Bearer ${token}`);
 }

@@ -249,6 +249,7 @@ const systemAtelierModal = reactive({
 });
 
 const clients = ref([]);
+const dossiers = ref([]);
 const commandes = ref([]);
 const retouches = ref([]);
 const stockArticles = ref([]);
@@ -287,6 +288,35 @@ const filters = reactive({
   soldeRestant: "ALL"
 });
 const commandeClientQuery = ref("");
+const dossierFilters = reactive({
+  statut: "ALL",
+  type: "ALL",
+  recherche: ""
+});
+const dossiersPagination = reactive({
+  page: 1,
+  pageSize: 10
+});
+const dossierSection = ref("liste");
+const dossierModalOpen = ref(false);
+const dossierSubmitting = ref(false);
+const selectedDossierId = ref("");
+const detailDossier = ref(null);
+const detailDossierLoading = ref(false);
+const detailDossierError = ref("");
+const dossierDraft = reactive({
+  mode: "existing",
+  existingClientId: "",
+  newClient: {
+    nom: "",
+    prenom: "",
+    telephone: ""
+  },
+  doublonDecisionAction: "",
+  doublonDecisionId: "",
+  typeDossier: "INDIVIDUEL",
+  notes: ""
+});
 const commandeSection = ref("liste");
 const commandeMobileFiltersOpen = ref(false);
 const commandesPagination = reactive({
@@ -344,6 +374,7 @@ const wizard = reactive({
   open: false,
   step: 1,
   mode: "existing",
+  dossierId: "",
   existingClientId: "",
   resolvedClientId: "",
   requestCommandeId: "",
@@ -373,6 +404,7 @@ const retoucheWizard = reactive({
   open: false,
   step: 1,
   mode: "existing",
+  dossierId: "",
   existingClientId: "",
   resolvedClientId: "",
   requestRetoucheId: "",
@@ -395,6 +427,72 @@ const retoucheWizard = reactive({
     mesuresHabit: {}
   }
 });
+
+function createEmptyDossierDetail() {
+  return {
+    idDossier: "",
+    idResponsableClient: "",
+    responsable: {
+      idClient: "",
+      nom: "",
+      prenom: "",
+      telephone: "",
+      nomComplet: ""
+    },
+    typeDossier: "INDIVIDUEL",
+    statutDossier: "ACTIF",
+    notes: "",
+    dateCreation: "",
+    dateDerniereActivite: "",
+    totalCommandes: 0,
+    totalRetouches: 0,
+    totalMontant: 0,
+    totalPaye: 0,
+    soldeRestant: 0,
+    commandes: [],
+    retouches: []
+  };
+}
+
+function normalizeDossier(raw = {}) {
+  return {
+    idDossier: raw.idDossier || raw.id_dossier || "",
+    idResponsableClient: raw.idResponsableClient || raw.id_responsable_client || "",
+    responsable: {
+      idClient: raw.responsable?.idClient || raw.idResponsableClient || raw.id_responsable_client || "",
+      nom: raw.responsable?.nom || "",
+      prenom: raw.responsable?.prenom || "",
+      telephone: raw.responsable?.telephone || "",
+      nomComplet:
+        raw.responsable?.nomComplet ||
+        `${String(raw.responsable?.nom || "").trim()} ${String(raw.responsable?.prenom || "").trim()}`.trim()
+    },
+    typeDossier: raw.typeDossier || raw.type_dossier || "INDIVIDUEL",
+    statutDossier: raw.statutDossier || raw.statut_dossier || raw.statut || "ACTIF",
+    notes: raw.notes || "",
+    dateCreation: raw.dateCreation || raw.date_creation || "",
+    dateDerniereActivite: raw.dateDerniereActivite || raw.date_derniere_activite || raw.dateCreation || raw.date_creation || "",
+    totalCommandes: Number(raw.totalCommandes ?? raw.total_commandes ?? 0),
+    totalRetouches: Number(raw.totalRetouches ?? raw.total_retouches ?? 0),
+    totalMontant: Number(raw.totalMontant ?? raw.total_montant ?? 0),
+    totalPaye: Number(raw.totalPaye ?? raw.total_paye ?? 0),
+    soldeRestant: Number(raw.soldeRestant ?? raw.solde_restant ?? Math.max(0, Number(raw.totalMontant ?? raw.total_montant ?? 0) - Number(raw.totalPaye ?? raw.total_paye ?? 0))),
+    commandes: (raw.commandes || []).map((row) => normalizeCommande(row)),
+    retouches: (raw.retouches || []).map((row) => normalizeRetouche(row))
+  };
+}
+
+function resetDossierDraft() {
+  dossierDraft.mode = "existing";
+  dossierDraft.existingClientId = "";
+  dossierDraft.newClient.nom = "";
+  dossierDraft.newClient.prenom = "";
+  dossierDraft.newClient.telephone = "";
+  dossierDraft.doublonDecisionAction = "";
+  dossierDraft.doublonDecisionId = "";
+  dossierDraft.typeDossier = "INDIVIDUEL";
+  dossierDraft.notes = "";
+}
 const MAX_CLIENT_SEARCH_RESULTS = 10;
 const CLIENT_INSIGHT_PREVIEW_SIZE = 3;
 const wizardClientSearchQuery = ref("");
@@ -2787,6 +2885,18 @@ const canAccessContactFollowUpDashboard = computed(() =>
 function hasModuleAccessPermissions(moduleId) {
   if (moduleId === "systemAteliers") return hasPermission(PERMISSIONS.GERER_ATELIERS);
   if (moduleId === "dashboard") return true;
+  if (moduleId === "dossiers") {
+    return (
+      canReadClients.value ||
+      canCreateClient.value ||
+      canReadCommandes.value ||
+      canCreateCommande.value ||
+      canReadRetouches.value ||
+      canCreateRetouche.value ||
+      hasPermission(PERMISSIONS.VOIR_BILANS_GLOBAUX) ||
+      hasPermission(PERMISSIONS.CLOTURER_CAISSE)
+    );
+  }
   if (moduleId === "commandes") {
     return canReadCommandes.value || canCreateCommande.value;
   }
@@ -2846,6 +2956,7 @@ function canAccessModule(moduleId) {
 
 function canAccessRoute(routeId) {
   if (routeId === "commande-detail" || routeId === "retouche-detail") return canAccessModule("commandes");
+  if (routeId === "dossier-detail") return canAccessModule("dossiers");
   if (routeId === "vente-detail") return canAccessModule("stockVentes");
   if (routeId === "facture-detail") return canAccessModule("facturation");
   if (routeId === "systemAtelierDetail") return canAccessModule("systemAteliers");
@@ -2855,6 +2966,7 @@ function canAccessRoute(routeId) {
 
 const atelierMenuItems = [
   { id: "dashboard", label: "Tableau de Bord", icon: "dashboard" },
+  { id: "dossiers", label: "Dossiers", icon: "users" },
   { id: "commandes", label: "Commandes", icon: "clipboard" },
   { id: "retouches", label: "Retouches", icon: "scissors" },
   { id: "clientsMesures", label: "Clients & Mesures", icon: "users" },
@@ -2897,7 +3009,13 @@ const mobileNavItems = computed(() => {
     ].filter((item) => canAccessRoute(item.target));
   }
 
-  const activitiesTarget = canAccessRoute("commandes") ? "commandes" : canAccessRoute("retouches") ? "retouches" : "";
+  const activitiesTarget = canAccessRoute("dossiers")
+    ? "dossiers"
+    : canAccessRoute("commandes")
+      ? "commandes"
+      : canAccessRoute("retouches")
+        ? "retouches"
+        : "";
 
   return [
     {
@@ -2911,8 +3029,8 @@ const mobileNavItems = computed(() => {
       id: "activities",
       target: activitiesTarget,
       label: "Activites",
-      icon: activitiesTarget === "retouches" ? "scissors" : "clipboard",
-      activeRoutes: ["commandes", "commande-detail", "retouches", "retouche-detail"]
+      icon: activitiesTarget === "retouches" ? "scissors" : activitiesTarget === "dossiers" ? "users" : "clipboard",
+      activeRoutes: ["dossiers", "dossier-detail", "commandes", "commande-detail", "retouches", "retouche-detail"]
     },
     {
       id: "clients",
@@ -3614,6 +3732,7 @@ const currentTitle = computed(() => {
   if (currentRoute.value === "systemDashboard") return "Vue Globale";
   if (currentRoute.value === "systemAteliers") return "Ateliers";
   if (currentRoute.value === "systemAtelierDetail") return "Detail Atelier";
+  if (currentRoute.value === "dossier-detail") return "Detail Dossier";
   if (currentRoute.value === "commande-detail") return "Detail Commande";
   if (currentRoute.value === "retouche-detail") return "Detail Retouche";
   if (currentRoute.value === "vente-detail") return "Detail Vente";
@@ -6887,6 +7006,7 @@ async function reloadAll() {
 
   if (isSystemManager.value) {
     clients.value = [];
+    dossiers.value = [];
     commandes.value = [];
     retouches.value = [];
     stockArticles.value = [];
@@ -6910,6 +7030,7 @@ async function reloadAll() {
   }
 
   const shouldLoadClients = canReadClients.value;
+  const shouldLoadDossiers = canAccessModule("dossiers");
   const shouldLoadCommandes = canReadCommandes.value;
   const shouldLoadRetouches = canReadRetouches.value;
   const shouldLoadRetoucheTypes = shouldLoadRetouches || canCreateRetouche.value || settingsRoleAllowed.value;
@@ -6919,6 +7040,7 @@ async function reloadAll() {
   const shouldLoadCaisse = canAccessModule("caisse");
   const atelierId = currentAtelierId.value;
   if (!atelierId) {
+    dossiers.value = [];
     dashboardContactBoard.value = createEmptyDashboardContactBoard();
     dashboardContactBoardError.value = "";
     dashboardContactBoardLoading.value = false;
@@ -6942,6 +7064,7 @@ async function reloadAll() {
       appendUiMessage(OFFLINE_READ_MESSAGES.NO_LOCAL_DATA);
     }
 
+    dossiers.value = [];
     retoucheTypeDefinitions.value = [];
     stockArticles.value = [];
     ventes.value = [];
@@ -6982,13 +7105,17 @@ async function reloadAll() {
     else if (refreshedMain?.errors?.retouches) appendError(refreshedMain.errors.retouches);
   }
 
-  const [retoucheTypesResult, stockResult, ventesResult, facturesResult, caisseDaysResult] = await Promise.allSettled([
+  const [dossiersResult, retoucheTypesResult, stockResult, ventesResult, facturesResult, caisseDaysResult] = await Promise.allSettled([
+    shouldLoadDossiers ? atelierApi.listDossiers() : Promise.resolve([]),
     shouldLoadRetoucheTypes ? atelierApi.listRetoucheTypes() : Promise.resolve([]),
     shouldLoadStock ? atelierApi.listStockArticles() : Promise.resolve([]),
     shouldLoadVentes ? atelierApi.listVentes() : Promise.resolve([]),
     shouldLoadFactures ? atelierApi.listFactures() : Promise.resolve([]),
     shouldLoadCaisse ? atelierApi.listCaisseJours() : Promise.resolve([])
   ]);
+
+  if (dossiersResult.status === "fulfilled") applyDossiersRows(dossiersResult.value || []);
+  else if (shouldLoadDossiers) appendError(dossiersResult.reason);
 
   if (retoucheTypesResult.status === "fulfilled") {
     retoucheTypeDefinitions.value = (retoucheTypesResult.value || [])
@@ -7034,8 +7161,134 @@ async function reloadAll() {
   if (currentRoute.value === "dashboard") {
     await loadDashboardContactBoard();
   }
+  if (currentRoute.value === "dossier-detail" && selectedDossierId.value) {
+    await loadDossierDetail(selectedDossierId.value);
+  }
 
   loading.value = false;
+}
+
+const dossiersFiltered = computed(() => {
+  const query = String(dossierFilters.recherche || "").trim().toLowerCase();
+  return dossiers.value.filter((dossier) => {
+    if (dossierFilters.statut !== "ALL" && dossier.statutDossier !== dossierFilters.statut) return false;
+    if (dossierFilters.type !== "ALL" && dossier.typeDossier !== dossierFilters.type) return false;
+    if (!query) return true;
+    const haystack = [
+      dossier.idDossier,
+      dossier.responsable?.nomComplet,
+      dossier.responsable?.telephone,
+      dossier.typeDossier,
+      dossier.notes
+    ]
+      .map((value) => String(value || "").toLowerCase())
+      .join(" ");
+    return haystack.includes(query);
+  });
+});
+
+const dossiersPages = computed(() => Math.max(1, Math.ceil(dossiersFiltered.value.length / dossiersPagination.pageSize)));
+const dossiersPaged = computed(() => {
+  const start = (dossiersPagination.page - 1) * dossiersPagination.pageSize;
+  return dossiersFiltered.value.slice(start, start + dossiersPagination.pageSize);
+});
+
+async function loadDossierDetail(idDossier) {
+  if (!idDossier) {
+    detailDossier.value = null;
+    detailDossierError.value = "";
+    return;
+  }
+  detailDossierLoading.value = true;
+  detailDossierError.value = "";
+  try {
+    const payload = await atelierApi.getDossier(idDossier);
+    detailDossier.value = normalizeDossier(payload);
+  } catch (err) {
+    detailDossier.value = null;
+    detailDossierError.value = readableError(err);
+  } finally {
+    detailDossierLoading.value = false;
+  }
+}
+
+async function openDossierDetail(idDossier) {
+  selectedDossierId.value = idDossier;
+  currentRoute.value = "dossier-detail";
+  await loadDossierDetail(idDossier);
+}
+
+function openCreateDossierModal() {
+  resetDossierDraft();
+  dossierModalOpen.value = true;
+}
+
+function closeDossierModal() {
+  dossierModalOpen.value = false;
+}
+
+async function submitDossierCreate() {
+  if (dossierSubmitting.value) return;
+  dossierSubmitting.value = true;
+  try {
+    const payload = {
+      typeDossier: dossierDraft.typeDossier,
+      notes: String(dossierDraft.notes || "").trim()
+    };
+    if (dossierDraft.mode === "existing") {
+      if (!dossierDraft.existingClientId) throw new Error("Selectionnez le responsable du dossier.");
+      payload.idResponsableClient = dossierDraft.existingClientId;
+    } else {
+      const nom = String(dossierDraft.newClient.nom || "").trim();
+      const prenom = String(dossierDraft.newClient.prenom || "").trim();
+      if (!nom || !prenom) throw new Error("Renseignez le nom et le prenom du responsable.");
+      payload.nouveauResponsable = {
+        nom,
+        prenom,
+        telephone: String(dossierDraft.newClient.telephone || "").trim()
+      };
+      if (dossierDraft.doublonDecisionAction) {
+        payload.doublonDecision = {
+          action: dossierDraft.doublonDecisionAction,
+          idClient: dossierDraft.doublonDecisionId || undefined
+        };
+      }
+    }
+    const created = await atelierApi.createDossier(payload);
+    const normalized = normalizeDossier(created?.dossier || created);
+    applyDossiersRows([normalized, ...dossiers.value]);
+    closeDossierModal();
+    notify(`Dossier cree: ${normalized.idDossier}`);
+    await openDossierDetail(normalized.idDossier);
+  } catch (err) {
+    notify(readableError(err));
+  } finally {
+    dossierSubmitting.value = false;
+  }
+}
+
+function openCommandeWizardFromDossier() {
+  if (!detailDossier.value?.idDossier) return;
+  resetWizard();
+  wizard.dossierId = detailDossier.value.idDossier;
+  if (detailDossier.value.responsable?.idClient) {
+    wizard.mode = "existing";
+    wizard.existingClientId = detailDossier.value.responsable.idClient;
+    wizard.resolvedClientId = detailDossier.value.responsable.idClient;
+  }
+  wizard.open = true;
+}
+
+function openRetoucheWizardFromDossier() {
+  if (!detailDossier.value?.idDossier) return;
+  resetRetoucheWizard();
+  retoucheWizard.dossierId = detailDossier.value.idDossier;
+  if (detailDossier.value.responsable?.idClient) {
+    retoucheWizard.mode = "existing";
+    retoucheWizard.existingClientId = detailDossier.value.responsable.idClient;
+    retoucheWizard.resolvedClientId = detailDossier.value.responsable.idClient;
+  }
+  retoucheWizard.open = true;
 }
 
 async function loadClientConsultation(idClient, force = false) {
@@ -7439,6 +7692,10 @@ function applyClientsRows(rows = []) {
   }
 }
 
+function applyDossiersRows(rows = []) {
+  dossiers.value = (rows || []).map(normalizeDossier);
+}
+
 function applyCommandesRows(rows = []) {
   commandes.value = (rows || []).map(normalizeCommande);
 }
@@ -7589,6 +7846,10 @@ async function refreshVisibleDataAfterReconnect() {
 
   reconnectRefreshPromise = (async () => {
     await loadAtelierRuntimeSettings();
+    if (currentRoute.value === "dossier-detail" && selectedDossierId.value) {
+      await loadDossierDetail(selectedDossierId.value);
+      return;
+    }
     if (currentRoute.value === "commande-detail" && selectedCommandeId.value) {
       await loadCommandeDetail(selectedCommandeId.value);
       return;
@@ -7617,12 +7878,12 @@ function scheduleSyncUiRefresh() {
   }, 250);
 }
 
-const CROSS_DEVICE_REFRESH_ROUTES = new Set(["dashboard", "commandes", "retouches", "commande-detail", "retouche-detail", "caisse"]);
+const CROSS_DEVICE_REFRESH_ROUTES = new Set(["dashboard", "dossiers", "commandes", "retouches", "dossier-detail", "commande-detail", "retouche-detail", "caisse"]);
 const CROSS_DEVICE_REFRESH_MIN_INTERVAL_MS = 2500;
 
 function getCrossDeviceRefreshInterval(routeName = currentRoute.value) {
-  if (routeName === "commande-detail" || routeName === "retouche-detail" || routeName === "caisse") return 10000;
-  if (routeName === "dashboard" || routeName === "commandes" || routeName === "retouches") return 15000;
+  if (routeName === "dossier-detail" || routeName === "commande-detail" || routeName === "retouche-detail" || routeName === "caisse") return 10000;
+  if (routeName === "dashboard" || routeName === "dossiers" || routeName === "commandes" || routeName === "retouches") return 15000;
   return 0;
 }
 
@@ -7752,6 +8013,12 @@ async function refreshVisibleRouteInBackground({ force = false } = {}) {
   crossDeviceRefreshPromise = (async () => {
     lastCrossDeviceRefreshAt = Date.now();
 
+    if (routeName === "dossier-detail" && selectedDossierId.value) {
+      await loadAtelierRuntimeSettings();
+      await loadDossierDetail(selectedDossierId.value);
+      return true;
+    }
+
     if (routeName === "commande-detail" && selectedCommandeId.value) {
       await loadAtelierRuntimeSettings();
       await loadCommandeDetail(selectedCommandeId.value);
@@ -7779,6 +8046,16 @@ async function refreshVisibleRouteInBackground({ force = false } = {}) {
         loadClients: canReadClients.value,
         loadRetouches: canReadRetouches.value
       });
+      return true;
+    }
+
+    if (routeName === "dossiers") {
+      await loadAtelierRuntimeSettings();
+      try {
+        applyDossiersRows(await atelierApi.listDossiers());
+      } catch {
+        // Keep the current dossier list if the background refresh fails.
+      }
       return true;
     }
 
@@ -8469,6 +8746,7 @@ function normalizeCommande(raw) {
     updatedAt: raw.updatedAt || raw.updated_at || "",
     lastSyncedAt: raw.lastSyncedAt || raw.last_synced_at || "",
     idCommande,
+    dossierId: raw.dossierId || raw.idDossier || raw.id_dossier || "",
     idClient,
     clientPayeurId: idClient,
     clientLocalId: raw.clientLocalId || raw.client_local_id || "",
@@ -8529,6 +8807,7 @@ function normalizeRetouche(raw) {
     updatedAt: raw.updatedAt || raw.updated_at || "",
     lastSyncedAt: raw.lastSyncedAt || raw.last_synced_at || "",
     idRetouche,
+    dossierId: raw.dossierId || raw.idDossier || raw.id_dossier || "",
     idClient,
     clientLocalId: raw.clientLocalId || raw.client_local_id || "",
     clientServerId: raw.clientServerId || raw.client_server_id || (isRemoteEntityId(idClient) ? idClient : ""),
@@ -9147,6 +9426,7 @@ async function onAnnulerCommande(commande) {
 function resetWizard() {
   wizard.step = 1;
   wizard.mode = "existing";
+  wizard.dossierId = "";
   wizard.existingClientId = "";
   wizard.resolvedClientId = "";
   wizard.requestCommandeId = "";
@@ -9186,6 +9466,7 @@ function closeWizard() {
 function resetRetoucheWizard() {
   retoucheWizard.step = 1;
   retoucheWizard.mode = "existing";
+  retoucheWizard.dossierId = "";
   retoucheWizard.existingClientId = "";
   retoucheWizard.resolvedClientId = "";
   retoucheWizard.requestRetoucheId = "";
@@ -9758,6 +10039,7 @@ async function onWizardStep3() {
       mesuresHabit: referenceLine?.mesuresHabit || {},
       lignesCommande
     };
+    if (wizard.dossierId) payload.idDossier = wizard.dossierId;
 
     if (wizard.mode === "existing") {
       if (!wizard.resolvedClientId) throw new Error("Client non resolu.");
@@ -9907,6 +10189,7 @@ async function onRetoucheWizardStep2() {
       typeHabit: retoucheWizard.retouche.typeHabit,
       mesuresHabit: mesuresSnapshot
     };
+    if (retoucheWizard.dossierId) payload.idDossier = retoucheWizard.dossierId;
     if (retoucheWizard.mode === "existing") {
       if (!retoucheWizard.resolvedClientId) throw new Error("Client non resolu.");
       payload.idClient = retoucheWizard.resolvedClientId;
@@ -12082,7 +12365,145 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </MobilePageLayout>
       </section>
 
-      <section v-else-if="currentRoute === 'commandes'" class="commandes-page">
+        <section v-else-if="currentRoute === 'dossiers'" class="commandes-page">
+          <ResponsiveDataContainer :mobile="isMobileViewport">
+            <template #mobile>
+              <article class="panel panel-header">
+                <MobileSectionHeader
+                  eyebrow="Dossiers"
+                  title="Centre des operations atelier"
+                  subtitle="Familles, groupes et operations mixtes commandes + retouches."
+                >
+                  <template #actions>
+                    <button class="action-btn blue" @click="openCreateDossierModal">Nouveau dossier</button>
+                  </template>
+                </MobileSectionHeader>
+              </article>
+
+              <article class="panel stack-form">
+                <input v-model="dossierFilters.recherche" type="search" placeholder="Rechercher un responsable, un telephone ou un dossier" />
+                <div class="grid-2 dossier-filter-grid">
+                  <select v-model="dossierFilters.type">
+                    <option value="ALL">Tous les types</option>
+                    <option value="INDIVIDUEL">Individuel</option>
+                    <option value="FAMILLE">Famille</option>
+                    <option value="GROUPE">Groupe</option>
+                  </select>
+                  <select v-model="dossierFilters.statut">
+                    <option value="ALL">Tous les statuts</option>
+                    <option value="ACTIF">Actif</option>
+                    <option value="SOLDE">Solde</option>
+                    <option value="CLOTURE">Cloture</option>
+                  </select>
+                </div>
+              </article>
+
+              <div v-if="dossiersPaged.length > 0" class="stack-list">
+                <article v-for="dossier in dossiersPaged" :key="dossier.idDossier" class="panel dossier-card" @click="openDossierDetail(dossier.idDossier)">
+                  <div class="row-between">
+                    <div>
+                      <p class="mobile-overline">{{ dossier.typeDossier }}</p>
+                      <h3>{{ dossier.responsable.nomComplet || dossier.idDossier }}</h3>
+                      <p class="helper">{{ dossier.responsable.telephone || "Sans telephone" }}</p>
+                    </div>
+                    <span class="status-chip">{{ dossier.statutDossier }}</span>
+                  </div>
+                  <div class="mobile-kpi-grid dossier-kpis">
+                    <div class="mobile-kpi">
+                      <span>Commandes</span>
+                      <strong>{{ dossier.totalCommandes }}</strong>
+                    </div>
+                    <div class="mobile-kpi">
+                      <span>Retouches</span>
+                      <strong>{{ dossier.totalRetouches }}</strong>
+                    </div>
+                    <div class="mobile-kpi">
+                      <span>Total</span>
+                      <strong>{{ formatCurrency(dossier.totalMontant) }}</strong>
+                    </div>
+                    <div class="mobile-kpi">
+                      <span>Reste</span>
+                      <strong>{{ formatCurrency(dossier.soldeRestant) }}</strong>
+                    </div>
+                  </div>
+                </article>
+              </div>
+              <article v-else class="panel empty-state">
+                <h3>Aucun dossier</h3>
+                <p>Commence par ouvrir un dossier pour centraliser commandes et retouches.</p>
+              </article>
+            </template>
+
+            <template #desktop>
+              <article class="panel panel-header">
+                <MobileSectionHeader
+                  eyebrow="Dossiers"
+                  title="Centre des operations atelier"
+                  subtitle="Le dossier devient le point d'entree principal pour les familles, groupes et clients individuels."
+                >
+                  <template #actions>
+                    <button class="action-btn blue" @click="openCreateDossierModal">Nouveau dossier</button>
+                  </template>
+                </MobileSectionHeader>
+              </article>
+
+              <article class="panel">
+                <div class="grid-3 dossier-filter-grid">
+                  <input v-model="dossierFilters.recherche" type="search" placeholder="Rechercher un responsable, un telephone ou un dossier" />
+                  <select v-model="dossierFilters.type">
+                    <option value="ALL">Tous les types</option>
+                    <option value="INDIVIDUEL">Individuel</option>
+                    <option value="FAMILLE">Famille</option>
+                    <option value="GROUPE">Groupe</option>
+                  </select>
+                  <select v-model="dossierFilters.statut">
+                    <option value="ALL">Tous les statuts</option>
+                    <option value="ACTIF">Actif</option>
+                    <option value="SOLDE">Solde</option>
+                    <option value="CLOTURE">Cloture</option>
+                  </select>
+                </div>
+              </article>
+
+              <article class="panel">
+                <table class="data-table mobile-stack-table">
+                  <thead>
+                    <tr>
+                      <th>Responsable</th>
+                      <th>Type</th>
+                      <th>Commandes</th>
+                      <th>Retouches</th>
+                      <th>Total</th>
+                      <th>Reste</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="dossier in dossiersPaged" :key="dossier.idDossier">
+                      <td data-label="Responsable">
+                        <strong>{{ dossier.responsable.nomComplet || dossier.idDossier }}</strong>
+                        <div class="helper">{{ dossier.responsable.telephone || "Sans telephone" }}</div>
+                      </td>
+                      <td data-label="Type">{{ dossier.typeDossier }}</td>
+                      <td data-label="Commandes">{{ dossier.totalCommandes }}</td>
+                      <td data-label="Retouches">{{ dossier.totalRetouches }}</td>
+                      <td data-label="Total">{{ formatCurrency(dossier.totalMontant) }}</td>
+                      <td data-label="Reste">{{ formatCurrency(dossier.soldeRestant) }}</td>
+                      <td data-label="Actions">
+                        <button class="mini-btn" @click="openDossierDetail(dossier.idDossier)">Ouvrir</button>
+                      </td>
+                    </tr>
+                    <tr v-if="dossiersPaged.length === 0">
+                      <td colspan="7">Aucun dossier disponible.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </article>
+            </template>
+          </ResponsiveDataContainer>
+        </section>
+
+        <section v-else-if="currentRoute === 'commandes'" class="commandes-page">
         <MobilePageLayout :has-action="isMobileViewport && canCreateCommande && commandeSection === 'liste'">
           <template #header>
             <article class="panel panel-header">
@@ -13486,6 +13907,156 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </template>
         </MobilePageLayout>
       </section>
+
+        <section v-else-if="currentRoute === 'dossier-detail'" class="commande-detail">
+          <ResponsiveDataContainer :mobile="isMobileViewport">
+            <template #mobile>
+              <article class="panel panel-header detail-header">
+                <MobileSectionHeader
+                  eyebrow="Dossier"
+                  title="Detail dossier"
+                  :subtitle="detailDossier ? `${detailDossier.idDossier} - ${detailDossier.responsable.nomComplet || 'Responsable'}` : 'Vue consolidee du dossier atelier.'"
+                />
+                <div class="row-actions">
+                  <button class="mini-btn" @click="openRoute('dossiers')">Retour</button>
+                  <button class="mini-btn" @click="openCommandeWizardFromDossier">+ Commande</button>
+                  <button class="mini-btn" @click="openRetoucheWizardFromDossier">+ Retouche</button>
+                </div>
+              </article>
+
+              <article v-if="detailDossierLoading" class="panel">
+                <p>Chargement du dossier...</p>
+              </article>
+              <article v-else-if="detailDossierError" class="panel error-panel">
+                <strong>Detail dossier</strong>
+                <p>{{ detailDossierError }}</p>
+              </article>
+              <template v-else-if="detailDossier">
+                <article class="panel">
+                  <div class="row-between">
+                    <div>
+                      <p class="mobile-overline">{{ detailDossier.typeDossier }}</p>
+                      <h3>{{ detailDossier.responsable.nomComplet }}</h3>
+                      <p class="helper">{{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
+                    </div>
+                    <span class="status-chip">{{ detailDossier.statutDossier }}</span>
+                  </div>
+                  <div class="mobile-kpi-grid dossier-kpis">
+                    <div class="mobile-kpi"><span>Commandes</span><strong>{{ detailDossier.totalCommandes }}</strong></div>
+                    <div class="mobile-kpi"><span>Retouches</span><strong>{{ detailDossier.totalRetouches }}</strong></div>
+                    <div class="mobile-kpi"><span>Total</span><strong>{{ formatCurrency(detailDossier.totalMontant) }}</strong></div>
+                    <div class="mobile-kpi"><span>Reste</span><strong>{{ formatCurrency(detailDossier.soldeRestant) }}</strong></div>
+                  </div>
+                </article>
+
+                <article class="panel">
+                  <h3>Commandes liees</h3>
+                  <div class="stack-list" v-if="detailDossier.commandes.length > 0">
+                    <button v-for="commande in detailDossier.commandes" :key="commande.idCommande" class="list-link-card" @click="openCommandeDetail(commande.idCommande)">
+                      <strong>{{ commande.idCommande }}</strong>
+                      <span>{{ commande.descriptionCommande }}</span>
+                      <span class="helper">{{ formatCurrency(commande.montantTotal) }} - {{ commande.statutCommande }}</span>
+                    </button>
+                  </div>
+                  <p v-else class="helper">Aucune commande liee.</p>
+                </article>
+
+                <article class="panel">
+                  <h3>Retouches liees</h3>
+                  <div class="stack-list" v-if="detailDossier.retouches.length > 0">
+                    <button v-for="retouche in detailDossier.retouches" :key="retouche.idRetouche" class="list-link-card" @click="openRetoucheDetail(retouche.idRetouche)">
+                      <strong>{{ retouche.idRetouche }}</strong>
+                      <span>{{ retouche.typeRetouche || retouche.descriptionRetouche }}</span>
+                      <span class="helper">{{ formatCurrency(retouche.montantTotal) }} - {{ retouche.statutRetouche }}</span>
+                    </button>
+                  </div>
+                  <p v-else class="helper">Aucune retouche liee.</p>
+                </article>
+              </template>
+            </template>
+
+            <template #desktop>
+              <article class="panel panel-header detail-header" v-if="detailDossier">
+                <div>
+                  <p class="mobile-overline">Dossier</p>
+                  <h2>{{ detailDossier.responsable.nomComplet || detailDossier.idDossier }}</h2>
+                  <p class="helper">{{ detailDossier.idDossier }} - {{ detailDossier.typeDossier }} - {{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
+                </div>
+                <div class="row-actions">
+                  <button class="mini-btn" @click="openRoute('dossiers')">Retour</button>
+                  <button class="action-btn blue" @click="openCommandeWizardFromDossier">Ajouter une commande</button>
+                  <button class="action-btn amber" @click="openRetoucheWizardFromDossier">Ajouter une retouche</button>
+                </div>
+              </article>
+              <article v-else-if="detailDossierLoading" class="panel">
+                <p>Chargement du dossier...</p>
+              </article>
+              <article v-else-if="detailDossierError" class="panel error-panel">
+                <strong>Detail dossier</strong>
+                <p>{{ detailDossierError }}</p>
+              </article>
+              <template v-else-if="detailDossier">
+                <div class="split-grid">
+                  <article class="panel">
+                    <h3>Synthese dossier</h3>
+                    <div class="detail-grid">
+                      <p><strong>Responsable :</strong> {{ detailDossier.responsable.nomComplet }}</p>
+                      <p><strong>Telephone :</strong> {{ detailDossier.responsable.telephone || "-" }}</p>
+                      <p><strong>Type :</strong> {{ detailDossier.typeDossier }}</p>
+                      <p><strong>Statut :</strong> {{ detailDossier.statutDossier }}</p>
+                      <p><strong>Total :</strong> {{ formatCurrency(detailDossier.totalMontant) }}</p>
+                      <p><strong>Reste :</strong> {{ formatCurrency(detailDossier.soldeRestant) }}</p>
+                    </div>
+                  </article>
+                  <article class="panel">
+                    <h3>Volume</h3>
+                    <div class="mobile-kpi-grid dossier-kpis">
+                      <div class="mobile-kpi"><span>Commandes</span><strong>{{ detailDossier.totalCommandes }}</strong></div>
+                      <div class="mobile-kpi"><span>Retouches</span><strong>{{ detailDossier.totalRetouches }}</strong></div>
+                      <div class="mobile-kpi"><span>Paye</span><strong>{{ formatCurrency(detailDossier.totalPaye) }}</strong></div>
+                      <div class="mobile-kpi"><span>Reste</span><strong>{{ formatCurrency(detailDossier.soldeRestant) }}</strong></div>
+                    </div>
+                  </article>
+                </div>
+
+                <div class="split-grid">
+                  <article class="panel">
+                    <h3>Commandes liees</h3>
+                    <ul class="plain-list" v-if="detailDossier.commandes.length > 0">
+                      <li v-for="commande in detailDossier.commandes" :key="commande.idCommande" class="row-between">
+                        <div>
+                          <strong>{{ commande.idCommande }}</strong>
+                          <p class="helper">{{ commande.descriptionCommande }}</p>
+                        </div>
+                        <div class="row-actions">
+                          <span class="status-chip">{{ commande.statutCommande }}</span>
+                          <button class="mini-btn" @click="openCommandeDetail(commande.idCommande)">Voir</button>
+                        </div>
+                      </li>
+                    </ul>
+                    <p v-else class="helper">Aucune commande liee.</p>
+                  </article>
+                  <article class="panel">
+                    <h3>Retouches liees</h3>
+                    <ul class="plain-list" v-if="detailDossier.retouches.length > 0">
+                      <li v-for="retouche in detailDossier.retouches" :key="retouche.idRetouche" class="row-between">
+                        <div>
+                          <strong>{{ retouche.idRetouche }}</strong>
+                          <p class="helper">{{ retouche.typeRetouche || retouche.descriptionRetouche }}</p>
+                        </div>
+                        <div class="row-actions">
+                          <span class="status-chip">{{ retouche.statutRetouche }}</span>
+                          <button class="mini-btn" @click="openRetoucheDetail(retouche.idRetouche)">Voir</button>
+                        </div>
+                      </li>
+                    </ul>
+                    <p v-else class="helper">Aucune retouche liee.</p>
+                  </article>
+                </div>
+              </template>
+            </template>
+          </ResponsiveDataContainer>
+        </section>
 
         <section v-else-if="currentRoute === 'commande-detail'" class="commande-detail">
         <MobilePageLayout :has-action="isMobileViewport && !!commandeDetailPrimaryAction">
@@ -16732,6 +17303,54 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </div>
       </div>
     </div>
+
+  <div v-if="dossierModalOpen" class="modal-backdrop" @click.self="closeDossierModal">
+    <div class="modal-card modal-card-wizard">
+      <header class="modal-header">
+        <div>
+          <p class="mobile-overline">Dossier</p>
+          <h3>Ouvrir un dossier</h3>
+          <p class="helper">Le dossier devient le point de depart pour centraliser commandes et retouches.</p>
+        </div>
+        <button class="mini-btn" @click="closeDossierModal">Fermer</button>
+      </header>
+
+      <section class="modal-body modal-body-wizard stack-form">
+        <div class="segmented">
+          <button class="mini-btn" :class="{ active: dossierDraft.mode === 'existing' }" @click="dossierDraft.mode = 'existing'">Responsable existant</button>
+          <button class="mini-btn" :class="{ active: dossierDraft.mode === 'new' }" @click="dossierDraft.mode = 'new'">Nouveau responsable</button>
+        </div>
+
+        <div v-if="dossierDraft.mode === 'existing'" class="stack-form">
+          <select v-model="dossierDraft.existingClientId">
+            <option value="">Choisir un client responsable</option>
+            <option v-for="client in clientsActifs" :key="`dossier-client-${client.idClient}`" :value="client.idClient">
+              {{ formatClientDisplayName(client) }}{{ client.telephone ? ` · ${client.telephone}` : "" }}
+            </option>
+          </select>
+        </div>
+        <div v-else class="stack-form">
+          <input v-model="dossierDraft.newClient.nom" type="text" placeholder="Nom" />
+          <input v-model="dossierDraft.newClient.prenom" type="text" placeholder="Prenom" />
+          <input v-model="dossierDraft.newClient.telephone" type="text" placeholder="Telephone (optionnel)" />
+        </div>
+
+        <div class="grid-2 dossier-filter-grid">
+          <select v-model="dossierDraft.typeDossier">
+            <option value="INDIVIDUEL">Individuel</option>
+            <option value="FAMILLE">Famille</option>
+            <option value="GROUPE">Groupe</option>
+          </select>
+          <input v-model="dossierDraft.notes" type="text" placeholder="Note rapide (optionnel)" />
+        </div>
+      </section>
+
+      <footer class="modal-footer">
+        <button class="mini-btn" @click="closeDossierModal">Annuler</button>
+        <button class="action-btn blue" :disabled="dossierSubmitting" @click="submitDossierCreate">Creer le dossier</button>
+      </footer>
+    </div>
+  </div>
 
   <div v-if="wizard.open" class="modal-backdrop" @click.self="closeWizard">
       <div class="modal-card modal-card-wizard">

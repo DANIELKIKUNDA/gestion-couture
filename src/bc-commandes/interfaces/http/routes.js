@@ -26,6 +26,7 @@ import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
 import { hasPermission, requireAnyPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
+import { DossierRepoPg } from "../../../bc-dossiers/infrastructure/repositories/dossier-repo-pg.js";
 import { resolveCommandePolicy } from "../../domain/commande-policy.js";
 import { processCommandeMediaImage } from "../../infrastructure/storage/commande-media-image.js";
 import { cleanupCommandeMediaUpload, commandeMediaUploadSingle } from "./commande-media-upload.js";
@@ -41,6 +42,7 @@ const commandeMediaStorage = new CommandeMediaStorageLocal();
 const clientRepo = new ClientRepoPg();
 const serieRepo = new SerieMesuresRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
+const dossierRepo = new DossierRepoPg();
 const requireCommandeReadAccess = requireAnyPermission([
   PERMISSIONS.VOIR_COMMANDES,
   PERMISSIONS.VOIR_BILANS_GLOBAUX,
@@ -93,6 +95,10 @@ function scopedParametresRepo(req) {
 
 function scopedCaisseRepo(req) {
   return new CaisseRepoPg(atelierIdFromReq(req));
+}
+
+function scopedDossierRepo(req) {
+  return dossierRepo.forAtelier(atelierIdFromReq(req));
 }
 
 const DEBUG_COMMANDE_POLICY = String(process.env.DEBUG_COMMANDE_POLICY || "").toLowerCase() === "true";
@@ -293,6 +299,7 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
       commandesLignesReady
         ? `SELECT c.id_commande,
                   c.id_client,
+                  c.id_dossier,
                   c.description,
                   c.date_creation,
                   c.date_prevue,
@@ -321,6 +328,7 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
            ORDER BY c.date_creation DESC`
         : `SELECT c.id_commande,
                   c.id_client,
+                  c.id_dossier,
                   c.description,
                   c.date_creation,
                   c.date_prevue,
@@ -343,6 +351,7 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
     const rows = result.rows.map((row) => ({
       idCommande: row.id_commande,
       idClient: row.id_client,
+      dossierId: row.id_dossier || null,
       clientPayeurId: row.id_client,
       clientNom: row.nom && row.prenom ? `${row.nom} ${row.prenom}` : null,
       descriptionCommande: row.description,
@@ -372,6 +381,7 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
         ? `SELECT
             c.id_commande,
             c.id_client,
+            c.id_dossier,
             c.description,
             c.date_creation,
             c.date_prevue,
@@ -405,6 +415,7 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
         : `SELECT
             c.id_commande,
             c.id_client,
+            c.id_dossier,
             c.description,
             c.date_creation,
             c.date_prevue,
@@ -432,6 +443,7 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
       result.rows.map((row) => ({
         idCommande: row.id_commande,
         idClient: row.id_client,
+        dossierId: row.id_dossier || null,
         clientPayeurId: row.id_client,
         clientNom: row.nom && row.prenom ? `${row.nom} ${row.prenom}` : null,
         descriptionCommande: row.description,
@@ -459,6 +471,7 @@ router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
     const result = await pool.query(
       `SELECT c.id_commande,
               c.id_client,
+              c.id_dossier,
               c.description,
               c.date_creation,
               c.date_prevue,
@@ -483,6 +496,7 @@ router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
     res.json({
       idCommande: row.id_commande,
       idClient: row.id_client,
+      dossierId: row.id_dossier || null,
       clientPayeurId: row.id_client,
       clientNom: row.nom && row.prenom ? `${row.nom} ${row.prenom}` : null,
       descriptionCommande: row.description,
@@ -791,6 +805,7 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
   const schema = z
     .object({
       idCommande: z.string().min(1).optional(),
+      idDossier: z.string().min(1).optional(),
       clientPayeurId: z.string().min(1).optional(),
       idClient: z.string().min(1).optional(),
       nouveauClient: z
@@ -869,7 +884,9 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     const lignesRepo = scopedCommandeLigneRepo(req).withExecutor(dbClient);
     const clients = scopedClientRepo(req).withExecutor(dbClient);
     const mesuresRepo = scopedSerieRepo(req).withExecutor(dbClient);
+    const dossiers = scopedDossierRepo(req).withExecutor(dbClient);
     const atelierId = atelierIdFromReq(req);
+    const requestedDossierId = String(body.idDossier || "").trim() || null;
     const requestedIdCommande = String(body.idCommande || "").trim();
     if (requestedIdCommande) {
       const existingCommande = await repo.getById(requestedIdCommande);
@@ -885,6 +902,13 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     if (existingCommande) {
       await dbClient.query("COMMIT");
       return res.status(200).json(existingCommande);
+    }
+
+    if (requestedDossierId) {
+      const existingDossier = await dossiers.getById(requestedDossierId);
+      if (!existingDossier) {
+        throw Object.assign(new Error("Dossier introuvable."), { status: 404, code: "DOSSIER_NOT_FOUND" });
+      }
     }
 
     const clientResolution = await resolveCommandeClientForCreation({
@@ -915,8 +939,12 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     }, {
       policy: policyInput
     });
+    commande.dossierId = requestedDossierId;
     await repo.save(commande);
     await lignesRepo.replaceForCommande(commande.idCommande, lignesResolution.lignesCommande);
+    if (requestedDossierId) {
+      await dossiers.touch(requestedDossierId, acteur.utilisateur);
+    }
     for (const ligne of lignesResolution.lignesCommande) {
       if (!ligne.idClient) continue;
       await saveLatestMeasuresForClientAndType({
@@ -969,6 +997,7 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     }
     const commandeResponse = {
       ...commande,
+      dossierId: commande.dossierId || null,
       clientPayeurId: commande.idClient,
       nombreLignes: lignesResolution.nombreLignes,
       nombreBeneficiaires: lignesResolution.nombreBeneficiaires,

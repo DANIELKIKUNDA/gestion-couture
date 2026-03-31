@@ -25,7 +25,7 @@ export class CommandeRepoPg {
   // Fetch a Commande by ID and rehydrate the aggregate
   async getById(idCommande) {
     const res = await this.db.query(
-      "SELECT id_commande, id_client, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM commandes WHERE id_commande = $1 AND atelier_id = $2",
+      "SELECT id_commande, id_client, id_dossier, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM commandes WHERE id_commande = $1 AND atelier_id = $2",
       [idCommande, this.atelierId]
     );
     if (res.rowCount === 0) return null;
@@ -34,6 +34,7 @@ export class CommandeRepoPg {
     return new Commande({
       idCommande: row.id_commande,
       idClient: row.id_client,
+      dossierId: row.id_dossier,
       descriptionCommande: row.description,
       dateCreation: row.date_creation,
       datePrevue: row.date_prevue,
@@ -49,15 +50,16 @@ export class CommandeRepoPg {
   // Upsert Commande
   async save(commande) {
     await this.db.query(
-      `INSERT INTO commandes (id_commande, atelier_id, id_client, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `INSERT INTO commandes (id_commande, atelier_id, id_client, id_dossier, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (id_commande)
-       DO UPDATE SET atelier_id=$2, id_client=$3, description=$4, date_creation=$5, date_prevue=$6,
-         montant_total=$7, montant_paye=$8, statut=$9, type_habit=$10, mesures_habit_snapshot=$11`,
+       DO UPDATE SET atelier_id=$2, id_client=$3, id_dossier=$4, description=$5, date_creation=$6, date_prevue=$7,
+         montant_total=$8, montant_paye=$9, statut=$10, type_habit=$11, mesures_habit_snapshot=$12`,
       [
         commande.idCommande,
         this.atelierId,
         commande.idClient,
+        commande.dossierId,
         commande.descriptionCommande,
         commande.dateCreation,
         commande.datePrevue,

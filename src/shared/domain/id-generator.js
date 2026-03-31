@@ -20,6 +20,10 @@ export function generateCommandeId() {
   return buildId("CMD");
 }
 
+export function generateDossierId() {
+  return buildId("DOS");
+}
+
 export function generateCommandeLigneId() {
   return buildId("CLG");
 }

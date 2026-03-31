@@ -2,6 +2,7 @@
 -- Order matters because several BCs define cross-table foreign keys.
 \i schema_parametres.sql
 \i schema_clients.sql
+\i schema_dossiers.sql
 \i schema_commandes.sql
 \i schema_retouches.sql
 \i schema_caisse.sql

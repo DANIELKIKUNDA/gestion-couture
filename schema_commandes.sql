@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS commandes (
   id_commande TEXT PRIMARY KEY,
   atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
   id_client TEXT NOT NULL,
+  id_dossier TEXT NULL,
   id_serie_mesures TEXT NULL,
   description TEXT NOT NULL,
   date_creation TIMESTAMP NOT NULL,
@@ -85,6 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_commandes_atelier_id ON commandes (atelier_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_commandes_atelier_id_commande_unique ON commandes (atelier_id, id_commande);
 CREATE INDEX IF NOT EXISTS idx_commandes_client ON commandes (id_client);
 CREATE INDEX IF NOT EXISTS idx_commandes_atelier_client ON commandes (atelier_id, id_client);
+CREATE INDEX IF NOT EXISTS idx_commandes_atelier_dossier ON commandes (atelier_id, id_dossier);
 CREATE INDEX IF NOT EXISTS idx_commandes_statut ON commandes (statut);
 CREATE INDEX IF NOT EXISTS idx_commandes_date_prevue ON commandes (date_prevue);
 
@@ -96,6 +98,19 @@ BEGIN
     ALTER TABLE commandes
       ADD CONSTRAINT commandes_atelier_fk
       FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'commandes_dossier_atelier_fk'
+  ) THEN
+    ALTER TABLE commandes
+      ADD CONSTRAINT commandes_dossier_atelier_fk
+      FOREIGN KEY (atelier_id, id_dossier)
+      REFERENCES dossiers(atelier_id, id_dossier)
+      ON DELETE SET NULL;
   END IF;
 END $$;
 

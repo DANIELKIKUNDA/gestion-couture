@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS retouches (
   id_retouche TEXT PRIMARY KEY,
   atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
   id_client TEXT NOT NULL,
+  id_dossier TEXT NULL,
   description TEXT NOT NULL,
   type_retouche TEXT NOT NULL CHECK (
     type_retouche IN (
@@ -83,6 +84,7 @@ CREATE INDEX IF NOT EXISTS idx_retouches_atelier_id ON retouches (atelier_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_retouches_atelier_id_retouche_unique ON retouches (atelier_id, id_retouche);
 CREATE INDEX IF NOT EXISTS idx_retouches_client ON retouches (id_client);
 CREATE INDEX IF NOT EXISTS idx_retouches_atelier_client ON retouches (atelier_id, id_client);
+CREATE INDEX IF NOT EXISTS idx_retouches_atelier_dossier ON retouches (atelier_id, id_dossier);
 CREATE INDEX IF NOT EXISTS idx_retouches_statut ON retouches (statut);
 CREATE INDEX IF NOT EXISTS idx_retouches_date_prevue ON retouches (date_prevue);
 
@@ -94,6 +96,19 @@ BEGIN
     ALTER TABLE retouches
       ADD CONSTRAINT retouches_atelier_fk
       FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'retouches_dossier_atelier_fk'
+  ) THEN
+    ALTER TABLE retouches
+      ADD CONSTRAINT retouches_dossier_atelier_fk
+      FOREIGN KEY (atelier_id, id_dossier)
+      REFERENCES dossiers(atelier_id, id_dossier)
+      ON DELETE SET NULL;
   END IF;
 END $$;
 

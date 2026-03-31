@@ -160,6 +160,7 @@ function buildCommandeRecord(input, clientRecord, timestamp, options = {}) {
   return {
     ...buildPendingEntityBase(localId, timestamp),
     idCommande: localId,
+    dossierId: normalizeString(input?.idDossier),
     idClient: resolvedClientId,
     clientPayeurId: resolvedClientId,
     clientLocalId,
@@ -200,6 +201,7 @@ function buildRetoucheRecord(input, clientRecord, timestamp, options = {}) {
   return {
     ...buildPendingEntityBase(localId, timestamp),
     idRetouche: localId,
+    dossierId: normalizeString(input?.idDossier),
     idClient: resolvedClientId,
     clientLocalId,
     clientServerId,
@@ -219,6 +221,7 @@ function buildRetoucheRecord(input, clientRecord, timestamp, options = {}) {
 
 function buildCreateCommandePayload(commandeRecord) {
   const requestPayload = {
+    idDossier: normalizeString(commandeRecord?.dossierId),
     descriptionCommande: normalizeString(commandeRecord?.descriptionCommande),
     montantTotal: Number(commandeRecord?.montantTotal || 0),
     typeHabit: normalizeString(commandeRecord?.typeHabit),
@@ -242,6 +245,7 @@ function buildCreateCommandePayload(commandeRecord) {
 
 function buildCreateRetouchePayload(retoucheRecord) {
   const requestPayload = {
+    idDossier: normalizeString(retoucheRecord?.dossierId),
     descriptionRetouche: normalizeString(retoucheRecord?.descriptionRetouche),
     typeRetouche: normalizeString(retoucheRecord?.typeRetouche),
     montantTotal: Number(retoucheRecord?.montantTotal || 0),

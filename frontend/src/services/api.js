@@ -632,6 +632,21 @@ export const atelierApi = {
     return request(`/clients/contact-suivi/dashboard${suffix}`, { method: "GET" });
   },
 
+  listDossiers() {
+    return request("/dossiers", { method: "GET" });
+  },
+
+  getDossier(idDossier) {
+    return request(`/dossiers/${encodeURIComponent(idDossier)}`, { method: "GET" });
+  },
+
+  createDossier(input) {
+    return request("/dossiers", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  },
+
   listCommandes() {
     return request("/commandes", { method: "GET" });
   },

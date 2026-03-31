@@ -15,6 +15,7 @@ export class Commande {
   constructor({
     idCommande,
     idClient,
+    dossierId = null,
     descriptionCommande,
     dateCreation,
     datePrevue,
@@ -45,6 +46,7 @@ export class Commande {
 
     this.idCommande = idCommande;
     this.idClient = idClient;
+    this.dossierId = dossierId ? String(dossierId).trim() : null;
     this.descriptionCommande = descriptionCommande;
     this.dateCreation = dateCreation;
     this.datePrevue = datePrevue;

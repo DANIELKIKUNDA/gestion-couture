@@ -22,6 +22,7 @@ export class Retouche {
   constructor({
     idRetouche,
     idClient,
+    dossierId = null,
     descriptionRetouche,
     typeRetouche,
     dateDepot,
@@ -53,6 +54,7 @@ export class Retouche {
 
     this.idRetouche = idRetouche;
     this.idClient = idClient;
+    this.dossierId = dossierId ? String(dossierId).trim() : null;
     this.descriptionRetouche = descriptionRetouche;
     this.dateDepot = dateDepot;
     this.datePrevue = datePrevue;
