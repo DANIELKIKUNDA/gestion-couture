@@ -13968,10 +13968,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   title="Detail dossier"
                   :subtitle="detailDossier ? `${detailDossier.idDossier} - ${detailDossier.responsable.nomComplet || 'Responsable'}` : 'Vue consolidee du dossier atelier.'"
                 />
-                <div class="row-actions">
+                <div class="row-actions dossier-workspace-actions">
                   <button class="mini-btn" @click="openRoute('dossiers')">Retour</button>
                   <button class="mini-btn" @click="openCommandeWizardFromDossier">+ Commande</button>
                   <button class="mini-btn" @click="openRetoucheWizardFromDossier">+ Retouche</button>
+                  <button
+                    v-if="canAccessRoute('caisse') && detailDossier?.synthese?.documentsAvecSolde > 0"
+                    class="mini-btn"
+                    @click="openRoute('caisse')"
+                  >
+                    Encaisser
+                  </button>
                 </div>
               </article>
 
@@ -13983,63 +13990,88 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <p>{{ detailDossierError }}</p>
               </article>
               <template v-else-if="detailDossier">
-                <article class="panel">
-                  <div class="row-between">
+                <article class="panel dossier-workspace-hero">
+                  <div class="dossier-workspace-heading">
                     <div>
-                      <p class="mobile-overline">{{ detailDossier.typeDossier }}</p>
+                      <p class="mobile-overline">Workspace dossier</p>
                       <h3>{{ detailDossier.responsable.nomComplet }}</h3>
                       <p class="helper">{{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
                     </div>
-                    <span class="status-chip">{{ detailDossier.statutDossier }}</span>
+                    <div class="dossier-badge-stack">
+                      <span class="status-pill" data-tone="ok">{{ detailDossier.typeDossier }}</span>
+                      <span class="status-chip">{{ detailDossier.statutDossier }}</span>
+                    </div>
                   </div>
-                  <div class="mobile-kpi-grid dossier-kpis">
-                    <div class="mobile-kpi"><span>Total</span><strong>{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong></div>
-                    <div class="mobile-kpi"><span>Paye</span><strong>{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong></div>
-                    <div class="mobile-kpi"><span>Reste</span><strong>{{ formatCurrency(detailDossier.synthese.soldeRestant) }}</strong></div>
-                    <div class="mobile-kpi"><span>Cmd en cours</span><strong>{{ detailDossier.synthese.commandesEnCours }}</strong></div>
-                    <div class="mobile-kpi"><span>Ret en cours</span><strong>{{ detailDossier.synthese.retouchesEnCours }}</strong></div>
-                    <div class="mobile-kpi"><span>Docs avec solde</span><strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong></div>
+                  <div class="mobile-kpi-grid dossier-workspace-kpis">
+                    <div class="mobile-kpi dossier-kpi-card"><span>Total montant</span><strong>{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong></div>
+                    <div class="mobile-kpi dossier-kpi-card"><span>Total paye</span><strong>{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong></div>
+                    <div class="mobile-kpi dossier-kpi-card"><span>Solde restant</span><strong>{{ formatCurrency(detailDossier.synthese.soldeRestant) }}</strong></div>
+                    <div class="mobile-kpi dossier-kpi-card"><span>Commandes en cours</span><strong>{{ detailDossier.synthese.commandesEnCours }}</strong></div>
+                    <div class="mobile-kpi dossier-kpi-card"><span>Retouches en cours</span><strong>{{ detailDossier.synthese.retouchesEnCours }}</strong></div>
+                    <div class="mobile-kpi dossier-kpi-card"><span>Documents avec solde</span><strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong></div>
                   </div>
                 </article>
 
                 <article class="panel">
                   <h3>Commandes liees</h3>
-                  <div class="stack-list" v-if="detailDossier.commandes.length > 0">
-                    <button v-for="commande in detailDossier.commandes" :key="commande.idCommande" class="list-link-card" @click="openCommandeDetail(commande.idCommande)">
-                      <strong>{{ commande.idCommande }}</strong>
-                      <span>{{ commande.descriptionCommande }}</span>
-                      <span class="helper">{{ formatCurrency(commande.montantTotal) }} - {{ commande.statutCommande }}</span>
-                      <span class="helper">Reste : {{ formatCurrency(commande.soldeRestant) }}</span>
-                      <span v-if="commande.beneficiairesResume.length > 0" class="helper">
+                  <div class="stack-list dossier-workspace-list" v-if="detailDossier.commandes.length > 0">
+                    <article v-for="commande in detailDossier.commandes" :key="commande.idCommande" class="list-link-card dossier-workspace-card">
+                      <div class="row-between">
+                        <div>
+                          <strong>{{ commande.idCommande }}</strong>
+                          <p class="helper">{{ commande.descriptionCommande }}</p>
+                        </div>
+                        <span class="status-chip">{{ commande.statutCommande }}</span>
+                      </div>
+                      <div class="dossier-card-meta">
+                        <span>{{ formatCurrency(commande.montantTotal) }}</span>
+                        <span>Reste : {{ formatCurrency(commande.soldeRestant) }}</span>
+                      </div>
+                      <p v-if="commande.beneficiairesResume.length > 0" class="helper">
                         Beneficiaires : {{ commande.beneficiairesResume.map((item) => item.nomComplet || item.idClient).filter(Boolean).join(", ") }}
-                      </span>
+                      </p>
                       <div class="row-actions" v-if="commande.flagsMetier.enRetard || commande.flagsMetier.termineeNonLivree || commande.flagsMetier.soldeOuvert">
                         <span v-if="commande.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
                         <span v-if="commande.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
                         <span v-if="commande.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
                       </div>
-                    </button>
+                      <div class="row-actions dossier-card-actions">
+                        <button class="mini-btn" @click="openCommandeDetail(commande.idCommande)">Voir</button>
+                        <button v-if="canAccessRoute('caisse') && commande.soldeRestant > 0" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
+                      </div>
+                    </article>
                   </div>
                   <p v-else class="helper">Aucune commande liee.</p>
                 </article>
 
                 <article class="panel">
                   <h3>Retouches liees</h3>
-                  <div class="stack-list" v-if="detailDossier.retouches.length > 0">
-                    <button v-for="retouche in detailDossier.retouches" :key="retouche.idRetouche" class="list-link-card" @click="openRetoucheDetail(retouche.idRetouche)">
-                      <strong>{{ retouche.idRetouche }}</strong>
-                      <span>{{ retouche.typeRetouche || retouche.descriptionRetouche }}</span>
-                      <span class="helper">{{ formatCurrency(retouche.montantTotal) }} - {{ retouche.statutRetouche }}</span>
-                      <span class="helper">Reste : {{ formatCurrency(retouche.soldeRestant) }}</span>
-                      <span v-if="retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient" class="helper">
+                  <div class="stack-list dossier-workspace-list" v-if="detailDossier.retouches.length > 0">
+                    <article v-for="retouche in detailDossier.retouches" :key="retouche.idRetouche" class="list-link-card dossier-workspace-card">
+                      <div class="row-between">
+                        <div>
+                          <strong>{{ retouche.idRetouche }}</strong>
+                          <p class="helper">{{ retouche.typeRetouche || retouche.descriptionRetouche }}</p>
+                        </div>
+                        <span class="status-chip">{{ retouche.statutRetouche }}</span>
+                      </div>
+                      <div class="dossier-card-meta">
+                        <span>{{ formatCurrency(retouche.montantTotal) }}</span>
+                        <span>Reste : {{ formatCurrency(retouche.soldeRestant) }}</span>
+                      </div>
+                      <p v-if="retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient" class="helper">
                         Beneficiaire : {{ retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient }}
-                      </span>
+                      </p>
                       <div class="row-actions" v-if="retouche.flagsMetier.enRetard || retouche.flagsMetier.termineeNonLivree || retouche.flagsMetier.soldeOuvert">
                         <span v-if="retouche.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
                         <span v-if="retouche.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
                         <span v-if="retouche.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
                       </div>
-                    </button>
+                      <div class="row-actions dossier-card-actions">
+                        <button class="mini-btn" @click="openRetoucheDetail(retouche.idRetouche)">Voir</button>
+                        <button v-if="canAccessRoute('caisse') && retouche.soldeRestant > 0" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
+                      </div>
+                    </article>
                   </div>
                   <p v-else class="helper">Aucune retouche liee.</p>
                 </article>
@@ -14048,15 +14080,28 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
             <template #desktop>
               <article class="panel panel-header detail-header" v-if="detailDossier">
-                <div>
-                  <p class="mobile-overline">Dossier</p>
-                  <h2>{{ detailDossier.responsable.nomComplet || detailDossier.idDossier }}</h2>
-                  <p class="helper">{{ detailDossier.idDossier }} - {{ detailDossier.typeDossier }} - {{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
+                <div class="dossier-workspace-heading">
+                  <div>
+                    <p class="mobile-overline">Dossier</p>
+                    <h2>{{ detailDossier.responsable.nomComplet || detailDossier.idDossier }}</h2>
+                    <p class="helper">{{ detailDossier.idDossier }} - {{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
+                  </div>
+                  <div class="dossier-badge-stack">
+                    <span class="status-pill" data-tone="ok">{{ detailDossier.typeDossier }}</span>
+                    <span class="status-chip">{{ detailDossier.statutDossier }}</span>
+                  </div>
                 </div>
-                <div class="row-actions">
+                <div class="row-actions dossier-workspace-actions">
                   <button class="mini-btn" @click="openRoute('dossiers')">Retour</button>
                   <button class="action-btn blue" @click="openCommandeWizardFromDossier">Ajouter une commande</button>
                   <button class="action-btn amber" @click="openRetoucheWizardFromDossier">Ajouter une retouche</button>
+                  <button
+                    v-if="canAccessRoute('caisse') && detailDossier?.synthese?.documentsAvecSolde > 0"
+                    class="action-btn green"
+                    @click="openRoute('caisse')"
+                  >
+                    Encaisser
+                  </button>
                 </div>
               </article>
               <article v-else-if="detailDossierLoading" class="panel">
@@ -14067,82 +14112,110 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <p>{{ detailDossierError }}</p>
               </article>
               <template v-else-if="detailDossier">
-                <div class="split-grid">
-                  <article class="panel">
-                    <h3>Synthese dossier</h3>
-                    <div class="detail-grid">
-                      <p><strong>Responsable :</strong> {{ detailDossier.responsable.nomComplet }}</p>
-                      <p><strong>Telephone :</strong> {{ detailDossier.responsable.telephone || "-" }}</p>
-                      <p><strong>Type :</strong> {{ detailDossier.typeDossier }}</p>
-                      <p><strong>Statut :</strong> {{ detailDossier.statutDossier }}</p>
-                      <p><strong>Total :</strong> {{ formatCurrency(detailDossier.synthese.totalMontant) }}</p>
-                      <p><strong>Paye :</strong> {{ formatCurrency(detailDossier.synthese.totalPaye) }}</p>
-                      <p><strong>Reste :</strong> {{ formatCurrency(detailDossier.synthese.soldeRestant) }}</p>
-                      <p><strong>Derniere activite :</strong> {{ formatDateTime(detailDossier.synthese.derniereActivite) }}</p>
+                <article class="panel dossier-workspace-hero">
+                  <div class="dossier-workspace-heading">
+                    <div>
+                      <p class="mobile-overline">Responsable</p>
+                      <h3>{{ detailDossier.responsable.nomComplet }}</h3>
+                      <p class="helper">{{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
                     </div>
-                  </article>
-                  <article class="panel">
-                    <h3>Volume</h3>
-                    <div class="mobile-kpi-grid dossier-kpis">
-                      <div class="mobile-kpi"><span>Commandes</span><strong>{{ detailDossier.totalCommandes }}</strong></div>
-                      <div class="mobile-kpi"><span>Retouches</span><strong>{{ detailDossier.totalRetouches }}</strong></div>
-                      <div class="mobile-kpi"><span>Cmd en cours</span><strong>{{ detailDossier.synthese.commandesEnCours }}</strong></div>
-                      <div class="mobile-kpi"><span>Ret en cours</span><strong>{{ detailDossier.synthese.retouchesEnCours }}</strong></div>
-                      <div class="mobile-kpi"><span>Docs avec solde</span><strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong></div>
-                      <div class="mobile-kpi"><span>Paye</span><strong>{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong></div>
-                    </div>
-                  </article>
-                </div>
+                    <div class="helper">Derniere activite : {{ formatDateTime(detailDossier.synthese.derniereActivite) }}</div>
+                  </div>
+                  <div class="dossier-workspace-kpi-grid">
+                    <article class="dossier-kpi-card">
+                      <span>Total montant</span>
+                      <strong>{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong>
+                    </article>
+                    <article class="dossier-kpi-card">
+                      <span>Total paye</span>
+                      <strong>{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong>
+                    </article>
+                    <article class="dossier-kpi-card">
+                      <span>Solde restant</span>
+                      <strong>{{ formatCurrency(detailDossier.synthese.soldeRestant) }}</strong>
+                    </article>
+                    <article class="dossier-kpi-card">
+                      <span>Commandes en cours</span>
+                      <strong>{{ detailDossier.synthese.commandesEnCours }}</strong>
+                    </article>
+                    <article class="dossier-kpi-card">
+                      <span>Retouches en cours</span>
+                      <strong>{{ detailDossier.synthese.retouchesEnCours }}</strong>
+                    </article>
+                    <article class="dossier-kpi-card">
+                      <span>Documents avec solde</span>
+                      <strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong>
+                    </article>
+                  </div>
+                </article>
 
                 <div class="split-grid">
                   <article class="panel">
-                    <h3>Commandes liees</h3>
-                    <ul class="plain-list" v-if="detailDossier.commandes.length > 0">
-                      <li v-for="commande in detailDossier.commandes" :key="commande.idCommande" class="dossier-document-row">
-                        <div>
-                          <strong>{{ commande.idCommande }}</strong>
-                          <p class="helper">{{ commande.descriptionCommande }}</p>
-                          <p class="helper">Reste : {{ formatCurrency(commande.soldeRestant) }}</p>
-                          <p v-if="commande.beneficiairesResume.length > 0" class="helper">
-                            Beneficiaires : {{ commande.beneficiairesResume.map((item) => item.nomComplet || item.idClient).filter(Boolean).join(", ") }}
-                          </p>
-                          <div class="row-actions" v-if="commande.flagsMetier.enRetard || commande.flagsMetier.termineeNonLivree || commande.flagsMetier.soldeOuvert">
-                            <span v-if="commande.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
-                            <span v-if="commande.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
-                            <span v-if="commande.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                    <div class="panel-header detail-panel-header">
+                      <h3>Commandes liees</h3>
+                      <span class="helper">{{ detailDossier.totalCommandes }} document(s)</span>
+                    </div>
+                    <div class="stack-list dossier-workspace-list" v-if="detailDossier.commandes.length > 0">
+                      <article v-for="commande in detailDossier.commandes" :key="commande.idCommande" class="dossier-workspace-card">
+                        <div class="row-between">
+                          <div>
+                            <strong>{{ commande.idCommande }}</strong>
+                            <p class="helper">{{ commande.descriptionCommande }}</p>
                           </div>
-                        </div>
-                        <div class="row-actions">
                           <span class="status-chip">{{ commande.statutCommande }}</span>
-                          <button class="mini-btn" @click="openCommandeDetail(commande.idCommande)">Voir</button>
                         </div>
-                      </li>
-                    </ul>
+                        <div class="dossier-card-meta">
+                          <span>{{ formatCurrency(commande.montantTotal) }}</span>
+                          <span>Reste : {{ formatCurrency(commande.soldeRestant) }}</span>
+                        </div>
+                        <p v-if="commande.beneficiairesResume.length > 0" class="helper">
+                          Beneficiaires : {{ commande.beneficiairesResume.map((item) => item.nomComplet || item.idClient).filter(Boolean).join(", ") }}
+                        </p>
+                        <div class="row-actions" v-if="commande.flagsMetier.enRetard || commande.flagsMetier.termineeNonLivree || commande.flagsMetier.soldeOuvert">
+                          <span v-if="commande.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
+                          <span v-if="commande.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
+                          <span v-if="commande.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                        </div>
+                        <div class="row-actions dossier-card-actions">
+                          <button class="mini-btn" @click="openCommandeDetail(commande.idCommande)">Voir</button>
+                          <button v-if="canAccessRoute('caisse') && commande.soldeRestant > 0" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
+                        </div>
+                      </article>
+                    </div>
                     <p v-else class="helper">Aucune commande liee.</p>
                   </article>
                   <article class="panel">
-                    <h3>Retouches liees</h3>
-                    <ul class="plain-list" v-if="detailDossier.retouches.length > 0">
-                      <li v-for="retouche in detailDossier.retouches" :key="retouche.idRetouche" class="dossier-document-row">
-                        <div>
-                          <strong>{{ retouche.idRetouche }}</strong>
-                          <p class="helper">{{ retouche.typeRetouche || retouche.descriptionRetouche }}</p>
-                          <p class="helper">Reste : {{ formatCurrency(retouche.soldeRestant) }}</p>
-                          <p v-if="retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient" class="helper">
-                            Beneficiaire : {{ retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient }}
-                          </p>
-                          <div class="row-actions" v-if="retouche.flagsMetier.enRetard || retouche.flagsMetier.termineeNonLivree || retouche.flagsMetier.soldeOuvert">
-                            <span v-if="retouche.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
-                            <span v-if="retouche.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
-                            <span v-if="retouche.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                    <div class="panel-header detail-panel-header">
+                      <h3>Retouches liees</h3>
+                      <span class="helper">{{ detailDossier.totalRetouches }} document(s)</span>
+                    </div>
+                    <div class="stack-list dossier-workspace-list" v-if="detailDossier.retouches.length > 0">
+                      <article v-for="retouche in detailDossier.retouches" :key="retouche.idRetouche" class="dossier-workspace-card">
+                        <div class="row-between">
+                          <div>
+                            <strong>{{ retouche.idRetouche }}</strong>
+                            <p class="helper">{{ retouche.typeRetouche || retouche.descriptionRetouche }}</p>
                           </div>
-                        </div>
-                        <div class="row-actions">
                           <span class="status-chip">{{ retouche.statutRetouche }}</span>
-                          <button class="mini-btn" @click="openRetoucheDetail(retouche.idRetouche)">Voir</button>
                         </div>
-                      </li>
-                    </ul>
+                        <div class="dossier-card-meta">
+                          <span>{{ formatCurrency(retouche.montantTotal) }}</span>
+                          <span>Reste : {{ formatCurrency(retouche.soldeRestant) }}</span>
+                        </div>
+                        <p v-if="retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient" class="helper">
+                          Beneficiaire : {{ retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient }}
+                        </p>
+                        <div class="row-actions" v-if="retouche.flagsMetier.enRetard || retouche.flagsMetier.termineeNonLivree || retouche.flagsMetier.soldeOuvert">
+                          <span v-if="retouche.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
+                          <span v-if="retouche.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
+                          <span v-if="retouche.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                        </div>
+                        <div class="row-actions dossier-card-actions">
+                          <button class="mini-btn" @click="openRetoucheDetail(retouche.idRetouche)">Voir</button>
+                          <button v-if="canAccessRoute('caisse') && retouche.soldeRestant > 0" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
+                        </div>
+                      </article>
+                    </div>
                     <p v-else class="helper">Aucune retouche liee.</p>
                   </article>
                 </div>

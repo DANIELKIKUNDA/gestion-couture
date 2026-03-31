@@ -2956,3 +2956,87 @@ textarea:focus-visible {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+
+.dossier-workspace-hero {
+  background:
+    radial-gradient(circle at top right, rgba(18, 120, 202, 0.12), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+}
+
+.dossier-workspace-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.dossier-badge-stack {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.dossier-workspace-actions {
+  flex-wrap: wrap;
+}
+
+.dossier-workspace-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.dossier-kpi-card {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.dossier-kpi-card span {
+  font-size: 0.8rem;
+  color: #667085;
+}
+
+.dossier-kpi-card strong {
+  font-size: 1.2rem;
+  color: #101828;
+}
+
+.dossier-workspace-list {
+  margin-top: 12px;
+}
+
+.dossier-workspace-card {
+  gap: 10px;
+}
+
+.dossier-card-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+  color: #344054;
+}
+
+.dossier-card-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .dossier-workspace-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .dossier-workspace-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
