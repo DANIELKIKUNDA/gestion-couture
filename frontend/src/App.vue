@@ -525,6 +525,111 @@ function normalizeDossier(raw = {}) {
   };
 }
 
+const DOSSIER_WORKSPACE_SECTION_ORDER = [
+  {
+    key: "todo",
+    title: "A faire",
+    subtitle: "Commandes et retouches en cours."
+  },
+  {
+    key: "ready",
+    title: "Pret",
+    subtitle: "Documents termines en attente de livraison."
+  },
+  {
+    key: "cash",
+    title: "A encaisser",
+    subtitle: "Documents livres avec un solde encore ouvert."
+  },
+  {
+    key: "done",
+    title: "Termine",
+    subtitle: "Documents soldes, livres ou clotures."
+  }
+];
+
+function normalizeDocumentStatus(status) {
+  return String(status || "").trim().toUpperCase();
+}
+
+function isDossierDocumentReady(document) {
+  return document.flagsMetier?.termineeNonLivree === true;
+}
+
+function isDossierDocumentCashDue(document) {
+  const status = normalizeDocumentStatus(document.status);
+  return document.flagsMetier?.soldeOuvert === true && (status === "LIVREE" || status === "ANNULEE");
+}
+
+function isDossierDocumentDone(document) {
+  const status = normalizeDocumentStatus(document.status);
+  if (status === "ANNULEE") return true;
+  if (status === "LIVREE") return document.flagsMetier?.soldeOuvert !== true;
+  return false;
+}
+
+function classifyDossierWorkspaceDocument(document) {
+  if (isDossierDocumentReady(document)) return "ready";
+  if (isDossierDocumentCashDue(document)) return "cash";
+  if (isDossierDocumentDone(document)) return "done";
+  return "todo";
+}
+
+function createDossierWorkspaceDocument(kind, row = {}) {
+  if (kind === "commande") {
+    return {
+      kind,
+      sectionKey: "",
+      id: row.idCommande,
+      key: `commande:${row.idCommande}`,
+      title: row.idCommande,
+      subtitle: row.descriptionCommande || "Commande atelier",
+      status: row.statutCommande || "",
+      amount: Number(row.montantTotal || 0),
+      remaining: Number(row.soldeRestant || 0),
+      helperLine:
+        row.beneficiairesResume?.length > 0
+          ? `Beneficiaires : ${row.beneficiairesResume.map((item) => item.nomComplet || item.idClient).filter(Boolean).join(", ")}`
+          : "",
+      flagsMetier: row.flagsMetier || normalizeDossierFlags(),
+      canCash: Number(row.soldeRestant || 0) > 0,
+      open: () => openCommandeDetail(row.idCommande)
+    };
+  }
+  return {
+    kind,
+    sectionKey: "",
+    id: row.idRetouche,
+    key: `retouche:${row.idRetouche}`,
+    title: row.idRetouche,
+    subtitle: row.typeRetouche || row.descriptionRetouche || "Retouche atelier",
+    status: row.statutRetouche || "",
+    amount: Number(row.montantTotal || 0),
+    remaining: Number(row.soldeRestant || 0),
+    helperLine: row.beneficiaire?.nomComplet || row.beneficiaire?.idClient ? `Beneficiaire : ${row.beneficiaire.nomComplet || row.beneficiaire.idClient}` : "",
+    flagsMetier: row.flagsMetier || normalizeDossierFlags(),
+    canCash: Number(row.soldeRestant || 0) > 0,
+    open: () => openRetoucheDetail(row.idRetouche)
+  };
+}
+
+const dossierWorkspaceSections = computed(() => {
+  if (!detailDossier.value) return [];
+  const documents = [
+    ...(detailDossier.value.commandes || []).map((row) => createDossierWorkspaceDocument("commande", row)),
+    ...(detailDossier.value.retouches || []).map((row) => createDossierWorkspaceDocument("retouche", row))
+  ].map((document) => ({ ...document, sectionKey: classifyDossierWorkspaceDocument(document) }));
+
+  return DOSSIER_WORKSPACE_SECTION_ORDER.map((section) => ({
+    ...section,
+    items: documents.filter((document) => document.sectionKey === section.key)
+  })).filter((section) => section.items.length > 0);
+});
+
+const dossierWorkspaceHasDocuments = computed(
+  () => dossierWorkspaceSections.value.some((section) => section.items.length > 0)
+);
+
 function resetDossierDraft() {
   dossierDraft.mode = "existing";
   dossierDraft.existingClientId = "";
@@ -14012,68 +14117,45 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                 </article>
 
-                <article class="panel">
-                  <h3>Commandes liees</h3>
-                  <div class="stack-list dossier-workspace-list" v-if="detailDossier.commandes.length > 0">
-                    <article v-for="commande in detailDossier.commandes" :key="commande.idCommande" class="list-link-card dossier-workspace-card">
-                      <div class="row-between">
-                        <div>
-                          <strong>{{ commande.idCommande }}</strong>
-                          <p class="helper">{{ commande.descriptionCommande }}</p>
+                <div class="dossier-workspace-sections" v-if="dossierWorkspaceHasDocuments">
+                  <article v-for="section in dossierWorkspaceSections" :key="section.key" class="panel dossier-section-panel">
+                    <div class="panel-header detail-panel-header dossier-section-header">
+                      <div>
+                        <h3>{{ section.title }}</h3>
+                        <p class="helper">{{ section.subtitle }}</p>
+                      </div>
+                      <span class="helper">{{ section.items.length }} document(s)</span>
+                    </div>
+                    <div class="stack-list dossier-workspace-list">
+                      <article v-for="document in section.items" :key="document.key" class="list-link-card dossier-workspace-card">
+                        <div class="row-between">
+                          <div>
+                            <p class="mobile-overline">{{ document.kind === "commande" ? "Commande" : "Retouche" }}</p>
+                            <strong>{{ document.title }}</strong>
+                            <p class="helper">{{ document.subtitle }}</p>
+                          </div>
+                          <span class="status-chip">{{ document.status }}</span>
                         </div>
-                        <span class="status-chip">{{ commande.statutCommande }}</span>
-                      </div>
-                      <div class="dossier-card-meta">
-                        <span>{{ formatCurrency(commande.montantTotal) }}</span>
-                        <span>Reste : {{ formatCurrency(commande.soldeRestant) }}</span>
-                      </div>
-                      <p v-if="commande.beneficiairesResume.length > 0" class="helper">
-                        Beneficiaires : {{ commande.beneficiairesResume.map((item) => item.nomComplet || item.idClient).filter(Boolean).join(", ") }}
-                      </p>
-                      <div class="row-actions" v-if="commande.flagsMetier.enRetard || commande.flagsMetier.termineeNonLivree || commande.flagsMetier.soldeOuvert">
-                        <span v-if="commande.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
-                        <span v-if="commande.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
-                        <span v-if="commande.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
-                      </div>
-                      <div class="row-actions dossier-card-actions">
-                        <button class="mini-btn" @click="openCommandeDetail(commande.idCommande)">Voir</button>
-                        <button v-if="canAccessRoute('caisse') && commande.soldeRestant > 0" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
-                      </div>
-                    </article>
-                  </div>
-                  <p v-else class="helper">Aucune commande liee.</p>
-                </article>
-
-                <article class="panel">
-                  <h3>Retouches liees</h3>
-                  <div class="stack-list dossier-workspace-list" v-if="detailDossier.retouches.length > 0">
-                    <article v-for="retouche in detailDossier.retouches" :key="retouche.idRetouche" class="list-link-card dossier-workspace-card">
-                      <div class="row-between">
-                        <div>
-                          <strong>{{ retouche.idRetouche }}</strong>
-                          <p class="helper">{{ retouche.typeRetouche || retouche.descriptionRetouche }}</p>
+                        <div class="dossier-card-meta">
+                          <span>{{ formatCurrency(document.amount) }}</span>
+                          <span>Reste : {{ formatCurrency(document.remaining) }}</span>
                         </div>
-                        <span class="status-chip">{{ retouche.statutRetouche }}</span>
-                      </div>
-                      <div class="dossier-card-meta">
-                        <span>{{ formatCurrency(retouche.montantTotal) }}</span>
-                        <span>Reste : {{ formatCurrency(retouche.soldeRestant) }}</span>
-                      </div>
-                      <p v-if="retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient" class="helper">
-                        Beneficiaire : {{ retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient }}
-                      </p>
-                      <div class="row-actions" v-if="retouche.flagsMetier.enRetard || retouche.flagsMetier.termineeNonLivree || retouche.flagsMetier.soldeOuvert">
-                        <span v-if="retouche.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
-                        <span v-if="retouche.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
-                        <span v-if="retouche.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
-                      </div>
-                      <div class="row-actions dossier-card-actions">
-                        <button class="mini-btn" @click="openRetoucheDetail(retouche.idRetouche)">Voir</button>
-                        <button v-if="canAccessRoute('caisse') && retouche.soldeRestant > 0" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
-                      </div>
-                    </article>
-                  </div>
-                  <p v-else class="helper">Aucune retouche liee.</p>
+                        <p v-if="document.helperLine" class="helper">{{ document.helperLine }}</p>
+                        <div class="row-actions" v-if="document.flagsMetier.enRetard || document.flagsMetier.termineeNonLivree || document.flagsMetier.soldeOuvert">
+                          <span v-if="document.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
+                          <span v-if="document.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
+                          <span v-if="document.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                        </div>
+                        <div class="row-actions dossier-card-actions">
+                          <button class="mini-btn" @click="document.open()">Voir</button>
+                          <button v-if="canAccessRoute('caisse') && document.canCash" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
+                        </div>
+                      </article>
+                    </div>
+                  </article>
+                </div>
+                <article v-else class="panel">
+                  <p class="helper">Aucun document lie a ce dossier.</p>
                 </article>
               </template>
             </template>
@@ -14149,76 +14231,46 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                 </article>
 
-                <div class="split-grid">
-                  <article class="panel">
-                    <div class="panel-header detail-panel-header">
-                      <h3>Commandes liees</h3>
-                      <span class="helper">{{ detailDossier.totalCommandes }} document(s)</span>
+                <div class="dossier-workspace-sections" v-if="dossierWorkspaceHasDocuments">
+                  <article v-for="section in dossierWorkspaceSections" :key="section.key" class="panel dossier-section-panel">
+                    <div class="panel-header detail-panel-header dossier-section-header">
+                      <div>
+                        <h3>{{ section.title }}</h3>
+                        <p class="helper">{{ section.subtitle }}</p>
+                      </div>
+                      <span class="helper">{{ section.items.length }} document(s)</span>
                     </div>
-                    <div class="stack-list dossier-workspace-list" v-if="detailDossier.commandes.length > 0">
-                      <article v-for="commande in detailDossier.commandes" :key="commande.idCommande" class="dossier-workspace-card">
+                    <div class="stack-list dossier-workspace-list">
+                      <article v-for="document in section.items" :key="document.key" class="dossier-workspace-card">
                         <div class="row-between">
                           <div>
-                            <strong>{{ commande.idCommande }}</strong>
-                            <p class="helper">{{ commande.descriptionCommande }}</p>
+                            <p class="mobile-overline">{{ document.kind === "commande" ? "Commande" : "Retouche" }}</p>
+                            <strong>{{ document.title }}</strong>
+                            <p class="helper">{{ document.subtitle }}</p>
                           </div>
-                          <span class="status-chip">{{ commande.statutCommande }}</span>
+                          <span class="status-chip">{{ document.status }}</span>
                         </div>
                         <div class="dossier-card-meta">
-                          <span>{{ formatCurrency(commande.montantTotal) }}</span>
-                          <span>Reste : {{ formatCurrency(commande.soldeRestant) }}</span>
+                          <span>{{ formatCurrency(document.amount) }}</span>
+                          <span>Reste : {{ formatCurrency(document.remaining) }}</span>
                         </div>
-                        <p v-if="commande.beneficiairesResume.length > 0" class="helper">
-                          Beneficiaires : {{ commande.beneficiairesResume.map((item) => item.nomComplet || item.idClient).filter(Boolean).join(", ") }}
-                        </p>
-                        <div class="row-actions" v-if="commande.flagsMetier.enRetard || commande.flagsMetier.termineeNonLivree || commande.flagsMetier.soldeOuvert">
-                          <span v-if="commande.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
-                          <span v-if="commande.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
-                          <span v-if="commande.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                        <p v-if="document.helperLine" class="helper">{{ document.helperLine }}</p>
+                        <div class="row-actions" v-if="document.flagsMetier.enRetard || document.flagsMetier.termineeNonLivree || document.flagsMetier.soldeOuvert">
+                          <span v-if="document.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
+                          <span v-if="document.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
+                          <span v-if="document.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
                         </div>
                         <div class="row-actions dossier-card-actions">
-                          <button class="mini-btn" @click="openCommandeDetail(commande.idCommande)">Voir</button>
-                          <button v-if="canAccessRoute('caisse') && commande.soldeRestant > 0" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
+                          <button class="mini-btn" @click="document.open()">Voir</button>
+                          <button v-if="canAccessRoute('caisse') && document.canCash" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
                         </div>
                       </article>
                     </div>
-                    <p v-else class="helper">Aucune commande liee.</p>
-                  </article>
-                  <article class="panel">
-                    <div class="panel-header detail-panel-header">
-                      <h3>Retouches liees</h3>
-                      <span class="helper">{{ detailDossier.totalRetouches }} document(s)</span>
-                    </div>
-                    <div class="stack-list dossier-workspace-list" v-if="detailDossier.retouches.length > 0">
-                      <article v-for="retouche in detailDossier.retouches" :key="retouche.idRetouche" class="dossier-workspace-card">
-                        <div class="row-between">
-                          <div>
-                            <strong>{{ retouche.idRetouche }}</strong>
-                            <p class="helper">{{ retouche.typeRetouche || retouche.descriptionRetouche }}</p>
-                          </div>
-                          <span class="status-chip">{{ retouche.statutRetouche }}</span>
-                        </div>
-                        <div class="dossier-card-meta">
-                          <span>{{ formatCurrency(retouche.montantTotal) }}</span>
-                          <span>Reste : {{ formatCurrency(retouche.soldeRestant) }}</span>
-                        </div>
-                        <p v-if="retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient" class="helper">
-                          Beneficiaire : {{ retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient }}
-                        </p>
-                        <div class="row-actions" v-if="retouche.flagsMetier.enRetard || retouche.flagsMetier.termineeNonLivree || retouche.flagsMetier.soldeOuvert">
-                          <span v-if="retouche.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
-                          <span v-if="retouche.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
-                          <span v-if="retouche.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
-                        </div>
-                        <div class="row-actions dossier-card-actions">
-                          <button class="mini-btn" @click="openRetoucheDetail(retouche.idRetouche)">Voir</button>
-                          <button v-if="canAccessRoute('caisse') && retouche.soldeRestant > 0" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
-                        </div>
-                      </article>
-                    </div>
-                    <p v-else class="helper">Aucune retouche liee.</p>
                   </article>
                 </div>
+                <article v-else class="panel">
+                  <p class="helper">Aucun document lie a ce dossier.</p>
+                </article>
               </template>
             </template>
           </ResponsiveDataContainer>

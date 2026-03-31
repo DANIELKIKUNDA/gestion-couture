@@ -3012,6 +3012,21 @@ textarea:focus-visible {
   margin-top: 12px;
 }
 
+.dossier-workspace-sections {
+  display: grid;
+  gap: 18px;
+}
+
+.dossier-section-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.dossier-section-header {
+  align-items: flex-start;
+  gap: 12px;
+}
+
 .dossier-workspace-card {
   gap: 10px;
 }
