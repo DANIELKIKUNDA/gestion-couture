@@ -449,8 +449,41 @@ function createEmptyDossierDetail() {
     totalMontant: 0,
     totalPaye: 0,
     soldeRestant: 0,
+    synthese: {
+      totalBeneficiaires: 0,
+      documentsAvecSolde: 0,
+      commandesEnCours: 0,
+      retouchesEnCours: 0,
+      totalMontant: 0,
+      totalPaye: 0,
+      soldeRestant: 0,
+      derniereActivite: ""
+    },
     commandes: [],
     retouches: []
+  };
+}
+
+function normalizeDossierFlags(raw = {}) {
+  return {
+    enRetard: raw.enRetard === true || raw.en_retard === true,
+    termineeNonLivree: raw.termineeNonLivree === true || raw.terminee_non_livree === true,
+    soldeOuvert: raw.soldeOuvert === true || raw.solde_ouvert === true
+  };
+}
+
+function normalizeDossierBeneficiaire(raw = {}) {
+  return {
+    idClient: raw.idClient || raw.id_client || "",
+    nom: raw.nom || "",
+    prenom: raw.prenom || "",
+    telephone: raw.telephone || "",
+    nomComplet:
+      raw.nomComplet ||
+      raw.nom_complet ||
+      `${String(raw.nom || "").trim()} ${String(raw.prenom || "").trim()}`.trim(),
+    role: raw.role || "",
+    typeHabit: raw.typeHabit || raw.type_habit || ""
   };
 }
 
@@ -477,6 +510,16 @@ function normalizeDossier(raw = {}) {
     totalMontant: Number(raw.totalMontant ?? raw.total_montant ?? 0),
     totalPaye: Number(raw.totalPaye ?? raw.total_paye ?? 0),
     soldeRestant: Number(raw.soldeRestant ?? raw.solde_restant ?? Math.max(0, Number(raw.totalMontant ?? raw.total_montant ?? 0) - Number(raw.totalPaye ?? raw.total_paye ?? 0))),
+    synthese: {
+      totalBeneficiaires: Number(raw.synthese?.totalBeneficiaires ?? raw.synthese?.total_beneficiaires ?? 0),
+      documentsAvecSolde: Number(raw.synthese?.documentsAvecSolde ?? raw.synthese?.documents_avec_solde ?? 0),
+      commandesEnCours: Number(raw.synthese?.commandesEnCours ?? raw.synthese?.commandes_en_cours ?? 0),
+      retouchesEnCours: Number(raw.synthese?.retouchesEnCours ?? raw.synthese?.retouches_en_cours ?? 0),
+      totalMontant: Number(raw.synthese?.totalMontant ?? raw.synthese?.total_montant ?? raw.totalMontant ?? raw.total_montant ?? 0),
+      totalPaye: Number(raw.synthese?.totalPaye ?? raw.synthese?.total_paye ?? raw.totalPaye ?? raw.total_paye ?? 0),
+      soldeRestant: Number(raw.synthese?.soldeRestant ?? raw.synthese?.solde_restant ?? Math.max(0, Number(raw.synthese?.totalMontant ?? raw.synthese?.total_montant ?? raw.totalMontant ?? raw.total_montant ?? 0) - Number(raw.synthese?.totalPaye ?? raw.synthese?.total_paye ?? raw.totalPaye ?? raw.total_paye ?? 0))),
+      derniereActivite: raw.synthese?.derniereActivite || raw.synthese?.derniere_activite || raw.dateDerniereActivite || raw.date_derniere_activite || ""
+    },
     commandes: (raw.commandes || []).map((row) => normalizeCommande(row)),
     retouches: (raw.retouches || []).map((row) => normalizeRetouche(row))
   };
@@ -8761,8 +8804,13 @@ function normalizeCommande(raw) {
     dateCreation: toIsoDate(raw.dateCreation || raw.date_creation),
     datePrevue: toIsoDate(raw.datePrevue || raw.date_prevue || raw.dateLivraison),
     clientNom: raw.clientNom || raw.client_nom || "",
+    soldeRestant: Number(raw.soldeRestant ?? raw.solde_restant ?? Math.max(0, Number(raw.montantTotal ?? raw.montant_total ?? 0) - Number(raw.montantPaye ?? raw.montant_paye ?? 0))),
     nombreLignes: Number(raw.nombreLignes ?? raw.nombre_lignes ?? lignesCommande.length ?? 0),
-    nombreBeneficiaires: Number(raw.nombreBeneficiaires ?? raw.nombre_beneficiaires ?? lignesCommande.length ?? 0)
+    nombreBeneficiaires: Number(raw.nombreBeneficiaires ?? raw.nombre_beneficiaires ?? lignesCommande.length ?? 0),
+    beneficiairesResume: Array.isArray(raw.beneficiairesResume || raw.beneficiaires_resume)
+      ? (raw.beneficiairesResume || raw.beneficiaires_resume).map((row) => normalizeDossierBeneficiaire(row))
+      : [],
+    flagsMetier: normalizeDossierFlags(raw.flagsMetier || raw.flags_metier || {})
   };
 }
 
@@ -8820,7 +8868,10 @@ function normalizeRetouche(raw) {
     statutRetouche: raw.statutRetouche || raw.statut || "DEPOSEE",
     dateDepot: toIsoDate(raw.dateDepot || raw.date_depot),
     datePrevue: toIsoDate(raw.datePrevue || raw.date_prevue),
-    clientNom: raw.clientNom || raw.client_nom || ""
+    clientNom: raw.clientNom || raw.client_nom || "",
+    soldeRestant: Number(raw.soldeRestant ?? raw.solde_restant ?? Math.max(0, Number(raw.montantTotal ?? raw.montant_total ?? 0) - Number(raw.montantPaye ?? raw.montant_paye ?? 0))),
+    beneficiaire: normalizeDossierBeneficiaire(raw.beneficiaire || {}),
+    flagsMetier: normalizeDossierFlags(raw.flagsMetier || raw.flags_metier || {})
   };
 }
 
@@ -13942,10 +13993,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <span class="status-chip">{{ detailDossier.statutDossier }}</span>
                   </div>
                   <div class="mobile-kpi-grid dossier-kpis">
-                    <div class="mobile-kpi"><span>Commandes</span><strong>{{ detailDossier.totalCommandes }}</strong></div>
-                    <div class="mobile-kpi"><span>Retouches</span><strong>{{ detailDossier.totalRetouches }}</strong></div>
-                    <div class="mobile-kpi"><span>Total</span><strong>{{ formatCurrency(detailDossier.totalMontant) }}</strong></div>
-                    <div class="mobile-kpi"><span>Reste</span><strong>{{ formatCurrency(detailDossier.soldeRestant) }}</strong></div>
+                    <div class="mobile-kpi"><span>Total</span><strong>{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong></div>
+                    <div class="mobile-kpi"><span>Paye</span><strong>{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong></div>
+                    <div class="mobile-kpi"><span>Reste</span><strong>{{ formatCurrency(detailDossier.synthese.soldeRestant) }}</strong></div>
+                    <div class="mobile-kpi"><span>Cmd en cours</span><strong>{{ detailDossier.synthese.commandesEnCours }}</strong></div>
+                    <div class="mobile-kpi"><span>Ret en cours</span><strong>{{ detailDossier.synthese.retouchesEnCours }}</strong></div>
+                    <div class="mobile-kpi"><span>Docs avec solde</span><strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong></div>
                   </div>
                 </article>
 
@@ -13956,6 +14009,15 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <strong>{{ commande.idCommande }}</strong>
                       <span>{{ commande.descriptionCommande }}</span>
                       <span class="helper">{{ formatCurrency(commande.montantTotal) }} - {{ commande.statutCommande }}</span>
+                      <span class="helper">Reste : {{ formatCurrency(commande.soldeRestant) }}</span>
+                      <span v-if="commande.beneficiairesResume.length > 0" class="helper">
+                        Beneficiaires : {{ commande.beneficiairesResume.map((item) => item.nomComplet || item.idClient).filter(Boolean).join(", ") }}
+                      </span>
+                      <div class="row-actions" v-if="commande.flagsMetier.enRetard || commande.flagsMetier.termineeNonLivree || commande.flagsMetier.soldeOuvert">
+                        <span v-if="commande.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
+                        <span v-if="commande.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
+                        <span v-if="commande.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                      </div>
                     </button>
                   </div>
                   <p v-else class="helper">Aucune commande liee.</p>
@@ -13968,6 +14030,15 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <strong>{{ retouche.idRetouche }}</strong>
                       <span>{{ retouche.typeRetouche || retouche.descriptionRetouche }}</span>
                       <span class="helper">{{ formatCurrency(retouche.montantTotal) }} - {{ retouche.statutRetouche }}</span>
+                      <span class="helper">Reste : {{ formatCurrency(retouche.soldeRestant) }}</span>
+                      <span v-if="retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient" class="helper">
+                        Beneficiaire : {{ retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient }}
+                      </span>
+                      <div class="row-actions" v-if="retouche.flagsMetier.enRetard || retouche.flagsMetier.termineeNonLivree || retouche.flagsMetier.soldeOuvert">
+                        <span v-if="retouche.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
+                        <span v-if="retouche.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
+                        <span v-if="retouche.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                      </div>
                     </button>
                   </div>
                   <p v-else class="helper">Aucune retouche liee.</p>
@@ -14004,8 +14075,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <p><strong>Telephone :</strong> {{ detailDossier.responsable.telephone || "-" }}</p>
                       <p><strong>Type :</strong> {{ detailDossier.typeDossier }}</p>
                       <p><strong>Statut :</strong> {{ detailDossier.statutDossier }}</p>
-                      <p><strong>Total :</strong> {{ formatCurrency(detailDossier.totalMontant) }}</p>
-                      <p><strong>Reste :</strong> {{ formatCurrency(detailDossier.soldeRestant) }}</p>
+                      <p><strong>Total :</strong> {{ formatCurrency(detailDossier.synthese.totalMontant) }}</p>
+                      <p><strong>Paye :</strong> {{ formatCurrency(detailDossier.synthese.totalPaye) }}</p>
+                      <p><strong>Reste :</strong> {{ formatCurrency(detailDossier.synthese.soldeRestant) }}</p>
+                      <p><strong>Derniere activite :</strong> {{ formatDateTime(detailDossier.synthese.derniereActivite) }}</p>
                     </div>
                   </article>
                   <article class="panel">
@@ -14013,8 +14086,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <div class="mobile-kpi-grid dossier-kpis">
                       <div class="mobile-kpi"><span>Commandes</span><strong>{{ detailDossier.totalCommandes }}</strong></div>
                       <div class="mobile-kpi"><span>Retouches</span><strong>{{ detailDossier.totalRetouches }}</strong></div>
-                      <div class="mobile-kpi"><span>Paye</span><strong>{{ formatCurrency(detailDossier.totalPaye) }}</strong></div>
-                      <div class="mobile-kpi"><span>Reste</span><strong>{{ formatCurrency(detailDossier.soldeRestant) }}</strong></div>
+                      <div class="mobile-kpi"><span>Cmd en cours</span><strong>{{ detailDossier.synthese.commandesEnCours }}</strong></div>
+                      <div class="mobile-kpi"><span>Ret en cours</span><strong>{{ detailDossier.synthese.retouchesEnCours }}</strong></div>
+                      <div class="mobile-kpi"><span>Docs avec solde</span><strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong></div>
+                      <div class="mobile-kpi"><span>Paye</span><strong>{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong></div>
                     </div>
                   </article>
                 </div>
@@ -14023,10 +14098,19 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <article class="panel">
                     <h3>Commandes liees</h3>
                     <ul class="plain-list" v-if="detailDossier.commandes.length > 0">
-                      <li v-for="commande in detailDossier.commandes" :key="commande.idCommande" class="row-between">
+                      <li v-for="commande in detailDossier.commandes" :key="commande.idCommande" class="dossier-document-row">
                         <div>
                           <strong>{{ commande.idCommande }}</strong>
                           <p class="helper">{{ commande.descriptionCommande }}</p>
+                          <p class="helper">Reste : {{ formatCurrency(commande.soldeRestant) }}</p>
+                          <p v-if="commande.beneficiairesResume.length > 0" class="helper">
+                            Beneficiaires : {{ commande.beneficiairesResume.map((item) => item.nomComplet || item.idClient).filter(Boolean).join(", ") }}
+                          </p>
+                          <div class="row-actions" v-if="commande.flagsMetier.enRetard || commande.flagsMetier.termineeNonLivree || commande.flagsMetier.soldeOuvert">
+                            <span v-if="commande.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
+                            <span v-if="commande.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
+                            <span v-if="commande.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                          </div>
                         </div>
                         <div class="row-actions">
                           <span class="status-chip">{{ commande.statutCommande }}</span>
@@ -14039,10 +14123,19 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <article class="panel">
                     <h3>Retouches liees</h3>
                     <ul class="plain-list" v-if="detailDossier.retouches.length > 0">
-                      <li v-for="retouche in detailDossier.retouches" :key="retouche.idRetouche" class="row-between">
+                      <li v-for="retouche in detailDossier.retouches" :key="retouche.idRetouche" class="dossier-document-row">
                         <div>
                           <strong>{{ retouche.idRetouche }}</strong>
                           <p class="helper">{{ retouche.typeRetouche || retouche.descriptionRetouche }}</p>
+                          <p class="helper">Reste : {{ formatCurrency(retouche.soldeRestant) }}</p>
+                          <p v-if="retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient" class="helper">
+                            Beneficiaire : {{ retouche.beneficiaire.nomComplet || retouche.beneficiaire.idClient }}
+                          </p>
+                          <div class="row-actions" v-if="retouche.flagsMetier.enRetard || retouche.flagsMetier.termineeNonLivree || retouche.flagsMetier.soldeOuvert">
+                            <span v-if="retouche.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
+                            <span v-if="retouche.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
+                            <span v-if="retouche.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                          </div>
                         </div>
                         <div class="row-actions">
                           <span class="status-chip">{{ retouche.statutRetouche }}</span>

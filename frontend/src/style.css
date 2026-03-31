@@ -2944,3 +2944,15 @@ textarea:focus-visible {
   display: grid;
   gap: 12px;
 }
+
+.dossier-document-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.dossier-document-row .row-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
