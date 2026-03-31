@@ -304,6 +304,11 @@ const selectedDossierId = ref("");
 const detailDossier = ref(null);
 const detailDossierLoading = ref(false);
 const detailDossierError = ref("");
+const dossierWorkspacePendingActionKey = ref("");
+const dossierWorkspaceSuccessActionKey = ref("");
+const dossierWorkspaceErrorActionKey = ref("");
+const dossierWorkspaceActiveDocumentKey = ref("");
+let dossierWorkspaceActionFeedbackTimer = null;
 const dossierDraft = reactive({
   mode: "existing",
   existingClientId: "",
@@ -529,22 +534,26 @@ const DOSSIER_WORKSPACE_SECTION_ORDER = [
   {
     key: "todo",
     title: "A faire",
-    subtitle: "Commandes et retouches en cours."
+    subtitle: "Commandes et retouches en cours.",
+    tone: "priority"
   },
   {
     key: "ready",
     title: "Pret",
-    subtitle: "Documents termines en attente de livraison."
+    subtitle: "Documents termines en attente de livraison.",
+    tone: "ready"
   },
   {
     key: "cash",
     title: "A encaisser",
-    subtitle: "Documents livres avec un solde encore ouvert."
+    subtitle: "Documents livres avec un solde encore ouvert.",
+    tone: "cash"
   },
   {
     key: "done",
     title: "Termine",
-    subtitle: "Documents soldes, livres ou clotures."
+    subtitle: "Documents soldes, livres ou clotures.",
+    tone: "muted"
   }
 ];
 
@@ -593,7 +602,8 @@ function createDossierWorkspaceDocument(kind, row = {}) {
           : "",
       flagsMetier: row.flagsMetier || normalizeDossierFlags(),
       canCash: Number(row.soldeRestant || 0) > 0,
-      open: () => openCommandeDetail(row.idCommande)
+      open: () => openCommandeDetail(row.idCommande),
+      cash: () => openRoute("caisse")
     };
   }
   return {
@@ -609,7 +619,8 @@ function createDossierWorkspaceDocument(kind, row = {}) {
     helperLine: row.beneficiaire?.nomComplet || row.beneficiaire?.idClient ? `Beneficiaire : ${row.beneficiaire.nomComplet || row.beneficiaire.idClient}` : "",
     flagsMetier: row.flagsMetier || normalizeDossierFlags(),
     canCash: Number(row.soldeRestant || 0) > 0,
-    open: () => openRetoucheDetail(row.idRetouche)
+    open: () => openRetoucheDetail(row.idRetouche),
+    cash: () => openRoute("caisse")
   };
 }
 
@@ -629,6 +640,76 @@ const dossierWorkspaceSections = computed(() => {
 const dossierWorkspaceHasDocuments = computed(
   () => dossierWorkspaceSections.value.some((section) => section.items.length > 0)
 );
+
+function clearDossierWorkspaceActionFeedback() {
+  dossierWorkspacePendingActionKey.value = "";
+  dossierWorkspaceSuccessActionKey.value = "";
+  dossierWorkspaceErrorActionKey.value = "";
+  if (dossierWorkspaceActionFeedbackTimer) {
+    window.clearTimeout(dossierWorkspaceActionFeedbackTimer);
+    dossierWorkspaceActionFeedbackTimer = null;
+  }
+}
+
+function scheduleDossierWorkspaceFeedbackReset() {
+  if (dossierWorkspaceActionFeedbackTimer) window.clearTimeout(dossierWorkspaceActionFeedbackTimer);
+  dossierWorkspaceActionFeedbackTimer = window.setTimeout(() => {
+    dossierWorkspaceSuccessActionKey.value = "";
+    dossierWorkspaceErrorActionKey.value = "";
+    dossierWorkspaceActionFeedbackTimer = null;
+  }, 1400);
+}
+
+function isDossierWorkspaceActionPending(actionKey) {
+  return dossierWorkspacePendingActionKey.value === actionKey;
+}
+
+function isDossierWorkspaceActionSuccessful(actionKey) {
+  return dossierWorkspaceSuccessActionKey.value === actionKey;
+}
+
+function isDossierWorkspaceActionInError(actionKey) {
+  return dossierWorkspaceErrorActionKey.value === actionKey;
+}
+
+function dossierWorkspaceActionLabel(document, actionType) {
+  const actionKey = `${document.key}:${actionType}`;
+  if (isDossierWorkspaceActionPending(actionKey)) {
+    return actionType === "open" ? "Ouverture..." : "Acces...";
+  }
+  if (isDossierWorkspaceActionSuccessful(actionKey)) {
+    return actionType === "open" ? "Ouvert" : "Pret";
+  }
+  if (actionType === "open") return "Voir";
+  return "Encaisser";
+}
+
+async function runDossierWorkspaceAction(document, actionType, action) {
+  if (!document || typeof action !== "function") return;
+  const actionKey = `${document.key}:${actionType}`;
+  clearDossierWorkspaceActionFeedback();
+  dossierWorkspaceActiveDocumentKey.value = document.key;
+  dossierWorkspacePendingActionKey.value = actionKey;
+  try {
+    await action();
+    dossierWorkspacePendingActionKey.value = "";
+    dossierWorkspaceSuccessActionKey.value = actionKey;
+    scheduleDossierWorkspaceFeedbackReset();
+  } catch (err) {
+    dossierWorkspacePendingActionKey.value = "";
+    dossierWorkspaceErrorActionKey.value = actionKey;
+    scheduleDossierWorkspaceFeedbackReset();
+    notify(readableError(err));
+  }
+}
+
+async function onDossierWorkspaceOpen(document) {
+  await runDossierWorkspaceAction(document, "open", document?.open);
+}
+
+async function onDossierWorkspaceCash(document) {
+  await runDossierWorkspaceAction(document, "cash", document?.cash);
+}
 
 function resetDossierDraft() {
   dossierDraft.mode = "existing";
@@ -6006,6 +6087,7 @@ onUnmounted(() => {
   clearCrossDeviceRefreshTimer();
   clearGlobalErrorMessage();
   clearSystemAteliersSearchDebounce();
+  clearDossierWorkspaceActionFeedback();
   revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
   revokeSettingsLogoPreviewUrl();
 });
@@ -14118,7 +14200,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </article>
 
                 <div class="dossier-workspace-sections" v-if="dossierWorkspaceHasDocuments">
-                  <article v-for="section in dossierWorkspaceSections" :key="section.key" class="panel dossier-section-panel">
+                  <article v-for="section in dossierWorkspaceSections" :key="section.key" class="panel dossier-section-panel" :data-tone="section.tone">
                     <div class="panel-header detail-panel-header dossier-section-header">
                       <div>
                         <h3>{{ section.title }}</h3>
@@ -14127,7 +14209,16 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <span class="helper">{{ section.items.length }} document(s)</span>
                     </div>
                     <div class="stack-list dossier-workspace-list">
-                      <article v-for="document in section.items" :key="document.key" class="list-link-card dossier-workspace-card">
+                      <article
+                        v-for="document in section.items"
+                        :key="document.key"
+                        class="list-link-card dossier-workspace-card"
+                        :class="{
+                          'is-active': dossierWorkspaceActiveDocumentKey === document.key,
+                          'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`) || isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
+                          'is-error': isDossierWorkspaceActionInError(`${document.key}:open`) || isDossierWorkspaceActionInError(`${document.key}:cash`)
+                        }"
+                      >
                         <div class="row-between">
                           <div>
                             <p class="mobile-overline">{{ document.kind === "commande" ? "Commande" : "Retouche" }}</p>
@@ -14147,8 +14238,31 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                           <span v-if="document.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
                         </div>
                         <div class="row-actions dossier-card-actions">
-                          <button class="mini-btn" @click="document.open()">Voir</button>
-                          <button v-if="canAccessRoute('caisse') && document.canCash" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
+                          <button
+                            class="mini-btn dossier-action-btn"
+                            :class="{
+                              'is-loading': isDossierWorkspaceActionPending(`${document.key}:open`),
+                              'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`),
+                              'is-error': isDossierWorkspaceActionInError(`${document.key}:open`)
+                            }"
+                            :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)"
+                            @click="onDossierWorkspaceOpen(document)"
+                          >
+                            {{ dossierWorkspaceActionLabel(document, "open") }}
+                          </button>
+                          <button
+                            v-if="canAccessRoute('caisse') && document.canCash"
+                            class="mini-btn dossier-action-btn dossier-action-btn-cash"
+                            :class="{
+                              'is-loading': isDossierWorkspaceActionPending(`${document.key}:cash`),
+                              'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
+                              'is-error': isDossierWorkspaceActionInError(`${document.key}:cash`)
+                            }"
+                            :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
+                            @click="onDossierWorkspaceCash(document)"
+                          >
+                            {{ dossierWorkspaceActionLabel(document, "cash") }}
+                          </button>
                         </div>
                       </article>
                     </div>
@@ -14232,7 +14346,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </article>
 
                 <div class="dossier-workspace-sections" v-if="dossierWorkspaceHasDocuments">
-                  <article v-for="section in dossierWorkspaceSections" :key="section.key" class="panel dossier-section-panel">
+                  <article v-for="section in dossierWorkspaceSections" :key="section.key" class="panel dossier-section-panel" :data-tone="section.tone">
                     <div class="panel-header detail-panel-header dossier-section-header">
                       <div>
                         <h3>{{ section.title }}</h3>
@@ -14241,7 +14355,16 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <span class="helper">{{ section.items.length }} document(s)</span>
                     </div>
                     <div class="stack-list dossier-workspace-list">
-                      <article v-for="document in section.items" :key="document.key" class="dossier-workspace-card">
+                      <article
+                        v-for="document in section.items"
+                        :key="document.key"
+                        class="dossier-workspace-card"
+                        :class="{
+                          'is-active': dossierWorkspaceActiveDocumentKey === document.key,
+                          'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`) || isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
+                          'is-error': isDossierWorkspaceActionInError(`${document.key}:open`) || isDossierWorkspaceActionInError(`${document.key}:cash`)
+                        }"
+                      >
                         <div class="row-between">
                           <div>
                             <p class="mobile-overline">{{ document.kind === "commande" ? "Commande" : "Retouche" }}</p>
@@ -14261,8 +14384,31 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                           <span v-if="document.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
                         </div>
                         <div class="row-actions dossier-card-actions">
-                          <button class="mini-btn" @click="document.open()">Voir</button>
-                          <button v-if="canAccessRoute('caisse') && document.canCash" class="mini-btn" @click="openRoute('caisse')">Encaisser</button>
+                          <button
+                            class="mini-btn dossier-action-btn"
+                            :class="{
+                              'is-loading': isDossierWorkspaceActionPending(`${document.key}:open`),
+                              'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`),
+                              'is-error': isDossierWorkspaceActionInError(`${document.key}:open`)
+                            }"
+                            :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)"
+                            @click="onDossierWorkspaceOpen(document)"
+                          >
+                            {{ dossierWorkspaceActionLabel(document, "open") }}
+                          </button>
+                          <button
+                            v-if="canAccessRoute('caisse') && document.canCash"
+                            class="mini-btn dossier-action-btn dossier-action-btn-cash"
+                            :class="{
+                              'is-loading': isDossierWorkspaceActionPending(`${document.key}:cash`),
+                              'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
+                              'is-error': isDossierWorkspaceActionInError(`${document.key}:cash`)
+                            }"
+                            :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
+                            @click="onDossierWorkspaceCash(document)"
+                          >
+                            {{ dossierWorkspaceActionLabel(document, "cash") }}
+                          </button>
                         </div>
                       </article>
                     </div>
