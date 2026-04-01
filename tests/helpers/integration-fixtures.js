@@ -267,21 +267,20 @@ export async function createAuthenticatedSession({
     updatedBy: "integration-test"
   });
 
-  let email = "";
-  let user = null;
+  const uniqueSuffix = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const email = `${emailPrefix}.${slugify(atelierId) || "atelier"}.${uniqueSuffix}@atelier.local`;
+  const user = new Utilisateur({
+    id: randomUUID(),
+    nom,
+    email,
+    roleId: role,
+    actif: true,
+    etatCompte: ACCOUNT_STATES.ACTIVE,
+    atelierId,
+    motDePasseHash: hashPassword(password)
+  });
   let lastSaveError = null;
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    email = `${emailPrefix}.${Date.now()}.${Math.random().toString(16).slice(2, 8)}@atelier.local`;
-    user = new Utilisateur({
-      id: randomUUID(),
-      nom,
-      email,
-      roleId: role,
-      actif: true,
-      etatCompte: ACCOUNT_STATES.ACTIVE,
-      atelierId,
-      motDePasseHash: hashPassword(password)
-    });
     try {
       await ensureAtelier(atelierId, slugify(atelierId), `Atelier ${atelierId}`);
       await utilisateurRepo.save(user);
@@ -289,6 +288,15 @@ export async function createAuthenticatedSession({
       break;
     } catch (error) {
       lastSaveError = error;
+      try {
+        const existingUser = await utilisateurRepo.getByIdAndAtelier(user.id, atelierId);
+        if (existingUser) {
+          lastSaveError = null;
+          break;
+        }
+      } catch {
+        // Keep the original save error as the meaningful one.
+      }
       if (attempt === 4) break;
       await wait(200 * (attempt + 1));
     }

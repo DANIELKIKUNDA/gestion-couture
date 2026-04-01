@@ -86,6 +86,59 @@ jobs:
             psql -v ON_ERROR_STOP=1 -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -f "$file"
           done
 
+      - name: Verify auth schema
+        run: |
+          psql -v ON_ERROR_STOP=1 -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" <<'SQL'
+          DO $$
+          BEGIN
+            IF to_regclass('public.utilisateurs') IS NULL THEN
+              RAISE EXCEPTION 'Table public.utilisateurs absente apres migrations';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'utilisateurs'
+                AND column_name = 'id_utilisateur'
+            ) THEN
+              RAISE EXCEPTION 'Colonne utilisateurs.id_utilisateur absente';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'utilisateurs'
+                AND column_name = 'mot_de_passe_hash'
+            ) THEN
+              RAISE EXCEPTION 'Colonne utilisateurs.mot_de_passe_hash absente';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'utilisateurs'
+                AND column_name = 'atelier_id'
+            ) THEN
+              RAISE EXCEPTION 'Colonne utilisateurs.atelier_id absente';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_index i
+              JOIN pg_class t ON t.oid = i.indrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
+              WHERE n.nspname = 'public'
+                AND t.relname = 'utilisateurs'
+                AND i.indisunique = true
+                AND array_length(i.indkey, 1) = 1
+                AND a.attname = 'id_utilisateur'
+            ) THEN
+              RAISE EXCEPTION 'Contrainte unique manquante sur utilisateurs.id_utilisateur';
+            END IF;
+          END
+          $$;
+          SQL
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
