@@ -4,11 +4,15 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "prepare": "husky",
         "start": "node src/interfaces/http/server.js",
         "test": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/caisse.bilans.audit.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js",
+        "test:backend:stable": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js",
         "test:e2e": "playwright test",
+        "test:e2e:serial": "playwright test --workers=1",
         "test:e2e:headed": "playwright test --headed",
         "test:e2e:debug": "playwright test --debug",
+        "test:full": "npm run test:backend:stable && npm --prefix frontend run build && npm run test:e2e:serial",
         "test:integration": "node tests/integration.health.test.js && node tests/integration.readonly.test.js && node tests/integration.stock.routes.test.js && node tests/integration.paiements.atomic.test.js && node tests/integration.commandes.annulation.test.js && node tests/integration.retouches.annulation.test.js && node tests/integration.auth.bootstrap.persistence.test.js && node tests/integration.system.bootstrap-manager.test.js && node tests/integration.system.ateliers.test.js && node tests/integration.auth.tenant-bootstrap.test.js && node tests/integration.ateliers.provisioning.test.js && node tests/integration.security.guards.test.js && node tests/integration.auth.session-consistency.test.js && node tests/integration.auth.tenant-scope.test.js && node tests/integration.multi-tenant.business-isolation.test.js",
         "test:integration:multi-tenant": "node tests/integration.system.bootstrap-manager.test.js && node tests/integration.system.ateliers.test.js && node tests/integration.auth.tenant-bootstrap.test.js && node tests/integration.ateliers.provisioning.test.js && node tests/integration.auth.tenant-scope.test.js && node tests/integration.multi-tenant.business-isolation.test.js",
         "test:integration:commandes-policy": "node tests/integration.commandes.parametres.auth.test.js",
@@ -16,6 +20,10 @@
         "test:integration:stock": "node tests/integration.stock.routes.test.js",
         "initdb": "powershell -ExecutionPolicy Bypass -File scripts/init-db.ps1",
         "migrate": "powershell -ExecutionPolicy Bypass -File scripts/migrate.ps1",
+        "dev:backend": "node --env-file=.env src/interfaces/http/server.js",
+        "dev:frontend": "npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173",
+        "start:all": "node scripts/start-all.mjs",
+        "validate:local": "node scripts/validate-local.mjs",
         "dev": "node --watch --env-file .env src/interfaces/http/server.js",
         "dev:all": "powershell -ExecutionPolicy Bypass -File scripts/dev-all.ps1",
         "app:open": "powershell -ExecutionPolicy Bypass -File scripts/atelier-couture-launcher.ps1",
@@ -37,6 +45,7 @@
         "zod": "^3.23.8"
     },
     "devDependencies": {
-        "@playwright/test": "^1.58.2"
+        "@playwright/test": "^1.58.2",
+        "husky": "^9.1.7"
     }
 }

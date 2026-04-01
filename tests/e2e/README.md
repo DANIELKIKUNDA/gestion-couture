@@ -34,9 +34,20 @@ Ou via les scripts npm :
 npm run test:e2e
 npm run test:e2e:headed
 npm run test:e2e:debug
+npm run validate:local
 ```
 
 En local, les helpers E2E demarrent automatiquement le backend (`:3000`) et le frontend Vite (`:5173`) si necessaire.
+
+`npm run validate:local` execute :
+
+- les tests backend
+- le demarrage local backend + frontend si necessaire
+- la suite Playwright complete
+
+En CI, le build frontend est execute avant `npm run validate:local`.
+
+Le hook Git `pre-push` appelle aussi `npm run validate:local`.
 
 ## Choisir une URL cible
 

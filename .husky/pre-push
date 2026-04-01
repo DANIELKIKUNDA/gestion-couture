@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+
+echo "[husky] Validation locale avant push..."
+npm run validate:local
