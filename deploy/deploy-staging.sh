@@ -40,6 +40,8 @@ BACKEND_PORT="${BACKEND_HOST_PORT:-3100}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${BACKEND_PORT}/health}"
 PREVIOUS_COMMIT="$(git rev-parse HEAD)"
 ROLLBACK_EXECUTED=0
+DEPLOY_STARTED=0
+DEPLOY_SUCCEEDED=0
 
 compose() {
   docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" -p "${PROJECT_NAME}" "$@"
@@ -63,7 +65,7 @@ wait_for_health() {
 }
 
 rollback() {
-  if [[ "${ROLLBACK_EXECUTED}" -eq 1 ]]; then
+  if [[ "${ROLLBACK_EXECUTED}" -eq 1 || "${DEPLOY_SUCCEEDED}" -eq 1 ]]; then
     return
   fi
   ROLLBACK_EXECUTED=1
@@ -83,18 +85,28 @@ rollback() {
 on_error() {
   local exit_code="$1"
   local line="$2"
-  log "ERREUR a la ligne ${line} (code=${exit_code})."
-  rollback
+  local command="${3:-commande inconnue}"
+  log "ERREUR a la ligne ${line} (code=${exit_code}) pendant: ${command}"
+  if [[ "${DEPLOY_SUCCEEDED}" -eq 1 ]]; then
+    log "Health check deja valide. Rollback ignore et sortie succes."
+    exit 0
+  fi
+  if [[ "${DEPLOY_STARTED}" -eq 1 ]]; then
+    rollback
+  else
+    log "Aucun rollback necessaire: deploy non commence."
+  fi
   exit "${exit_code}"
 }
 
-trap 'on_error $? $LINENO' ERR
+trap 'on_error $? $LINENO "$BASH_COMMAND"' ERR
 
 log "Validation compose"
 compose config -q
 
 log "Commit courant: ${PREVIOUS_COMMIT}"
 log "Recuperation du code ${DEPLOY_REF}"
+DEPLOY_STARTED=1
 git fetch origin "${DEPLOY_REF}"
 git checkout "${DEPLOY_REF}"
 git pull --ff-only origin "${DEPLOY_REF}"
@@ -108,10 +120,14 @@ compose run --rm backend sh /app/deploy/scripts/migrate.sh
 
 log "Redemarrage staging"
 compose up -d
-compose ps
+if ! compose ps; then
+  log "Avertissement: impossible de lister l'etat compose, poursuite avec health check."
+fi
 
 log "Verification health check"
 wait_for_health
+DEPLOY_SUCCEEDED=1
 
 trap - ERR
 log "Deploy staging termine avec succes."
+exit 0
