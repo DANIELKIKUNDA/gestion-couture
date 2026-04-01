@@ -267,18 +267,35 @@ export async function createAuthenticatedSession({
     updatedBy: "integration-test"
   });
 
-  const email = `${emailPrefix}.${Date.now()}.${Math.random().toString(16).slice(2, 8)}@atelier.local`;
-  const user = new Utilisateur({
-    id: randomUUID(),
-    nom,
-    email,
-    roleId: role,
-    actif: true,
-    etatCompte: ACCOUNT_STATES.ACTIVE,
-    atelierId,
-    motDePasseHash: hashPassword(password)
-  });
-  await utilisateurRepo.save(user);
+  let email = "";
+  let user = null;
+  let lastSaveError = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    email = `${emailPrefix}.${Date.now()}.${Math.random().toString(16).slice(2, 8)}@atelier.local`;
+    user = new Utilisateur({
+      id: randomUUID(),
+      nom,
+      email,
+      roleId: role,
+      actif: true,
+      etatCompte: ACCOUNT_STATES.ACTIVE,
+      atelierId,
+      motDePasseHash: hashPassword(password)
+    });
+    try {
+      await ensureAtelier(atelierId, slugify(atelierId), `Atelier ${atelierId}`);
+      await utilisateurRepo.save(user);
+      lastSaveError = null;
+      break;
+    } catch (error) {
+      lastSaveError = error;
+      if (attempt === 4) break;
+      await wait(200 * (attempt + 1));
+    }
+  }
+  if (lastSaveError) {
+    throw lastSaveError;
+  }
 
   let login = null;
   for (let attempt = 0; attempt < 8; attempt += 1) {
