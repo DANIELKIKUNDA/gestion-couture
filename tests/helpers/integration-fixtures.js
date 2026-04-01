@@ -208,6 +208,37 @@ export async function ensureDossierSchema() {
     END
     $$ LANGUAGE plpgsql;
   `).catch(() => {});
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF to_regclass('public.commande_items') IS NULL THEN
+        CREATE TABLE public.commande_items (
+          id_item TEXT PRIMARY KEY,
+          atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
+          id_commande TEXT NOT NULL,
+          type_habit TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          prix NUMERIC(12,2) NOT NULL CHECK (prix >= 0),
+          ordre_affichage INTEGER NOT NULL DEFAULT 1 CHECK (ordre_affichage > 0),
+          date_creation TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      END IF;
+      IF to_regclass('public.retouche_items') IS NULL THEN
+        CREATE TABLE public.retouche_items (
+          id_item TEXT PRIMARY KEY,
+          atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
+          id_retouche TEXT NOT NULL,
+          type_retouche TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          prix NUMERIC(12,2) NOT NULL CHECK (prix >= 0),
+          ordre_affichage INTEGER NOT NULL DEFAULT 1 CHECK (ordre_affichage > 0),
+          date_creation TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      END IF;
+    END
+    $$ LANGUAGE plpgsql;
+  `);
 }
 
 export function withAuth(req, token) {
@@ -250,13 +281,13 @@ export async function createAuthenticatedSession({
   await utilisateurRepo.save(user);
 
   let login = null;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     login = await client.post("/api/auth/login").send({ email, motDePasse: password });
     if (login.status === 200) break;
-    if (login.status !== 429 || attempt === 3) {
+    if (login.status !== 429 || attempt === 7) {
       throw new Error(`Login integration impossible pour ${email}: ${login.status} ${login.body?.error || ""}`.trim());
     }
-    await wait(400 * (attempt + 1));
+    await wait(350 * (attempt + 1));
   }
 
   return {

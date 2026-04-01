@@ -187,7 +187,7 @@ export async function openDossierFromList(page: Page, responsableName: string) {
   const row = page.locator("tr").filter({ hasText: responsableName }).first();
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: /^Ouvrir$/i }).click();
-  await expect(page.getByRole("heading", { name: new RegExp(responsableName, "i") })).toBeVisible();
+  await expect(page.getByRole("heading", { name: new RegExp(responsableName, "i") }).first()).toBeVisible();
 }
 
 export async function createDossierThroughUi(
@@ -200,7 +200,9 @@ export async function createDossierThroughUi(
   } = {}
 ) {
   await gotoDossiers(page);
-  await page.getByRole("button", { name: /Nouveau dossier/i }).click();
+  const newDossierButton = page.getByRole("button", { name: /Nouveau dossier/i });
+  await expect(newDossierButton).toBeVisible();
+  await newDossierButton.click({ force: true });
   const modal = page.locator(".modal-card").filter({ hasText: "Ouvrir un dossier" }).first();
   await expect(modal).toBeVisible();
   await modal.getByRole("button", { name: /Nouveau responsable/i }).click();
@@ -279,16 +281,16 @@ export async function createCommandeInCurrentDossierThroughUi(page: Page) {
   await modal.getByRole("button", { name: /^Continuer$/i }).click();
   const step = modal.locator("section.modal-body:visible").first();
 
-  await step.locator('input[type="text"]:visible').first().fill(`Commande E2E ${Date.now()}`);
-  await step.locator('input[type="number"]:visible').first().fill("150");
+  const label = `Commande E2E ${Date.now()}`;
+  await chooseFirstNonPlaceholder(step.locator("select:visible").first());
+  await step.getByPlaceholder(/Pantalon bleu marine/i).fill(label);
+  await step.locator('article input[type="number"]:visible').first().fill("150");
+  await step.getByPlaceholder(/Commande mariage/i).fill(label);
   await step.locator('input[type="date"]:visible').first().fill(futureDate());
-  await step.getByRole("button", { name: /Inclure le client payeur/i }).click();
-
-  const beneficiaryCard = step.locator(".beneficiary-card").first();
-  await chooseFirstNonPlaceholder(beneficiaryCard.locator('select').first());
-  await fillVisibleMeasureFields(beneficiaryCard);
+  await fillVisibleMeasureFields(step);
 
   await modal.getByRole("button", { name: /Continuer vers le resume/i }).click();
+  await expect(modal.getByRole("heading", { name: /Verification finale/i })).toBeVisible();
   await modal.getByRole("button", { name: /Creer la commande/i }).click();
   await expect(modal).toBeHidden({ timeout: 20_000 });
   await expect(page.getByRole("heading", { name: /^Detail Commande$/i }).first()).toBeVisible();
@@ -309,15 +311,21 @@ export async function createRetoucheInCurrentDossierThroughUi(page: Page) {
     (await chooseOptionByLabel(typeSelect, [/ourlet/i])) ||
     false;
   if (!matchedType) await chooseFirstNonPlaceholder(typeSelect);
+  await step.locator('article input[type="number"]:visible').first().fill("40");
   const matchedHabit =
     (await chooseOptionByLabel(habitSelect, [/pantalon/i, /robe/i])) ||
     false;
   if (!matchedHabit) await chooseFirstNonPlaceholder(habitSelect);
   await fillVisibleMeasureFields(step);
-  await step.locator('input[type="text"]:visible').first().fill(`Retouche E2E ${Date.now()}`);
-  await step.locator('input[type="number"]:visible').last().fill("40");
+  const label = `Retouche E2E ${Date.now()}`;
+  await step.getByPlaceholder(/Ajuster l'ourlet/i).fill(label);
+  const textInputs = step.locator('input[type="text"]:visible');
+  const textCount = await textInputs.count();
+  if (textCount > 1) {
+    await textInputs.nth(textCount - 1).fill(label);
+  }
   await step.locator('input[type="date"]:visible').first().fill(futureDate());
-  await modal.getByRole("button", { name: /Creer la retouche/i }).click();
+  await modal.getByRole("button", { name: /Enregistrer la retouche|Creer la retouche/i }).click();
   await expect(modal).toBeHidden({ timeout: 20_000 });
   await expect(page.getByRole("heading", { name: /^Detail Retouche$/i }).first()).toBeVisible();
 }

@@ -3,12 +3,12 @@ import { test, expect } from "@playwright/test";
 import {
   createActor,
   createCommandeInCurrentDossierThroughUi,
-  createDossierThroughUi,
   createDossierViaApi,
   createCommandeViaApi,
   ensureAppReady,
   gotoDossiers,
   loginInBrowser,
+  openDossierFromList,
   tinyPngBuffer
 } from "./helpers/atelierpro";
 
@@ -19,20 +19,21 @@ test.beforeAll(async () => {
   await ensureAppReady();
 });
 
-test("ajoute une commande dans un dossier et affiche les beneficiaires", async ({ page }) => {
+test("ajoute une commande simple dans un dossier et affiche le client associe", async ({ page }) => {
   const actor = await createActor("commande-ui");
-  await loginInBrowser(page, actor);
-
-  await createDossierThroughUi(page, {
+  const dossier = await createDossierViaApi(actor, {
     nom: "Tshibangu",
     prenom: "Commande",
     typeDossier: "FAMILLE"
   });
 
+  await loginInBrowser(page, actor);
+  await gotoDossiers(page);
+  await openDossierFromList(page, "Tshibangu Commande");
   await createCommandeInCurrentDossierThroughUi(page);
   await expect(page.getByRole("heading", { name: /^Detail Commande$/i }).first()).toBeVisible();
-  await expect(page.getByText(/Payeur et beneficiaires/i).first()).toBeVisible();
-  await expect(page.getByText(/Payeur \+ beneficiaire/i).first()).toBeVisible();
+  await expect(page.getByText(/Client associe/i).first()).toBeVisible();
+  await expect(page.getByText(/Client de la commande/i).first()).toBeVisible();
   await expect(page.getByText(/Montant total\s*:/i).first()).toBeVisible();
 });
 
@@ -58,22 +59,7 @@ test("upload une photo et la conserve apres refresh UI", async ({ page }) => {
       tourHanche: 96,
       largeurBas: 20,
       hauteurFourche: 28
-    },
-    lignesCommande: [
-      {
-        role: "PAYEUR_BENEFICIAIRE",
-        utiliseClientPayeur: true,
-        typeHabit: "PANTALON",
-        mesuresHabit: {
-          longueur: 105,
-          tourTaille: 82,
-          tourHanche: 96,
-          largeurBas: 20,
-          hauteurFourche: 28
-        },
-        ordreAffichage: 1
-      }
-    ]
+    }
   });
 
   await loginInBrowser(page, actor);
