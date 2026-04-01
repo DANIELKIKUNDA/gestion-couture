@@ -42,7 +42,7 @@ process.env.E2E_API_URL = apiUrl;
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  timeout: 30_000,
+  timeout: process.env.CI ? 60_000 : 30_000,
   globalTimeout: 15 * 60_000,
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,

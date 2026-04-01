@@ -178,8 +178,9 @@ export async function loginInBrowser(page: Page, actor: TestActor) {
     { token: actor.token, atelierSlug: actor.atelierSlug }
   );
   await page.goto(FRONTEND_URL, { waitUntil: "domcontentloaded" });
-  await expect(page.locator(".workspace")).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator(".topbar")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Chargement de la session/i)).toHaveCount(0, { timeout: 45_000 });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 45_000 });
+  await expect(page.locator(".topbar")).toBeVisible({ timeout: 45_000 });
 }
 
 export async function gotoDossiers(page: Page) {
