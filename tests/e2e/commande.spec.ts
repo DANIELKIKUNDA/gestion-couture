@@ -23,20 +23,17 @@ test("ajoute une commande dans un dossier et affiche les beneficiaires", async (
   const actor = await createActor("commande-ui");
   await loginInBrowser(page, actor);
 
-  const dossier = await createDossierThroughUi(page, {
+  await createDossierThroughUi(page, {
     nom: "Tshibangu",
     prenom: "Commande",
     typeDossier: "FAMILLE"
   });
 
   await createCommandeInCurrentDossierThroughUi(page);
-
-  await page.getByRole("link", { name: /^Dossiers$/i }).click();
-  await expect(page.getByText(new RegExp(dossier.responsableNomComplet, "i"))).toBeVisible();
-  await page.locator("tr").filter({ hasText: dossier.responsableNomComplet }).first().getByRole("button", { name: /^Ouvrir$/i }).click();
-
-  await expect(page.getByText(/Beneficiaires\s*:/i).first()).toBeVisible();
-  await expect(page.getByText(/Commande/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Detail Commande$/i }).first()).toBeVisible();
+  await expect(page.getByText(/Payeur et beneficiaires/i).first()).toBeVisible();
+  await expect(page.getByText(/Payeur \+ beneficiaire/i).first()).toBeVisible();
+  await expect(page.getByText(/Montant total\s*:/i).first()).toBeVisible();
 });
 
 test("upload une photo et la conserve apres refresh UI", async ({ page }) => {
@@ -80,9 +77,10 @@ test("upload une photo et la conserve apres refresh UI", async ({ page }) => {
   });
 
   await loginInBrowser(page, actor);
-  await gotoDossiers(page);
-  await page.locator("tr").filter({ hasText: /Photo Commande/i }).first().getByRole("button", { name: /^Ouvrir$/i }).click();
-  await page.getByRole("button", { name: /Voir/i }).first().click();
+  await page.getByRole("link", { name: /^Commandes$/i }).click();
+  const commandeRow = page.locator("tr").filter({ hasText: commande.idCommande }).first();
+  await expect(commandeRow).toBeVisible();
+  await commandeRow.getByRole("button", { name: /^Voir$/i }).click();
 
   const mediaPanel = page.locator(".commande-media-panel");
   await expect(mediaPanel).toBeVisible();

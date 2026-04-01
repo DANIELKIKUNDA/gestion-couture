@@ -37,6 +37,10 @@ function deepMerge(base, override) {
   return out;
 }
 
+async function wait(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function ensureAtelier(idAtelier, slug = null, nom = null) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ateliers (
@@ -245,9 +249,14 @@ export async function createAuthenticatedSession({
   });
   await utilisateurRepo.save(user);
 
-  const login = await client.post("/api/auth/login").send({ email, motDePasse: password });
-  if (login.status !== 200) {
-    throw new Error(`Login integration impossible pour ${email}: ${login.status} ${login.body?.error || ""}`.trim());
+  let login = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    login = await client.post("/api/auth/login").send({ email, motDePasse: password });
+    if (login.status === 200) break;
+    if (login.status !== 429 || attempt === 3) {
+      throw new Error(`Login integration impossible pour ${email}: ${login.status} ${login.body?.error || ""}`.trim());
+    }
+    await wait(400 * (attempt + 1));
   }
 
   return {

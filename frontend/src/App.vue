@@ -3448,6 +3448,15 @@ const clientDirectory = computed(() => {
   return map;
 });
 
+const clientsActifs = computed(() =>
+  clients.value
+    .filter((client) => client && client.actif !== false)
+    .slice()
+    .sort((left, right) =>
+      formatClientDisplayName(left).localeCompare(formatClientDisplayName(right), "fr", { sensitivity: "base" })
+    )
+);
+
 function formatClientDisplayName(client) {
   return `${client?.nom || ""} ${client?.prenom || ""}`.trim() || "Client sans nom";
 }
@@ -4175,6 +4184,33 @@ const detailVenteFacture = computed(() => {
   if (!id) return null;
   return findFactureByOrigine("VENTE", id);
 });
+const detailCommandeView = computed(() => ({
+  idCommande: detailCommande.value?.idCommande || "",
+  idClient: detailCommande.value?.idClient || "",
+  clientNom: detailCommande.value?.clientNom || "",
+  descriptionCommande: detailCommande.value?.descriptionCommande || "",
+  statutCommande: detailCommande.value?.statutCommande || "",
+  dateCreation: detailCommande.value?.dateCreation || "",
+  datePrevue: detailCommande.value?.datePrevue || "",
+  typeHabit: detailCommande.value?.typeHabit || "",
+  montantTotal: Number(detailCommande.value?.montantTotal || 0),
+  montantPaye: Number(detailCommande.value?.montantPaye || 0),
+  nombreBeneficiaires: Number(detailCommande.value?.nombreBeneficiaires || 0),
+  nombreLignes: Number(detailCommande.value?.nombreLignes || 0)
+}));
+const detailRetoucheView = computed(() => ({
+  idRetouche: detailRetouche.value?.idRetouche || "",
+  idClient: detailRetouche.value?.idClient || "",
+  clientNom: detailRetouche.value?.clientNom || "",
+  typeRetouche: detailRetouche.value?.typeRetouche || "",
+  descriptionRetouche: detailRetouche.value?.descriptionRetouche || "",
+  statutRetouche: detailRetouche.value?.statutRetouche || "",
+  dateDepot: detailRetouche.value?.dateDepot || "",
+  datePrevue: detailRetouche.value?.datePrevue || "",
+  typeHabit: detailRetouche.value?.typeHabit || "",
+  montantTotal: Number(detailRetouche.value?.montantTotal || 0),
+  montantPaye: Number(detailRetouche.value?.montantPaye || 0)
+}));
 const venteDetailPrimaryAction = computed(() => {
   if (!detailVente.value) return null;
   if (detailVente.value.statut === "BROUILLON") {
@@ -14300,14 +14336,14 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </button>
                 </div>
               </article>
-              <article v-else-if="detailDossierLoading" class="panel">
+              <article v-if="!detailDossier && detailDossierLoading" class="panel">
                 <p>Chargement du dossier...</p>
               </article>
-              <article v-else-if="detailDossierError" class="panel error-panel">
+              <article v-else-if="!detailDossier && detailDossierError" class="panel error-panel">
                 <strong>Detail dossier</strong>
                 <p>{{ detailDossierError }}</p>
               </article>
-              <template v-else-if="detailDossier">
+              <template v-if="detailDossier">
                 <article class="panel dossier-workspace-hero">
                   <div class="dossier-workspace-heading">
                     <div>
@@ -14506,18 +14542,18 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <article class="panel detail-grid" style="grid-template-columns: 1fr 1fr 1fr;">
                   <div>
                     <h4>Identite commande</h4>
-                    <p><strong>Payeur:</strong> {{ detailCommande.clientNom || detailCommande.idClient }}</p>
-                    <p><strong>Description:</strong> {{ detailCommande.descriptionCommande }}</p>
-                    <p><strong>Statut:</strong> {{ detailCommande.statutCommande }}</p>
+                    <p><strong>Payeur:</strong> {{ detailCommandeView.clientNom || detailCommandeView.idClient || "-" }}</p>
+                    <p><strong>Description:</strong> {{ detailCommandeView.descriptionCommande || "-" }}</p>
+                    <p><strong>Statut:</strong> {{ detailCommandeView.statutCommande || "-" }}</p>
                     <p><strong>Facture:</strong> {{ detailCommandeFacture ? detailCommandeFacture.numeroFacture : "Non emise" }}</p>
-                    <p><strong>Date creation:</strong> {{ detailCommande.dateCreation || "-" }}</p>
-                    <p><strong>Date prevue:</strong> {{ detailCommande.datePrevue || "-" }}</p>
-                    <p><strong>Beneficiaires:</strong> {{ detailCommande.nombreBeneficiaires || detailCommandeBeneficiaryLines.length }}</p>
-                    <p><strong>Lignes:</strong> {{ detailCommande.nombreLignes || detailCommandeBeneficiaryLines.length }}</p>
+                    <p><strong>Date creation:</strong> {{ detailCommandeView.dateCreation || "-" }}</p>
+                    <p><strong>Date prevue:</strong> {{ detailCommandeView.datePrevue || "-" }}</p>
+                    <p><strong>Beneficiaires:</strong> {{ detailCommandeView.nombreBeneficiaires || detailCommandeBeneficiaryLines.length }}</p>
+                    <p><strong>Lignes:</strong> {{ detailCommandeView.nombreLignes || detailCommandeBeneficiaryLines.length }}</p>
                   </div>
                   <div>
                     <h4>Mesures de l'habit</h4>
-                    <p><strong>Type d'habit:</strong> {{ detailCommande.typeHabit || "-" }}</p>
+                    <p><strong>Type d'habit:</strong> {{ detailCommandeView.typeHabit || "-" }}</p>
                     <p><strong>Unite:</strong> cm</p>
                     <p><strong>Mode:</strong> Lecture seule</p>
                     <template v-for="(line, idx) in detailCommandeMesuresLines" :key="`cmd-mes-line-${idx}`">
@@ -14527,8 +14563,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                   <div>
                     <h4>Resume financier</h4>
-                    <p><strong>Montant total:</strong> {{ formatCurrency(detailCommande.montantTotal) }}</p>
-                    <p><strong>Total paye:</strong> {{ formatCurrency(detailCommande.montantPaye) }}</p>
+                    <p><strong>Montant total:</strong> {{ formatCurrency(detailCommandeView.montantTotal) }}</p>
+                    <p><strong>Total paye:</strong> {{ formatCurrency(detailCommandeView.montantPaye) }}</p>
                     <p><strong>Solde restant:</strong> {{ formatCurrency(detailSoldeRestant) }}</p>
                   </div>
                 </article>
@@ -14878,17 +14914,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <article class="panel detail-grid" style="grid-template-columns: 1fr 1fr 1fr;">
                   <div>
                     <h4>Identite retouche</h4>
-                    <p><strong>Client:</strong> {{ detailRetouche.clientNom || detailRetouche.idClient }}</p>
-                    <p><strong>Type:</strong> {{ detailRetouche.typeRetouche || "-" }}</p>
-                    <p><strong>Description:</strong> {{ detailRetouche.descriptionRetouche }}</p>
-                    <p><strong>Statut:</strong> {{ detailRetouche.statutRetouche }}</p>
+                    <p><strong>Client:</strong> {{ detailRetoucheView.clientNom || detailRetoucheView.idClient || "-" }}</p>
+                    <p><strong>Type:</strong> {{ detailRetoucheView.typeRetouche || "-" }}</p>
+                    <p><strong>Description:</strong> {{ detailRetoucheView.descriptionRetouche || "-" }}</p>
+                    <p><strong>Statut:</strong> {{ detailRetoucheView.statutRetouche || "-" }}</p>
                     <p><strong>Facture:</strong> {{ detailRetoucheFacture ? detailRetoucheFacture.numeroFacture : "Non emise" }}</p>
-                    <p><strong>Date depot:</strong> {{ detailRetouche.dateDepot || "-" }}</p>
-                    <p><strong>Date prevue:</strong> {{ detailRetouche.datePrevue || "-" }}</p>
+                    <p><strong>Date depot:</strong> {{ detailRetoucheView.dateDepot || "-" }}</p>
+                    <p><strong>Date prevue:</strong> {{ detailRetoucheView.datePrevue || "-" }}</p>
                   </div>
                   <div>
                     <h4>Mesures de l'habit</h4>
-                    <p><strong>Type d'habit:</strong> {{ detailRetouche.typeHabit || "-" }}</p>
+                    <p><strong>Type d'habit:</strong> {{ detailRetoucheView.typeHabit || "-" }}</p>
                     <p><strong>Unite:</strong> cm</p>
                     <p><strong>Mode:</strong> Lecture seule</p>
                     <template v-for="(line, idx) in detailRetoucheMesuresLines" :key="`ret-mes-line-${idx}`">
@@ -14898,8 +14934,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                   <div>
                     <h4>Resume financier</h4>
-                    <p><strong>Montant total:</strong> {{ formatCurrency(detailRetouche.montantTotal) }}</p>
-                    <p><strong>Total paye:</strong> {{ formatCurrency(detailRetouche.montantPaye) }}</p>
+                    <p><strong>Montant total:</strong> {{ formatCurrency(detailRetoucheView.montantTotal) }}</p>
+                    <p><strong>Total paye:</strong> {{ formatCurrency(detailRetoucheView.montantPaye) }}</p>
                     <p><strong>Solde restant:</strong> {{ formatCurrency(detailRetoucheSoldeRestant) }}</p>
                   </div>
                 </article>

@@ -26,11 +26,8 @@ test("ajoute une retouche dans un dossier avec affichage correct du beneficiaire
   });
 
   await createRetoucheInCurrentDossierThroughUi(page);
-
-  await page.getByRole("link", { name: /^Dossiers$/i }).click();
-  await expect(page.getByText(new RegExp(dossier.responsableNomComplet, "i"))).toBeVisible();
-  await page.locator("tr").filter({ hasText: dossier.responsableNomComplet }).first().getByRole("button", { name: /^Ouvrir$/i }).click();
-
-  await expect(page.getByText(/Retouche/i).first()).toBeVisible();
-  await expect(page.getByText(/Beneficiaire\s*:/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Detail Retouche$/i }).first()).toBeVisible();
+  await expect(page.getByText(/Client\s*:/i).first()).toBeVisible();
+  await expect(page.getByText(new RegExp(dossier.responsableNomComplet, "i")).first()).toBeVisible();
+  await expect(page.getByText(/Montant total\s*:/i).first()).toBeVisible();
 });

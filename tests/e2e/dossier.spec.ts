@@ -37,7 +37,8 @@ test("cree un dossier et le retrouve dans la liste", async ({ page }) => {
   });
 
   await expect(page.getByRole("button", { name: /\+ Commande|Ajouter une commande/i })).toBeVisible();
-  await expect(page.getByText(/Workspace dossier/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Detail Dossier$/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: new RegExp(dossier.responsableNomComplet, "i") }).first()).toBeVisible();
 
   await page.getByRole("button", { name: /^Retour$/i }).click();
   await expect(page.getByText(new RegExp(dossier.responsableNomComplet, "i"))).toBeVisible();

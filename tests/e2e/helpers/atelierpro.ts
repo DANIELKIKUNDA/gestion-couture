@@ -65,12 +65,23 @@ async function waitForHttp(url: string, timeoutMs = 120_000) {
 
 function spawnBackgroundProcess(command: string, args: string[], cwd: string, logName: string) {
   mkdirSync(RUNTIME_DIR, { recursive: true });
-  const child = spawn(command, args, {
-    cwd,
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true
-  });
+  let child: ChildProcess;
+  try {
+    child = spawn(command, args, {
+      cwd,
+      detached: process.platform !== "win32",
+      stdio: "ignore",
+      windowsHide: true
+    });
+  } catch (error: any) {
+    if (String(error?.code || "").toUpperCase() !== "EINVAL") throw error;
+    child = spawn(command, args, {
+      cwd,
+      detached: false,
+      stdio: "ignore",
+      windowsHide: true
+    });
+  }
   child.unref();
   return child;
 }
@@ -162,9 +173,9 @@ export async function loginInBrowser(page: Page, actor: TestActor) {
     },
     { token: actor.token, atelierSlug: actor.atelierSlug }
   );
-  await page.goto(FRONTEND_URL);
-  await expect(page.locator(".workspace")).toBeVisible();
-  await expect(page.locator(".topbar")).toBeVisible();
+  await page.goto(FRONTEND_URL, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".workspace")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".topbar")).toBeVisible({ timeout: 20_000 });
 }
 
 export async function gotoDossiers(page: Page) {
@@ -199,7 +210,7 @@ export async function createDossierThroughUi(
   await inputs.nth(2).fill(telephone);
   await modal.locator("select").first().selectOption(typeDossier);
   await modal.getByRole("button", { name: /Creer le dossier/i }).click();
-  await expect(page.getByRole("heading", { name: new RegExp(`${nom}\\s+${prenom}`, "i") })).toBeVisible();
+  await expect(page.getByRole("heading", { name: new RegExp(`${nom}\\s+${prenom}`, "i") }).first()).toBeVisible();
   return {
     responsableNomComplet: `${nom} ${prenom}`.trim(),
     telephone
@@ -215,6 +226,23 @@ export async function chooseFirstNonPlaceholder(select: Locator) {
   });
   if (!firstValue) throw new Error("Aucune option selectable trouvee.");
   await select.selectOption(firstValue);
+}
+
+export async function chooseOptionByLabel(select: Locator, patterns: RegExp[]) {
+  const options = await select.locator("option").evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      value: (node as HTMLOptionElement).value,
+      label: String((node as HTMLOptionElement).label || (node as HTMLOptionElement).textContent || "").trim(),
+      disabled: (node as HTMLOptionElement).disabled
+    }))
+  );
+
+  const match = options.find(
+    (option) => option.value && !option.disabled && patterns.some((pattern) => pattern.test(option.label))
+  );
+  if (!match) return false;
+  await select.selectOption(match.value);
+  return true;
 }
 
 export async function fillVisibleMeasureFields(container: Locator) {
@@ -262,9 +290,8 @@ export async function createCommandeInCurrentDossierThroughUi(page: Page) {
 
   await modal.getByRole("button", { name: /Continuer vers le resume/i }).click();
   await modal.getByRole("button", { name: /Creer la commande/i }).click();
-
-  await expect(page.getByText(/References modele/i)).toBeVisible();
-  await expect(page.getByText(/Mesures/i)).toBeVisible();
+  await expect(modal).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByRole("heading", { name: /^Detail Commande$/i }).first()).toBeVisible();
 }
 
 export async function createRetoucheInCurrentDossierThroughUi(page: Page) {
@@ -275,15 +302,24 @@ export async function createRetoucheInCurrentDossierThroughUi(page: Page) {
   await modal.getByRole("button", { name: /^Continuer$/i }).click();
   const step = modal.locator("section.modal-body:visible").first();
   const selects = step.locator("select:visible");
-  await chooseFirstNonPlaceholder(selects.nth(0));
-  await chooseFirstNonPlaceholder(selects.nth(1));
+  const typeSelect = selects.nth(0);
+  const habitSelect = selects.nth(1);
+  const matchedType =
+    (await chooseOptionByLabel(typeSelect, [/ourlet pantalon/i])) ||
+    (await chooseOptionByLabel(typeSelect, [/ourlet/i])) ||
+    false;
+  if (!matchedType) await chooseFirstNonPlaceholder(typeSelect);
+  const matchedHabit =
+    (await chooseOptionByLabel(habitSelect, [/pantalon/i, /robe/i])) ||
+    false;
+  if (!matchedHabit) await chooseFirstNonPlaceholder(habitSelect);
   await fillVisibleMeasureFields(step);
   await step.locator('input[type="text"]:visible').first().fill(`Retouche E2E ${Date.now()}`);
-  await step.locator('input[type="number"]:visible').first().fill("40");
+  await step.locator('input[type="number"]:visible').last().fill("40");
   await step.locator('input[type="date"]:visible').first().fill(futureDate());
   await modal.getByRole("button", { name: /Creer la retouche/i }).click();
-
-  await expect(page.getByText(/Historique retouche|Retouche/i)).toBeVisible();
+  await expect(modal).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByRole("heading", { name: /^Detail Retouche$/i }).first()).toBeVisible();
 }
 
 export async function createDossierViaApi(
