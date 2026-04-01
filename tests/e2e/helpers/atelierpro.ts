@@ -113,7 +113,11 @@ async function startServersIfNeeded() {
   try {
     const backendOk = await fetch(`${API_URL}/health`).then((res) => res.ok).catch(() => false);
     if (!backendOk) {
-      spawnBackgroundProcess(process.execPath, ["--env-file=.env", "src/interfaces/http/server.js"], ROOT_DIR, "backend");
+      const envFilePath = path.join(ROOT_DIR, ".env");
+      const backendArgs = existsSync(envFilePath)
+        ? ["--env-file", envFilePath, "src/interfaces/http/server.js"]
+        : ["src/interfaces/http/server.js"];
+      spawnBackgroundProcess(process.execPath, backendArgs, ROOT_DIR, "backend");
     }
 
     const frontendOk = await fetch(FRONTEND_URL).then((res) => res.ok).catch(() => false);
