@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs";
 import { spawn } from "node:child_process";
 
 export const FRONTEND_URL = process.env.BASE_URL || "http://127.0.0.1:5173";
@@ -72,7 +73,10 @@ export async function runCommand(command, args, options = {}) {
 
 export function createStackProcesses(rootDir) {
   const envFilePath = path.join(rootDir, ".env");
-  const backend = spawnLogged(process.execPath, ["--env-file", envFilePath, "src/interfaces/http/server.js"], {
+  const backendArgs = fs.existsSync(envFilePath)
+    ? ["--env-file", envFilePath, "src/interfaces/http/server.js"]
+    : ["src/interfaces/http/server.js"];
+  const backend = spawnLogged(process.execPath, backendArgs, {
     cwd: rootDir
   });
 
