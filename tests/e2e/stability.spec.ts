@@ -139,12 +139,13 @@ async function openSeededDossier(page: any, { responsableName, expectedLabels = 
   await page.getByRole("button", { name: /^Actualiser$/i }).click();
   await expect
     .poll(async () => {
-      const sectionsCount = await page.locator(".dossier-section-panel").count();
+      const columnsCount = await page.locator(".dossier-document-column").count();
       const cardCount = await page.locator(".dossier-workspace-card").count();
-      const labelHits = await Promise.all(
-        expectedLabels.map((label) => page.getByText(new RegExp(label, "i")).count())
-      );
-      return sectionsCount + cardCount + labelHits.reduce((sum, count) => sum + count, 0);
+      const headingHits = await Promise.all([
+        page.getByRole("heading", { name: /^Retouches$/i }).count(),
+        page.getByRole("heading", { name: /^Commandes$/i }).count()
+      ]);
+      return columnsCount + cardCount + headingHits.reduce((sum, count) => sum + count, 0);
     }, { timeout: 30_000 })
     .toBeGreaterThan(0);
 }
@@ -191,16 +192,22 @@ test("resiste a plusieurs refresh rapides sans reset brutal", async ({ page }) =
   await expectSidebarVisible(page);
 });
 
-test("affiche correctement les flags metier et les sections prioritaires", async ({ page }) => {
+test("affiche correctement les colonnes dossier et les statuts backend", async ({ page }) => {
   const { actor, responsableName, expectedLabels } = await seedFlaggedDossier();
   await loginInBrowser(page, actor);
   await openSeededDossier(page, { responsableName, expectedLabels });
 
-  await expect(page.locator(".dossier-section-panel").filter({ hasText: /A faire/i }).first()).toBeVisible();
-  await expect(page.locator(".dossier-section-panel").filter({ hasText: /Pret/i }).first()).toBeVisible();
-  await expect(page.locator(".dossier-section-panel").filter({ hasText: /A encaisser/i }).first()).toBeVisible();
-  await expect(page.locator(".dossier-section-panel").filter({ hasText: /Termine/i }).first()).toBeVisible();
-  await expect(page.getByText(/En retard/i).first()).toBeVisible();
-  await expect(page.getByText(/Terminee non livree/i).first()).toBeVisible();
-  await expect(page.getByText(/Solde ouvert/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Retouches$/i }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Commandes$/i }).first()).toBeVisible();
+  await expect(page.locator(".dossier-document-column")).toHaveCount(2);
+
+  await expect(page.getByText(/RET-/i).first()).toBeVisible();
+  await expect(page.getByText(/CMD-/i).first()).toBeVisible();
+
+  await expect(page.getByText(/^EN_COURS$/i).first()).toBeVisible();
+  await expect(page.getByText(/^TERMINEE$/i).first()).toBeVisible();
+  await expect(page.getByText(/^LIVREE$/i).first()).toBeVisible();
+
+  await expect(page.getByRole("button", { name: /^Voir$/i }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Payer$/i }).first()).toBeVisible();
 });

@@ -295,8 +295,11 @@ const dossierFilters = reactive({
 });
 const dossiersPagination = reactive({
   page: 1,
-  pageSize: 10
+  pageSize: 15
 });
+const dossiersVisibleCount = ref(dossiersPagination.pageSize);
+const dossierInfiniteSentinel = ref(null);
+let dossierInfiniteObserver = null;
 const dossierSection = ref("liste");
 const dossierModalOpen = ref(false);
 const dossierSubmitting = ref(false);
@@ -548,7 +551,7 @@ function dossierPrimarySignal(dossier) {
   if (withBalance > 0 || remaining > 0) {
     return {
       tone: "cash",
-      label: "Paiement en attente",
+      label: "Solde restant",
       detail: `${withBalance || 1} document(s) avec solde`
     };
   }
@@ -600,60 +603,11 @@ function resetDossierFilters() {
   dossierFilters.type = "ALL";
   dossierFilters.statut = "ALL";
   dossiersPagination.page = 1;
+  dossiersVisibleCount.value = dossiersPagination.pageSize;
 }
-
-const DOSSIER_WORKSPACE_SECTION_ORDER = [
-  {
-    key: "todo",
-    title: "A faire",
-    subtitle: "Commandes et retouches en cours.",
-    tone: "priority"
-  },
-  {
-    key: "ready",
-    title: "Pret",
-    subtitle: "Documents termines en attente de livraison.",
-    tone: "ready"
-  },
-  {
-    key: "cash",
-    title: "A encaisser",
-    subtitle: "Documents livres avec un solde encore ouvert.",
-    tone: "cash"
-  },
-  {
-    key: "done",
-    title: "Termine",
-    subtitle: "Documents soldes, livres ou clotures.",
-    tone: "muted"
-  }
-];
 
 function normalizeDocumentStatus(status) {
   return String(status || "").trim().toUpperCase();
-}
-
-function isDossierDocumentReady(document) {
-  return document.flagsMetier?.termineeNonLivree === true;
-}
-
-function isDossierDocumentCashDue(document) {
-  const status = normalizeDocumentStatus(document.status);
-  return document.flagsMetier?.soldeOuvert === true && (status === "LIVREE" || status === "ANNULEE");
-}
-
-function isDossierDocumentDone(document) {
-  const status = normalizeDocumentStatus(document.status);
-  if (status === "ANNULEE") return true;
-  if (status === "LIVREE") return document.flagsMetier?.soldeOuvert !== true;
-  return false;
-}
-
-function classifyDossierWorkspaceDocument(document) {
-  if (isDossierDocumentReady(document)) return "ready";
-  if (isDossierDocumentCashDue(document)) return "cash";
-  if (isDossierDocumentDone(document)) return "done";
-  return "todo";
 }
 
 function createDossierWorkspaceDocument(kind, row = {}) {
@@ -664,14 +618,10 @@ function createDossierWorkspaceDocument(kind, row = {}) {
       id: row.idCommande,
       key: `commande:${row.idCommande}`,
       title: row.idCommande,
-      subtitle: row.descriptionCommande || "Commande atelier",
+      subtitle: row.descriptionCommande || "Commande",
       status: row.statutCommande || "",
       amount: Number(row.montantTotal || 0),
       remaining: Number(row.soldeRestant || 0),
-      helperLine:
-        row.beneficiairesResume?.length > 0
-          ? `Beneficiaires : ${row.beneficiairesResume.map((item) => item.nomComplet || item.idClient).filter(Boolean).join(", ")}`
-          : "",
       flagsMetier: row.flagsMetier || normalizeDossierFlags(),
       canCash: Number(row.soldeRestant || 0) > 0,
       open: () => openCommandeDetail(row.idCommande),
@@ -684,11 +634,10 @@ function createDossierWorkspaceDocument(kind, row = {}) {
     id: row.idRetouche,
     key: `retouche:${row.idRetouche}`,
     title: row.idRetouche,
-    subtitle: row.typeRetouche || row.descriptionRetouche || "Retouche atelier",
+    subtitle: row.typeRetouche || row.descriptionRetouche || "Retouche",
     status: row.statutRetouche || "",
     amount: Number(row.montantTotal || 0),
     remaining: Number(row.soldeRestant || 0),
-    helperLine: row.beneficiaire?.nomComplet || row.beneficiaire?.idClient ? `Beneficiaire : ${row.beneficiaire.nomComplet || row.beneficiaire.idClient}` : "",
     flagsMetier: row.flagsMetier || normalizeDossierFlags(),
     canCash: Number(row.soldeRestant || 0) > 0,
     open: () => openRetoucheDetail(row.idRetouche),
@@ -696,22 +645,34 @@ function createDossierWorkspaceDocument(kind, row = {}) {
   };
 }
 
-const dossierWorkspaceSections = computed(() => {
-  if (!detailDossier.value) return [];
-  const documents = [
-    ...(detailDossier.value.commandes || []).map((row) => createDossierWorkspaceDocument("commande", row)),
-    ...(detailDossier.value.retouches || []).map((row) => createDossierWorkspaceDocument("retouche", row))
-  ].map((document) => ({ ...document, sectionKey: classifyDossierWorkspaceDocument(document) }));
+const dossierRetoucheCards = computed(() =>
+  (detailDossier.value?.retouches || []).map((row) => createDossierWorkspaceDocument("retouche", row))
+);
 
-  return DOSSIER_WORKSPACE_SECTION_ORDER.map((section) => ({
-    ...section,
-    items: documents.filter((document) => document.sectionKey === section.key)
-  })).filter((section) => section.items.length > 0);
+const dossierCommandeCards = computed(() =>
+  (detailDossier.value?.commandes || []).map((row) => createDossierWorkspaceDocument("commande", row))
+);
+
+const dossierWorkspaceHasDocuments = computed(() => dossierRetoucheCards.value.length > 0 || dossierCommandeCards.value.length > 0);
+
+const detailDossierDeliveredDocumentsCount = computed(() => {
+  if (!detailDossier.value) return 0;
+  const commandes = Array.isArray(detailDossier.value.commandes) ? detailDossier.value.commandes : [];
+  const retouches = Array.isArray(detailDossier.value.retouches) ? detailDossier.value.retouches : [];
+  return [
+    ...commandes.map((row) => row?.statutCommande),
+    ...retouches.map((row) => row?.statutRetouche)
+  ].filter((status) => normalizeDocumentStatus(status) === "LIVREE").length;
 });
 
-const dossierWorkspaceHasDocuments = computed(
-  () => dossierWorkspaceSections.value.some((section) => section.items.length > 0)
-);
+function getDetailDossierFirstCashableDocument() {
+  if (!detailDossier.value) return null;
+  const commande = (detailDossier.value.commandes || []).find((row) => Number(row?.soldeRestant || 0) > 0);
+  if (commande) return createDossierWorkspaceDocument("commande", commande);
+  const retouche = (detailDossier.value.retouches || []).find((row) => Number(row?.soldeRestant || 0) > 0);
+  if (retouche) return createDossierWorkspaceDocument("retouche", retouche);
+  return null;
+}
 
 function clearDossierWorkspaceActionFeedback() {
   dossierWorkspacePendingActionKey.value = "";
@@ -781,6 +742,47 @@ async function onDossierWorkspaceOpen(document) {
 
 async function onDossierWorkspaceCash(document) {
   await runDossierWorkspaceAction(document, "cash", document?.cash);
+}
+
+async function onDetailDossierCash() {
+  const document = getDetailDossierFirstCashableDocument();
+  if (!document) {
+    notify("Aucun document avec solde a encaisser.");
+    return;
+  }
+  await runDossierWorkspaceAction(document, "cash", document.cash);
+}
+
+function resetDossierVisibleCount() {
+  dossiersVisibleCount.value = dossiersPagination.pageSize;
+}
+
+function loadMoreDossiers() {
+  const nextCount = Math.min(dossiersFiltered.value.length, dossiersVisibleCount.value + dossiersPagination.pageSize);
+  if (nextCount > dossiersVisibleCount.value) {
+    dossiersVisibleCount.value = nextCount;
+  }
+}
+
+function setupDossierInfiniteObserver() {
+  if (typeof window === "undefined" || typeof IntersectionObserver === "undefined") return;
+  if (dossierInfiniteObserver) {
+    dossierInfiniteObserver.disconnect();
+    dossierInfiniteObserver = null;
+  }
+  nextTick(() => {
+    const target = dossierInfiniteSentinel.value;
+    if (!target) return;
+    dossierInfiniteObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMoreDossiers();
+        }
+      },
+      { root: null, rootMargin: "0px 0px 240px 0px", threshold: 0.05 }
+    );
+    dossierInfiniteObserver.observe(target);
+  });
 }
 
 function resetDossierDraft() {
@@ -7515,10 +7517,7 @@ const dossiersFiltered = computed(() => {
 });
 
 const dossiersPages = computed(() => Math.max(1, Math.ceil(dossiersFiltered.value.length / dossiersPagination.pageSize)));
-const dossiersPaged = computed(() => {
-  const start = (dossiersPagination.page - 1) * dossiersPagination.pageSize;
-  return dossiersFiltered.value.slice(start, start + dossiersPagination.pageSize);
-});
+const dossiersPaged = computed(() => dossiersFiltered.value.slice(0, dossiersVisibleCount.value));
 
 async function loadDossierDetail(idDossier) {
   if (!idDossier) {
@@ -7549,6 +7548,38 @@ function openCreateDossierModal() {
   resetDossierDraft();
   dossierModalOpen.value = true;
 }
+
+watch(
+  () => [dossiersFiltered.value.length, dossierFilters.recherche, dossierFilters.type, dossierFilters.statut],
+  () => {
+    resetDossierVisibleCount();
+    setupDossierInfiniteObserver();
+  },
+  { deep: true }
+);
+
+watch(
+  () => currentRoute.value,
+  (route) => {
+    if (route === "dossiers") {
+      resetDossierVisibleCount();
+      setupDossierInfiniteObserver();
+    }
+  },
+  { immediate: true }
+);
+
+watch(dossierInfiniteSentinel, () => {
+  setupDossierInfiniteObserver();
+});
+
+onMounted(() => {
+  setupDossierInfiniteObserver();
+});
+
+onUnmounted(() => {
+  if (dossierInfiniteObserver) dossierInfiniteObserver.disconnect();
+});
 
 function closeDossierModal() {
   dossierModalOpen.value = false;
@@ -12856,6 +12887,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <strong>{{ formatCurrency(dossier.totalMontant) }}</strong>
                     </div>
                     <div class="mobile-kpi">
+                      <span>Total paye</span>
+                      <strong>{{ formatCurrency(dossier.totalPaye) }}</strong>
+                    </div>
+                    <div class="mobile-kpi">
                       <span>Reste</span>
                       <strong>{{ formatCurrency(dossier.soldeRestant) }}</strong>
                     </div>
@@ -12866,9 +12901,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                 </article>
               </div>
+              <div v-if="dossiersPaged.length > 0 && dossiersPaged.length < dossiersFiltered.length" ref="dossierInfiniteSentinel" class="dossier-infinite-sentinel">
+                <span class="helper">Chargement des dossiers suivants...</span>
+              </div>
               <article v-else class="panel empty-state">
-                <h3>Aucun dossier</h3>
-                <p>Commence par ouvrir un dossier pour centraliser commandes et retouches.</p>
+                <h3>Aucun dossier a afficher</h3>
+                <p>Aucun des {{ dossiers.length }} dossier(s) charges ne correspond a votre recherche ou a vos filtres actuels.</p>
               </article>
             </template>
 
@@ -12939,6 +12977,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <strong>{{ formatCurrency(dossier.totalMontant) }}</strong>
                     </article>
                     <article class="dossier-kpi-card">
+                      <span>Total paye</span>
+                      <strong>{{ formatCurrency(dossier.totalPaye) }}</strong>
+                    </article>
+                    <article class="dossier-kpi-card">
                       <span>Reste</span>
                       <strong>{{ formatCurrency(dossier.soldeRestant) }}</strong>
                     </article>
@@ -12949,9 +12991,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                 </article>
               </div>
+              <div v-if="dossiersPaged.length > 0 && dossiersPaged.length < dossiersFiltered.length" ref="dossierInfiniteSentinel" class="dossier-infinite-sentinel">
+                <span class="helper">Chargement des dossiers suivants...</span>
+              </div>
               <article v-else class="panel empty-state">
-                <h3>Aucun dossier</h3>
-                <p>Commence par ouvrir un dossier pour centraliser commandes et retouches.</p>
+                <h3>Aucun dossier a afficher</h3>
+                <p>Aucun des {{ dossiers.length }} dossier(s) charges ne correspond a votre recherche ou a vos filtres actuels.</p>
               </article>
             </template>
           </ResponsiveDataContainer>
@@ -14378,7 +14423,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <button
                     v-if="canAccessRoute('caisse') && detailDossier?.synthese?.documentsAvecSolde > 0"
                     class="mini-btn"
-                    @click="openRoute('caisse')"
+                    @click="onDetailDossierCash"
                   >
                     Encaisser
                   </button>
@@ -14438,20 +14483,19 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                 </article>
 
-                <div class="dossier-workspace-sections" v-if="dossierWorkspaceHasDocuments">
-                  <article v-for="section in dossierWorkspaceSections" :key="section.key" class="panel dossier-section-panel" :data-tone="section.tone">
+                <div class="dossier-document-columns" v-if="dossierWorkspaceHasDocuments">
+                  <article class="panel dossier-document-column">
                     <div class="panel-header detail-panel-header dossier-section-header">
                       <div>
-                        <h3>{{ section.title }}</h3>
-                        <p class="helper">{{ section.subtitle }}</p>
+                        <h3>Retouches</h3>
+                        <p class="helper">{{ dossierRetoucheCards.length }} retouche(s) dans ce dossier.</p>
                       </div>
-                      <span class="helper">{{ section.items.length }} document(s)</span>
                     </div>
-                    <div class="stack-list dossier-workspace-list">
+                    <div v-if="dossierRetoucheCards.length > 0" class="stack-list dossier-workspace-list">
                       <article
-                        v-for="document in section.items"
+                        v-for="document in dossierRetoucheCards"
                         :key="document.key"
-                        class="list-link-card dossier-workspace-card"
+                        class="list-link-card dossier-workspace-card dossier-workspace-card-simple"
                         :class="{
                           'is-active': dossierWorkspaceActiveDocumentKey === document.key,
                           'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`) || isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
@@ -14459,61 +14503,85 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                         }"
                       >
                         <div class="row-between">
-                          <div>
-                            <p class="mobile-overline">{{ document.kind === "commande" ? "Commande" : "Retouche" }}</p>
-                            <strong>{{ document.title }}</strong>
-                            <p class="helper">{{ document.subtitle }}</p>
-                          </div>
-                          <span class="status-chip">{{ document.status }}</span>
+                          <strong>{{ document.title }}</strong>
+                          <span class="status-chip dossier-status-badge" :data-status="normalizeDocumentStatus(document.status)">{{ document.status }}</span>
                         </div>
-                        <div class="dossier-card-meta">
-                          <span>{{ formatCurrency(document.amount) }}</span>
-                          <span>Reste : {{ formatCurrency(document.remaining) }}</span>
-                        </div>
-                        <div class="dossier-card-signal dossier-document-signal" :data-tone="section.tone">
-                          <strong>{{ section.title }}</strong>
-                          <span>{{ section.subtitle }}</span>
-                        </div>
-                        <p v-if="document.helperLine" class="helper">{{ document.helperLine }}</p>
-                        <div class="row-actions" v-if="document.flagsMetier.enRetard || document.flagsMetier.termineeNonLivree || document.flagsMetier.soldeOuvert">
-                          <span v-if="document.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
-                          <span v-if="document.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
-                          <span v-if="document.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                        <div class="dossier-simple-metrics">
+                          <span>Statut : {{ document.status || "Non renseigne" }}</span>
+                          <span>Montant total : {{ formatCurrency(document.amount) }}</span>
+                          <span>Reste a payer : {{ formatCurrency(document.remaining) }}</span>
                         </div>
                         <div class="row-actions dossier-card-actions">
-                          <button
-                            class="mini-btn dossier-action-btn"
-                            :class="{
-                              'is-loading': isDossierWorkspaceActionPending(`${document.key}:open`),
-                              'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`),
-                              'is-error': isDossierWorkspaceActionInError(`${document.key}:open`)
-                            }"
-                            :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)"
-                            @click="onDossierWorkspaceOpen(document)"
-                          >
-                            {{ dossierWorkspaceActionLabel(document, "open") }}
+                          <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
+                            Voir
                           </button>
                           <button
                             v-if="canAccessRoute('caisse') && document.canCash"
                             class="mini-btn dossier-action-btn dossier-action-btn-cash"
-                            :class="{
-                              'is-loading': isDossierWorkspaceActionPending(`${document.key}:cash`),
-                              'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
-                              'is-error': isDossierWorkspaceActionInError(`${document.key}:cash`)
-                            }"
                             :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
                             @click="onDossierWorkspaceCash(document)"
                           >
-                            {{ dossierWorkspaceActionLabel(document, "cash") }}
+                            Payer
                           </button>
                         </div>
                       </article>
                     </div>
+                    <article v-else class="panel dossier-column-empty">
+                      <strong>0 retouche</strong>
+                      <p class="helper">Aucune retouche rattachee a ce dossier.</p>
+                    </article>
+                  </article>
+                  <article class="panel dossier-document-column">
+                    <div class="panel-header detail-panel-header dossier-section-header">
+                      <div>
+                        <h3>Commandes</h3>
+                        <p class="helper">{{ dossierCommandeCards.length }} commande(s) dans ce dossier.</p>
+                      </div>
+                    </div>
+                    <div v-if="dossierCommandeCards.length > 0" class="stack-list dossier-workspace-list">
+                      <article
+                        v-for="document in dossierCommandeCards"
+                        :key="document.key"
+                        class="list-link-card dossier-workspace-card dossier-workspace-card-simple"
+                        :class="{
+                          'is-active': dossierWorkspaceActiveDocumentKey === document.key,
+                          'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`) || isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
+                          'is-error': isDossierWorkspaceActionInError(`${document.key}:open`) || isDossierWorkspaceActionInError(`${document.key}:cash`)
+                        }"
+                      >
+                        <div class="row-between">
+                          <strong>{{ document.title }}</strong>
+                          <span class="status-chip dossier-status-badge" :data-status="normalizeDocumentStatus(document.status)">{{ document.status }}</span>
+                        </div>
+                        <div class="dossier-simple-metrics">
+                          <span>Statut : {{ document.status || "Non renseigne" }}</span>
+                          <span>Montant total : {{ formatCurrency(document.amount) }}</span>
+                          <span>Reste a payer : {{ formatCurrency(document.remaining) }}</span>
+                        </div>
+                        <div class="row-actions dossier-card-actions">
+                          <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
+                            Voir
+                          </button>
+                          <button
+                            v-if="canAccessRoute('caisse') && document.canCash"
+                            class="mini-btn dossier-action-btn dossier-action-btn-cash"
+                            :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
+                            @click="onDossierWorkspaceCash(document)"
+                          >
+                            Payer
+                          </button>
+                        </div>
+                      </article>
+                    </div>
+                    <article v-else class="panel dossier-column-empty">
+                      <strong>0 commande</strong>
+                      <p class="helper">Aucune commande rattachee a ce dossier.</p>
+                    </article>
                   </article>
                 </div>
                 <article v-else class="panel empty-state dossier-empty-state">
-                  <h3>Dossier pret a recevoir des documents</h3>
-                  <p>Ajoute une commande ou une retouche pour transformer ce dossier en espace de suivi complet.</p>
+                  <h3>0 document dans ce dossier</h3>
+                  <p>{{ detailDossier.totalCommandes }} commande(s) · {{ detailDossier.totalRetouches }} retouche(s)</p>
                 </article>
               </template>
             </template>
@@ -14538,7 +14606,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <button
                     v-if="canAccessRoute('caisse') && detailDossier?.synthese?.documentsAvecSolde > 0"
                     class="action-btn green"
-                    @click="openRoute('caisse')"
+                    @click="onDetailDossierCash"
                   >
                     Encaisser
                   </button>
@@ -14585,9 +14653,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <p>{{ detailDossier.responsable.telephone || "Telephone non renseigne" }}</p>
                     </article>
                     <article class="dossier-highlight-card">
-                      <span>Documents avec solde</span>
-                      <strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong>
-                      <p>Vue directe sur les encaissements restants</p>
+                      <span>Commandes / retouches livres</span>
+                      <strong>{{ detailDossierDeliveredDocumentsCount }}</strong>
+                      <p>Documents deja livres et visibles dans ce dossier</p>
                     </article>
                   </div>
                   <div class="dossier-workspace-kpi-grid">
@@ -14612,26 +14680,25 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <strong>{{ detailDossier.synthese.retouchesEnCours }}</strong>
                     </article>
                     <article class="dossier-kpi-card">
-                      <span>Documents avec solde</span>
+                      <span>Cmd / ret. avec solde</span>
                       <strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong>
                     </article>
                   </div>
                 </article>
 
-                <div class="dossier-workspace-sections" v-if="dossierWorkspaceHasDocuments">
-                  <article v-for="section in dossierWorkspaceSections" :key="section.key" class="panel dossier-section-panel" :data-tone="section.tone">
+                <div class="dossier-document-columns" v-if="dossierWorkspaceHasDocuments">
+                  <article class="panel dossier-document-column">
                     <div class="panel-header detail-panel-header dossier-section-header">
                       <div>
-                        <h3>{{ section.title }}</h3>
-                        <p class="helper">{{ section.subtitle }}</p>
+                        <h3>Retouches</h3>
+                        <p class="helper">{{ dossierRetoucheCards.length }} retouche(s) dans ce dossier.</p>
                       </div>
-                      <span class="helper">{{ section.items.length }} document(s)</span>
                     </div>
-                    <div class="stack-list dossier-workspace-list">
+                    <div v-if="dossierRetoucheCards.length > 0" class="stack-list dossier-workspace-list">
                       <article
-                        v-for="document in section.items"
+                        v-for="document in dossierRetoucheCards"
                         :key="document.key"
-                        class="dossier-workspace-card"
+                        class="dossier-workspace-card dossier-workspace-card-simple"
                         :class="{
                           'is-active': dossierWorkspaceActiveDocumentKey === document.key,
                           'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`) || isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
@@ -14639,61 +14706,85 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                         }"
                       >
                         <div class="row-between">
-                          <div>
-                            <p class="mobile-overline">{{ document.kind === "commande" ? "Commande" : "Retouche" }}</p>
-                            <strong>{{ document.title }}</strong>
-                            <p class="helper">{{ document.subtitle }}</p>
-                          </div>
-                          <span class="status-chip">{{ document.status }}</span>
+                          <strong>{{ document.title }}</strong>
+                          <span class="status-chip dossier-status-badge" :data-status="normalizeDocumentStatus(document.status)">{{ document.status }}</span>
                         </div>
-                        <div class="dossier-card-meta">
-                          <span>{{ formatCurrency(document.amount) }}</span>
-                          <span>Reste : {{ formatCurrency(document.remaining) }}</span>
-                        </div>
-                        <div class="dossier-card-signal dossier-document-signal" :data-tone="section.tone">
-                          <strong>{{ section.title }}</strong>
-                          <span>{{ section.subtitle }}</span>
-                        </div>
-                        <p v-if="document.helperLine" class="helper">{{ document.helperLine }}</p>
-                        <div class="row-actions" v-if="document.flagsMetier.enRetard || document.flagsMetier.termineeNonLivree || document.flagsMetier.soldeOuvert">
-                          <span v-if="document.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
-                          <span v-if="document.flagsMetier.termineeNonLivree" class="status-pill" data-status="TERMINEE">Terminee non livree</span>
-                          <span v-if="document.flagsMetier.soldeOuvert" class="status-pill" data-tone="due">Solde ouvert</span>
+                        <div class="dossier-simple-metrics">
+                          <span>Statut : {{ document.status || "Non renseigne" }}</span>
+                          <span>Montant total : {{ formatCurrency(document.amount) }}</span>
+                          <span>Reste a payer : {{ formatCurrency(document.remaining) }}</span>
                         </div>
                         <div class="row-actions dossier-card-actions">
-                          <button
-                            class="mini-btn dossier-action-btn"
-                            :class="{
-                              'is-loading': isDossierWorkspaceActionPending(`${document.key}:open`),
-                              'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`),
-                              'is-error': isDossierWorkspaceActionInError(`${document.key}:open`)
-                            }"
-                            :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)"
-                            @click="onDossierWorkspaceOpen(document)"
-                          >
-                            {{ dossierWorkspaceActionLabel(document, "open") }}
+                          <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
+                            Voir
                           </button>
                           <button
                             v-if="canAccessRoute('caisse') && document.canCash"
                             class="mini-btn dossier-action-btn dossier-action-btn-cash"
-                            :class="{
-                              'is-loading': isDossierWorkspaceActionPending(`${document.key}:cash`),
-                              'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
-                              'is-error': isDossierWorkspaceActionInError(`${document.key}:cash`)
-                            }"
                             :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
                             @click="onDossierWorkspaceCash(document)"
                           >
-                            {{ dossierWorkspaceActionLabel(document, "cash") }}
+                            Payer
                           </button>
                         </div>
                       </article>
                     </div>
+                    <article v-else class="panel dossier-column-empty">
+                      <strong>0 retouche</strong>
+                      <p class="helper">Aucune retouche rattachee a ce dossier.</p>
+                    </article>
+                  </article>
+                  <article class="panel dossier-document-column">
+                    <div class="panel-header detail-panel-header dossier-section-header">
+                      <div>
+                        <h3>Commandes</h3>
+                        <p class="helper">{{ dossierCommandeCards.length }} commande(s) dans ce dossier.</p>
+                      </div>
+                    </div>
+                    <div v-if="dossierCommandeCards.length > 0" class="stack-list dossier-workspace-list">
+                      <article
+                        v-for="document in dossierCommandeCards"
+                        :key="document.key"
+                        class="dossier-workspace-card dossier-workspace-card-simple"
+                        :class="{
+                          'is-active': dossierWorkspaceActiveDocumentKey === document.key,
+                          'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`) || isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
+                          'is-error': isDossierWorkspaceActionInError(`${document.key}:open`) || isDossierWorkspaceActionInError(`${document.key}:cash`)
+                        }"
+                      >
+                        <div class="row-between">
+                          <strong>{{ document.title }}</strong>
+                          <span class="status-chip dossier-status-badge" :data-status="normalizeDocumentStatus(document.status)">{{ document.status }}</span>
+                        </div>
+                        <div class="dossier-simple-metrics">
+                          <span>Statut : {{ document.status || "Non renseigne" }}</span>
+                          <span>Montant total : {{ formatCurrency(document.amount) }}</span>
+                          <span>Reste a payer : {{ formatCurrency(document.remaining) }}</span>
+                        </div>
+                        <div class="row-actions dossier-card-actions">
+                          <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
+                            Voir
+                          </button>
+                          <button
+                            v-if="canAccessRoute('caisse') && document.canCash"
+                            class="mini-btn dossier-action-btn dossier-action-btn-cash"
+                            :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
+                            @click="onDossierWorkspaceCash(document)"
+                          >
+                            Payer
+                          </button>
+                        </div>
+                      </article>
+                    </div>
+                    <article v-else class="panel dossier-column-empty">
+                      <strong>0 commande</strong>
+                      <p class="helper">Aucune commande rattachee a ce dossier.</p>
+                    </article>
                   </article>
                 </div>
                 <article v-else class="panel empty-state dossier-empty-state">
-                  <h3>Dossier pret a recevoir des documents</h3>
-                  <p>Ajoute une commande ou une retouche pour lancer le suivi depuis cet espace central.</p>
+                  <h3>0 document dans ce dossier</h3>
+                  <p>{{ detailDossier.totalCommandes }} commande(s) · {{ detailDossier.totalRetouches }} retouche(s)</p>
                 </article>
               </template>
             </template>
