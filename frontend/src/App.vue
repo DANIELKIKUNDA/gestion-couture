@@ -534,6 +534,74 @@ function normalizeDossier(raw = {}) {
   };
 }
 
+function formatDossierLastActivity(dossier) {
+  const value = dossier?.synthese?.derniereActivite || dossier?.dateDerniereActivite || dossier?.dateCreation || "";
+  return value ? formatDateTime(value) : "Aucune activite recente";
+}
+
+function dossierPrimarySignal(dossier) {
+  const withBalance = Number(dossier?.synthese?.documentsAvecSolde || 0);
+  const commandesEnCours = Number(dossier?.synthese?.commandesEnCours || 0);
+  const retouchesEnCours = Number(dossier?.synthese?.retouchesEnCours || 0);
+  const remaining = Number(dossier?.synthese?.soldeRestant ?? dossier?.soldeRestant ?? 0);
+
+  if (withBalance > 0 || remaining > 0) {
+    return {
+      tone: "cash",
+      label: "Paiement en attente",
+      detail: `${withBalance || 1} document(s) avec solde`
+    };
+  }
+  if (commandesEnCours > 0 || retouchesEnCours > 0) {
+    return {
+      tone: "priority",
+      label: "Production en cours",
+      detail: `${commandesEnCours} commande(s) · ${retouchesEnCours} retouche(s)`
+    };
+  }
+  return {
+    tone: "ready",
+    label: "Dossier stable",
+    detail: "Aucun point bloquant immediat"
+  };
+}
+
+function dossierSummaryLine(dossier) {
+  const notes = String(dossier?.notes || "").trim();
+  if (notes) return notes;
+  return `${Number(dossier?.totalCommandes || 0)} commande(s) · ${Number(dossier?.totalRetouches || 0)} retouche(s)`;
+}
+
+function dossierRecommendedAction(dossier) {
+  const withBalance = Number(dossier?.synthese?.documentsAvecSolde || 0);
+  const commandesEnCours = Number(dossier?.synthese?.commandesEnCours || 0);
+  const retouchesEnCours = Number(dossier?.synthese?.retouchesEnCours || 0);
+
+  if (withBalance > 0) {
+    return {
+      label: "Priorite paiement",
+      detail: `${withBalance} document(s) a solder`
+    };
+  }
+  if (commandesEnCours > 0 || retouchesEnCours > 0) {
+    return {
+      label: "Suivi production",
+      detail: `${commandesEnCours + retouchesEnCours} document(s) a suivre`
+    };
+  }
+  return {
+    label: "Dossier stable",
+    detail: "Aucune action urgente detectee"
+  };
+}
+
+function resetDossierFilters() {
+  dossierFilters.recherche = "";
+  dossierFilters.type = "ALL";
+  dossierFilters.statut = "ALL";
+  dossiersPagination.page = 1;
+}
+
 const DOSSIER_WORKSPACE_SECTION_ORDER = [
   {
     key: "todo",
@@ -607,7 +675,7 @@ function createDossierWorkspaceDocument(kind, row = {}) {
       flagsMetier: row.flagsMetier || normalizeDossierFlags(),
       canCash: Number(row.soldeRestant || 0) > 0,
       open: () => openCommandeDetail(row.idCommande),
-      cash: () => openRoute("caisse")
+      cash: () => onPaiementCommande(row)
     };
   }
   return {
@@ -624,7 +692,7 @@ function createDossierWorkspaceDocument(kind, row = {}) {
     flagsMetier: row.flagsMetier || normalizeDossierFlags(),
     canCash: Number(row.soldeRestant || 0) > 0,
     open: () => openRetoucheDetail(row.idRetouche),
-    cash: () => openRoute("caisse")
+    cash: () => onPaiementRetouche(row)
   };
 }
 
@@ -679,13 +747,13 @@ function isDossierWorkspaceActionInError(actionKey) {
 function dossierWorkspaceActionLabel(document, actionType) {
   const actionKey = `${document.key}:${actionType}`;
   if (isDossierWorkspaceActionPending(actionKey)) {
-    return actionType === "open" ? "Ouverture..." : "Acces...";
+    return actionType === "open" ? "Ouverture..." : "Paiement...";
   }
   if (isDossierWorkspaceActionSuccessful(actionKey)) {
-    return actionType === "open" ? "Ouvert" : "Pret";
+    return actionType === "open" ? "Ouvert" : "Enregistre";
   }
   if (actionType === "open") return "Voir";
-  return "Encaisser";
+  return "Payer";
 }
 
 async function runDossierWorkspaceAction(document, actionType, action) {
@@ -725,9 +793,15 @@ function resetDossierDraft() {
   dossierDraft.doublonDecisionId = "";
   dossierDraft.typeDossier = "INDIVIDUEL";
   dossierDraft.notes = "";
+  dossierClientSearchQuery.value = "";
+  dossierClientSearchOpen.value = false;
+  dossierClientSearchIndex.value = -1;
 }
 const MAX_CLIENT_SEARCH_RESULTS = 10;
 const CLIENT_INSIGHT_PREVIEW_SIZE = 3;
+const dossierClientSearchQuery = ref("");
+const dossierClientSearchOpen = ref(false);
+const dossierClientSearchIndex = ref(-1);
 const wizardClientSearchQuery = ref("");
 const wizardClientSearchOpen = ref(false);
 const wizardClientSearchIndex = ref(-1);
@@ -3504,8 +3578,12 @@ function searchClients(rawQuery) {
     .slice(0, MAX_CLIENT_SEARCH_RESULTS);
 }
 
+const dossierClientSearchResults = computed(() => searchClients(dossierClientSearchQuery.value));
 const wizardClientSearchResults = computed(() => searchClients(wizardClientSearchQuery.value));
 const retoucheClientSearchResultsWizard = computed(() => searchClients(retoucheClientSearchQueryWizard.value));
+const dossierSelectedExistingClient = computed(() =>
+  clientsActifs.value.find((client) => client.idClient === dossierDraft.existingClientId) || null
+);
 
 function normalizeClientDuplicateName(value) {
   return String(value || "")
@@ -9843,6 +9921,14 @@ function applyWizardExistingClient(client) {
   });
 }
 
+function selectDossierExistingClient(result) {
+  if (!result?.client?.idClient) return;
+  dossierDraft.existingClientId = result.client.idClient;
+  dossierClientSearchQuery.value = `${result.nomComplet} — ${result.telephone}`;
+  dossierClientSearchOpen.value = false;
+  dossierClientSearchIndex.value = -1;
+}
+
 function applyRetoucheExistingClient(client) {
   if (!client?.idClient) return;
   retoucheWizard.mode = "existing";
@@ -10147,10 +10233,23 @@ function onWizardClientSearchInput(event) {
   resetWizardClientInsight();
 }
 
+function onDossierClientSearchInput(event) {
+  dossierClientSearchQuery.value = event.target.value;
+  dossierDraft.existingClientId = "";
+  dossierClientSearchOpen.value = true;
+}
+
 function onWizardClientSearchBlur() {
   window.setTimeout(() => {
     wizardClientSearchOpen.value = false;
     wizardClientSearchIndex.value = -1;
+  }, 120);
+}
+
+function onDossierClientSearchBlur() {
+  window.setTimeout(() => {
+    dossierClientSearchOpen.value = false;
+    dossierClientSearchIndex.value = -1;
   }, 120);
 }
 
@@ -10181,6 +10280,36 @@ function onWizardClientSearchKeydown(event) {
     event.preventDefault();
     const index = wizardClientSearchIndex.value >= 0 ? wizardClientSearchIndex.value : 0;
     selectWizardExistingClient(results[index]);
+  }
+}
+
+function onDossierClientSearchKeydown(event) {
+  const results = dossierClientSearchResults.value;
+  if (event.key === "Escape") {
+    dossierClientSearchOpen.value = false;
+    dossierClientSearchIndex.value = -1;
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    dossierClientSearchOpen.value = true;
+    if (results.length === 0) return;
+    const next = dossierClientSearchIndex.value + 1;
+    dossierClientSearchIndex.value = next >= results.length ? 0 : next;
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    dossierClientSearchOpen.value = true;
+    if (results.length === 0) return;
+    const prev = dossierClientSearchIndex.value - 1;
+    dossierClientSearchIndex.value = prev < 0 ? results.length - 1 : prev;
+    return;
+  }
+  if (event.key === "Enter" && results.length > 0) {
+    event.preventDefault();
+    const index = dossierClientSearchIndex.value >= 0 ? dossierClientSearchIndex.value : 0;
+    selectDossierExistingClient(results[index]);
   }
 }
 
@@ -12692,6 +12821,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <option value="CLOTURE">Cloture</option>
                   </select>
                 </div>
+                <div class="row-between dossier-filter-summary">
+                  <p class="helper">{{ dossiersFiltered.length }} dossier(s) visible(s)</p>
+                  <button class="mini-btn" type="button" @click="resetDossierFilters">Reinitialiser</button>
+                </div>
               </article>
 
               <div v-if="dossiersPaged.length > 0" class="stack-list">
@@ -12704,6 +12837,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </div>
                     <span class="status-chip">{{ dossier.statutDossier }}</span>
                   </div>
+                  <div class="dossier-card-signal" :data-tone="dossierPrimarySignal(dossier).tone">
+                    <strong>{{ dossierPrimarySignal(dossier).label }}</strong>
+                    <span>{{ dossierPrimarySignal(dossier).detail }}</span>
+                  </div>
+                  <p class="helper dossier-card-summary">{{ dossierSummaryLine(dossier) }}</p>
                   <div class="mobile-kpi-grid dossier-kpis">
                     <div class="mobile-kpi">
                       <span>Commandes</span>
@@ -12721,6 +12859,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <span>Reste</span>
                       <strong>{{ formatCurrency(dossier.soldeRestant) }}</strong>
                     </div>
+                  </div>
+                  <div class="row-between dossier-card-footer">
+                    <p class="helper">Activite : {{ formatDossierLastActivity(dossier) }}</p>
+                    <span class="mini-btn">Ouvrir</span>
                   </div>
                 </article>
               </div>
@@ -12759,41 +12901,57 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <option value="CLOTURE">Cloture</option>
                   </select>
                 </div>
+                <div class="row-between dossier-filter-summary">
+                  <p class="helper">{{ dossiersFiltered.length }} dossier(s) visible(s)</p>
+                  <button class="mini-btn" type="button" @click="resetDossierFilters">Reinitialiser</button>
+                </div>
               </article>
 
-              <article class="panel">
-                <table class="data-table mobile-stack-table">
-                  <thead>
-                    <tr>
-                      <th>Responsable</th>
-                      <th>Type</th>
-                      <th>Commandes</th>
-                      <th>Retouches</th>
-                      <th>Total</th>
-                      <th>Reste</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="dossier in dossiersPaged" :key="dossier.idDossier">
-                      <td data-label="Responsable">
-                        <strong>{{ dossier.responsable.nomComplet || dossier.idDossier }}</strong>
-                        <div class="helper">{{ dossier.responsable.telephone || "Sans telephone" }}</div>
-                      </td>
-                      <td data-label="Type">{{ dossier.typeDossier }}</td>
-                      <td data-label="Commandes">{{ dossier.totalCommandes }}</td>
-                      <td data-label="Retouches">{{ dossier.totalRetouches }}</td>
-                      <td data-label="Total">{{ formatCurrency(dossier.totalMontant) }}</td>
-                      <td data-label="Reste">{{ formatCurrency(dossier.soldeRestant) }}</td>
-                      <td data-label="Actions">
-                        <button class="mini-btn" @click="openDossierDetail(dossier.idDossier)">Ouvrir</button>
-                      </td>
-                    </tr>
-                    <tr v-if="dossiersPaged.length === 0">
-                      <td colspan="7">Aucun dossier disponible.</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div v-if="dossiersPaged.length > 0" class="dossier-grid dossier-grid-desktop">
+                <article v-for="dossier in dossiersPaged" :key="dossier.idDossier" class="panel dossier-card dossier-card-desktop" @click="openDossierDetail(dossier.idDossier)">
+                  <div class="row-between">
+                    <div>
+                      <p class="mobile-overline">{{ dossier.typeDossier }}</p>
+                      <h3>{{ dossier.responsable.nomComplet || dossier.idDossier }}</h3>
+                      <p class="helper">{{ dossier.responsable.telephone || "Sans telephone" }}</p>
+                    </div>
+                    <div class="dossier-badge-stack">
+                      <span class="status-pill" data-tone="ok">{{ dossier.typeDossier }}</span>
+                      <span class="status-chip">{{ dossier.statutDossier }}</span>
+                    </div>
+                  </div>
+                  <div class="dossier-card-signal" :data-tone="dossierPrimarySignal(dossier).tone">
+                    <strong>{{ dossierPrimarySignal(dossier).label }}</strong>
+                    <span>{{ dossierPrimarySignal(dossier).detail }}</span>
+                  </div>
+                  <p class="helper dossier-card-summary">{{ dossierSummaryLine(dossier) }}</p>
+                  <div class="dossier-workspace-kpi-grid dossier-kpis-desktop">
+                    <article class="dossier-kpi-card">
+                      <span>Commandes</span>
+                      <strong>{{ dossier.totalCommandes }}</strong>
+                    </article>
+                    <article class="dossier-kpi-card">
+                      <span>Retouches</span>
+                      <strong>{{ dossier.totalRetouches }}</strong>
+                    </article>
+                    <article class="dossier-kpi-card">
+                      <span>Total</span>
+                      <strong>{{ formatCurrency(dossier.totalMontant) }}</strong>
+                    </article>
+                    <article class="dossier-kpi-card">
+                      <span>Reste</span>
+                      <strong>{{ formatCurrency(dossier.soldeRestant) }}</strong>
+                    </article>
+                  </div>
+                  <div class="row-between dossier-card-footer">
+                    <p class="helper">Activite : {{ formatDossierLastActivity(dossier) }}</p>
+                    <button class="mini-btn" @click.stop="openDossierDetail(dossier.idDossier)">Ouvrir</button>
+                  </div>
+                </article>
+              </div>
+              <article v-else class="panel empty-state">
+                <h3>Aucun dossier</h3>
+                <p>Commence par ouvrir un dossier pour centraliser commandes et retouches.</p>
               </article>
             </template>
           </ResponsiveDataContainer>
@@ -14227,8 +14385,14 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </div>
               </article>
 
-              <article v-if="detailDossierLoading" class="panel">
-                <p>Chargement du dossier...</p>
+              <article v-if="detailDossierLoading" class="panel dossier-skeleton-card">
+                <div class="dossier-skeleton-line lg"></div>
+                <div class="dossier-skeleton-line md"></div>
+                <div class="dossier-skeleton-grid">
+                  <span class="dossier-skeleton-pill"></span>
+                  <span class="dossier-skeleton-pill"></span>
+                  <span class="dossier-skeleton-pill"></span>
+                </div>
               </article>
               <article v-else-if="detailDossierError" class="panel error-panel">
                 <strong>Detail dossier</strong>
@@ -14241,11 +14405,28 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <p class="mobile-overline">Workspace dossier</p>
                       <h3>{{ detailDossier.responsable.nomComplet }}</h3>
                       <p class="helper">{{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
+                      <p class="helper dossier-hero-subtitle">{{ dossierSummaryLine(detailDossier) }}</p>
                     </div>
                     <div class="dossier-badge-stack">
                       <span class="status-pill" data-tone="ok">{{ detailDossier.typeDossier }}</span>
                       <span class="status-chip">{{ detailDossier.statutDossier }}</span>
                     </div>
+                  </div>
+                  <div class="dossier-card-signal dossier-hero-signal" :data-tone="dossierPrimarySignal(detailDossier).tone">
+                    <strong>{{ dossierPrimarySignal(detailDossier).label }}</strong>
+                    <span>{{ dossierPrimarySignal(detailDossier).detail }} · Activite : {{ formatDossierLastActivity(detailDossier) }}</span>
+                  </div>
+                  <div class="dossier-highlight-strip">
+                    <article class="dossier-highlight-card">
+                      <span>Prochaine action</span>
+                      <strong>{{ dossierRecommendedAction(detailDossier).label }}</strong>
+                      <p>{{ dossierRecommendedAction(detailDossier).detail }}</p>
+                    </article>
+                    <article class="dossier-highlight-card">
+                      <span>Responsable</span>
+                      <strong>{{ detailDossier.responsable.nomComplet }}</strong>
+                      <p>{{ detailDossier.responsable.telephone || "Telephone non renseigne" }}</p>
+                    </article>
                   </div>
                   <div class="mobile-kpi-grid dossier-workspace-kpis">
                     <div class="mobile-kpi dossier-kpi-card"><span>Total montant</span><strong>{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong></div>
@@ -14289,6 +14470,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                           <span>{{ formatCurrency(document.amount) }}</span>
                           <span>Reste : {{ formatCurrency(document.remaining) }}</span>
                         </div>
+                        <div class="dossier-card-signal dossier-document-signal" :data-tone="section.tone">
+                          <strong>{{ section.title }}</strong>
+                          <span>{{ section.subtitle }}</span>
+                        </div>
                         <p v-if="document.helperLine" class="helper">{{ document.helperLine }}</p>
                         <div class="row-actions" v-if="document.flagsMetier.enRetard || document.flagsMetier.termineeNonLivree || document.flagsMetier.soldeOuvert">
                           <span v-if="document.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
@@ -14326,8 +14511,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </div>
                   </article>
                 </div>
-                <article v-else class="panel">
-                  <p class="helper">Aucun document lie a ce dossier.</p>
+                <article v-else class="panel empty-state dossier-empty-state">
+                  <h3>Dossier pret a recevoir des documents</h3>
+                  <p>Ajoute une commande ou une retouche pour transformer ce dossier en espace de suivi complet.</p>
                 </article>
               </template>
             </template>
@@ -14358,8 +14544,15 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </button>
                 </div>
               </article>
-              <article v-if="!detailDossier && detailDossierLoading" class="panel">
-                <p>Chargement du dossier...</p>
+              <article v-if="!detailDossier && detailDossierLoading" class="panel dossier-skeleton-card">
+                <div class="dossier-skeleton-line lg"></div>
+                <div class="dossier-skeleton-line md"></div>
+                <div class="dossier-skeleton-grid">
+                  <span class="dossier-skeleton-pill"></span>
+                  <span class="dossier-skeleton-pill"></span>
+                  <span class="dossier-skeleton-pill"></span>
+                  <span class="dossier-skeleton-pill"></span>
+                </div>
               </article>
               <article v-else-if="!detailDossier && detailDossierError" class="panel error-panel">
                 <strong>Detail dossier</strong>
@@ -14372,8 +14565,30 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <p class="mobile-overline">Responsable</p>
                       <h3>{{ detailDossier.responsable.nomComplet }}</h3>
                       <p class="helper">{{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
+                      <p class="helper dossier-hero-subtitle">{{ dossierSummaryLine(detailDossier) }}</p>
                     </div>
                     <div class="helper">Derniere activite : {{ formatDateTime(detailDossier.synthese.derniereActivite) }}</div>
+                  </div>
+                  <div class="dossier-card-signal dossier-hero-signal" :data-tone="dossierPrimarySignal(detailDossier).tone">
+                    <strong>{{ dossierPrimarySignal(detailDossier).label }}</strong>
+                    <span>{{ dossierPrimarySignal(detailDossier).detail }}</span>
+                  </div>
+                  <div class="dossier-highlight-strip">
+                    <article class="dossier-highlight-card">
+                      <span>Prochaine action</span>
+                      <strong>{{ dossierRecommendedAction(detailDossier).label }}</strong>
+                      <p>{{ dossierRecommendedAction(detailDossier).detail }}</p>
+                    </article>
+                    <article class="dossier-highlight-card">
+                      <span>Activite recente</span>
+                      <strong>{{ formatDossierLastActivity(detailDossier) }}</strong>
+                      <p>{{ detailDossier.responsable.telephone || "Telephone non renseigne" }}</p>
+                    </article>
+                    <article class="dossier-highlight-card">
+                      <span>Documents avec solde</span>
+                      <strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong>
+                      <p>Vue directe sur les encaissements restants</p>
+                    </article>
                   </div>
                   <div class="dossier-workspace-kpi-grid">
                     <article class="dossier-kpi-card">
@@ -14435,6 +14650,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                           <span>{{ formatCurrency(document.amount) }}</span>
                           <span>Reste : {{ formatCurrency(document.remaining) }}</span>
                         </div>
+                        <div class="dossier-card-signal dossier-document-signal" :data-tone="section.tone">
+                          <strong>{{ section.title }}</strong>
+                          <span>{{ section.subtitle }}</span>
+                        </div>
                         <p v-if="document.helperLine" class="helper">{{ document.helperLine }}</p>
                         <div class="row-actions" v-if="document.flagsMetier.enRetard || document.flagsMetier.termineeNonLivree || document.flagsMetier.soldeOuvert">
                           <span v-if="document.flagsMetier.enRetard" class="status-pill" data-tone="due">En retard</span>
@@ -14472,8 +14691,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </div>
                   </article>
                 </div>
-                <article v-else class="panel">
-                  <p class="helper">Aucun document lie a ce dossier.</p>
+                <article v-else class="panel empty-state dossier-empty-state">
+                  <h3>Dossier pret a recevoir des documents</h3>
+                  <p>Ajoute une commande ou une retouche pour lancer le suivi depuis cet espace central.</p>
                 </article>
               </template>
             </template>
@@ -17734,35 +17954,76 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
       </div>
     </div>
 
-  <div v-if="dossierModalOpen" class="modal-backdrop" @click.self="closeDossierModal">
-    <div class="modal-card modal-card-wizard">
-      <header class="modal-header">
-        <div>
-          <p class="mobile-overline">Dossier</p>
-          <h3>Ouvrir un dossier</h3>
-          <p class="helper">Le dossier devient le point de depart pour centraliser commandes et retouches.</p>
-        </div>
-        <button class="mini-btn" @click="closeDossierModal">Fermer</button>
-      </header>
+    <div v-if="dossierModalOpen" class="modal-backdrop" @click.self="closeDossierModal">
+      <div class="modal-card modal-card-wizard dossier-modal-card">
+        <header class="modal-header">
+          <div>
+            <p class="mobile-overline">Dossier</p>
+            <h3>Ouvrir un dossier</h3>
+            <p class="helper">Un espace responsable pour centraliser commandes, retouches, paiements et priorites.</p>
+          </div>
+          <button class="mini-btn" @click="closeDossierModal">Fermer</button>
+        </header>
 
       <section class="modal-body modal-body-wizard stack-form">
+        <div class="wizard-stage-head">
+          <div>
+            <p class="mobile-overline">Responsable</p>
+            <h4>Choisir la personne qui porte le dossier</h4>
+            <p class="helper">Reprenez un client existant ou creez une fiche minimale sans quitter le flux.</p>
+          </div>
+        </div>
         <div class="segmented">
           <button class="mini-btn" :class="{ active: dossierDraft.mode === 'existing' }" @click="dossierDraft.mode = 'existing'">Responsable existant</button>
           <button class="mini-btn" :class="{ active: dossierDraft.mode === 'new' }" @click="dossierDraft.mode = 'new'">Nouveau responsable</button>
         </div>
 
         <div v-if="dossierDraft.mode === 'existing'" class="stack-form">
-          <select v-model="dossierDraft.existingClientId">
-            <option value="">Choisir un client responsable</option>
-            <option v-for="client in clientsActifs" :key="`dossier-client-${client.idClient}`" :value="client.idClient">
-              {{ formatClientDisplayName(client) }}{{ client.telephone ? ` · ${client.telephone}` : "" }}
-            </option>
-          </select>
+          <label>🔍 Rechercher un responsable</label>
+          <div class="client-search">
+            <input
+              :value="dossierClientSearchQuery"
+              type="text"
+              placeholder="Nom ou telephone du responsable"
+              autocomplete="off"
+              @input="onDossierClientSearchInput"
+              @focus="dossierClientSearchOpen = true"
+              @blur="onDossierClientSearchBlur"
+              @keydown="onDossierClientSearchKeydown"
+            />
+            <ul v-if="dossierClientSearchOpen && dossierClientSearchQuery.trim()" class="client-search-results">
+              <li v-for="(row, index) in dossierClientSearchResults" :key="`dossier-client-${row.client.idClient}`">
+                <button
+                  type="button"
+                  class="client-search-option"
+                  :class="{ active: index === dossierClientSearchIndex }"
+                  @mousedown.prevent="selectDossierExistingClient(row)"
+                >
+                  {{ row.nomComplet }} — {{ row.telephone }}
+                </button>
+              </li>
+              <li v-if="dossierClientSearchResults.length === 0" class="client-search-empty">Aucun client trouvé</li>
+            </ul>
+          </div>
+          <button class="mini-btn" type="button" @click="dossierDraft.mode = 'new'">+ Nouveau responsable</button>
+          <div v-if="dossierSelectedExistingClient" class="client-insight-card">
+            <p class="client-insight-title">Responsable selectionne</p>
+            <p class="client-insight-selected">{{ dossierClientSearchQuery }}</p>
+            <p class="helper">{{ dossierSelectedExistingClient.telephone || "Telephone non renseigne" }}</p>
+          </div>
         </div>
         <div v-else class="stack-form">
+          <label>Nom</label>
           <input v-model="dossierDraft.newClient.nom" type="text" placeholder="Nom" />
+          <label>Prenom</label>
           <input v-model="dossierDraft.newClient.prenom" type="text" placeholder="Prenom" />
+          <label>Telephone <span class="helper">(optionnel)</span></label>
           <input v-model="dossierDraft.newClient.telephone" type="text" placeholder="Telephone (optionnel)" />
+          <div class="client-insight-card">
+            <p class="client-insight-title">Nouveau responsable</p>
+            <p class="client-insight-selected">{{ `${dossierDraft.newClient.nom} ${dossierDraft.newClient.prenom}`.trim() || "Responsable en cours" }}</p>
+            <p class="helper">La fiche minimale sera creee en meme temps que le dossier.</p>
+          </div>
         </div>
 
         <div class="grid-2 dossier-filter-grid">
@@ -17773,9 +18034,23 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </select>
           <input v-model="dossierDraft.notes" type="text" placeholder="Note rapide (optionnel)" />
         </div>
+        <div class="dossier-modal-preview-grid">
+          <article class="dossier-preview-card">
+            <span>Type</span>
+            <strong>{{ dossierDraft.typeDossier }}</strong>
+          </article>
+          <article class="dossier-preview-card">
+            <span>Responsable</span>
+            <strong>{{ dossierDraft.mode === 'existing' ? (dossierClientSearchQuery || 'A selectionner') : (`${dossierDraft.newClient.nom} ${dossierDraft.newClient.prenom}`.trim() || 'A renseigner') }}</strong>
+          </article>
+          <article class="dossier-preview-card">
+            <span>Note</span>
+            <strong>{{ dossierDraft.notes || "Aucune note" }}</strong>
+          </article>
+        </div>
       </section>
 
-      <footer class="modal-footer">
+      <footer class="modal-footer dossier-modal-footer">
         <button class="mini-btn" @click="closeDossierModal">Annuler</button>
         <button class="action-btn blue" :disabled="dossierSubmitting" @click="submitDossierCreate">Creer le dossier</button>
       </footer>

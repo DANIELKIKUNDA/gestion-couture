@@ -120,9 +120,20 @@ async function seedFlaggedDossier() {
 
 async function openSeededDossier(page: any, { responsableName, expectedLabels = [] }: { responsableName: string; expectedLabels?: string[] }) {
   await gotoDossiers(page);
-  const row = page.locator("tr").filter({ hasText: responsableName }).first();
-  await expect(row).toBeVisible();
-  await row.getByRole("button", { name: /^Ouvrir$/i }).click();
+  const card = page.locator(".dossier-card").filter({ hasText: responsableName }).first();
+  if (await card.count()) {
+    await expect(card).toBeVisible();
+    const openButton = card.getByRole("button", { name: /^Ouvrir$/i }).first();
+    if (await openButton.count()) {
+      await openButton.click();
+    } else {
+      await card.click();
+    }
+  } else {
+    const row = page.locator("tr").filter({ hasText: responsableName }).first();
+    await expect(row).toBeVisible();
+    await row.getByRole("button", { name: /^Ouvrir$/i }).click();
+  }
   await expect(page.getByRole("heading", { name: /^Detail Dossier$/i }).first()).toBeVisible();
   await expect(page.locator(".dossier-workspace-hero").first()).toContainText(new RegExp(responsableName, "i"));
   await page.getByRole("button", { name: /^Actualiser$/i }).click();

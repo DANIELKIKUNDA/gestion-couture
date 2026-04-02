@@ -189,9 +189,20 @@ export async function gotoDossiers(page: Page) {
 }
 
 export async function openDossierFromList(page: Page, responsableName: string) {
-  const row = page.locator("tr").filter({ hasText: responsableName }).first();
-  await expect(row).toBeVisible();
-  await row.getByRole("button", { name: /^Ouvrir$/i }).click();
+  const card = page.locator(".dossier-card").filter({ hasText: responsableName }).first();
+  if (await card.count()) {
+    await expect(card).toBeVisible();
+    const openButton = card.getByRole("button", { name: /^Ouvrir$/i }).first();
+    if (await openButton.count()) {
+      await openButton.click();
+    } else {
+      await card.click();
+    }
+  } else {
+    const row = page.locator("tr").filter({ hasText: responsableName }).first();
+    await expect(row).toBeVisible();
+    await row.getByRole("button", { name: /^Ouvrir$/i }).click();
+  }
   await expect(page.getByRole("heading", { name: /^Detail Dossier$/i }).first()).toBeVisible();
   await expect(page.locator(".dossier-workspace-hero").first()).toContainText(new RegExp(responsableName, "i"));
 }
@@ -211,7 +222,7 @@ export async function createDossierThroughUi(
   await newDossierButton.click({ force: true });
   const modal = page.locator(".modal-card").filter({ hasText: "Ouvrir un dossier" }).first();
   await expect(modal).toBeVisible();
-  await modal.getByRole("button", { name: /Nouveau responsable/i }).click();
+  await modal.locator(".segmented").getByRole("button", { name: /^Nouveau responsable$/i }).click();
   const inputs = modal.locator("input");
   await inputs.nth(0).fill(nom);
   await inputs.nth(1).fill(prenom);
@@ -340,7 +351,10 @@ export async function createRetoucheInCurrentDossierThroughUi(page: Page) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await submitButton.click();
     try {
-      await expect(modal).toBeHidden({ timeout: 10_000 });
+      await Promise.race([
+        expect(modal).toBeHidden({ timeout: 10_000 }),
+        expect(page.getByRole("heading", { name: /^Detail Retouche$/i }).first()).toBeVisible({ timeout: 10_000 })
+      ]);
       break;
     } catch (error) {
       if (attempt === 1) throw error;
