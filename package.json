@@ -4,7 +4,7 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "prepare": "husky",
+        "prepare": "node scripts/prepare-husky.mjs",
         "start": "node src/interfaces/http/server.js",
         "test": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/caisse.bilans.audit.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js",
         "test:backend:stable": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js",

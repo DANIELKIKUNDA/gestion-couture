@@ -24,6 +24,10 @@ storage/
 backups/
 deploy/certbot/
 projet.tar.gz
+playwright-report/
+test-results/
+tests/e2e/.runtime/
+.tmp/
 
 # Vite
 .vite/

@@ -510,40 +510,17 @@ async function buildCommandeApiPayload(atelierId, payload = {}, localRecord = {}
     descriptionCommande: normalizeString(payload.descriptionCommande),
     montantTotal: Number(payload.montantTotal || 0),
     typeHabit: normalizeString(payload.typeHabit),
-    mesuresHabit: payload.mesuresHabit || {}
+    mesuresHabit: payload.mesuresHabit || {},
+    items: Array.isArray(payload.items)
+      ? payload.items
+      : Array.isArray(localRecord?.items)
+        ? localRecord.items
+        : []
   };
   if (payload.nouveauClient && typeof payload.nouveauClient === "object") {
     requestPayload.nouveauClient = payload.nouveauClient;
   } else {
     requestPayload.idClient = clientServerId;
-  }
-  const sourceLines = Array.isArray(payload.lignesCommande)
-    ? payload.lignesCommande
-    : Array.isArray(localRecord?.lignesCommande)
-      ? localRecord.lignesCommande
-      : [];
-  if (sourceLines.length > 0) {
-    const lines = [];
-    for (const rawLine of sourceLines) {
-      const line = rawLine && typeof rawLine === "object" ? rawLine : {};
-      const requestLine = {
-        role: normalizeString(line.role),
-        typeHabit: normalizeString(line.typeHabit),
-        mesuresHabit: line.mesuresHabit || {},
-        ordreAffichage: Number(line.ordreAffichage || 1),
-        nomAffiche: normalizeString(line.nomAffiche),
-        prenomAffiche: normalizeString(line.prenomAffiche)
-      };
-      if (line.utiliseClientPayeur === true || normalizeString(line.source) === "PAYEUR") {
-        requestLine.utiliseClientPayeur = true;
-      } else if (line.nouveauClient && typeof line.nouveauClient === "object") {
-        requestLine.nouveauClient = line.nouveauClient;
-      } else {
-        requestLine.idClient = await resolveBeneficiaryClientServerId(atelierId, line);
-      }
-      lines.push(requestLine);
-    }
-    requestPayload.lignesCommande = lines;
   }
   if (payload.datePrevue) {
     requestPayload.datePrevue = payload.datePrevue;
@@ -559,13 +536,18 @@ function buildCommandePhotoUpdatePayload(localRecord = {}) {
   };
 }
 
-function buildRetoucheApiPayload(payload = {}, clientServerId) {
+function buildRetoucheApiPayload(payload = {}, clientServerId, localRecord = {}) {
   const requestPayload = {
     descriptionRetouche: normalizeString(payload.descriptionRetouche),
     typeRetouche: normalizeString(payload.typeRetouche),
     montantTotal: Number(payload.montantTotal || 0),
     typeHabit: normalizeString(payload.typeHabit),
-    mesuresHabit: payload.mesuresHabit || {}
+    mesuresHabit: payload.mesuresHabit || {},
+    items: Array.isArray(payload.items)
+      ? payload.items
+      : Array.isArray(localRecord?.items)
+        ? localRecord.items
+        : []
   };
   if (payload.nouveauClient && typeof payload.nouveauClient === "object") {
     requestPayload.nouveauClient = payload.nouveauClient;
@@ -586,19 +568,6 @@ function buildCommandeEmbeddedClientResults(payload = {}, localRecord = {}, resp
     if (matched) {
       related.push({
         localId: normalizeString(localRecord.clientLocalId),
-        serverPayload: matched
-      });
-    }
-  }
-
-  const sourceLines = Array.isArray(payload?.lignesCommande) ? payload.lignesCommande : [];
-  for (const line of sourceLines) {
-    const localId = normalizeString(line?.clientLocalId);
-    if (!localId || !(line?.nouveauClient && typeof line.nouveauClient === "object")) continue;
-    const matched = clientsAssocies.find((client) => normalizeString(client?.idClient) === normalizeString(line.nouveauClient?.idClient));
-    if (matched) {
-      related.push({
-        localId,
         serverPayload: matched
       });
     }
@@ -660,7 +629,7 @@ async function executeQueueEntry(atelierId, entry) {
     }
 
     const clientServerId = entry.payload?.nouveauClient ? "" : await resolveClientServerId(atelierId, entry.payload, localRecord);
-    const response = await atelierApi.createRetouche(buildRetoucheApiPayload(entry.payload || {}, clientServerId));
+    const response = await atelierApi.createRetouche(buildRetoucheApiPayload(entry.payload || {}, clientServerId, localRecord));
     return {
       entityType: "retouche",
       localRecord,

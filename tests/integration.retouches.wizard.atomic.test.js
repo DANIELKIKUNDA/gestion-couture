@@ -47,6 +47,17 @@ async function countRetouchesById(atelierId, idRetouche) {
   return Number(result.rows[0]?.total || 0);
 }
 
+async function getRetoucheItems(atelierId, idRetouche) {
+  const result = await pool.query(
+    `SELECT id_item, type_retouche, description, prix
+     FROM retouche_items
+     WHERE atelier_id = $1 AND id_retouche = $2
+     ORDER BY ordre_affichage ASC, date_creation ASC`,
+    [atelierId, idRetouche]
+  );
+  return result.rows;
+}
+
 async function getClientLatestMeasures(session, idClient, typeHabit) {
   const response = await withAuth(
     session.client.get(`/api/clients/${encodeURIComponent(idClient)}/mesures/derniere`).query({ typeHabit }),
@@ -84,6 +95,28 @@ async function run() {
   assert.equal(created.body?.client?.idClient, createPayload.nouveauClient.idClient);
   assert.equal(await countClientsByTelephone(atelierId, createPayload.nouveauClient.telephone), 1, "le client doit exister une seule fois");
   assert.equal(await countRetouchesById(atelierId, createPayload.idRetouche), 1, "la retouche doit exister une seule fois");
+  const createdItems = await getRetoucheItems(atelierId, createPayload.idRetouche);
+  assert.equal(createdItems.length, 1, "une retouche legacy doit creer un item par defaut");
+  assert.equal(createdItems[0]?.type_retouche, "OURLET");
+
+  const multiItemPayload = {
+    idRetouche: buildTestId("RET"),
+    idClient: createPayload.nouveauClient.idClient,
+    descriptionRetouche: "Retouche plusieurs items",
+    typeRetouche: "OURLET",
+    montantTotal: 0,
+    typeHabit: "ROBE",
+    mesuresHabit: robeMesuresCompletes,
+    items: [
+      { typeRetouche: "OURLET", description: "Ourlet bas", prix: 25 },
+      { typeRetouche: "AJUSTEMENT", description: "Ajustement cote", prix: 18 }
+    ]
+  };
+  const multiItemCreation = await withAuth(session.client.post("/api/retouches/wizard"), session.token).send(multiItemPayload);
+  assert.equal(multiItemCreation.status, 201, "une retouche doit supporter plusieurs items pour une seule personne");
+  assert.equal(Number(multiItemCreation.body?.retouche?.montantTotal || 0), 43);
+  const multiItems = await getRetoucheItems(atelierId, multiItemPayload.idRetouche);
+  assert.equal(multiItems.length, 2, "les items retouche doivent etre persistés atomiquement");
 
   const replay = await withAuth(session.client.post("/api/retouches/wizard"), session.token).send(createPayload);
   assert.equal(replay.status, 200, "rejouer la meme creation doit renvoyer la retouche existante");

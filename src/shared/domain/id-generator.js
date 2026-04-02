@@ -28,8 +28,16 @@ export function generateCommandeLigneId() {
   return buildId("CLG");
 }
 
+export function generateCommandeItemId() {
+  return buildId("CIT");
+}
+
 export function generateRetoucheId() {
   return buildId("RET");
+}
+
+export function generateRetoucheItemId() {
+  return buildId("RIT");
 }
 
 export function generateCaisseJourId() {

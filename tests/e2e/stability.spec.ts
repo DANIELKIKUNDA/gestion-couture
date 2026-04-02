@@ -44,16 +44,7 @@ async function seedFlaggedDossier() {
     montantTotal: 180,
     datePrevue: new Date(Date.now() - 3 * 86400000).toISOString(),
     typeHabit: "PANTALON",
-    mesuresHabit: { longueur: 100, tourTaille: 80, tourHanche: 90, largeurBas: 18, hauteurFourche: 26 },
-    lignesCommande: [
-      {
-        role: "PAYEUR_BENEFICIAIRE",
-        utiliseClientPayeur: true,
-        typeHabit: "PANTALON",
-        mesuresHabit: { longueur: 100, tourTaille: 80, tourHanche: 90, largeurBas: 18, hauteurFourche: 26 },
-        ordreAffichage: 1
-      }
-    ]
+    mesuresHabit: { longueur: 100, tourTaille: 80, tourHanche: 90, largeurBas: 18, hauteurFourche: 26 }
   });
   await authRequest(actor, "post", `/api/commandes/${encodeURIComponent(overdueCommande.idCommande)}/paiements`).send({ montant: 10 });
   await setCommandeState(actor.atelierId, overdueCommande.idCommande, {
@@ -70,16 +61,7 @@ async function seedFlaggedDossier() {
     montantTotal: 200,
     datePrevue: new Date(Date.now() + 2 * 86400000).toISOString(),
     typeHabit: "PANTALON",
-    mesuresHabit: { longueur: 101, tourTaille: 81, tourHanche: 91, largeurBas: 19, hauteurFourche: 27 },
-    lignesCommande: [
-      {
-        role: "PAYEUR_BENEFICIAIRE",
-        utiliseClientPayeur: true,
-        typeHabit: "PANTALON",
-        mesuresHabit: { longueur: 101, tourTaille: 81, tourHanche: 91, largeurBas: 19, hauteurFourche: 27 },
-        ordreAffichage: 1
-      }
-    ]
+    mesuresHabit: { longueur: 101, tourTaille: 81, tourHanche: 91, largeurBas: 19, hauteurFourche: 27 }
   });
   await authRequest(actor, "post", `/api/commandes/${encodeURIComponent(readyCommande.idCommande)}/paiements`).send({ montant: 40 });
   await authRequest(actor, "post", `/api/commandes/${encodeURIComponent(readyCommande.idCommande)}/terminer`).send({});
@@ -141,7 +123,8 @@ async function openSeededDossier(page: any, { responsableName, expectedLabels = 
   const row = page.locator("tr").filter({ hasText: responsableName }).first();
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: /^Ouvrir$/i }).click();
-  await expect(page.getByRole("heading", { name: new RegExp(responsableName, "i") }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Detail Dossier$/i }).first()).toBeVisible();
+  await expect(page.locator(".dossier-workspace-hero").first()).toContainText(new RegExp(responsableName, "i"));
   await page.getByRole("button", { name: /^Actualiser$/i }).click();
   await expect
     .poll(async () => {
@@ -183,7 +166,7 @@ test("resiste a plusieurs refresh rapides sans reset brutal", async ({ page }) =
   await loginInBrowser(page, actor);
   await openSeededDossier(page, { responsableName, expectedLabels });
 
-  const dossierHeading = page.getByRole("heading", { name: new RegExp(responsableName, "i") }).first();
+  const dossierHeading = page.locator(".dossier-workspace-hero").first();
   const cashButton = page.getByRole("button", { name: /^Encaisser$/i }).first();
   await expect(dossierHeading).toBeVisible();
   await expect(cashButton).toBeVisible();

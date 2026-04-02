@@ -101,6 +101,7 @@ function mapCommandeRow(row) {
     soldeRestant,
     statutCommande: row.statut,
     typeHabit: row.type_habit || "",
+    items: [],
     nombreLignes: Number(row.nombre_lignes || 0),
     nombreBeneficiaires: Number(row.nombre_beneficiaires || 0),
     beneficiairesResume: [],
@@ -124,6 +125,7 @@ function mapRetoucheRow(row) {
     soldeRestant,
     statutRetouche: row.statut,
     typeHabit: row.type_habit || "",
+    items: [],
     beneficiaire: buildEntityIdentity({
       idClient: row.id_client,
       nom: row.client_nom,
@@ -166,6 +168,76 @@ function attachCommandeBeneficiaires(commandes, commandeLignesRows) {
   }
 }
 
+function attachCommandeItems(commandes, itemRows) {
+  const byCommande = new Map(commandes.map((commande) => [commande.idCommande, []]));
+  for (const row of itemRows || []) {
+    const items = byCommande.get(row.id_commande);
+    if (!items) continue;
+    items.push({
+      idItem: row.id_item,
+      idCommande: row.id_commande,
+      typeHabit: row.type_habit || "",
+      description: row.description || "",
+      prix: Number(row.prix || 0),
+      ordreAffichage: Number(row.ordre_affichage || 1),
+      dateCreation: row.date_creation
+    });
+  }
+  for (const commande of commandes) {
+    if ((byCommande.get(commande.idCommande) || []).length > 0) {
+      commande.items = byCommande.get(commande.idCommande) || [];
+      commande.nombreLignes = commande.items.length;
+      continue;
+    }
+    commande.items = commande.typeHabit
+      ? [{
+          idItem: `LEGACY-${commande.idCommande}`,
+          idCommande: commande.idCommande,
+          typeHabit: commande.typeHabit,
+          description: commande.descriptionCommande || "",
+          prix: Number(commande.montantTotal || 0),
+          ordreAffichage: 1,
+          dateCreation: commande.dateCreation
+        }]
+      : [];
+    commande.nombreLignes = commande.items.length;
+  }
+}
+
+function attachRetoucheItems(retouches, itemRows) {
+  const byRetouche = new Map(retouches.map((retouche) => [retouche.idRetouche, []]));
+  for (const row of itemRows || []) {
+    const items = byRetouche.get(row.id_retouche);
+    if (!items) continue;
+    items.push({
+      idItem: row.id_item,
+      idRetouche: row.id_retouche,
+      typeRetouche: row.type_retouche || "",
+      description: row.description || "",
+      prix: Number(row.prix || 0),
+      ordreAffichage: Number(row.ordre_affichage || 1),
+      dateCreation: row.date_creation
+    });
+  }
+  for (const retouche of retouches) {
+    if ((byRetouche.get(retouche.idRetouche) || []).length > 0) {
+      retouche.items = byRetouche.get(retouche.idRetouche) || [];
+      continue;
+    }
+    retouche.items = retouche.typeRetouche
+      ? [{
+          idItem: `LEGACY-${retouche.idRetouche}`,
+          idRetouche: retouche.idRetouche,
+          typeRetouche: retouche.typeRetouche,
+          description: retouche.descriptionRetouche || "",
+          prix: Number(retouche.montantTotal || 0),
+          ordreAffichage: 1,
+          dateCreation: retouche.dateDepot
+        }]
+      : [];
+  }
+}
+
 function buildSynthese(base, commandes, retouches) {
   const participants = new Set();
 
@@ -196,6 +268,14 @@ function buildSynthese(base, commandes, retouches) {
     soldeRestant: Math.max(0, Number(base.soldeRestant || 0)),
     derniereActivite: base.dateDerniereActivite || null
   };
+}
+
+async function queryIfTableExists(db, tableName, sql, params) {
+  const exists = await db.query(`SELECT to_regclass($1) IS NOT NULL AS exists`, [`public.${tableName}`]);
+  if (!exists.rows[0]?.exists) {
+    return { rows: [] };
+  }
+  return db.query(sql, params);
 }
 
 export class DossierRepoPg {
@@ -363,7 +443,7 @@ export class DossierRepoPg {
     const dossier = await this.getById(idDossier);
     if (!dossier) return null;
 
-    const [summaryList, commandesRes, commandeLignesRes, retouchesRes] = await Promise.all([
+    const [summaryList, commandesRes, commandeLignesRes, commandeItemsRes, retouchesRes, retoucheItemsRes] = await Promise.all([
       this.db.query(
         `SELECT d.id_dossier,
                 d.id_responsable_client,
@@ -472,6 +552,21 @@ export class DossierRepoPg {
          ORDER BY l.id_commande ASC, l.ordre_affichage ASC, l.date_creation ASC`,
         [this.atelierId, idDossier]
       ),
+      queryIfTableExists(
+        this.db,
+        "commande_items",
+        `SELECT id_item, id_commande, type_habit, description, prix, ordre_affichage, date_creation
+         FROM commande_items
+         WHERE atelier_id = $1
+           AND id_commande IN (
+             SELECT id_commande
+             FROM commandes
+             WHERE atelier_id = $1
+               AND id_dossier = $2
+           )
+         ORDER BY id_commande ASC, ordre_affichage ASC, date_creation ASC`,
+        [this.atelierId, idDossier]
+      ),
       this.db.query(
         `SELECT r.id_retouche,
                 r.id_client,
@@ -491,7 +586,22 @@ export class DossierRepoPg {
          LEFT JOIN clients c ON c.id_client = r.id_client AND c.atelier_id = r.atelier_id
          WHERE r.atelier_id = $1
            AND r.id_dossier = $2
-         ORDER BY r.date_depot DESC`,
+        ORDER BY r.date_depot DESC`,
+        [this.atelierId, idDossier]
+      ),
+      queryIfTableExists(
+        this.db,
+        "retouche_items",
+        `SELECT id_item, id_retouche, type_retouche, description, prix, ordre_affichage, date_creation
+         FROM retouche_items
+         WHERE atelier_id = $1
+           AND id_retouche IN (
+             SELECT id_retouche
+             FROM retouches
+             WHERE atelier_id = $1
+               AND id_dossier = $2
+           )
+         ORDER BY id_retouche ASC, ordre_affichage ASC, date_creation ASC`,
         [this.atelierId, idDossier]
       )
     ]);
@@ -499,7 +609,9 @@ export class DossierRepoPg {
     const summary = summaryList.rows[0] ? mapSummaryRow(summaryList.rows[0]) : null;
     const commandes = commandesRes.rows.map(mapCommandeRow);
     attachCommandeBeneficiaires(commandes, commandeLignesRes.rows);
+    attachCommandeItems(commandes, commandeItemsRes.rows);
     const retouches = retouchesRes.rows.map(mapRetoucheRow);
+    attachRetoucheItems(retouches, retoucheItemsRes.rows);
     const base = summary || mapSummaryRow({
       id_dossier: dossier.idDossier,
       id_responsable_client: dossier.idResponsableClient,

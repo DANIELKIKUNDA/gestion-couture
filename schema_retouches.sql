@@ -178,6 +178,44 @@ BEGIN
   END IF;
 END $$;
 
+CREATE TABLE IF NOT EXISTS retouche_items (
+  id_item TEXT PRIMARY KEY,
+  atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
+  id_retouche TEXT NOT NULL,
+  type_retouche TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  prix NUMERIC(12,2) NOT NULL CHECK (prix >= 0),
+  ordre_affichage INTEGER NOT NULL DEFAULT 1 CHECK (ordre_affichage > 0),
+  date_creation TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_retouche_items_atelier_retouche
+ON retouche_items (atelier_id, id_retouche, ordre_affichage);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'retouche_items_atelier_fk'
+  ) THEN
+    ALTER TABLE retouche_items
+      ADD CONSTRAINT retouche_items_atelier_fk
+      FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'retouche_items_retouche_atelier_fk'
+  ) THEN
+    ALTER TABLE retouche_items
+      ADD CONSTRAINT retouche_items_retouche_atelier_fk
+      FOREIGN KEY (atelier_id, id_retouche)
+      REFERENCES retouches(atelier_id, id_retouche)
+      ON DELETE CASCADE;
+  END IF;
+END $$;
+
 DO $$
 BEGIN
   IF NOT EXISTS (

@@ -22,6 +22,7 @@ import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/r
 import { DossierRepoPg } from "../../../bc-dossiers/infrastructure/repositories/dossier-repo-pg.js";
 import { resolveClientForCreation, serializeClientCreationConflict } from "../../../bc-clients/application/services/resolve-client-for-creation.js";
 import { saveLatestMeasuresForClientAndType } from "../../../bc-clients/application/services/measure-prefill-service.js";
+import { RetoucheItemRepoPg } from "../../infrastructure/repositories/retouche-item-repo-pg.js";
 import {
   getTypeRetoucheDefinition,
   isRetoucheHabitCompatible,
@@ -29,6 +30,7 @@ import {
   resolveRetoucheMeasureDefinitions,
   resolveRetouchePolicy
 } from "../../domain/retouche-policy.js";
+import { generateRetoucheItemId } from "../../../shared/domain/id-generator.js";
 
 const router = express.Router();
 const retoucheRepo = new RetoucheRepoPg();
@@ -36,6 +38,7 @@ const clientRepo = new ClientRepoPg();
 const serieRepo = new SerieMesuresRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
 const dossierRepo = new DossierRepoPg();
+const retoucheItemRepo = new RetoucheItemRepoPg();
 const requireRetoucheReadAccess = requireAnyPermission([
   PERMISSIONS.VOIR_RETOUCHES,
   PERMISSIONS.VOIR_BILANS_GLOBAUX,
@@ -84,6 +87,61 @@ function scopedCaisseRepo(req) {
 
 function scopedDossierRepo(req) {
   return dossierRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedRetoucheItemRepo(req) {
+  return retoucheItemRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function normalizeRetoucheItemInput(rawItem, index = 0) {
+  const item = rawItem && typeof rawItem === "object" ? rawItem : {};
+  return {
+    idItem: String(item.idItem || item.id_item || "").trim() || generateRetoucheItemId(),
+    typeRetouche: String(item.typeRetouche || item.type_retouche || "").trim().toUpperCase(),
+    description: String(item.description || "").trim(),
+    prix: Number(item.prix ?? 0),
+    ordreAffichage: Number(item.ordreAffichage ?? item.ordre_affichage ?? index + 1) || index + 1
+  };
+}
+
+function buildRetoucheItemsFromPayload(body = {}) {
+  const sourceItems = Array.isArray(body.items) ? body.items : [];
+  const items = sourceItems
+    .map((row, index) => normalizeRetoucheItemInput(row, index))
+    .filter((item) => item.typeRetouche && Number.isFinite(item.prix) && item.prix >= 0);
+  if (items.length > 0) return items;
+  const fallbackTypeRetouche = String(body.typeRetouche || "").trim().toUpperCase();
+  if (!fallbackTypeRetouche) return [];
+  return [
+    {
+      idItem: generateRetoucheItemId(),
+      typeRetouche: fallbackTypeRetouche,
+      description: String(body.descriptionRetouche || "").trim(),
+      prix: Number(body.montantTotal || 0),
+      ordreAffichage: 1
+    }
+  ];
+}
+
+function hydrateRetoucheItems(items = [], retoucheRow = null) {
+  if (Array.isArray(items) && items.length > 0) return items;
+  if (!retoucheRow?.type_retouche) return [];
+  return [
+    {
+      idItem: `LEGACY-${retoucheRow.id_retouche}`,
+      idRetouche: retoucheRow.id_retouche,
+      typeRetouche: retoucheRow.type_retouche,
+      description: String(retoucheRow.description || "").trim() || retoucheRow.type_retouche,
+      prix: Number(retoucheRow.montant_total || 0),
+      ordreAffichage: 1,
+      dateCreation: retoucheRow.date_depot
+    }
+  ];
+}
+
+function computeRetoucheTotalFromItems(items = [], fallbackValue = 0) {
+  if (!Array.isArray(items) || items.length === 0) return Number(fallbackValue || 0);
+  return items.reduce((sum, item) => sum + Number(item.prix || 0), 0);
 }
 
 async function loadRetouchePolicy(options = null) {
@@ -191,8 +249,10 @@ router.get("/retouches", requireRetoucheReadAccess, async (req, res) => {
        ORDER BY r.date_depot DESC`,
       [atelierIdFromReq(req)]
     );
+    const itemRepo = scopedRetoucheItemRepo(req);
+    const itemLists = await Promise.all(result.rows.map((row) => itemRepo.listByRetouche(row.id_retouche)));
 
-    const rows = result.rows.map((row) => ({
+    const rows = result.rows.map((row, index) => ({
       idRetouche: row.id_retouche,
       idClient: row.id_client,
       dossierId: row.id_dossier || null,
@@ -205,6 +265,7 @@ router.get("/retouches", requireRetoucheReadAccess, async (req, res) => {
       montantPaye: Number(row.montant_paye),
       typeHabit: row.type_habit,
       mesuresHabit: row.mesures_habit_snapshot,
+      items: hydrateRetoucheItems(itemLists[index], row),
       statutRetouche: row.statut
     }));
 
@@ -315,6 +376,7 @@ router.get("/retouches/:id", requireRetoucheReadAccess, async (req, res) => {
     if (result.rowCount === 0) return res.status(404).json({ error: "Retouche introuvable" });
 
     const row = result.rows[0];
+    const items = await scopedRetoucheItemRepo(req).listByRetouche(req.params.id);
     res.json({
       idRetouche: row.id_retouche,
       idClient: row.id_client,
@@ -328,6 +390,7 @@ router.get("/retouches/:id", requireRetoucheReadAccess, async (req, res) => {
       montantPaye: Number(row.montant_paye),
       typeHabit: row.type_habit,
       mesuresHabit: row.mesures_habit_snapshot,
+      items: hydrateRetoucheItems(items, row),
       statutRetouche: row.statut
     });
   } catch (err) {
@@ -422,6 +485,16 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
       descriptionRetouche: z.string().optional(),
       typeRetouche: z.string().min(1),
       montantTotal: z.coerce.number(),
+      items: z
+        .array(
+          z.object({
+            idItem: z.string().min(1).optional(),
+            typeRetouche: z.string().min(1),
+            description: z.string().optional(),
+            prix: z.coerce.number().nonnegative()
+          }).passthrough()
+        )
+        .optional(),
       typeHabit: z.string().min(1),
       mesuresHabit: z.any().optional()
     })
@@ -446,7 +519,17 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     if (requestedIdRetouche) {
       const existingRetouche = await repo.getById(requestedIdRetouche);
       if (existingRetouche) {
-        return res.status(200).json(existingRetouche);
+        const existingItems = await scopedRetoucheItemRepo(req).withExecutor(dbClient).listByRetouche(requestedIdRetouche);
+        return res.status(200).json({
+          ...existingRetouche,
+          items: hydrateRetoucheItems(existingItems, {
+            id_retouche: existingRetouche.idRetouche,
+            type_retouche: existingRetouche.typeRetouche,
+            description: existingRetouche.descriptionRetouche,
+            montant_total: existingRetouche.montantTotal,
+            date_depot: existingRetouche.dateDepot
+          })
+        });
       }
     }
     const typeDefinition = getTypeRetoucheDefinition(body.typeRetouche, policy);
@@ -474,8 +557,16 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     }, {
       policy: { retouches: policy }
     });
+    const retoucheItems = buildRetoucheItemsFromPayload(body);
+    if (retoucheItems.length === 0) {
+      throw new Error("Ajoutez au moins un item de retouche.");
+    }
+    retouche.montantTotal = computeRetoucheTotalFromItems(retoucheItems, body.montantTotal);
+    retouche.descriptionRetouche = String(body.descriptionRetouche || retoucheItems[0]?.description || "").trim();
+    retouche.typeRetouche = retoucheItems[0]?.typeRetouche || retouche.typeRetouche;
     retouche.dossierId = requestedDossierId;
     await repo.save(retouche);
+    await scopedRetoucheItemRepo(req).withExecutor(dbClient).replaceForRetouche(retouche.idRetouche, retoucheItems);
     if (requestedDossierId) {
       await dossiers.touch(requestedDossierId, acteur.utilisateur);
     }
@@ -499,6 +590,7 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
         role: acteur.role,
         montantTotal: Number(retouche.montantTotal || 0),
         typeRetouche: retouche.typeRetouche,
+        nombreItems: retoucheItems.length,
         necessiteMesures: measuresRequired,
         mesures: mesureTargets
       }
@@ -517,7 +609,8 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     });
     res.status(201).json({
       ...retouche,
-      dossierId: retouche.dossierId || null
+      dossierId: retouche.dossierId || null,
+      items: retoucheItems
     });
   } catch (err) {
     await dbClient.query("ROLLBACK").catch(() => {});
@@ -550,6 +643,16 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
       descriptionRetouche: z.string().optional(),
       typeRetouche: z.string().min(1),
       montantTotal: z.coerce.number(),
+      items: z
+        .array(
+          z.object({
+            idItem: z.string().min(1).optional(),
+            typeRetouche: z.string().min(1),
+            description: z.string().optional(),
+            prix: z.coerce.number().nonnegative()
+          }).passthrough()
+        )
+        .optional(),
       typeHabit: z.string().min(1),
       mesuresHabit: z.any().optional(),
       datePrevue: z.string().optional()
@@ -581,8 +684,18 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     if (requestedIdRetouche) {
       const existingRetouche = await repo.getById(requestedIdRetouche);
       if (existingRetouche) {
+        const existingItems = await scopedRetoucheItemRepo(req).withExecutor(dbClient).listByRetouche(requestedIdRetouche);
         return res.status(200).json({
-          retouche: existingRetouche,
+          retouche: {
+            ...existingRetouche,
+            items: hydrateRetoucheItems(existingItems, {
+              id_retouche: existingRetouche.idRetouche,
+              type_retouche: existingRetouche.typeRetouche,
+              description: existingRetouche.descriptionRetouche,
+              montant_total: existingRetouche.montantTotal,
+              date_depot: existingRetouche.dateDepot
+            })
+          },
           client: null
         });
       }
@@ -607,9 +720,19 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     await lockRetoucheCreation(dbClient, atelierId, resolvedRetoucheId);
     const existingRetouche = await repo.getById(resolvedRetoucheId);
     if (existingRetouche) {
+      const existingItems = await scopedRetoucheItemRepo(req).withExecutor(dbClient).listByRetouche(resolvedRetoucheId);
       await dbClient.query("COMMIT");
       return res.status(200).json({
-        retouche: existingRetouche,
+        retouche: {
+          ...existingRetouche,
+          items: hydrateRetoucheItems(existingItems, {
+            id_retouche: existingRetouche.idRetouche,
+            type_retouche: existingRetouche.typeRetouche,
+            description: existingRetouche.descriptionRetouche,
+            montant_total: existingRetouche.montantTotal,
+            date_depot: existingRetouche.dateDepot
+          })
+        },
         client: null
       });
     }
@@ -635,6 +758,13 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     }, {
       policy: { retouches: policy }
     });
+    const retoucheItems = buildRetoucheItemsFromPayload(body);
+    if (retoucheItems.length === 0) {
+      throw new Error("Ajoutez au moins un item de retouche.");
+    }
+    retouche.montantTotal = computeRetoucheTotalFromItems(retoucheItems, body.montantTotal);
+    retouche.descriptionRetouche = String(body.descriptionRetouche || retoucheItems[0]?.description || "").trim();
+    retouche.typeRetouche = retoucheItems[0]?.typeRetouche || retouche.typeRetouche;
     retouche.dossierId = requestedDossierId;
 
     await dbClient.query(
@@ -656,6 +786,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
         JSON.stringify(retouche.mesuresHabit)
       ]
     );
+    await scopedRetoucheItemRepo(req).withExecutor(dbClient).replaceForRetouche(retouche.idRetouche, retoucheItems);
     if (requestedDossierId) {
       await dossiers.touch(requestedDossierId, acteur.utilisateur);
     }
@@ -686,6 +817,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
           role: acteur.role,
           montantTotal: Number(retouche.montantTotal || 0),
           typeRetouche: retouche.typeRetouche,
+          nombreItems: retoucheItems.length,
           necessiteMesures: measuresRequired,
           mesures: mesureTargets
         })
@@ -696,7 +828,8 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     return res.status(201).json({
       retouche: {
         ...retouche,
-        dossierId: retouche.dossierId || null
+        dossierId: retouche.dossierId || null,
+        items: retoucheItems
       },
       client: hasNewClient ? clientResolution.client : null,
       clientResolution: clientResolution.strategy

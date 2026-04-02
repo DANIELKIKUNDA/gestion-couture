@@ -47,21 +47,19 @@ async function main() {
   const commandeRes = await withAuth(client.post("/api/commandes"), token).send({
     idDossier: dossier.idDossier,
     clientPayeurId: responsable.idClient,
-    descriptionCommande: "Commande famille",
-    montantTotal: 120,
-    lignesCommande: [
-      {
-        utiliseClientPayeur: true,
-        role: "PAYEUR_BENEFICIAIRE",
-        typeHabit: "PANTALON",
-        mesuresHabit: {
-          longueur: 110,
-          tourTaille: 82,
-          tourHanche: 96,
-          largeurBas: 22,
-          hauteurFourche: 31
-        }
-      }
+    descriptionCommande: "Commande simple dossier",
+    montantTotal: 0,
+    typeHabit: "PANTALON",
+    mesuresHabit: {
+      longueur: 110,
+      tourTaille: 82,
+      tourHanche: 96,
+      largeurBas: 22,
+      hauteurFourche: 31
+    },
+    items: [
+      { typeHabit: "PANTALON", description: "Pantalon bleu", prix: 90 },
+      { typeHabit: "CHEMISE", description: "Chemise blanche", prix: 30 }
     ]
   });
 
@@ -73,11 +71,15 @@ async function main() {
     idClient: responsable.idClient,
     descriptionRetouche: "Ourlet pantalon",
     typeRetouche: "OURLET_PANTALON",
-    montantTotal: 30,
+    montantTotal: 0,
     typeHabit: "PANTALON",
     mesuresHabit: {
       longueur: 100
-    }
+    },
+    items: [
+      { typeRetouche: "OURLET_PANTALON", description: "Ourlet bas", prix: 18 },
+      { typeRetouche: "AJUSTEMENT", description: "Ajustement taille", prix: 12 }
+    ]
   });
 
   assert.equal(retoucheRes.status, 201, `Creation retouche dossier KO: ${retoucheRes.status} ${JSON.stringify(retoucheRes.body)}`);
@@ -90,11 +92,13 @@ async function main() {
   assert.equal(detailRes.body?.commandes?.[0]?.dossierId, dossier.idDossier);
   assert.equal(detailRes.body?.retouches?.[0]?.dossierId, dossier.idDossier);
   assert.equal(detailRes.body?.commandes?.[0]?.soldeRestant, 120);
+  assert.equal(detailRes.body?.commandes?.[0]?.items?.length, 2);
   assert.equal(detailRes.body?.commandes?.[0]?.beneficiairesResume?.length, 1);
   assert.equal(detailRes.body?.commandes?.[0]?.beneficiairesResume?.[0]?.role, "PAYEUR_BENEFICIAIRE");
   assert.equal(detailRes.body?.commandes?.[0]?.flagsMetier?.soldeOuvert, true);
   assert.equal(detailRes.body?.commandes?.[0]?.flagsMetier?.termineeNonLivree, false);
   assert.equal(detailRes.body?.retouches?.[0]?.soldeRestant, 30);
+  assert.equal(detailRes.body?.retouches?.[0]?.items?.length, 2);
   assert.equal(detailRes.body?.retouches?.[0]?.beneficiaire?.idClient, responsable.idClient);
   assert.equal(detailRes.body?.retouches?.[0]?.flagsMetier?.soldeOuvert, true);
   assert.equal(detailRes.body?.retouches?.[0]?.flagsMetier?.termineeNonLivree, false);

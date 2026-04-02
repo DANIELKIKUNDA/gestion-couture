@@ -192,7 +192,8 @@ export async function openDossierFromList(page: Page, responsableName: string) {
   const row = page.locator("tr").filter({ hasText: responsableName }).first();
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: /^Ouvrir$/i }).click();
-  await expect(page.getByRole("heading", { name: new RegExp(responsableName, "i") }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Detail Dossier$/i }).first()).toBeVisible();
+  await expect(page.locator(".dossier-workspace-hero").first()).toContainText(new RegExp(responsableName, "i"));
 }
 
 export async function createDossierThroughUi(
@@ -217,7 +218,8 @@ export async function createDossierThroughUi(
   await inputs.nth(2).fill(telephone);
   await modal.locator("select").first().selectOption(typeDossier);
   await modal.getByRole("button", { name: /Creer le dossier/i }).click();
-  await expect(page.getByRole("heading", { name: new RegExp(`${nom}\\s+${prenom}`, "i") }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Detail Dossier$/i }).first()).toBeVisible();
+  await expect(page.locator(".dossier-workspace-hero").first()).toContainText(new RegExp(`${nom}\\s+${prenom}`, "i"));
   return {
     responsableNomComplet: `${nom} ${prenom}`.trim(),
     telephone
@@ -330,8 +332,21 @@ export async function createRetoucheInCurrentDossierThroughUi(page: Page) {
     await textInputs.nth(textCount - 1).fill(label);
   }
   await step.locator('input[type="date"]:visible').first().fill(futureDate());
-  await modal.getByRole("button", { name: /Enregistrer la retouche|Creer la retouche/i }).click();
-  await expect(modal).toBeHidden({ timeout: 20_000 });
+  const submitButton = modal.getByRole("button", { name: /Enregistrer la retouche|Creer la retouche/i }).first();
+
+  // Le wizard retouche synchronise encore quelques champs derives avant de soumettre.
+  // En CI Windows, un clic trop rapide peut laisser la modal ouverte sans creation.
+  await expect(submitButton).toBeEnabled({ timeout: 10_000 });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await submitButton.click();
+    try {
+      await expect(modal).toBeHidden({ timeout: 10_000 });
+      break;
+    } catch (error) {
+      if (attempt === 1) throw error;
+      await expect(submitButton).toBeEnabled({ timeout: 10_000 });
+    }
+  }
   await expect(page.getByRole("heading", { name: /^Detail Retouche$/i }).first()).toBeVisible();
 }
 

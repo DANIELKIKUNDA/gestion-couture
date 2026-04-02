@@ -141,9 +141,35 @@ function buildClientReferenceDraft(clientRecord) {
   };
 }
 
+function buildOfflineCommandeLine(input, clientRecord, timestamp) {
+  const firstItem = Array.isArray(input?.items) && input.items.length > 0 ? input.items[0] : input;
+  return {
+    idLigne: `LIG-${String(timestamp).replace(/\D/g, "").slice(-12)}`,
+    idClient: normalizeString(clientRecord?.idClient),
+    clientLocalId: normalizeString(clientRecord?.localId),
+    clientServerId: normalizeString(clientRecord?.serverId),
+    role: "PAYEUR_BENEFICIAIRE",
+    nomAffiche: normalizeString(clientRecord?.nom),
+    prenomAffiche: normalizeString(clientRecord?.prenom),
+    typeHabit: normalizeString(firstItem?.typeHabit || input?.typeHabit),
+    mesuresHabit: cloneSerializable(input?.mesuresHabit || {}),
+    ordreAffichage: 1
+  };
+}
+
 function buildCommandeRecord(input, clientRecord, timestamp, options = {}) {
   const descriptionCommande = normalizeString(input?.descriptionCommande);
-  const typeHabit = normalizeString(input?.typeHabit);
+  const items = Array.isArray(input?.items)
+    ? input.items.map((item, index) => ({
+        idItem: normalizeString(item?.idItem) || `cmd-item-${index + 1}`,
+        typeHabit: normalizeString(item?.typeHabit),
+        description: normalizeString(item?.description),
+        prix: Number(item?.prix || 0),
+        ordreAffichage: index + 1
+      })).filter((item) => item.typeHabit)
+    : [];
+  const primaryItem = items[0] || null;
+  const typeHabit = normalizeString(primaryItem?.typeHabit || input?.typeHabit);
   const datePrevue = toNullableIsoTimestamp(input?.datePrevue);
   if (!descriptionCommande) {
     throw new Error("Description commande obligatoire.");
@@ -169,11 +195,12 @@ function buildCommandeRecord(input, clientRecord, timestamp, options = {}) {
     clientPayeurServerId: clientServerId,
     clientNom: buildClientDisplayName(clientRecord),
     descriptionCommande,
-    montantTotal: normalizeMontant(input?.montantTotal, "Montant total"),
+    montantTotal: normalizeMontant(items.reduce((sum, item) => sum + Number(item.prix || 0), 0) || input?.montantTotal, "Montant total"),
     montantPaye: 0,
     typeHabit,
+    items,
     mesuresHabit: cloneSerializable(input?.mesuresHabit || {}),
-    lignesCommande: cloneSerializable(input?.lignesCommande || []),
+    lignesCommande: [buildOfflineCommandeLine(input, clientRecord, timestamp)],
     statutCommande: "CREEE",
     dateCreation: timestamp,
     datePrevue,
@@ -183,7 +210,17 @@ function buildCommandeRecord(input, clientRecord, timestamp, options = {}) {
 
 function buildRetoucheRecord(input, clientRecord, timestamp, options = {}) {
   const descriptionRetouche = normalizeString(input?.descriptionRetouche);
-  const typeRetouche = normalizeString(input?.typeRetouche);
+  const items = Array.isArray(input?.items)
+    ? input.items.map((item, index) => ({
+        idItem: normalizeString(item?.idItem) || `ret-item-${index + 1}`,
+        typeRetouche: normalizeString(item?.typeRetouche),
+        description: normalizeString(item?.description),
+        prix: Number(item?.prix || 0),
+        ordreAffichage: index + 1
+      })).filter((item) => item.typeRetouche)
+    : [];
+  const primaryItem = items[0] || null;
+  const typeRetouche = normalizeString(primaryItem?.typeRetouche || input?.typeRetouche);
   const typeHabit = normalizeString(input?.typeHabit);
   const datePrevue = toNullableIsoTimestamp(input?.datePrevue);
   if (!typeRetouche) {
@@ -208,9 +245,10 @@ function buildRetoucheRecord(input, clientRecord, timestamp, options = {}) {
     clientNom: buildClientDisplayName(clientRecord),
     descriptionRetouche,
     typeRetouche,
-    montantTotal: normalizeMontant(input?.montantTotal, "Montant total"),
+    montantTotal: normalizeMontant(items.reduce((sum, item) => sum + Number(item.prix || 0), 0) || input?.montantTotal, "Montant total"),
     montantPaye: 0,
     typeHabit,
+    items,
     mesuresHabit: cloneSerializable(input?.mesuresHabit || {}),
     statutRetouche: "DEPOSEE",
     dateDepot: timestamp,
@@ -226,7 +264,7 @@ function buildCreateCommandePayload(commandeRecord) {
     montantTotal: Number(commandeRecord?.montantTotal || 0),
     typeHabit: normalizeString(commandeRecord?.typeHabit),
     mesuresHabit: cloneSerializable(commandeRecord?.mesuresHabit || {}),
-    lignesCommande: cloneSerializable(commandeRecord?.lignesCommande || [])
+    items: cloneSerializable(commandeRecord?.items || [])
   };
   const payerServerId = normalizeString(commandeRecord?.clientPayeurServerId || commandeRecord?.clientServerId);
   const payerLocalId = normalizeString(commandeRecord?.clientPayeurLocalId || commandeRecord?.clientLocalId);
@@ -250,7 +288,8 @@ function buildCreateRetouchePayload(retoucheRecord) {
     typeRetouche: normalizeString(retoucheRecord?.typeRetouche),
     montantTotal: Number(retoucheRecord?.montantTotal || 0),
     typeHabit: normalizeString(retoucheRecord?.typeHabit),
-    mesuresHabit: cloneSerializable(retoucheRecord?.mesuresHabit || {})
+    mesuresHabit: cloneSerializable(retoucheRecord?.mesuresHabit || {}),
+    items: cloneSerializable(retoucheRecord?.items || [])
   };
   if (retoucheRecord?.nouveauClient && typeof retoucheRecord.nouveauClient === "object") {
     requestPayload.nouveauClient = cloneSerializable(retoucheRecord.nouveauClient);
@@ -272,78 +311,8 @@ async function createEmbeddedOfflineClient(scopedAtelierId, clientInput, timesta
   return putScopedEntityRecord(TABLE_NAMES.CLIENTS, scopedAtelierId, buildClientRecord(clientInput, timestamp));
 }
 
-async function prepareCommandeLignesOffline(scopedAtelierId, lines = [], payerRecord, timestamp) {
-  const preparedLines = [];
-  const relatedClients = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] && typeof lines[index] === "object" ? lines[index] : {};
-    const nextLine = {
-      ...cloneSerializable(line),
-      typeHabit: normalizeString(line.typeHabit),
-      mesuresHabit: cloneSerializable(line.mesuresHabit || {}),
-      role: normalizeString(line.role || (line.utiliseClientPayeur === true || line.source === "PAYEUR" ? "PAYEUR_BENEFICIAIRE" : "BENEFICIAIRE")),
-      ordreAffichage: Number(line.ordreAffichage || index + 1) || index + 1,
-      nomAffiche: normalizeString(line.nomAffiche),
-      prenomAffiche: normalizeString(line.prenomAffiche)
-    };
-
-    if (line.utiliseClientPayeur === true || line.source === "PAYEUR") {
-      nextLine.utiliseClientPayeur = true;
-      nextLine.role = "PAYEUR_BENEFICIAIRE";
-      nextLine.idClient = normalizeString(payerRecord?.idClient);
-      nextLine.clientLocalId = normalizeString(payerRecord?.localId);
-      nextLine.clientServerId = normalizeString(payerRecord?.serverId);
-      nextLine.nomAffiche = nextLine.nomAffiche || normalizeString(payerRecord?.nom);
-      nextLine.prenomAffiche = nextLine.prenomAffiche || normalizeString(payerRecord?.prenom);
-      preparedLines.push(nextLine);
-      continue;
-    }
-
-    if (line.nouveauClient) {
-      const createdClient = await createEmbeddedOfflineClient(scopedAtelierId, line.nouveauClient, timestamp);
-      relatedClients.push(createdClient);
-      nextLine.idClient = normalizeString(createdClient.idClient);
-      nextLine.clientLocalId = normalizeString(createdClient.localId);
-      nextLine.clientServerId = normalizeString(createdClient.serverId);
-      nextLine.nouveauClient = buildClientReferenceDraft(createdClient);
-      nextLine.nomAffiche = nextLine.nomAffiche || normalizeString(createdClient.nom);
-      nextLine.prenomAffiche = nextLine.prenomAffiche || normalizeString(createdClient.prenom);
-      preparedLines.push(nextLine);
-      continue;
-    }
-
-    if (line.idClient) {
-      const existingClient = await resolveClientRecord(scopedAtelierId, line.idClient);
-      if (!existingClient) {
-        throw new Error("Beneficiaire introuvable pour la creation offline de commande.");
-      }
-      nextLine.idClient = normalizeString(existingClient.idClient);
-      nextLine.clientLocalId = normalizeString(existingClient.localId);
-      nextLine.clientServerId = normalizeString(existingClient.serverId);
-      nextLine.nomAffiche = nextLine.nomAffiche || normalizeString(existingClient.nom);
-      nextLine.prenomAffiche = nextLine.prenomAffiche || normalizeString(existingClient.prenom);
-    }
-
-    preparedLines.push(nextLine);
-  }
-
-  return {
-    lines: preparedLines,
-    relatedClients
-  };
-}
-
-async function collectCommandeDependencyQueueIds(scopedAtelierId, payerRecord, lines = []) {
+async function collectCommandeDependencyQueueIds(scopedAtelierId, payerRecord) {
   const dependencyIds = new Set(await resolveClientDependencyQueueIds(scopedAtelierId, payerRecord));
-  for (const line of lines) {
-    if (line?.nouveauClient) continue;
-    const clientLocalId = normalizeString(line?.clientLocalId);
-    if (!clientLocalId) continue;
-    const clientRecord = await resolveClientRecord(scopedAtelierId, clientLocalId);
-    if (!clientRecord) continue;
-    const queueIds = await resolveClientDependencyQueueIds(scopedAtelierId, clientRecord);
-    for (const queueId of queueIds) dependencyIds.add(queueId);
-  }
   return Array.from(dependencyIds);
 }
 
@@ -391,28 +360,13 @@ export async function createOfflineCommande({ atelierId, clientId, newClient, co
       }
     }
 
-    const preparedLines = await prepareCommandeLignesOffline(
-      scopedAtelierId,
-      Array.isArray(commande?.lignesCommande) ? commande.lignesCommande : [],
-      resolvedClient,
-      timestamp
-    );
-    relatedClients = [...relatedClients, ...preparedLines.relatedClients];
     createdCommande = await putScopedEntityRecord(
       TABLE_NAMES.COMMANDES,
       scopedAtelierId,
-      buildCommandeRecord(
-        {
-          ...commande,
-          lignesCommande: preparedLines.lines
-        },
-        resolvedClient,
-        timestamp,
-        { isNewClient: Boolean(newClient) }
-      )
+      buildCommandeRecord(commande, resolvedClient, timestamp, { isNewClient: Boolean(newClient) })
     );
 
-    const dependsOn = await collectCommandeDependencyQueueIds(scopedAtelierId, resolvedClient, preparedLines.lines);
+    const dependsOn = await collectCommandeDependencyQueueIds(scopedAtelierId, resolvedClient);
     queueEntry = await enqueueInTransaction(scopedAtelierId, {
       status: "pending",
       entityType: "commande",

@@ -32,9 +32,11 @@ test("ajoute une commande simple dans un dossier et affiche le client associe", 
   await openDossierFromList(page, "Tshibangu Commande");
   await createCommandeInCurrentDossierThroughUi(page);
   await expect(page.getByRole("heading", { name: /^Detail Commande$/i }).first()).toBeVisible();
-  await expect(page.getByText(/Client associe/i).first()).toBeVisible();
-  await expect(page.getByText(/Client de la commande/i).first()).toBeVisible();
-  await expect(page.getByText(/Montant total\s*:/i).first()).toBeVisible();
+  const identityCard = page.locator("article").filter({ has: page.getByRole("heading", { name: /^Identite commande$/i }) }).first();
+  await expect(identityCard).toBeVisible();
+  await expect(identityCard.getByText(/Client\s*:\s*Tshibangu Commande/i)).toBeVisible();
+  await expect(identityCard.getByText(/Client associe\s*:\s*Tshibangu/i)).toBeVisible();
+  await expect(identityCard.getByText(/Montant total\s*:/i)).toBeVisible();
 });
 
 test("upload une photo et la conserve apres refresh UI", async ({ page }) => {
