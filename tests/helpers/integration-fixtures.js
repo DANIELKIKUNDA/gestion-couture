@@ -41,6 +41,24 @@ async function wait(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolveRetryAfterMs(response, fallbackMs = 2_000) {
+  const rawRetryAfter = response?.headers?.["retry-after"];
+  const retryAfterSeconds = Number(rawRetryAfter);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+    return Math.max(fallbackMs, retryAfterSeconds * 1000 + 250);
+  }
+
+  const rawRateLimitReset =
+    response?.headers?.["ratelimit-reset"] ??
+    response?.headers?.["x-ratelimit-reset"];
+  const rateLimitResetSeconds = Number(rawRateLimitReset);
+  if (Number.isFinite(rateLimitResetSeconds) && rateLimitResetSeconds > 0) {
+    return Math.max(fallbackMs, rateLimitResetSeconds * 1000 + 250);
+  }
+
+  return fallbackMs;
+}
+
 export async function ensureAtelier(idAtelier, slug = null, nom = null) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ateliers (
@@ -306,13 +324,13 @@ export async function createAuthenticatedSession({
   }
 
   let login = null;
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     login = await client.post("/api/auth/login").send({ email, motDePasse: password });
     if (login.status === 200) break;
-    if (login.status !== 429 || attempt === 7) {
+    if (login.status !== 429 || attempt === 11) {
       throw new Error(`Login integration impossible pour ${email}: ${login.status} ${login.body?.error || ""}`.trim());
     }
-    await wait(350 * (attempt + 1));
+    await wait(resolveRetryAfterMs(login, 1_500 + attempt * 500));
   }
 
   return {

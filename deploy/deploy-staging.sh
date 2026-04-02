@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -uo pipefail
 
 log() {
   printf '[deploy-staging] %s\n' "$*"
@@ -82,52 +82,52 @@ rollback() {
   fi
 }
 
-on_error() {
+fail_deploy() {
   local exit_code="$1"
-  local line="$2"
-  local command="${3:-commande inconnue}"
-  log "ERREUR a la ligne ${line} (code=${exit_code}) pendant: ${command}"
-  if [[ "${DEPLOY_SUCCEEDED}" -eq 1 ]]; then
-    log "Health check deja valide. Rollback ignore et sortie succes."
-    exit 0
-  fi
-  if [[ "${DEPLOY_STARTED}" -eq 1 ]]; then
+  local step_name="$2"
+  log "ERREUR pendant l'etape: ${step_name} (code=${exit_code})"
+  if [[ "${DEPLOY_STARTED}" -eq 1 && "${DEPLOY_SUCCEEDED}" -eq 0 ]]; then
     rollback
   else
-    log "Aucun rollback necessaire: deploy non commence."
+    log "Aucun rollback necessaire."
   fi
   exit "${exit_code}"
 }
 
-trap 'on_error $? $LINENO "$BASH_COMMAND"' ERR
+run_step() {
+  local step_name="$1"
+  shift
+  log "${step_name}"
+  if "$@"; then
+    return 0
+  fi
+  local exit_code=$?
+  fail_deploy "${exit_code}" "${step_name}"
+}
 
-log "Validation compose"
-compose config -q
+run_step "Validation compose" compose config -q
 
 log "Commit courant: ${PREVIOUS_COMMIT}"
-log "Recuperation du code ${DEPLOY_REF}"
 DEPLOY_STARTED=1
-git fetch origin "${DEPLOY_REF}"
-git checkout "${DEPLOY_REF}"
-git pull --ff-only origin "${DEPLOY_REF}"
+run_step "Recuperation du code ${DEPLOY_REF}" git fetch origin "${DEPLOY_REF}"
+run_step "Selection de la branche ${DEPLOY_REF}" git checkout "${DEPLOY_REF}"
+run_step "Mise a jour fast-forward ${DEPLOY_REF}" git pull --ff-only origin "${DEPLOY_REF}"
 log "Commit deployee: $(git rev-parse HEAD)"
 
-log "Build images staging"
-compose build backend nginx
+run_step "Build images staging" compose build backend nginx
 
-log "Execution migrations"
-compose run --rm backend sh /app/deploy/scripts/migrate.sh
+run_step "Execution migrations" compose run --rm backend sh /app/deploy/scripts/migrate.sh
 
-log "Redemarrage staging"
-compose up -d
+run_step "Redemarrage staging" compose up -d
 if ! compose ps; then
   log "Avertissement: impossible de lister l'etat compose, poursuite avec health check."
 fi
 
 log "Verification health check"
-wait_for_health
+if ! wait_for_health; then
+  fail_deploy 1 "Verification health check"
+fi
 DEPLOY_SUCCEEDED=1
 
-trap - ERR
 log "Deploy staging termine avec succes."
 exit 0
