@@ -30,6 +30,16 @@ BEGIN
     IF NOT EXISTS (
       SELECT 1
       FROM pg_constraint
+      WHERE conname = 'commande_items_atelier_item_unique'
+    ) THEN
+      ALTER TABLE public.commande_items
+        ADD CONSTRAINT commande_items_atelier_item_unique
+        UNIQUE (atelier_id, id_item);
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
       WHERE conname = 'commande_media_item_atelier_fk'
     ) THEN
       ALTER TABLE public.commande_media
