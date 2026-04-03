@@ -1,10 +1,12 @@
-﻿import { pool } from "../../../shared/infrastructure/db.js";
+import { pool } from "../../../shared/infrastructure/db.js";
 import { Retouche } from "../../domain/retouche.js";
+import { RetoucheItemRepoPg } from "./retouche-item-repo-pg.js";
 
 export class RetoucheRepoPg {
   constructor(atelierId = "ATELIER", db = pool) {
     this.atelierId = String(atelierId || "ATELIER");
     this.db = db;
+    this.itemRepo = new RetoucheItemRepoPg(this.atelierId, this.db);
   }
 
   forAtelier(atelierId) {
@@ -23,6 +25,7 @@ export class RetoucheRepoPg {
     if (res.rowCount === 0) return null;
 
     const row = res.rows[0];
+    const items = await this.itemRepo.listByRetouche(idRetouche);
     return new Retouche({
       idRetouche: row.id_retouche,
       idClient: row.id_client,
@@ -36,6 +39,7 @@ export class RetoucheRepoPg {
       statutRetouche: row.statut,
       typeHabit: row.type_habit,
       mesuresHabit: row.mesures_habit_snapshot,
+      items,
       rehydrate: true
     });
   }

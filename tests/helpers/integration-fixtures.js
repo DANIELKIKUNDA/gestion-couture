@@ -239,8 +239,18 @@ export async function ensureDossierSchema() {
           description TEXT NOT NULL DEFAULT '',
           prix NUMERIC(12,2) NOT NULL CHECK (prix >= 0),
           ordre_affichage INTEGER NOT NULL DEFAULT 1 CHECK (ordre_affichage > 0),
+          mesures_snapshot_json JSONB NULL,
           date_creation TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+      END IF;
+      IF to_regclass('public.commande_items') IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'commande_items'
+          AND column_name = 'mesures_snapshot_json'
+      ) THEN
+        ALTER TABLE public.commande_items ADD COLUMN mesures_snapshot_json JSONB NULL;
       END IF;
       IF to_regclass('public.retouche_items') IS NULL THEN
         CREATE TABLE public.retouche_items (
@@ -248,11 +258,31 @@ export async function ensureDossierSchema() {
           atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
           id_retouche TEXT NOT NULL,
           type_retouche TEXT NOT NULL,
+          type_habit TEXT NULL,
           description TEXT NOT NULL DEFAULT '',
           prix NUMERIC(12,2) NOT NULL CHECK (prix >= 0),
           ordre_affichage INTEGER NOT NULL DEFAULT 1 CHECK (ordre_affichage > 0),
+          mesures_snapshot_json JSONB NULL,
           date_creation TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+      END IF;
+      IF to_regclass('public.retouche_items') IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'retouche_items'
+          AND column_name = 'type_habit'
+      ) THEN
+        ALTER TABLE public.retouche_items ADD COLUMN type_habit TEXT NULL;
+      END IF;
+      IF to_regclass('public.retouche_items') IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'retouche_items'
+          AND column_name = 'mesures_snapshot_json'
+      ) THEN
+        ALTER TABLE public.retouche_items ADD COLUMN mesures_snapshot_json JSONB NULL;
       END IF;
     END
     $$ LANGUAGE plpgsql;

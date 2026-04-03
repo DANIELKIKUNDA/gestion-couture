@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import { pool } from "../src/shared/infrastructure/db.js";
-import { createAuthenticatedSession, createClientViaApi, withAuth } from "./helpers/integration-fixtures.js";
+import { RetoucheRepoPg } from "../src/bc-retouches/infrastructure/repositories/retouche-repo-pg.js";
+import { createAuthenticatedSession, createClientViaApi, ensureDossierSchema, withAuth } from "./helpers/integration-fixtures.js";
 
 const robeMesuresCompletes = {
   longueur: 138
@@ -49,7 +50,7 @@ async function countRetouchesById(atelierId, idRetouche) {
 
 async function getRetoucheItems(atelierId, idRetouche) {
   const result = await pool.query(
-    `SELECT id_item, type_retouche, description, prix
+    `SELECT id_item, type_retouche, type_habit, description, prix, mesures_snapshot_json
      FROM retouche_items
      WHERE atelier_id = $1 AND id_retouche = $2
      ORDER BY ordre_affichage ASC, date_creation ASC`,
@@ -67,6 +68,7 @@ async function getClientLatestMeasures(session, idClient, typeHabit) {
 }
 
 async function run() {
+  await ensureDossierSchema();
   const atelierId = `ATELIER_RET_WIZ_${Date.now()}`;
   const session = await createAuthenticatedSession({
     atelierId,
@@ -108,8 +110,8 @@ async function run() {
     typeHabit: "ROBE",
     mesuresHabit: robeMesuresCompletes,
     items: [
-      { typeRetouche: "OURLET", description: "Ourlet bas", prix: 25 },
-      { typeRetouche: "AJUSTEMENT", description: "Ajustement cote", prix: 18 }
+      { typeRetouche: "OURLET", typeHabit: "ROBE", description: "Ourlet bas", prix: 25, mesures: { longueur: 144 } },
+      { typeRetouche: "OURLET", typeHabit: "ROBE", description: "Ourlet cote", prix: 18, mesures: { longueur: 132 } }
     ]
   };
   const multiItemCreation = await withAuth(session.client.post("/api/retouches/wizard"), session.token).send(multiItemPayload);
@@ -117,6 +119,34 @@ async function run() {
   assert.equal(Number(multiItemCreation.body?.retouche?.montantTotal || 0), 43);
   const multiItems = await getRetoucheItems(atelierId, multiItemPayload.idRetouche);
   assert.equal(multiItems.length, 2, "les items retouche doivent etre persistés atomiquement");
+
+  assert.equal(multiItems[0]?.type_habit, "ROBE");
+  assert.equal(Number(multiItems[0]?.mesures_snapshot_json?.valeurs?.longueur || 0), 144);
+  assert.equal(Number(multiItems[1]?.mesures_snapshot_json?.valeurs?.longueur || 0), 132);
+
+  const retoucheRepo = new RetoucheRepoPg(atelierId);
+  const rehydratedRetouche = await retoucheRepo.getById(multiItemPayload.idRetouche);
+  assert.equal(Array.isArray(rehydratedRetouche?.items), true);
+  assert.equal(rehydratedRetouche?.items?.length, 2);
+  assert.equal(rehydratedRetouche?.items?.[0]?.typeRetouche, "OURLET");
+  assert.equal(rehydratedRetouche?.items?.[0]?.typeHabit, "ROBE");
+  assert.equal(Number(rehydratedRetouche?.items?.[1]?.mesures?.valeurs?.longueur || 0), 132);
+  assert.equal(Number(rehydratedRetouche?.montantTotal || 0), 43);
+
+  const itemDrivenPayload = {
+    idRetouche: buildTestId("RET"),
+    idClient: createPayload.nouveauClient.idClient,
+    descriptionRetouche: "Retouche pilotee par items",
+    items: [
+      { typeRetouche: "OURLET", typeHabit: "ROBE", description: "Ourlet principal", prix: 22, mesures: { longueur: 140 } },
+      { typeRetouche: "OURLET", typeHabit: "ROBE", description: "Ourlet secondaire", prix: 14, mesures: { longueur: 136 } }
+    ]
+  };
+  const itemDrivenCreation = await withAuth(session.client.post("/api/retouches/wizard"), session.token).send(itemDrivenPayload);
+  assert.equal(itemDrivenCreation.status, 201, "une retouche doit pouvoir etre creee depuis les items sans champs globaux");
+  assert.equal(Number(itemDrivenCreation.body?.retouche?.montantTotal || 0), 36);
+  assert.equal(String(itemDrivenCreation.body?.retouche?.typeRetouche || ""), "OURLET");
+  assert.equal(String(itemDrivenCreation.body?.retouche?.typeHabit || ""), "ROBE");
 
   const replay = await withAuth(session.client.post("/api/retouches/wizard"), session.token).send(createPayload);
   assert.equal(replay.status, 200, "rejouer la meme creation doit renvoyer la retouche existante");

@@ -3727,7 +3727,8 @@ function createCommandeItemDraft() {
     idItem: `cmd-item-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
     typeHabit: "",
     description: "",
-    prix: ""
+    prix: "",
+    mesures: {}
   };
 }
 
@@ -3743,6 +3744,49 @@ function createRetoucheItemDraft() {
 function syncCommandePrimaryTypeFromItems() {
   const primaryType = String((wizard.commande.items || []).find((item) => String(item?.typeHabit || "").trim())?.typeHabit || "").trim();
   wizard.commande.typeHabit = primaryType;
+}
+
+function getCommandeItemMeasureFields(item) {
+  return resolveCommandeMesureFields(item?.typeHabit);
+}
+
+function isCommandeMeasureFilled(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "number") return Number.isFinite(value);
+  return String(value).trim().length > 0;
+}
+
+function getCommandeItemMeasureProgress(item) {
+  const fields = getCommandeItemMeasureFields(item);
+  const mesures = item?.mesures || {};
+  const total = fields.length;
+  const requiredTotal = fields.filter((field) => field.required).length;
+  const completed = fields.filter((field) => isCommandeMeasureFilled(mesures[field.key])).length;
+  const requiredCompleted = fields.filter((field) => field.required && isCommandeMeasureFilled(mesures[field.key])).length;
+  return {
+    total,
+    completed,
+    requiredTotal,
+    requiredCompleted,
+    missingRequired: Math.max(requiredTotal - requiredCompleted, 0),
+    completionLabel: total > 0 ? `${completed}/${total} mesure(s)` : "Aucune mesure attendue"
+  };
+}
+
+function resetCommandeItemMesures(item) {
+  if (!item || typeof item !== "object") return;
+  item.mesures = {};
+  resetMesuresModel(item.mesures);
+}
+
+function getPrimaryCommandeItem() {
+  return (wizard.commande.items || []).find((item) => String(item?.typeHabit || "").trim()) || wizard.commande.items?.[0] || null;
+}
+
+function onCommandeItemTypeChange(item) {
+  resetCommandeItemMesures(item);
+  syncCommandePrimaryTypeFromItems();
+  void refreshCommandePrefill();
 }
 
 function syncRetouchePrimaryTypeFromItems() {
@@ -3794,7 +3838,8 @@ function markWizardCreateAnyway(client = null) {
 async function refreshCommandePrefill() {
   wizard.commande.prefill = null;
   wizard.commande.prefillDecision = "idle";
-  const typeHabit = String(wizard.commande.typeHabit || "").trim().toUpperCase();
+  const primaryItem = getPrimaryCommandeItem();
+  const typeHabit = String(primaryItem?.typeHabit || wizard.commande.typeHabit || "").trim().toUpperCase();
   if (!typeHabit) return;
 
   let targetClientId = "";
@@ -3816,10 +3861,12 @@ async function refreshCommandePrefill() {
 
 function applyCommandePrefill(mode = "use") {
   if (!wizard.commande?.prefill?.mesuresHabit?.valeurs) return;
-  wizard.commande.mesuresHabit = {};
-  resetMesuresModel(wizard.commande.mesuresHabit);
+  const primaryItem = getPrimaryCommandeItem();
+  if (!primaryItem) return;
+  primaryItem.mesures = {};
+  resetMesuresModel(primaryItem.mesures);
   for (const [key, value] of Object.entries(wizard.commande.prefill.mesuresHabit.valeurs || {})) {
-    wizard.commande.mesuresHabit[key] = value;
+    primaryItem.mesures[key] = value;
   }
   wizard.commande.prefillDecision = mode === "modify" ? "modify" : "use";
 }
@@ -3829,11 +3876,60 @@ function ignoreCommandePrefill() {
 }
 
 const wizardSummary = computed(() => ({
-  mesuresRenseignees: Object.keys(wizard.commande.mesuresHabit || {}).filter((key) => wizard.commande.mesuresHabit[key]).length,
+  mesuresRenseignees: (wizard.commande.items || []).reduce(
+    (sum, item) => sum + Object.keys(item?.mesures || {}).filter((key) => item?.mesures?.[key]).length,
+    0
+  ),
   montantTotal: Number(wizard.commande.montantTotal || 0) || 0,
   typeHabit: wizard.commande.typeHabit || "",
   items: wizard.commande.items || []
 }));
+
+const wizardValidationStats = computed(() => {
+  const items = (wizard.commande.items || []).filter((item) => String(item?.typeHabit || "").trim());
+  const missingRequired = items.reduce((sum, item) => sum + getCommandeItemMeasureProgress(item).missingRequired, 0);
+  const completeItems = items.filter((item) => getCommandeItemMeasureProgress(item).missingRequired === 0).length;
+  return {
+    itemsCount: items.length,
+    completeItems,
+    missingRequired,
+    datePrevueLabel: wizard.commande.datePrevue ? formatDateShort(`${wizard.commande.datePrevue}T00:00:00.000Z`) : "Non definie",
+    factureLabel: wizard.commande.emettreFacture ? "Facture a emettre" : "Sans facture immediate",
+    readyLabel: missingRequired === 0 && items.length > 0 ? "Pret a enregistrer" : "Verification requise"
+  };
+});
+
+const retoucheSummary = computed(() => ({
+  items: retoucheWizard.retouche.items || [],
+  montantTotal: Number(retoucheWizard.retouche.montantTotal || 0) || 0,
+  mesuresRenseignees: Object.keys(retoucheWizard.retouche.mesuresHabit || {}).filter(
+    (key) => retoucheWizard.retouche.mesuresHabit?.[key] !== undefined &&
+      retoucheWizard.retouche.mesuresHabit?.[key] !== null &&
+      String(retoucheWizard.retouche.mesuresHabit?.[key]).trim() !== ""
+  ).length
+}));
+
+const retoucheValidationStats = computed(() => {
+  const items = (retoucheWizard.retouche.items || []).filter((item) => String(item?.typeRetouche || "").trim());
+  const datePrevueLabel = retoucheWizard.retouche.datePrevue
+    ? formatDateShort(`${retoucheWizard.retouche.datePrevue}T00:00:00.000Z`)
+    : "Non definie";
+  const factureLabel = retoucheWizard.retouche.emettreFacture ? "Facture a emettre" : "Sans facture immediate";
+  const measuresConfigured = Boolean(retoucheWizard.retouche.typeHabit) && (!retoucheMeasuresRequired.value || retoucheSummary.value.mesuresRenseignees > 0);
+  const ready = items.length > 0 &&
+    Boolean(retoucheWizard.retouche.typeRetouche) &&
+    Boolean(retoucheWizard.retouche.typeHabit) &&
+    (!wizardRetoucheDescriptionRequired.value || Boolean(String(retoucheWizard.retouche.descriptionRetouche || "").trim())) &&
+    (!retoucheMeasuresRequired.value || retoucheSummary.value.mesuresRenseignees > 0);
+  return {
+    itemsCount: items.length,
+    datePrevueLabel,
+    factureLabel,
+    measuresConfigured,
+    missingMeasures: retoucheMeasuresRequired.value ? Math.max(retoucheMesureFields.value.length - retoucheSummary.value.mesuresRenseignees, 0) : 0,
+    readyLabel: ready ? "Pret a enregistrer" : "Verification requise"
+  };
+});
 
 function buildClientInsight(consultation) {
   const synthese = consultation?.synthese || {};
@@ -4076,6 +4172,20 @@ const canAnnulerDetail = computed(() => {
 });
 const canEmitCommandeDetailFacture = computed(() => Boolean(detailCommande.value && !detailCommandeFacture.value && detailCommande.value.statutCommande !== "ANNULEE"));
 const detailCommandeMesuresLines = computed(() => formatMesuresLines(detailCommande.value?.mesuresHabit));
+const detailCommandeItemCards = computed(() => {
+  const items = Array.isArray(detailCommande.value?.items) ? detailCommande.value.items : [];
+  return items.map((item, index) => {
+    const mesuresLines = formatMesuresLines(item?.mesures || null);
+    return {
+      id: item?.idItem || `detail-item-${index + 1}`,
+      title: item?.description || humanizeContactLabel(item?.typeHabit) || item?.typeHabit || `Habit ${index + 1}`,
+      typeHabit: item?.typeHabit || "",
+      prix: Number(item?.prix || 0),
+      mesuresLines,
+      mesuresCount: mesuresLines.length
+    };
+  });
+});
 const detailCommandeBeneficiaryLines = computed(() => {
   const lignes = Array.isArray(detailCommande.value?.lignesCommande) ? detailCommande.value.lignesCommande : [];
   return lignes.map((ligne, index) => {
@@ -4164,7 +4274,27 @@ const canAnnulerRetoucheDetail = computed(() => {
   return false;
 });
 const canEmitRetoucheDetailFacture = computed(() => Boolean(detailRetouche.value && !detailRetoucheFacture.value && detailRetouche.value.statutRetouche !== "ANNULEE"));
-const detailRetoucheMesuresLines = computed(() => formatMesuresLines(detailRetouche.value?.mesuresHabit));
+const detailRetoucheMesuresLines = computed(() => {
+  const primaryMeasuredItem = Array.isArray(detailRetouche.value?.items)
+    ? detailRetouche.value.items.find((item) => item?.mesures)
+    : null;
+  return formatMesuresLines(detailRetouche.value?.mesuresHabit || primaryMeasuredItem?.mesures);
+});
+const detailRetoucheItemCards = computed(() => {
+  const items = Array.isArray(detailRetouche.value?.items) ? detailRetouche.value.items : [];
+  return items.map((item, index) => {
+    const mesuresLines = formatMesuresLines(item?.mesures);
+    return {
+      id: item?.idItem || `retouche-item-${index + 1}`,
+      title: item?.description || humanizeContactLabel(item?.typeRetouche) || item?.typeRetouche || `Intervention ${index + 1}`,
+      typeRetouche: item?.typeRetouche || "",
+      typeHabit: item?.typeHabit || detailRetouche.value?.typeHabit || "",
+      prix: Number(item?.prix || 0),
+      mesuresLines,
+      mesuresCount: mesuresLines.length
+    };
+  });
+});
 const retoucheDetailPrimaryAction = computed(() => {
   if (canPayerRetoucheDetail.value) {
     return {
@@ -4242,7 +4372,8 @@ const detailCommandeView = computed(() => ({
   montantTotal: Number(detailCommande.value?.montantTotal || 0),
   montantPaye: Number(detailCommande.value?.montantPaye || 0),
   nombreBeneficiaires: Number(detailCommande.value?.nombreBeneficiaires || 0),
-  nombreLignes: Number(detailCommande.value?.nombreLignes || 0)
+  nombreLignes: Number(detailCommande.value?.nombreLignes || 0),
+  items: Array.isArray(detailCommande.value?.items) ? detailCommande.value.items : []
 }));
 const detailRetoucheView = computed(() => ({
   idRetouche: detailRetouche.value?.idRetouche || "",
@@ -4255,7 +4386,8 @@ const detailRetoucheView = computed(() => ({
   datePrevue: detailRetouche.value?.datePrevue || "",
   typeHabit: detailRetouche.value?.typeHabit || "",
   montantTotal: Number(detailRetouche.value?.montantTotal || 0),
-  montantPaye: Number(detailRetouche.value?.montantPaye || 0)
+  montantPaye: Number(detailRetouche.value?.montantPaye || 0),
+  items: Array.isArray(detailRetouche.value?.items) ? detailRetouche.value.items : []
 }));
 const venteDetailPrimaryAction = computed(() => {
   if (!detailVente.value) return null;
@@ -6531,8 +6663,6 @@ watch(
 watch(
   () => wizard.commande.typeHabit,
   () => {
-    wizard.commande.mesuresHabit = {};
-    resetMesuresModel(wizard.commande.mesuresHabit);
     void refreshCommandePrefill();
   }
 );
@@ -9091,6 +9221,7 @@ function normalizeCommande(raw) {
         description: item.description || "",
         prix: Number(item.prix ?? 0),
         ordreAffichage: Number(item.ordreAffichage ?? item.ordre_affichage ?? index + 1),
+        mesures: item.mesures || item.mesuresSnapshot || item.mesures_snapshot_json || null,
         dateCreation: item.dateCreation || item.date_creation || ""
       }))
     : [];
@@ -9120,6 +9251,7 @@ function normalizeCommande(raw) {
               description: raw.descriptionCommande || raw.description || "",
               prix: Number(raw.montantTotal ?? raw.montant_total ?? 0),
               ordreAffichage: 1,
+              mesures: raw.mesuresHabit || raw.mesures_habit_snapshot || null,
               dateCreation: raw.dateCreation || raw.date_creation || ""
             }
           ]
@@ -9197,9 +9329,11 @@ function normalizeRetouche(raw) {
         idItem: item.idItem || item.id_item || `local-ret-item-${index + 1}`,
         idRetouche: item.idRetouche || item.id_retouche || idRetouche,
         typeRetouche: item.typeRetouche || item.type_retouche || "",
+        typeHabit: item.typeHabit || item.type_habit || "",
         description: item.description || "",
         prix: Number(item.prix ?? 0),
         ordreAffichage: Number(item.ordreAffichage ?? item.ordre_affichage ?? index + 1),
+        mesures: item.mesures || item.mesuresHabit || item.mesures_habit_snapshot || item.mesures_snapshot_json || null,
         dateCreation: item.dateCreation || item.date_creation || ""
       }))
     : [];
@@ -9212,9 +9346,11 @@ function normalizeRetouche(raw) {
               idItem: `legacy-${idRetouche || "retouche"}`,
               idRetouche,
               typeRetouche: raw.typeRetouche || raw.type_retouche || "",
+              typeHabit: raw.typeHabit || raw.type_habit || "",
               description: raw.descriptionRetouche || raw.description || "",
               prix: Number(raw.montantTotal ?? raw.montant_total ?? 0),
               ordreAffichage: 1,
+              mesures: raw.mesuresHabit || raw.mesures_habit_snapshot || null,
               dateCreation: raw.dateDepot || raw.date_depot || ""
             }
           ]
@@ -9872,7 +10008,6 @@ function resetWizard() {
   wizard.commande.prefillLoading = false;
   wizard.commande.prefill = null;
   wizard.commande.prefillDecision = "idle";
-  resetMesuresModel(wizard.commande.mesuresHabit);
   wizardClientSearchQuery.value = "";
   wizardClientSearchOpen.value = false;
   wizardClientSearchIndex.value = -1;
@@ -10449,6 +10584,32 @@ async function onWizardStep3() {
   wizard.submitting = true;
   try {
     if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
+    const items = (wizard.commande.items || []).filter((item) => String(item.typeHabit || "").trim());
+    if (items.length === 0) throw new Error("Ajoutez au moins un habit.");
+    const commandesConfig = wizardCommandesSettings.value || {};
+    const mesuresObligatoires = commandesConfig.mesuresObligatoires !== false;
+    const interdictionSansMesures = commandesConfig.interdictionSansMesures !== false;
+    for (const item of items) {
+      collectMesuresSnapshot({
+        typeHabit: item.typeHabit,
+        mesuresModel: item.mesures || {},
+        requireComplete: mesuresObligatoires && interdictionSansMesures,
+        requireAtLeastOne: mesuresObligatoires
+      });
+    }
+    wizard.step = 4;
+  } catch (err) {
+    notify(readableError(err));
+  } finally {
+    wizard.submitting = false;
+  }
+}
+
+async function onWizardStep4() {
+  if (wizard.submitting) return;
+  wizard.submitting = true;
+  try {
+    if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
     const atelierId = currentAtelierId.value;
     if (!atelierId) throw new Error("Atelier offline introuvable.");
 
@@ -10470,20 +10631,27 @@ async function onWizardStep3() {
     const commandesConfig = wizardCommandesSettings.value || {};
     const mesuresObligatoires = commandesConfig.mesuresObligatoires !== false;
     const interdictionSansMesures = commandesConfig.interdictionSansMesures !== false;
-    const mesuresSnapshot = collectMesuresSnapshot({
-      typeHabit: wizard.commande.typeHabit,
-      mesuresModel: wizard.commande.mesuresHabit,
-      requireComplete: mesuresObligatoires && interdictionSansMesures,
-      requireAtLeastOne: mesuresObligatoires
+    const itemsWithMeasures = items.map((item) => {
+      const sourceItem = (wizard.commande.items || []).find((row) => row.idItem === item.idItem) || null;
+      return {
+        ...item,
+        mesures: collectMesuresSnapshot({
+          typeHabit: item.typeHabit,
+          mesuresModel: sourceItem?.mesures || {},
+          requireComplete: mesuresObligatoires && interdictionSansMesures,
+          requireAtLeastOne: mesuresObligatoires
+        })
+      };
     });
+    const primaryMeasuredItem = itemsWithMeasures.find((item) => item.mesures) || itemsWithMeasures[0] || null;
 
     const payload = {
       idCommande: wizard.requestCommandeId || createServerCommandeId(),
       descriptionCommande: wizard.commande.descriptionCommande,
       montantTotal: montant,
-      typeHabit: wizard.commande.typeHabit,
-      mesuresHabit: mesuresSnapshot,
-      items
+      typeHabit: primaryMeasuredItem?.typeHabit || wizard.commande.typeHabit,
+      mesuresHabit: primaryMeasuredItem?.mesures || {},
+      items: itemsWithMeasures
     };
     if (wizard.dossierId) payload.idDossier = wizard.dossierId;
 
@@ -10599,6 +10767,64 @@ async function onRetoucheWizardStep2() {
   if (retoucheWizard.submitting) return;
   retoucheWizard.submitting = true;
   try {
+    const items = (retoucheWizard.retouche.items || [])
+      .map((item) => ({
+        idItem: item.idItem,
+        typeRetouche: String(item.typeRetouche || "").trim().toUpperCase(),
+        description: String(item.description || "").trim(),
+        prix: Number(item.prix || 0)
+      }))
+      .filter((item) => item.typeRetouche && Number.isFinite(item.prix) && item.prix >= 0);
+    const montant = Number(retoucheWizard.retouche.montantTotal);
+    if (Number.isNaN(montant) || montant <= 0) throw new Error("Montant total invalide.");
+    if (items.length === 0) throw new Error("Ajoutez au moins un item de retouche.");
+    retoucheWizard.step = 3;
+  } catch (err) {
+    notify(readableError(err));
+  } finally {
+    retoucheWizard.submitting = false;
+  }
+}
+
+async function onRetoucheWizardStep3() {
+  if (retoucheWizard.submitting) return;
+  retoucheWizard.submitting = true;
+  try {
+    if (!canCreateRetouche.value) throw new Error("Creation de retouche non autorisee.");
+    if (!retoucheWizard.retouche.typeHabit) throw new Error("Type d'habit obligatoire.");
+    if (!retoucheWizard.retouche.typeRetouche) throw new Error("Type de retouche obligatoire.");
+    if (wizardRetoucheDescriptionRequired.value && !String(retoucheWizard.retouche.descriptionRetouche || "").trim()) {
+      throw new Error("Description retouche obligatoire.");
+    }
+    if (retoucheMeasuresConfigError.value) {
+      throw new Error(retoucheMeasuresConfigError.value);
+    }
+
+    const mesuresSnapshot = retoucheMeasuresRequired.value
+      ? collectRetoucheMesuresSnapshot({
+          mesuresModel: retoucheWizard.retouche.mesuresHabit,
+          fields: retoucheMesureFields.value,
+          requireComplete: wizardRetouchesSettings.value?.saisiePartielle !== true,
+          requireAtLeastOne: true
+        })
+      : {};
+
+    const hasMeasures = Object.keys(mesuresSnapshot?.valeurs || mesuresSnapshot || {}).length > 0;
+    if (!retoucheMeasuresRequired.value && hasMeasures) {
+      throw new Error("Mesures non autorisees pour ce type de retouche.");
+    }
+    retoucheWizard.step = 4;
+  } catch (err) {
+    notify(readableError(err));
+  } finally {
+    retoucheWizard.submitting = false;
+  }
+}
+
+async function onRetoucheWizardStep4() {
+  if (retoucheWizard.submitting) return;
+  retoucheWizard.submitting = true;
+  try {
     if (!canCreateRetouche.value) throw new Error("Creation de retouche non autorisee.");
     const atelierId = currentAtelierId.value;
     if (!atelierId) throw new Error("Atelier offline introuvable.");
@@ -10621,7 +10847,6 @@ async function onRetoucheWizardStep2() {
     if (retoucheMeasuresConfigError.value) {
       throw new Error(retoucheMeasuresConfigError.value);
     }
-
     const mesuresSnapshot = retoucheMeasuresRequired.value
       ? collectRetoucheMesuresSnapshot({
           mesuresModel: retoucheWizard.retouche.mesuresHabit,
@@ -14888,7 +15113,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <h4>Mesures de l'habit</h4>
                     <p><strong>Type d'habit:</strong> {{ detailCommandeView.typeHabit || "-" }}</p>
                     <p><strong>Unite:</strong> cm</p>
-                    <p><strong>Mode:</strong> Lecture seule</p>
+                    <p><strong>Mode:</strong> Lecture par habit</p>
                     <template v-for="(line, idx) in detailCommandeMesuresLines" :key="`cmd-mes-line-${idx}`">
                       <p>{{ line }}</p>
                     </template>
@@ -14900,9 +15125,60 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <p><strong>Total paye:</strong> {{ formatCurrency(detailCommandeView.montantPaye) }}</p>
                     <p><strong>Solde restant:</strong> {{ formatCurrency(detailSoldeRestant) }}</p>
                     <p><strong>Items:</strong> {{ detailCommandeView.items?.length || 0 }}</p>
-                    <template v-for="item in detailCommandeView.items || []" :key="`detail-cmd-item-${item.idItem}`">
-                      <p>{{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "Habit" }} - {{ item.description || "Sans description" }} - {{ formatCurrency(Number(item.prix || 0)) }}</p>
+                    <template v-for="item in detailCommandeItemCards" :key="`detail-cmd-item-${item.id}`">
+                      <p>{{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "Habit" }} - {{ item.title || "Sans description" }} - {{ formatCurrency(item.prix) }} - {{ item.mesuresCount }} mesure(s)</p>
                     </template>
+                  </div>
+                </article>
+              </template>
+            </ResponsiveDataContainer>
+
+            <ResponsiveDataContainer v-if="detailCommandeItemCards.length > 0" :mobile="isMobileViewport">
+              <template #mobile>
+                <article class="panel order-lines-panel">
+                  <div class="order-lines-head">
+                    <div>
+                      <p class="mobile-overline">Commande</p>
+                      <h4>Habits et mesures</h4>
+                    </div>
+                    <span class="status-chip">{{ detailCommandeItemCards.length }} item(s)</span>
+                  </div>
+                  <div class="order-lines-list">
+                    <article v-for="item in detailCommandeItemCards" :key="`cmd-item-mobile-${item.id}`" class="order-line-card">
+                      <div class="order-line-card-head">
+                        <strong>{{ item.title }}</strong>
+                        <span class="status-chip">{{ humanizeContactLabel(item.typeHabit) || item.typeHabit }}</span>
+                      </div>
+                      <p class="helper">{{ formatCurrency(item.prix) }}</p>
+                      <p class="helper">{{ item.mesuresCount }} mesure(s) renseignee(s)</p>
+                      <ul v-if="item.mesuresLines.length > 0" class="client-insight-list">
+                        <li v-for="(line, idx) in item.mesuresLines" :key="`cmd-item-mobile-line-${item.id}-${idx}`">{{ line }}</li>
+                      </ul>
+                    </article>
+                  </div>
+                </article>
+              </template>
+              <template #desktop>
+                <article class="panel order-lines-panel">
+                  <div class="order-lines-head">
+                    <div>
+                      <p class="mobile-overline">Commande</p>
+                      <h4>Habits et mesures</h4>
+                    </div>
+                    <span class="status-chip">{{ detailCommandeItemCards.length }} item(s)</span>
+                  </div>
+                  <div class="order-lines-list">
+                    <article v-for="item in detailCommandeItemCards" :key="`cmd-item-desktop-${item.id}`" class="order-line-card">
+                      <div class="order-line-card-head">
+                        <strong>{{ item.title }}</strong>
+                        <span class="status-chip">{{ humanizeContactLabel(item.typeHabit) || item.typeHabit }}</span>
+                      </div>
+                      <p class="helper">{{ formatCurrency(item.prix) }}</p>
+                      <p class="helper">{{ item.mesuresCount }} mesure(s) renseignee(s)</p>
+                      <ul v-if="item.mesuresLines.length > 0" class="client-insight-list">
+                        <li v-for="(line, idx) in item.mesuresLines" :key="`cmd-item-desktop-line-${item.id}-${idx}`">{{ line }}</li>
+                      </ul>
+                    </article>
                   </div>
                 </article>
               </template>
@@ -15260,10 +15536,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <p><strong>Date prevue:</strong> {{ detailRetoucheView.datePrevue || "-" }}</p>
                   </div>
                   <div>
-                    <h4>Mesures de l'habit</h4>
-                    <p><strong>Type d'habit:</strong> {{ detailRetoucheView.typeHabit || "-" }}</p>
+                    <h4>Mesures de reference</h4>
+                    <p><strong>Type d'habit:</strong> {{ detailRetoucheView.typeHabit || detailRetoucheItemCards[0]?.typeHabit || "-" }}</p>
                     <p><strong>Unite:</strong> cm</p>
-                    <p><strong>Mode:</strong> Lecture seule</p>
+                    <p><strong>Mode:</strong> {{ detailRetoucheItemCards.length > 0 ? "Lecture par intervention" : "Lecture seule" }}</p>
                     <template v-for="(line, idx) in detailRetoucheMesuresLines" :key="`ret-mes-line-${idx}`">
                       <p>{{ line }}</p>
                     </template>
@@ -15274,10 +15550,61 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <p><strong>Montant total:</strong> {{ formatCurrency(detailRetoucheView.montantTotal) }}</p>
                     <p><strong>Total paye:</strong> {{ formatCurrency(detailRetoucheView.montantPaye) }}</p>
                     <p><strong>Solde restant:</strong> {{ formatCurrency(detailRetoucheSoldeRestant) }}</p>
-                    <p><strong>Items:</strong> {{ detailRetoucheView.items?.length || 0 }}</p>
-                    <template v-for="item in detailRetoucheView.items || []" :key="`detail-ret-item-${item.idItem}`">
-                      <p>{{ humanizeContactLabel(item.typeRetouche) || item.typeRetouche || "Retouche" }} - {{ item.description || "Sans description" }} - {{ formatCurrency(Number(item.prix || 0)) }}</p>
+                    <p><strong>Interventions:</strong> {{ detailRetoucheItemCards.length }}</p>
+                    <template v-for="item in detailRetoucheItemCards" :key="`detail-ret-item-${item.id}`">
+                      <p>{{ humanizeContactLabel(item.typeRetouche) || item.typeRetouche || "Retouche" }} - {{ item.title || "Sans description" }} - {{ formatCurrency(item.prix) }} - {{ item.mesuresCount }} mesure(s)</p>
                     </template>
+                  </div>
+                </article>
+              </template>
+            </ResponsiveDataContainer>
+
+            <ResponsiveDataContainer v-if="detailRetoucheItemCards.length > 0" :mobile="isMobileViewport">
+              <template #mobile>
+                <article class="panel order-lines-panel">
+                  <div class="order-lines-head">
+                    <div>
+                      <p class="mobile-overline">Retouche</p>
+                      <h4>Interventions et mesures</h4>
+                    </div>
+                    <span class="status-chip">{{ detailRetoucheItemCards.length }} item(s)</span>
+                  </div>
+                  <div class="order-lines-list">
+                    <article v-for="item in detailRetoucheItemCards" :key="`ret-item-mobile-${item.id}`" class="order-line-card">
+                      <div class="order-line-card-head">
+                        <strong>{{ item.title }}</strong>
+                        <span class="status-chip">{{ humanizeContactLabel(item.typeRetouche) || item.typeRetouche }}</span>
+                      </div>
+                      <p class="helper">{{ item.typeHabit ? `${humanizeContactLabel(item.typeHabit) || item.typeHabit} · ` : "" }}{{ formatCurrency(item.prix) }}</p>
+                      <p class="helper">{{ item.mesuresCount }} mesure(s) renseignee(s)</p>
+                      <ul v-if="item.mesuresLines.length > 0" class="client-insight-list">
+                        <li v-for="(line, idx) in item.mesuresLines" :key="`ret-item-mobile-line-${item.id}-${idx}`">{{ line }}</li>
+                      </ul>
+                    </article>
+                  </div>
+                </article>
+              </template>
+              <template #desktop>
+                <article class="panel order-lines-panel">
+                  <div class="order-lines-head">
+                    <div>
+                      <p class="mobile-overline">Retouche</p>
+                      <h4>Interventions et mesures</h4>
+                    </div>
+                    <span class="status-chip">{{ detailRetoucheItemCards.length }} item(s)</span>
+                  </div>
+                  <div class="order-lines-list">
+                    <article v-for="item in detailRetoucheItemCards" :key="`ret-item-desktop-${item.id}`" class="order-line-card">
+                      <div class="order-line-card-head">
+                        <strong>{{ item.title }}</strong>
+                        <span class="status-chip">{{ humanizeContactLabel(item.typeRetouche) || item.typeRetouche }}</span>
+                      </div>
+                      <p class="helper">{{ item.typeHabit ? `${humanizeContactLabel(item.typeHabit) || item.typeHabit} · ` : "" }}{{ formatCurrency(item.prix) }}</p>
+                      <p class="helper">{{ item.mesuresCount }} mesure(s) renseignee(s)</p>
+                      <ul v-if="item.mesuresLines.length > 0" class="client-insight-list">
+                        <li v-for="(line, idx) in item.mesuresLines" :key="`ret-item-desktop-line-${item.id}-${idx}`">{{ line }}</li>
+                      </ul>
+                    </article>
                   </div>
                 </article>
               </template>
@@ -18152,7 +18479,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
       <div class="modal-card modal-card-wizard">
         <header class="modal-header">
           <h3>Nouvelle commande</h3>
-          <p>Etape {{ wizard.step }} / 3</p>
+          <p>Etape {{ wizard.step }} / 4</p>
         </header>
 
         <section v-if="wizard.step === 1" class="modal-body modal-body-wizard">
@@ -18279,9 +18606,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         <section v-else-if="wizard.step === 2" class="modal-body modal-body-wizard stack-form wizard-form-shell">
           <div class="wizard-stage-head">
             <div>
-              <p class="mobile-overline">Commande simple</p>
-              <h4>Details de la commande</h4>
-              <p class="helper">Ajoutez les habits du meme client, laissez le total se calculer automatiquement, puis renseignez les mesures de l'habit principal.</p>
+              <p class="mobile-overline">Articles</p>
+              <h4>Definir les habits de la commande</h4>
+              <p class="helper">Ajoutez les habits, leur description et leur prix. Les mesures seront renseignees a l'etape suivante.</p>
             </div>
           </div>
 
@@ -18326,7 +18653,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <div class="wizard-item-grid">
                   <div class="stack-form">
                     <label>Type d'habit</label>
-                    <select v-model="item.typeHabit">
+                    <select v-model="item.typeHabit" @change="onCommandeItemTypeChange(item)">
                       <option value="">Choisir un type d'habit</option>
                       <option v-for="option in wizardAvailableHabitTypeOptions" :key="`cmd-habit-${item.idItem}-${option.value}`" :value="option.value">
                         {{ option.label }}
@@ -18353,8 +18680,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           <section class="wizard-form-section">
             <div class="wizard-section-head">
               <div>
-                <p class="mobile-overline">Mesures</p>
-                <h5>Habit principal</h5>
+                <p class="mobile-overline">Commande</p>
+                <h5>Informations generales</h5>
               </div>
               <span class="status-chip">{{ humanizeContactLabel(wizard.commande.typeHabit) || wizard.commande.typeHabit || "A definir" }}</span>
             </div>
@@ -18366,51 +18693,6 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               <input v-model="wizard.commande.emettreFacture" type="checkbox" />
               Emettre facture apres creation (recommande)
             </label>
-
-            <div class="stack-form" v-if="wizard.commande.typeHabit">
-              <label>Mesures de l'habit principal</label>
-              <p class="helper">Le premier habit defini le type principal utilise pour l'historique des mesures.</p>
-            </div>
-
-            <div v-if="wizard.commande.prefillLoading" class="client-insight-card">
-              <p class="helper">Recherche des dernieres mesures...</p>
-            </div>
-            <div
-              v-else-if="wizard.commande.prefill && wizard.commande.prefillDecision === 'idle'"
-              class="client-insight-card"
-            >
-              <p class="client-insight-title">Mesures precedentes trouvees</p>
-              <p class="helper">Derniere utilisation : {{ formatDateShort(wizard.commande.prefill.dateDerniereUtilisation) }}</p>
-              <div class="inline-actions">
-                <button class="mini-btn" type="button" @click="applyCommandePrefill('use')">Utiliser</button>
-                <button class="mini-btn" type="button" @click="applyCommandePrefill('modify')">Modifier</button>
-                <button class="mini-btn" type="button" @click="ignoreCommandePrefill()">Ignorer</button>
-              </div>
-            </div>
-            <template v-if="wizard.commande.typeHabit">
-              <label>Mesures (cm)</label>
-              <div class="form-grid">
-                <div v-for="field in commandeMesureFields" :key="`cmd-mes-${field.key}`" class="form-row">
-                  <label>{{ mesureDisplayLabel(field) }} <span v-if="field.required">*</span></label>
-                  <select
-                    v-if="mesureInputType(field) === 'select'"
-                    v-model="wizard.commande.mesuresHabit[field.key]"
-                  >
-                    <option value="">Choisir</option>
-                    <option value="courtes">courtes</option>
-                    <option value="longues">longues</option>
-                  </select>
-                  <input
-                    v-else
-                    v-model="wizard.commande.mesuresHabit[field.key]"
-                    :type="mesureInputType(field) === 'number' ? 'number' : 'text'"
-                    min="0"
-                    :step="mesureInputType(field) === 'number' ? '0.1' : undefined"
-                    :placeholder="mesurePlaceholder(field)"
-                  />
-                </div>
-              </div>
-            </template>
           </section>
 
           <div class="wizard-total-bar">
@@ -18427,7 +18709,122 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
           <div class="modal-actions wizard-modal-actions wizard-actions-footer">
             <button class="mini-btn" @click="wizard.step = 1">Retour</button>
-            <button class="action-btn blue" @click="onWizardStep2" :disabled="wizard.submitting">Continuer vers le resume</button>
+            <button class="action-btn blue" @click="onWizardStep2" :disabled="wizard.submitting">Continuer vers les mesures</button>
+          </div>
+        </section>
+
+        <section v-else-if="wizard.step === 3" class="modal-body modal-body-wizard stack-form wizard-form-shell">
+          <div class="wizard-stage-head">
+            <div>
+              <p class="mobile-overline">Mesures</p>
+              <h4>Renseigner les mesures habit par habit</h4>
+              <p class="helper">Chaque habit garde ses propres mesures. Le premier habit sert seulement de reference pour l'historique legacy.</p>
+            </div>
+          </div>
+
+          <section class="wizard-form-section">
+            <div class="wizard-section-head">
+              <div>
+                <p class="mobile-overline">Reference</p>
+                <h5>Habit principal</h5>
+              </div>
+              <span class="status-chip">{{ humanizeContactLabel(wizard.commande.typeHabit) || wizard.commande.typeHabit || "A definir" }}</span>
+            </div>
+            <p class="helper">Le premier habit avec type defini sert de reference pour l'historique et la compatibilite des anciennes commandes. Les autres habits gardent leurs propres mesures.</p>
+
+            <div v-if="wizard.commande.prefillLoading" class="client-insight-card">
+              <p class="helper">Recherche des dernieres mesures...</p>
+            </div>
+            <div
+              v-else-if="wizard.commande.prefill && wizard.commande.prefillDecision === 'idle'"
+              class="client-insight-card"
+            >
+              <p class="client-insight-title">Mesures precedentes trouvees</p>
+              <p class="helper">Derniere utilisation : {{ formatDateShort(wizard.commande.prefill.dateDerniereUtilisation) }}</p>
+              <div class="inline-actions">
+                <button class="mini-btn" type="button" @click="applyCommandePrefill('use')">Utiliser</button>
+                <button class="mini-btn" type="button" @click="applyCommandePrefill('modify')">Modifier</button>
+                <button class="mini-btn" type="button" @click="ignoreCommandePrefill()">Ignorer</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-form-section">
+            <div class="wizard-section-head">
+              <div>
+                <p class="mobile-overline">Mesures</p>
+                <h5>Mesures par habit</h5>
+                <p class="helper">Seuls les habits avec type defini demandent des mesures.</p>
+              </div>
+              <span class="status-chip">{{ wizard.commande.items.filter((item) => item.typeHabit).length }} habit(s)</span>
+            </div>
+            <div class="wizard-items-stack">
+              <article v-for="(item, index) in wizard.commande.items.filter((row) => row.typeHabit)" :key="`cmd-item-mes-step-${item.idItem}`" class="panel subtle-panel wizard-item-card">
+                <div class="wizard-item-card-head">
+                  <div>
+                    <p class="mobile-overline">Habit {{ index + 1 }}</p>
+                    <h6>{{ item.description || humanizeContactLabel(item.typeHabit) || item.typeHabit || "Habit" }}</h6>
+                  </div>
+                  <span class="status-chip">{{ humanizeContactLabel(item.typeHabit) || item.typeHabit }}</span>
+                </div>
+                <div class="wizard-item-meta">
+                  <span>{{ index === 0 ? "Reference historique" : "Mesures propres a cet habit" }}</span>
+                  <strong>{{ formatCurrency(Number(item.prix || 0)) }}</strong>
+                </div>
+                <div class="wizard-measure-progress">
+                  <article class="wizard-measure-progress-card">
+                    <span>Etat</span>
+                    <strong>{{ getCommandeItemMeasureProgress(item).completionLabel }}</strong>
+                  </article>
+                  <article class="wizard-measure-progress-card">
+                    <span>Obligatoires</span>
+                    <strong>{{ getCommandeItemMeasureProgress(item).requiredCompleted }}/{{ getCommandeItemMeasureProgress(item).requiredTotal }}</strong>
+                  </article>
+                  <article class="wizard-measure-progress-card" :class="{ warning: getCommandeItemMeasureProgress(item).missingRequired > 0 }">
+                    <span>Reste</span>
+                    <strong>
+                      {{ getCommandeItemMeasureProgress(item).missingRequired > 0 ? `${getCommandeItemMeasureProgress(item).missingRequired} mesure(s) requise(s)` : "Complet" }}
+                    </strong>
+                  </article>
+                </div>
+                <div class="stack-form wizard-item-measures-block">
+                  <label>Mesures {{ index === 0 ? "(habit principal)" : "" }}</label>
+                  <p class="helper">
+                    {{ index === 0 ? "Le pre-remplissage s'applique sur ce premier habit quand un historique existe." : "Renseignez les mesures propres a cet habit." }}
+                  </p>
+                  <div v-if="getCommandeItemMeasureProgress(item).missingRequired > 0" class="wizard-measure-alert">
+                    <strong>Mesures obligatoires encore attendues.</strong>
+                    <span>Completez les champs marques d'une asterisque avant de continuer.</span>
+                  </div>
+                  <div class="form-grid">
+                    <div v-for="field in getCommandeItemMeasureFields(item)" :key="`cmd-item-mes-${item.idItem}-${field.key}`" class="form-row">
+                      <label>{{ mesureDisplayLabel(field) }} <span v-if="field.required">*</span></label>
+                      <select
+                        v-if="mesureInputType(field) === 'select'"
+                        v-model="item.mesures[field.key]"
+                      >
+                        <option value="">Choisir</option>
+                        <option value="courtes">courtes</option>
+                        <option value="longues">longues</option>
+                      </select>
+                      <input
+                        v-else
+                        v-model="item.mesures[field.key]"
+                        :type="mesureInputType(field) === 'number' ? 'number' : 'text'"
+                        min="0"
+                        :step="mesureInputType(field) === 'number' ? '0.1' : undefined"
+                        :placeholder="mesurePlaceholder(field)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <div class="modal-actions wizard-modal-actions wizard-actions-footer">
+            <button class="mini-btn" @click="wizard.step = 2">Retour</button>
+            <button class="action-btn blue" @click="onWizardStep3" :disabled="wizard.submitting">Continuer vers le resume</button>
           </div>
         </section>
 
@@ -18436,9 +18833,24 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             <div>
               <p class="mobile-overline">Resume</p>
               <h4>Verification finale</h4>
-              <p class="helper">Relisez les informations avant de valider la commande.</p>
+              <p class="helper">Confirmez le client, les habits, les mesures et la date avant l'enregistrement definitif.</p>
             </div>
           </div>
+
+          <section class="wizard-validation-banner" :class="{ warning: wizardValidationStats.missingRequired > 0 }">
+            <div>
+              <p class="mobile-overline">Controle final</p>
+              <h5>{{ wizardValidationStats.readyLabel }}</h5>
+              <p class="helper">
+                {{ wizardValidationStats.missingRequired > 0
+                  ? `${wizardValidationStats.missingRequired} mesure(s) obligatoire(s) restent a completer avant creation.`
+                  : `La commande sera creee pour ${wizardValidationStats.itemsCount} habit(s) et ouvrira directement son detail.` }}
+              </p>
+            </div>
+            <span class="status-chip" :class="{ warning: wizardValidationStats.missingRequired > 0 }">
+              {{ wizardValidationStats.missingRequired > 0 ? "A verifier" : "Pret" }}
+            </span>
+          </section>
 
           <div class="client-insight-card">
             <p class="client-insight-title">Client</p>
@@ -18453,12 +18865,16 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               <strong>1</strong>
             </article>
             <article class="summary-pill-card">
-              <span>Items</span>
-              <strong>{{ wizardSummary.items.length }}</strong>
+              <span>Habits</span>
+              <strong>{{ wizardValidationStats.itemsCount }}</strong>
             </article>
             <article class="summary-pill-card">
               <span>Montant</span>
               <strong>{{ formatCurrency(wizardSummary.montantTotal) }}</strong>
+            </article>
+            <article class="summary-pill-card">
+              <span>Livraison</span>
+              <strong>{{ wizardValidationStats.datePrevueLabel }}</strong>
             </article>
           </div>
 
@@ -18471,18 +18887,58 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </div>
                 <span class="status-chip">{{ wizardSummary.items.length }} habit(s)</span>
               </div>
-              <p class="helper">Mesures renseignees : {{ wizardSummary.mesuresRenseignees }}</p>
+              <p class="helper">Mesures renseignees : {{ wizardSummary.mesuresRenseignees }} · {{ wizardValidationStats.factureLabel }}</p>
+              <div class="beneficiary-summary-grid wizard-validation-meta-grid">
+                <article class="summary-pill-card">
+                  <span>Mesures OK</span>
+                  <strong>{{ wizardValidationStats.completeItems }}/{{ wizardValidationStats.itemsCount }}</strong>
+                </article>
+                <article class="summary-pill-card">
+                  <span>Mesures restantes</span>
+                  <strong>{{ wizardValidationStats.missingRequired }}</strong>
+                </article>
+                <article class="summary-pill-card">
+                  <span>Date prevue</span>
+                  <strong>{{ wizardValidationStats.datePrevueLabel }}</strong>
+                </article>
+              </div>
+            </article>
+
+            <article class="beneficiary-card">
+              <div class="beneficiary-card-head">
+                <div>
+                  <p class="mobile-overline">Creation</p>
+                  <h4>Ce qui sera cree</h4>
+                </div>
+                <span class="status-chip">{{ wizardValidationStats.readyLabel }}</span>
+              </div>
+              <ul class="client-insight-list">
+                <li>Dossier client conserve : {{ wizard.mode === 'existing' ? "client existant reutilise" : "nouveau client cree avec la commande" }}</li>
+                <li>{{ wizardValidationStats.itemsCount }} habit(s) seront attaches a cette commande.</li>
+                <li>{{ wizardValidationStats.factureLabel }}.</li>
+                <li>Apres creation, le detail commande s'ouvre automatiquement.</li>
+              </ul>
+            </article>
+
+            <article class="beneficiary-card">
+              <div class="beneficiary-card-head">
+                <div>
+                  <p class="mobile-overline">Habits</p>
+                  <h4>Recapitulatif par habit</h4>
+                </div>
+                <span class="status-chip">{{ wizardSummary.items.length }} ligne(s)</span>
+              </div>
               <ul class="client-insight-list">
                 <li v-for="item in wizardSummary.items" :key="`cmd-summary-item-${item.idItem}`">
-                  {{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "Habit" }} - {{ item.description || "Sans description" }} - {{ formatCurrency(Number(item.prix || 0)) }}
+                  {{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "Habit" }} - {{ item.description || "Sans description" }} - {{ formatCurrency(Number(item.prix || 0)) }} - {{ getCommandeItemMeasureProgress(item).completionLabel }} - {{ getCommandeItemMeasureProgress(item).missingRequired > 0 ? `${getCommandeItemMeasureProgress(item).missingRequired} requise(s) restante(s)` : "complet" }}
                 </li>
               </ul>
             </article>
           </div>
 
           <div class="modal-actions wizard-modal-actions wizard-actions-footer">
-            <button class="mini-btn" @click="wizard.step = 2">Retour</button>
-            <button class="action-btn green" @click="onWizardStep3" :disabled="wizard.submitting">Creer la commande</button>
+            <button class="mini-btn" @click="wizard.step = 3">Retour</button>
+            <button class="action-btn green" @click="onWizardStep4" :disabled="wizard.submitting">Creer la commande</button>
           </div>
         </section>
       </div>
@@ -18493,7 +18949,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
     <div class="modal-card modal-card-wizard">
       <header class="modal-header">
         <h3>Nouvelle retouche</h3>
-        <p>Etape {{ retoucheWizard.step }} / 3</p>
+        <p>Etape {{ retoucheWizard.step }} / 4</p>
       </header>
 
       <section v-if="retoucheWizard.step === 1" class="modal-body modal-body-wizard">
@@ -18611,9 +19067,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
       <section v-else-if="retoucheWizard.step === 2" class="modal-body modal-body-wizard stack-form wizard-form-shell">
         <div class="wizard-stage-head">
           <div>
-            <p class="mobile-overline">Retouche</p>
-            <h4>Items de retouche</h4>
-            <p class="helper">Ajoutez rapidement les interventions a realiser pour ce client, puis laissez le total se calculer automatiquement.</p>
+            <p class="mobile-overline">Interventions</p>
+            <h4>Definir les interventions a realiser</h4>
+            <p class="helper">Ajoutez les operations, leur description et leur prix. La configuration de l'habit et des mesures vient ensuite.</p>
           </div>
         </div>
 
@@ -18758,19 +19214,228 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
         <div class="modal-actions wizard-modal-actions wizard-actions-footer">
           <button class="mini-btn" @click="retoucheWizard.step = 1">Retour</button>
-          <button class="action-btn blue" @click="onRetoucheWizardStep2" :disabled="retoucheWizard.submitting">Enregistrer la retouche</button>
+          <button class="action-btn blue" @click="onRetoucheWizardStep2" :disabled="retoucheWizard.submitting">Continuer vers la configuration</button>
         </div>
       </section>
 
-      <section v-else class="modal-body modal-body-wizard">
-        <p class="helper">Retouche creee avec succes.</p>
-        <p><strong>ID retouche:</strong> {{ retoucheWizard.createdRetoucheId }}</p>
-        <p v-if="retoucheWizard.createdFactureId"><strong>ID facture:</strong> {{ retoucheWizard.createdFactureId }}</p>
-        <div class="modal-actions wizard-modal-actions">
-          <button class="action-btn green" @click="onRetoucheWizardStep3Redirect">Voir le detail de la retouche</button>
-          <button v-if="retoucheWizard.createdFactureId" class="action-btn blue" @click="onRetoucheWizardStep3FactureRedirect">
-            Voir la facture
-          </button>
+      <section v-else-if="retoucheWizard.step === 3" class="modal-body modal-body-wizard stack-form wizard-form-shell">
+        <div class="wizard-stage-head">
+          <div>
+            <p class="mobile-overline">Configuration</p>
+            <h4>Choisir l'habit et les mesures utiles</h4>
+            <p class="helper">Precisez l'habit concerne, les mesures attendues et les informations generales de la retouche.</p>
+          </div>
+        </div>
+
+        <section class="wizard-form-section">
+          <div class="wizard-section-head">
+            <div>
+              <p class="mobile-overline">Type</p>
+              <h5>Retouche principale</h5>
+            </div>
+            <span class="status-chip">{{ humanizeContactLabel(retoucheWizard.retouche.typeRetouche) || retoucheWizard.retouche.typeRetouche || "A definir" }}</span>
+          </div>
+          <p v-if="selectedRetoucheTypeDefinition" class="helper">
+            Habits compatibles: {{ (selectedRetoucheTypeDefinition.habitsCompatibles || []).join(", ") }}
+            · Description {{ wizardRetoucheDescriptionRequired ? "obligatoire" : "optionnelle" }}
+            · Mesures {{ retoucheMeasuresRequired ? "requises" : "non requises" }}
+          </p>
+          <label>Type d'habit</label>
+          <select v-model="retoucheWizard.retouche.typeHabit" :disabled="!retoucheWizard.retouche.typeRetouche">
+            <option value="">{{ retoucheWizard.retouche.typeRetouche ? "Choisir un type d'habit" : "Choisir d'abord un type de retouche" }}</option>
+            <option v-for="option in wizardCompatibleRetoucheHabitOptions" :key="`ret-habit-${option.value}`" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </section>
+
+        <section class="wizard-form-section">
+          <div class="wizard-section-head">
+            <div>
+              <p class="mobile-overline">Mesures</p>
+              <h5>Mesures de retouche</h5>
+            </div>
+            <span class="status-chip">{{ retoucheMeasuresRequired ? "Requises" : "Optionnelles" }}</span>
+          </div>
+          <template v-if="retoucheWizard.retouche.typeHabit">
+            <p class="helper">
+              <span v-if="retoucheMeasuresRequired">Au moins une mesure cible est requise pour cette retouche.</span>
+              <span v-else>Cette retouche peut etre enregistree sans mesures.</span>
+            </p>
+            <p v-if="retoucheMeasuresConfigError" class="helper" style="color: #b42318;">
+              {{ retoucheMeasuresConfigError }}
+            </p>
+            <div v-if="retoucheMeasuresRequired" class="wizard-measure-progress">
+              <article class="wizard-measure-progress-card">
+                <span>Mesures remplies</span>
+                <strong>{{ retoucheSummary.mesuresRenseignees }}/{{ retoucheMesureFields.length }}</strong>
+              </article>
+              <article class="wizard-measure-progress-card">
+                <span>Obligatoires</span>
+                <strong>{{ retoucheMesureFields.filter((field) => field.required).length }}</strong>
+              </article>
+              <article class="wizard-measure-progress-card" :class="{ warning: retoucheValidationStats.missingMeasures > 0 }">
+                <span>Reste</span>
+                <strong>{{ retoucheValidationStats.missingMeasures > 0 ? `${retoucheValidationStats.missingMeasures} mesure(s)` : "Complet" }}</strong>
+              </article>
+            </div>
+            <div v-if="retoucheMeasuresRequired && retoucheSummary.mesuresRenseignees === 0" class="wizard-measure-alert">
+              <strong>Mesures encore attendues.</strong>
+              <span>Renseignez au moins une mesure cible avant de continuer.</span>
+            </div>
+            <div class="form-grid">
+              <div v-for="field in retoucheMesureFields" :key="`ret-mes-${field.key}`" class="form-row">
+                <label>{{ mesureDisplayLabel(field) }}</label>
+                <select
+                  v-if="mesureInputType(field) === 'select'"
+                  v-model="retoucheWizard.retouche.mesuresHabit[field.key]"
+                >
+                  <option value="">Choisir</option>
+                  <option value="courtes">courtes</option>
+                  <option value="longues">longues</option>
+                </select>
+                <input
+                  v-else
+                  v-model="retoucheWizard.retouche.mesuresHabit[field.key]"
+                  :type="mesureInputType(field) === 'number' ? 'number' : 'text'"
+                  min="0"
+                  :step="mesureInputType(field) === 'number' ? '0.1' : undefined"
+                  :placeholder="mesurePlaceholder(field)"
+                />
+              </div>
+            </div>
+          </template>
+          <p v-else class="helper">Choisissez d'abord l'habit concerne pour afficher les mesures utiles.</p>
+        </section>
+
+        <section class="wizard-form-section">
+          <div class="wizard-section-head">
+            <div>
+              <p class="mobile-overline">Retouche</p>
+              <h5>Informations generales</h5>
+            </div>
+            <span class="status-chip">{{ retoucheValidationStats.factureLabel }}</span>
+          </div>
+          <label>Description retouche</label>
+          <input v-model="retoucheWizard.retouche.descriptionRetouche" type="text" />
+          <label>Date prevue</label>
+          <input v-model="retoucheWizard.retouche.datePrevue" type="date" />
+          <label class="helper helper-inline-checkbox">
+            <input v-model="retoucheWizard.retouche.emettreFacture" type="checkbox" />
+            Emettre facture apres creation (recommande)
+          </label>
+        </section>
+
+        <div class="modal-actions wizard-modal-actions wizard-actions-footer">
+          <button class="mini-btn" @click="retoucheWizard.step = 2">Retour</button>
+          <button class="action-btn blue" @click="onRetoucheWizardStep3" :disabled="retoucheWizard.submitting">Continuer vers le resume</button>
+        </div>
+      </section>
+
+      <section v-else class="modal-body modal-body-wizard stack-form wizard-form-shell">
+        <div class="wizard-stage-head">
+          <div>
+            <p class="mobile-overline">Resume</p>
+            <h4>Verification finale</h4>
+            <p class="helper">Verifiez les interventions, l'habit concerne et les mesures avant d'enregistrer la retouche.</p>
+          </div>
+        </div>
+
+        <section class="wizard-validation-banner" :class="{ warning: !retoucheValidationStats.measuresConfigured && retoucheMeasuresRequired }">
+          <div>
+            <p class="mobile-overline">Controle final</p>
+            <h5>{{ retoucheValidationStats.readyLabel }}</h5>
+            <p class="helper">
+              {{ !retoucheValidationStats.measuresConfigured && retoucheMeasuresRequired
+                ? "Les mesures requises ne sont pas encore suffisamment renseignees."
+                : `La retouche sera creee pour ${retoucheValidationStats.itemsCount} intervention(s) et ouvrira directement son detail.` }}
+            </p>
+          </div>
+          <span class="status-chip" :class="{ warning: !retoucheValidationStats.measuresConfigured && retoucheMeasuresRequired }">
+            {{ !retoucheValidationStats.measuresConfigured && retoucheMeasuresRequired ? "A verifier" : "Pret" }}
+          </span>
+        </section>
+
+        <div class="beneficiary-summary-grid">
+          <article class="summary-pill-card">
+            <span>Client</span>
+            <strong>1</strong>
+          </article>
+          <article class="summary-pill-card">
+            <span>Interventions</span>
+            <strong>{{ retoucheValidationStats.itemsCount }}</strong>
+          </article>
+          <article class="summary-pill-card">
+            <span>Montant</span>
+            <strong>{{ formatCurrency(retoucheSummary.montantTotal) }}</strong>
+          </article>
+          <article class="summary-pill-card">
+            <span>Date prevue</span>
+            <strong>{{ retoucheValidationStats.datePrevueLabel }}</strong>
+          </article>
+        </div>
+
+        <div class="wizard-beneficiary-list compact">
+          <article class="beneficiary-card">
+            <div class="beneficiary-card-head">
+              <div>
+                <p class="mobile-overline">Client</p>
+                <h4>{{ retoucheWizard.mode === 'existing' ? retoucheClientSearchQueryWizard : `${retoucheWizard.newClient.nom} ${retoucheWizard.newClient.prenom}`.trim() }}</h4>
+              </div>
+              <span class="status-chip">{{ retoucheValidationStats.itemsCount }} item(s)</span>
+            </div>
+            <p class="helper">Habit: {{ humanizeContactLabel(retoucheWizard.retouche.typeHabit) || retoucheWizard.retouche.typeHabit || "A definir" }} · {{ retoucheValidationStats.factureLabel }}</p>
+            <div class="beneficiary-summary-grid wizard-validation-meta-grid">
+              <article class="summary-pill-card">
+                <span>Mesures</span>
+                <strong>{{ retoucheSummary.mesuresRenseignees }}</strong>
+              </article>
+              <article class="summary-pill-card">
+                <span>Type</span>
+                <strong>{{ humanizeContactLabel(retoucheWizard.retouche.typeRetouche) || retoucheWizard.retouche.typeRetouche || "A definir" }}</strong>
+              </article>
+              <article class="summary-pill-card">
+                <span>Date prevue</span>
+                <strong>{{ retoucheValidationStats.datePrevueLabel }}</strong>
+              </article>
+            </div>
+          </article>
+
+          <article class="beneficiary-card">
+            <div class="beneficiary-card-head">
+              <div>
+                <p class="mobile-overline">Creation</p>
+                <h4>Ce qui sera cree</h4>
+              </div>
+              <span class="status-chip">{{ retoucheValidationStats.readyLabel }}</span>
+            </div>
+            <ul class="client-insight-list">
+              <li>{{ retoucheValidationStats.itemsCount }} intervention(s) seront rattachees a cette retouche.</li>
+              <li>Habit concerne : {{ humanizeContactLabel(retoucheWizard.retouche.typeHabit) || retoucheWizard.retouche.typeHabit || "A definir" }}.</li>
+              <li>{{ retoucheValidationStats.factureLabel }}.</li>
+              <li>Apres creation, le detail retouche s'ouvre automatiquement.</li>
+            </ul>
+          </article>
+
+          <article class="beneficiary-card">
+            <div class="beneficiary-card-head">
+              <div>
+                <p class="mobile-overline">Interventions</p>
+                <h4>Recapitulatif des items</h4>
+              </div>
+              <span class="status-chip">{{ retoucheValidationStats.itemsCount }} ligne(s)</span>
+            </div>
+            <ul class="client-insight-list">
+              <li v-for="item in retoucheSummary.items" :key="`ret-summary-item-${item.idItem}`">
+                {{ humanizeContactLabel(item.typeRetouche) || item.typeRetouche || "Retouche" }} - {{ item.description || "Sans description" }} - {{ formatCurrency(Number(item.prix || 0)) }}
+              </li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="modal-actions wizard-modal-actions wizard-actions-footer">
+          <button class="mini-btn" @click="retoucheWizard.step = 3">Retour</button>
+          <button class="action-btn green" @click="onRetoucheWizardStep4" :disabled="retoucheWizard.submitting">Creer la retouche</button>
         </div>
       </section>
     </div>

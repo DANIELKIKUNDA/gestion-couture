@@ -30,6 +30,8 @@ import {
   resolveRetoucheMeasureDefinitions,
   resolveRetouchePolicy
 } from "../../domain/retouche-policy.js";
+import { createRetoucheMesuresSnapshot } from "../../domain/mesures-retouche.js";
+import { RetoucheItem } from "../../domain/retouche-item.js";
 import { generateRetoucheItemId } from "../../../shared/domain/id-generator.js";
 
 const router = express.Router();
@@ -98,50 +100,137 @@ function normalizeRetoucheItemInput(rawItem, index = 0) {
   return {
     idItem: String(item.idItem || item.id_item || "").trim() || generateRetoucheItemId(),
     typeRetouche: String(item.typeRetouche || item.type_retouche || "").trim().toUpperCase(),
+    typeHabit: String(item.typeHabit || item.type_habit || "").trim().toUpperCase(),
     description: String(item.description || "").trim(),
     prix: Number(item.prix ?? 0),
-    ordreAffichage: Number(item.ordreAffichage ?? item.ordre_affichage ?? index + 1) || index + 1
+    ordreAffichage: Number(item.ordreAffichage ?? item.ordre_affichage ?? index + 1) || index + 1,
+    mesuresBrutes: item.mesures ?? item.mesuresHabit ?? item.mesures_snapshot_json ?? null
   };
 }
 
-function buildRetoucheItemsFromPayload(body = {}) {
+function normalizeRetoucheItemMesures(item, policy) {
+  const typeDefinition = getTypeRetoucheDefinition(item.typeRetouche, policy);
+  const typeHabit = String(item.typeHabit || "").trim().toUpperCase();
+  if (typeHabit && !isRetoucheHabitCompatible(typeDefinition, typeHabit)) {
+    throw new Error("Type d'habit incompatible avec ce type de retouche");
+  }
+  if (typeDefinition.necessiteMesures !== true) return null;
+  const definitions = resolveRetoucheMeasureDefinitions({ typeDefinition });
+  if (definitions.length === 0) {
+    throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche.");
+  }
+  const rawValues =
+    item.mesuresBrutes?.valeurs && typeof item.mesuresBrutes.valeurs === "object"
+      ? item.mesuresBrutes.valeurs
+      : item.mesuresBrutes;
+  const snapshot = createRetoucheMesuresSnapshot(rawValues, {
+    definitions,
+    requireAtLeastOne: true,
+    requireComplete: policy.saisiePartielle !== true
+  });
+  return {
+    ...snapshot,
+    typeHabit: typeHabit || null,
+    typeRetouche: item.typeRetouche
+  };
+}
+
+function buildRetoucheItemsFromPayload(body = {}, policy) {
   const sourceItems = Array.isArray(body.items) ? body.items : [];
   const items = sourceItems
     .map((row, index) => normalizeRetoucheItemInput(row, index))
-    .filter((item) => item.typeRetouche && Number.isFinite(item.prix) && item.prix >= 0);
+    .filter((item) => item.typeRetouche && Number.isFinite(item.prix) && item.prix >= 0)
+    .map((item, index) => {
+      const fallbackTypeHabit = item.typeHabit || String(body.typeHabit || "").trim().toUpperCase() || null;
+      const fallbackMesures = item.mesuresBrutes ?? (index === 0 ? body.mesuresHabit ?? null : null);
+      return new RetoucheItem({
+        idItem: item.idItem,
+        typeRetouche: item.typeRetouche,
+        typeHabit: fallbackTypeHabit,
+        description: item.description,
+        prix: item.prix,
+        ordreAffichage: item.ordreAffichage,
+        mesures: normalizeRetoucheItemMesures({ ...item, typeHabit: fallbackTypeHabit, mesuresBrutes: fallbackMesures }, policy)
+      });
+    });
   if (items.length > 0) return items;
   const fallbackTypeRetouche = String(body.typeRetouche || "").trim().toUpperCase();
   if (!fallbackTypeRetouche) return [];
-  return [
-    {
+  const fallbackTypeHabit = String(body.typeHabit || "").trim().toUpperCase() || null;
+  return [new RetoucheItem({
       idItem: generateRetoucheItemId(),
       typeRetouche: fallbackTypeRetouche,
+      typeHabit: fallbackTypeHabit,
       description: String(body.descriptionRetouche || "").trim(),
       prix: Number(body.montantTotal || 0),
-      ordreAffichage: 1
-    }
-  ];
+      ordreAffichage: 1,
+      mesures: normalizeRetoucheItemMesures({
+        typeRetouche: fallbackTypeRetouche,
+        typeHabit: fallbackTypeHabit,
+        mesuresBrutes: body.mesuresHabit ?? null
+      }, policy)
+    })];
 }
 
 function hydrateRetoucheItems(items = [], retoucheRow = null) {
   if (Array.isArray(items) && items.length > 0) return items;
   if (!retoucheRow?.type_retouche) return [];
-  return [
-    {
+  return [new RetoucheItem({
       idItem: `LEGACY-${retoucheRow.id_retouche}`,
       idRetouche: retoucheRow.id_retouche,
       typeRetouche: retoucheRow.type_retouche,
+      typeHabit: retoucheRow.type_habit || null,
       description: String(retoucheRow.description || "").trim() || retoucheRow.type_retouche,
       prix: Number(retoucheRow.montant_total || 0),
       ordreAffichage: 1,
-      dateCreation: retoucheRow.date_depot
-    }
-  ];
+      mesures: retoucheRow.mesures_habit_snapshot || null,
+      dateCreation: retoucheRow.date_depot,
+      rehydrate: true
+    })];
 }
 
 function computeRetoucheTotalFromItems(items = [], fallbackValue = 0) {
   if (!Array.isArray(items) || items.length === 0) return Number(fallbackValue || 0);
   return items.reduce((sum, item) => sum + Number(item.prix || 0), 0);
+}
+
+function getPrimaryRetoucheItem(items = []) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  return items.find((item) => item?.mesures) || items[0] || null;
+}
+
+function deriveRetoucheContext({ body = {}, items = [], policy }) {
+  const primaryItem = getPrimaryRetoucheItem(items);
+  const typeRetouche = primaryItem?.typeRetouche || String(body.typeRetouche || "").trim().toUpperCase();
+  const typeHabit = primaryItem?.typeHabit || String(body.typeHabit || "").trim().toUpperCase() || null;
+  if (!typeRetouche) {
+    throw new Error("typeRetouche obligatoire");
+  }
+  if (!typeHabit) {
+    throw new Error("typeHabit obligatoire");
+  }
+  const typeDefinition = getTypeRetoucheDefinition(typeRetouche, policy);
+  if (!isRetoucheHabitCompatible(typeDefinition, typeHabit)) {
+    throw new Error("Type d'habit incompatible avec ce type de retouche");
+  }
+  const mesureTargets = resolveMesureTargetsForHabit({
+    typeDefinition,
+    typeHabit
+  });
+  const measureDefinitions = resolveRetoucheMeasureDefinitions({ typeDefinition });
+  const measuresRequired = typeDefinition.necessiteMesures === true;
+  if (measuresRequired && measureDefinitions.length === 0) {
+    throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche.");
+  }
+  return {
+    primaryItem,
+    typeRetouche,
+    typeHabit,
+    typeDefinition,
+    mesureTargets,
+    measureDefinitions,
+    measuresRequired
+  };
 }
 
 async function loadRetouchePolicy(options = null) {
@@ -483,8 +572,8 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
       idDossier: z.string().min(1).optional(),
       idClient: z.string().min(1),
       descriptionRetouche: z.string().optional(),
-      typeRetouche: z.string().min(1),
-      montantTotal: z.coerce.number(),
+      typeRetouche: z.string().min(1).optional(),
+      montantTotal: z.coerce.number().optional(),
       items: z
         .array(
           z.object({
@@ -495,17 +584,20 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
           }).passthrough()
         )
         .optional(),
-      typeHabit: z.string().min(1),
+      typeHabit: z.string().min(1).optional(),
       mesuresHabit: z.any().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
-  const r1 = requireFields(body, ["idClient", "typeRetouche", "montantTotal", "typeHabit"]);
+  const hasItems = Array.isArray(body.items) && body.items.length > 0;
+  const r1 = requireFields(body, hasItems ? ["idClient"] : ["idClient", "typeRetouche", "montantTotal", "typeHabit"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
-  const r2 = requireNumber(body, "montantTotal");
-  if (!r2.ok) return res.status(400).json({ error: r2.error });
+  if (!hasItems) {
+    const r2 = requireNumber(body, "montantTotal");
+    if (!r2.ok) return res.status(400).json({ error: r2.error });
+  }
 
   const dbClient = await pool.connect();
   try {
@@ -532,18 +624,6 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
         });
       }
     }
-    const typeDefinition = getTypeRetoucheDefinition(body.typeRetouche, policy);
-    const habitCompatible = isRetoucheHabitCompatible(typeDefinition, body.typeHabit);
-    if (!habitCompatible) throw new Error("Type d'habit incompatible avec ce type de retouche");
-    const mesureTargets = resolveMesureTargetsForHabit({
-      typeDefinition,
-      typeHabit: body.typeHabit
-    });
-    const measureDefinitions = resolveRetoucheMeasureDefinitions({ typeDefinition });
-    const measuresRequired = typeDefinition.necessiteMesures === true;
-    if (measuresRequired && measureDefinitions.length === 0) {
-      throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche.");
-    }
     await dbClient.query("BEGIN");
     if (requestedDossierId) {
       const existingDossier = await dossiers.getById(requestedDossierId);
@@ -551,19 +631,26 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
         throw Object.assign(new Error("Dossier introuvable."), { status: 404, code: "DOSSIER_NOT_FOUND" });
       }
     }
-    const retouche = deposerRetouche({
-      ...body,
-      idRetouche: requestedIdRetouche || generateRetoucheId()
-    }, {
-      policy: { retouches: policy }
-    });
-    const retoucheItems = buildRetoucheItemsFromPayload(body);
+    const retoucheItems = buildRetoucheItemsFromPayload(body, policy);
     if (retoucheItems.length === 0) {
       throw new Error("Ajoutez au moins un item de retouche.");
     }
+    const { primaryItem, mesureTargets, measuresRequired } = deriveRetoucheContext({ body, items: retoucheItems, policy });
+    const retouche = deposerRetouche({
+      ...body,
+      idRetouche: requestedIdRetouche || generateRetoucheId(),
+      items: retoucheItems,
+      typeRetouche: primaryItem?.typeRetouche || body.typeRetouche,
+      typeHabit: primaryItem?.typeHabit || body.typeHabit,
+      mesuresHabit: primaryItem?.mesures || body.mesuresHabit
+    }, {
+      policy: { retouches: policy }
+    });
     retouche.montantTotal = computeRetoucheTotalFromItems(retoucheItems, body.montantTotal);
-    retouche.descriptionRetouche = String(body.descriptionRetouche || retoucheItems[0]?.description || "").trim();
-    retouche.typeRetouche = retoucheItems[0]?.typeRetouche || retouche.typeRetouche;
+    retouche.descriptionRetouche = String(body.descriptionRetouche || primaryItem?.description || "").trim();
+    retouche.typeRetouche = primaryItem?.typeRetouche || retouche.typeRetouche;
+    retouche.typeHabit = primaryItem?.typeHabit || retouche.typeHabit;
+    retouche.mesuresHabit = primaryItem?.mesures || retouche.mesuresHabit;
     retouche.dossierId = requestedDossierId;
     await repo.save(retouche);
     await scopedRetoucheItemRepo(req).withExecutor(dbClient).replaceForRetouche(retouche.idRetouche, retoucheItems);
@@ -641,8 +728,8 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
         })
         .optional(),
       descriptionRetouche: z.string().optional(),
-      typeRetouche: z.string().min(1),
-      montantTotal: z.coerce.number(),
+      typeRetouche: z.string().min(1).optional(),
+      montantTotal: z.coerce.number().optional(),
       items: z
         .array(
           z.object({
@@ -653,7 +740,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
           }).passthrough()
         )
         .optional(),
-      typeHabit: z.string().min(1),
+      typeHabit: z.string().min(1).optional(),
       mesuresHabit: z.any().optional(),
       datePrevue: z.string().optional()
     })
@@ -663,13 +750,16 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
   const body = parsed.data;
   const hasExistingClient = Boolean(String(body.idClient || "").trim());
   const hasNewClient = Boolean(body.nouveauClient);
+  const hasItems = Array.isArray(body.items) && body.items.length > 0;
   if (hasExistingClient === hasNewClient) {
     return res.status(400).json({ error: "Fournissez soit idClient, soit nouveauClient." });
   }
-  const r1 = requireFields(body, ["typeRetouche", "montantTotal", "typeHabit"]);
+  const r1 = requireFields(body, hasItems ? [] : ["typeRetouche", "montantTotal", "typeHabit"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
-  const r2 = requireNumber(body, "montantTotal");
-  if (!r2.ok) return res.status(400).json({ error: r2.error });
+  if (!hasItems) {
+    const r2 = requireNumber(body, "montantTotal");
+    if (!r2.ok) return res.status(400).json({ error: r2.error });
+  }
 
   const dbClient = await pool.connect();
   try {
@@ -700,19 +790,6 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
         });
       }
     }
-    const typeDefinition = getTypeRetoucheDefinition(body.typeRetouche, policy);
-    if (!isRetoucheHabitCompatible(typeDefinition, body.typeHabit)) {
-      throw new Error("Type d'habit incompatible avec ce type de retouche");
-    }
-    const mesureTargets = resolveMesureTargetsForHabit({
-      typeDefinition,
-      typeHabit: body.typeHabit
-    });
-    const measureDefinitions = resolveRetoucheMeasureDefinitions({ typeDefinition });
-    if (typeDefinition.necessiteMesures === true && measureDefinitions.length === 0) {
-      throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche.");
-    }
-
     await dbClient.query("BEGIN");
 
     const atelierId = atelierIdFromReq(req);
@@ -751,20 +828,27 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
       clientRepo: clients
     });
 
-    const retouche = deposerRetouche({
-      ...body,
-      idClient: clientResolution.idClient,
-      idRetouche: resolvedRetoucheId
-    }, {
-      policy: { retouches: policy }
-    });
-    const retoucheItems = buildRetoucheItemsFromPayload(body);
+    const retoucheItems = buildRetoucheItemsFromPayload(body, policy);
     if (retoucheItems.length === 0) {
       throw new Error("Ajoutez au moins un item de retouche.");
     }
+    const { primaryItem, typeDefinition, mesureTargets, measuresRequired } = deriveRetoucheContext({ body, items: retoucheItems, policy });
+    const retouche = deposerRetouche({
+      ...body,
+      idClient: clientResolution.idClient,
+      idRetouche: resolvedRetoucheId,
+      items: retoucheItems,
+      typeRetouche: primaryItem?.typeRetouche || body.typeRetouche,
+      typeHabit: primaryItem?.typeHabit || body.typeHabit,
+      mesuresHabit: primaryItem?.mesures || body.mesuresHabit
+    }, {
+      policy: { retouches: policy }
+    });
     retouche.montantTotal = computeRetoucheTotalFromItems(retoucheItems, body.montantTotal);
-    retouche.descriptionRetouche = String(body.descriptionRetouche || retoucheItems[0]?.description || "").trim();
-    retouche.typeRetouche = retoucheItems[0]?.typeRetouche || retouche.typeRetouche;
+    retouche.descriptionRetouche = String(body.descriptionRetouche || primaryItem?.description || "").trim();
+    retouche.typeRetouche = primaryItem?.typeRetouche || retouche.typeRetouche;
+    retouche.typeHabit = primaryItem?.typeHabit || retouche.typeHabit;
+    retouche.mesuresHabit = primaryItem?.mesures || retouche.mesuresHabit;
     retouche.dossierId = requestedDossierId;
 
     await dbClient.query(
@@ -799,7 +883,6 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
       serieRepo: mesuresRepo
     });
 
-    const measuresRequired = typeDefinition.necessiteMesures === true;
     await dbClient.query(
       `INSERT INTO retouche_events (id_event, atelier_id, id_retouche, type_event, payload, date_event)
        VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,

@@ -1,0 +1,3 @@
+ALTER TABLE retouche_items
+ADD COLUMN IF NOT EXISTS type_habit TEXT NULL,
+ADD COLUMN IF NOT EXISTS mesures_snapshot_json JSONB NULL;

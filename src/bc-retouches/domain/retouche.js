@@ -17,6 +17,7 @@ import {
   resolveRetouchePolicy
 } from "./retouche-policy.js";
 import { createRetoucheMesuresSnapshot } from "./mesures-retouche.js";
+import { RetoucheItem } from "./retouche-item.js";
 
 export class Retouche {
   constructor({
@@ -32,6 +33,7 @@ export class Retouche {
     statutRetouche = StatutRetouche.DEPOSEE,
     typeHabit,
     mesuresHabit,
+    items = [],
     policy = null,
     rehydrate = false
   }) {
@@ -58,27 +60,52 @@ export class Retouche {
     this.descriptionRetouche = descriptionRetouche;
     this.dateDepot = dateDepot;
     this.datePrevue = datePrevue;
-    this.montantTotal = montantTotal;
     this.montantPaye = montantPaye;
     this.statutRetouche = statutRetouche;
     const resolvedPolicy = resolveRetouchePolicy(policy);
+    this.items = Array.isArray(items)
+      ? items.map((item, index) =>
+          item instanceof RetoucheItem
+            ? item
+            : new RetoucheItem({
+                ...item,
+                ordreAffichage: item?.ordreAffichage ?? index + 1,
+                policy: resolvedPolicy,
+                rehydrate
+              })
+        )
+      : [];
+    this.montantTotal =
+      this.items.length > 0
+        ? this.items.reduce((sum, item) => sum + Number(item.prix || 0), 0)
+        : montantTotal;
+    const primaryItem = this.items.find((item) => item?.mesures) || this.items[0] || null;
+    const effectiveTypeRetouche = primaryItem?.typeRetouche || typeRetouche;
     const typeDef = getTypeRetoucheDefinition(typeRetouche, resolvedPolicy);
-    this.typeRetouche = typeDef.code;
-    if (!isRetoucheHabitCompatible(typeDef, typeHabit)) {
+    const effectiveTypeDef = primaryItem
+      ? getTypeRetoucheDefinition(effectiveTypeRetouche, resolvedPolicy, { allowInactive: rehydrate })
+      : typeDef;
+    this.typeRetouche = effectiveTypeDef.code;
+    const effectiveTypeHabit = primaryItem?.typeHabit || typeHabit;
+    if (!isRetoucheHabitCompatible(effectiveTypeDef, effectiveTypeHabit)) {
       throw new Error("Type d'habit incompatible avec ce type de retouche");
     }
-    const descriptionRequired = typeDef.descriptionObligatoire || resolvedPolicy.descriptionObligatoire;
+    const descriptionRequired = effectiveTypeDef.descriptionObligatoire || resolvedPolicy.descriptionObligatoire;
     if (descriptionRequired && !String(descriptionRetouche || "").trim()) {
       throw new Error("Description retouche obligatoire");
     }
 
-    const shouldRequireMeasures = typeDef.necessiteMesures === true;
-    const mesureTargets = resolveMesureTargetsForHabit({ typeDefinition: typeDef, typeHabit });
-    const mesureDefinitions = resolveRetoucheMeasureDefinitions({ typeDefinition: typeDef });
+    const shouldRequireMeasures = effectiveTypeDef.necessiteMesures === true;
+    const mesureTargets = resolveMesureTargetsForHabit({ typeDefinition: effectiveTypeDef, typeHabit: effectiveTypeHabit });
+    const mesureDefinitions = resolveRetoucheMeasureDefinitions({ typeDefinition: effectiveTypeDef });
+    const effectiveMesuresHabit = primaryItem?.mesures || mesuresHabit;
 
-    if (typeHabit || mesuresHabit) {
+    if (effectiveTypeHabit || effectiveMesuresHabit) {
       try {
-        const rawValues = mesuresHabit?.valeurs && typeof mesuresHabit.valeurs === "object" ? mesuresHabit.valeurs : mesuresHabit;
+        const rawValues =
+          effectiveMesuresHabit?.valeurs && typeof effectiveMesuresHabit.valeurs === "object"
+            ? effectiveMesuresHabit.valeurs
+            : effectiveMesuresHabit;
         if (!shouldRequireMeasures && rawValues && Object.keys(rawValues).length > 0) {
           throw new Error("Mesures non autorisees pour ce type de retouche");
         }
@@ -105,13 +132,13 @@ export class Retouche {
             }
           }
         }
-        this.typeHabit = String(typeHabit || mesuresHabit?.typeHabit || "").trim().toUpperCase() || null;
+        this.typeHabit = String(effectiveTypeHabit || effectiveMesuresHabit?.typeHabit || "").trim().toUpperCase() || null;
         this.mesuresHabit = snapshot ? { ...snapshot, typeHabit: this.typeHabit, typeRetouche: this.typeRetouche } : null;
       } catch (err) {
         if (!rehydrate) throw err;
         // Compatibility for historical rows with incomplete measures.
-        this.typeHabit = typeHabit || mesuresHabit?.typeHabit || null;
-        this.mesuresHabit = mesuresHabit || null;
+        this.typeHabit = effectiveTypeHabit || effectiveMesuresHabit?.typeHabit || null;
+        this.mesuresHabit = effectiveMesuresHabit || null;
       }
     } else {
       // Compatibility for historical rows created before mesures were enforced.
