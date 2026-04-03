@@ -31,7 +31,9 @@ test("ajoute une retouche dans un dossier avec affichage correct du beneficiaire
   await openDossierFromList(page, "Nsapu Retouche");
   await createRetoucheInCurrentDossierThroughUi(page);
   await expect(page.getByRole("heading", { name: /^Detail Retouche$/i }).first()).toBeVisible();
-  await expect(page.getByText(/Client\s*:/i).first()).toBeVisible();
-  await expect(page.getByText(new RegExp(responsableNomComplet, "i")).first()).toBeVisible();
-  await expect(page.getByText(/Montant total\s*:/i).first()).toBeVisible();
+  const summaryCard = page.locator(".detail-summary-shell").first();
+  await expect(summaryCard).toBeVisible();
+  await expect(summaryCard.getByText(/Client\s*:/i).first()).toBeVisible();
+  await expect(summaryCard.getByText(new RegExp(responsableNomComplet, "i")).first()).toBeVisible();
+  await expect(summaryCard.getByText(/Total\s*:/i).first()).toBeVisible();
 });
