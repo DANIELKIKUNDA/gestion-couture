@@ -506,16 +506,18 @@ async function resolveCommandeServerId(atelierId, payload = {}, localRecord = nu
 }
 
 async function buildCommandeApiPayload(atelierId, payload = {}, localRecord = {}, clientServerId = "") {
+  const items = Array.isArray(payload.items)
+    ? payload.items
+    : Array.isArray(localRecord?.items)
+      ? localRecord.items
+      : [];
+  const primaryItem = items.find((item) => item?.typeHabit) || items[0] || null;
   const requestPayload = {
     descriptionCommande: normalizeString(payload.descriptionCommande),
     montantTotal: Number(payload.montantTotal || 0),
-    typeHabit: normalizeString(payload.typeHabit),
-    mesuresHabit: payload.mesuresHabit || {},
-    items: Array.isArray(payload.items)
-      ? payload.items
-      : Array.isArray(localRecord?.items)
-        ? localRecord.items
-        : []
+    typeHabit: normalizeString(payload.typeHabit || primaryItem?.typeHabit),
+    mesuresHabit: payload.mesuresHabit || primaryItem?.mesures || {},
+    items
   };
   if (payload.nouveauClient && typeof payload.nouveauClient === "object") {
     requestPayload.nouveauClient = payload.nouveauClient;
@@ -530,6 +532,7 @@ async function buildCommandeApiPayload(atelierId, payload = {}, localRecord = {}
 
 function buildCommandePhotoUpdatePayload(localRecord = {}) {
   return {
+    idItem: normalizeString(localRecord?.idItem),
     note: normalizeString(localRecord?.note),
     position: Math.max(1, Number(localRecord?.position || 1)),
     isPrimary: localRecord?.isPrimary === true
@@ -656,6 +659,9 @@ async function executeQueueEntry(atelierId, entry) {
     formData.append("photo", localRecord.blob, normalizeString(localRecord.nomFichierOriginal) || "photo-offline.webp");
     if (normalizeString(localRecord.note)) {
       formData.append("note", normalizeString(localRecord.note));
+    }
+    if (normalizeString(localRecord.idItem)) {
+      formData.append("idItem", normalizeString(localRecord.idItem));
     }
     if (normalizeString(localRecord.sourceType)) {
       formData.append("sourceType", normalizeString(localRecord.sourceType));

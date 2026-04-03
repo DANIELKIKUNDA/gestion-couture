@@ -18,6 +18,7 @@ function normalizeSourceType(value) {
 export async function ajouterCommandeMedia({
   atelierId,
   idCommande,
+  idItem = "",
   fichierUpload,
   tempDir,
   acteur = null,
@@ -72,6 +73,7 @@ export async function ajouterCommandeMedia({
       {
         idMedia,
         idCommande,
+        idItem: idItem ? String(idItem).trim() : null,
         typeMedia: "IMAGE",
         sourceType: normalizeSourceType(sourceType),
         cheminOriginal: finalized.cheminOriginal,

@@ -114,6 +114,7 @@ function buildQueueMetaPayload(record, commandeReference) {
   return {
     commandeLocalId: normalizeString(record?.idCommandeLocalId || commandeReference?.commandeLocalId),
     commandeServerId: normalizeString(record?.idCommandeServerId || commandeReference?.commandeServerId),
+    idItem: normalizeString(record?.idItem),
     mediaServerId: normalizeString(record?.serverId),
     sourceType: normalizeString(record?.sourceType),
     note: normalizeString(record?.note),
@@ -152,6 +153,7 @@ function buildPhotoRecord({
     idCommande: commandeServerId || commandeLocalId || normalizeString(next.idCommande || existing?.idCommande),
     idCommandeLocalId: commandeLocalId,
     idCommandeServerId: commandeServerId,
+    idItem: normalizeString(next.idItem ?? existing?.idItem),
     blob: normalizeBlob(next.blob) || normalizeBlob(existing?.blob),
     note: normalizeString(next.note ?? existing?.note),
     position,
@@ -278,6 +280,7 @@ function materializeCommandeMediaItems(records = [], options = {}) {
         normalizeString(record?.idCommandeServerId || record?.idCommandeLocalId || record?.idCommande || commandeServerId),
       idCommandeLocalId: normalizeString(record?.idCommandeLocalId),
       idCommandeServerId: normalizeString(record?.idCommandeServerId || commandeServerId),
+      idItem: normalizeString(record?.idItem),
       typeMedia: normalizeString(record?.typeMedia || "IMAGE"),
       sourceType: normalizeString(record?.sourceType || "UPLOAD"),
       nomFichierOriginal: normalizeString(record?.nomFichierOriginal),
@@ -343,6 +346,7 @@ async function cacheServerCommandeMedia({ atelierId, commandeReference, mediaRow
         idCommande: reference.commandeServerId,
         idCommandeLocalId: normalizeString(existing?.idCommandeLocalId || reference.commandeLocalId),
         idCommandeServerId: reference.commandeServerId,
+        idItem: normalizeString(rawRow?.idItem || rawRow?.id_item),
         syncStatus: ENTITY_SYNC_STATUSES.SYNCED,
         pendingDelete: false,
         updatedAt: timestamp,
@@ -440,7 +444,8 @@ export async function addCommandePhotoOffline({
   file,
   note = "",
   sourceType = "UPLOAD",
-  existingCount = null
+  existingCount = null,
+  idItem = ""
 } = {}) {
   const scopedAtelierId = ensureAtelierId(atelierId);
   const reference = extractCommandeReference(commande);
@@ -473,6 +478,7 @@ export async function addCommandePhotoOffline({
         idMedia: localId,
         blob,
         note,
+        idItem: normalizeString(idItem),
         position: currentMaxPosition + 1,
         isPrimary: !hasPrimary,
         syncStatus: ENTITY_SYNC_STATUSES.PENDING,

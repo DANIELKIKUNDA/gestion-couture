@@ -90,6 +90,33 @@ offlineDb
     }
   });
 
+offlineDb
+  .version(3)
+  .stores({
+    commandes:
+      "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+    retouches:
+      "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+    clients:
+      "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+    utilisateurs:
+      "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+    commande_photos:
+      "&localId, atelierId, serverId, idCommandeLocalId, idCommandeServerId, idItem, syncStatus, updatedAt, lastSyncedAt, pendingDelete, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus], [atelierId+idCommandeLocalId], [atelierId+idCommandeServerId], [atelierId+idItem]",
+    sync_queue:
+      "&queueId, atelierId, status, attemptCount, retryAt, createdAt, startedAt, finishedAt, entityType, actionType, entityLocalId, entityServerId, [atelierId+status], [atelierId+retryAt], [atelierId+entityLocalId], [atelierId+entityServerId]",
+    meta: "&scopeKey, atelierId, key, updatedAt, [atelierId+key]"
+  })
+  .upgrade(async (tx) => {
+    const rows = await tx.table(TABLE_NAMES.COMMANDE_PHOTOS).toArray();
+    for (const row of rows) {
+      await tx.table(TABLE_NAMES.COMMANDE_PHOTOS).put({
+        ...row,
+        idItem: normalizeString(row?.idItem)
+      });
+    }
+  });
+
 let openPromise = null;
 
 function normalizeString(value) {

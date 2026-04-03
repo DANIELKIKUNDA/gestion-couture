@@ -86,11 +86,17 @@ export async function mettreAJourCommandeMedia({
       await mediaRepo.setPrimary(idCommande, idMedia, client);
     }
 
-    if (Object.prototype.hasOwnProperty.call(patch, "note")) {
+    const hasMetaPatch =
+      Object.prototype.hasOwnProperty.call(patch, "note") ||
+      Object.prototype.hasOwnProperty.call(patch, "idItem");
+    if (hasMetaPatch) {
       await mediaRepo.updateMeta(
         idCommande,
         idMedia,
-        { note: normalizeNote(patch.note) },
+        {
+          ...(Object.prototype.hasOwnProperty.call(patch, "note") ? { note: normalizeNote(patch.note) } : {}),
+          ...(Object.prototype.hasOwnProperty.call(patch, "idItem") ? { idItem: patch.idItem || null } : {})
+        },
         client
       );
     }

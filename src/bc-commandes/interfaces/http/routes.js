@@ -229,6 +229,7 @@ function mapCommandeMedia(row) {
   return {
     idMedia: row.idMedia || row.id_media || "",
     idCommande: row.idCommande || row.id_commande || "",
+    idItem: row.idItem || row.id_item || "",
     typeMedia: row.typeMedia || row.type_media || "IMAGE",
     sourceType: row.sourceType || row.source_type || "UPLOAD",
     nomFichierOriginal: row.nomFichierOriginal || row.nom_fichier_original || "",
@@ -764,7 +765,8 @@ router.post("/commandes/:id/media", requireCommandeCreateAccess, async (req, res
     const schema = z
       .object({
         note: z.string().max(500).optional(),
-        sourceType: z.enum(["UPLOAD", "CAMERA"]).optional()
+        sourceType: z.enum(["UPLOAD", "CAMERA"]).optional(),
+        idItem: z.string().min(1).optional()
       })
       .passthrough();
     const parsed = validateSchema(schema, req.body || {});
@@ -779,10 +781,19 @@ router.post("/commandes/:id/media", requireCommandeCreateAccess, async (req, res
     }
 
     try {
+      const normalizedIdItem = String(parsed.data.idItem || "").trim();
+      if (normalizedIdItem) {
+        const commandeItems = await scopedCommandeItemRepo(req).listByCommande(req.params.id);
+        if (!commandeItems.some((item) => String(item?.idItem || "").trim() === normalizedIdItem)) {
+          await cleanupCommandeMediaUpload(req);
+          return res.status(400).json({ error: "Item commande introuvable pour cette photo" });
+        }
+      }
       const acteur = resolveActeur(req);
       const created = await ajouterCommandeMedia({
         atelierId: atelierIdFromReq(req),
         idCommande: req.params.id,
+        idItem: normalizedIdItem,
         fichierUpload: req.file,
         tempDir: req.commandeMediaUpload?.tempDir || "",
         acteur,
@@ -832,20 +843,33 @@ router.patch("/commandes/:id/media/:mediaId", requireCommandeCreateAccess, async
     .object({
       note: z.string().max(500).optional(),
       position: z.coerce.number().int().min(1).max(3).optional(),
-      isPrimary: z.boolean().optional()
+      isPrimary: z.boolean().optional(),
+      idItem: z.string().min(1).optional().or(z.literal("").transform(() => ""))
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body || {});
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
   try {
+    const normalizedIdItem = Object.prototype.hasOwnProperty.call(parsed.data, "idItem")
+      ? String(parsed.data.idItem || "").trim()
+      : undefined;
+    if (normalizedIdItem !== undefined && normalizedIdItem !== "") {
+      const commandeItems = await scopedCommandeItemRepo(req).listByCommande(req.params.id);
+      if (!commandeItems.some((item) => String(item?.idItem || "").trim() === normalizedIdItem)) {
+        return res.status(400).json({ error: "Item commande introuvable pour cette photo" });
+      }
+    }
     const acteur = resolveActeur(req);
     const updated = await mettreAJourCommandeMedia({
       atelierId: atelierIdFromReq(req),
       idCommande: req.params.id,
       idMedia: req.params.mediaId,
       mediaRepo: scopedCommandeMediaRepo(req),
-      patch: parsed.data
+      patch: {
+        ...parsed.data,
+        ...(normalizedIdItem !== undefined ? { idItem: normalizedIdItem || null } : {})
+      }
     });
     await enregistrerEvenementCommande({
       atelierId: atelierIdFromReq(req),

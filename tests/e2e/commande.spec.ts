@@ -32,11 +32,11 @@ test("ajoute une commande simple dans un dossier et affiche le client associe", 
   await openDossierFromList(page, "Tshibangu Commande");
   await createCommandeInCurrentDossierThroughUi(page);
   await expect(page.getByRole("heading", { name: /^Detail Commande$/i }).first()).toBeVisible();
-  const identityCard = page.locator("article").filter({ has: page.getByRole("heading", { name: /^Identite commande$/i }) }).first();
-  await expect(identityCard).toBeVisible();
-  await expect(identityCard.getByText(/Client\s*:\s*Tshibangu Commande/i)).toBeVisible();
-  await expect(identityCard.getByText(/Client associe\s*:\s*Tshibangu/i)).toBeVisible();
-  await expect(identityCard.getByText(/Montant total\s*:/i)).toBeVisible();
+  const summaryCard = page.locator(".detail-summary-shell").first();
+  await expect(summaryCard).toBeVisible();
+  await expect(summaryCard.getByText(/Client\s*:\s*Tshibangu Commande/i)).toBeVisible();
+  await expect(summaryCard.getByText(/Nombre d'habits\s*:/i)).toBeVisible();
+  await expect(summaryCard.getByText(/Total\s*:/i).first()).toBeVisible();
 });
 
 test("upload une photo et la conserve apres refresh UI", async ({ page }) => {
@@ -70,7 +70,8 @@ test("upload une photo et la conserve apres refresh UI", async ({ page }) => {
   await expect(commandeRow).toBeVisible();
   await commandeRow.getByRole("button", { name: /^Voir$/i }).click();
 
-  const mediaPanel = page.locator(".commande-media-panel");
+  await page.getByRole("button", { name: /^Voir photos$/i }).first().click();
+  const mediaPanel = page.locator(".detail-photo-dialog .commande-media-panel");
   await expect(mediaPanel).toBeVisible();
   await mediaPanel.locator('input[type="file"]').first().setInputFiles({
     name: "reference-modele.png",
@@ -79,6 +80,8 @@ test("upload une photo et la conserve apres refresh UI", async ({ page }) => {
   });
 
   await expect(mediaPanel.locator(".commande-media-card img")).toHaveCount(1);
+  await page.getByRole("button", { name: /^Fermer$/i }).click();
   await page.getByRole("button", { name: /^Actualiser$/i }).click();
+  await page.getByRole("button", { name: /^Voir photos$/i }).first().click();
   await expect(mediaPanel.locator(".commande-media-card img")).toHaveCount(1);
 });

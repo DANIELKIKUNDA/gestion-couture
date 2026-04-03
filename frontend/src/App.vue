@@ -30,7 +30,6 @@ import { requestSync, setSyncEngineAtelierContext, subscribeToSyncEvents } from 
 import { pendingActions, syncInProgress } from "./services/sync-status-service.js";
 import { showToast, toastState } from "./services/toast-service.js";
 import CommandeDetailEventMobileList from "./components/commandes/CommandeDetailEventMobileList.vue";
-import CommandeDetailOverviewCards from "./components/commandes/CommandeDetailOverviewCards.vue";
 import CommandeDetailPaymentMobileList from "./components/commandes/CommandeDetailPaymentMobileList.vue";
 import CommandeMobileList from "./components/commandes/CommandeMobileList.vue";
 import CommandeMediaGallery from "./components/commandes/CommandeMediaGallery.vue";
@@ -74,7 +73,6 @@ import ResponsiveDataContainer from "./components/mobile/ResponsiveDataContainer
 import ScrollTopButton from "./components/mobile/ScrollTopButton.vue";
 import OfflineBanner from "./components/OfflineBanner.vue";
 import RetoucheDetailEventMobileList from "./components/retouches/RetoucheDetailEventMobileList.vue";
-import RetoucheDetailOverviewCards from "./components/retouches/RetoucheDetailOverviewCards.vue";
 import RetoucheDetailPaymentMobileList from "./components/retouches/RetoucheDetailPaymentMobileList.vue";
 import RetoucheMobileList from "./components/retouches/RetoucheMobileList.vue";
 import Sidebar from "./components/Sidebar.vue";
@@ -850,6 +848,9 @@ const detailCommandeMediaUploading = ref(false);
 const detailCommandeMediaActionId = ref("");
 const detailCommandeMediaError = ref("");
 const detailError = ref("");
+const detailCommandeHistoryPanels = reactive({ paiements: false, evenements: false });
+const detailRetoucheHistoryPanels = reactive({ paiements: false, evenements: false });
+const commandeItemPhotoDialog = reactive({ open: false, itemId: "", title: "" });
 const commandeMediaViewerCurrentItem = computed(() => {
   if (commandeMediaViewer.index >= 0 && commandeMediaViewer.index < commandeMediaViewer.items.length) {
     return commandeMediaViewer.items[commandeMediaViewer.index] || null;
@@ -4171,40 +4172,61 @@ const canAnnulerDetail = computed(() => {
   return false;
 });
 const canEmitCommandeDetailFacture = computed(() => Boolean(detailCommande.value && !detailCommandeFacture.value && detailCommande.value.statutCommande !== "ANNULEE"));
-const detailCommandeMesuresLines = computed(() => formatMesuresLines(detailCommande.value?.mesuresHabit));
+function buildItemPaymentBreakdown(items = [], totalPaid = 0) {
+  let remainingPaid = Math.max(0, Number(totalPaid || 0));
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const montant = Math.max(0, Number(item?.prix || 0));
+    const paye = Math.min(montant, remainingPaid);
+    remainingPaid = Math.max(0, remainingPaid - paye);
+    return {
+      montant,
+      paye,
+      reste: Math.max(0, montant - paye)
+    };
+  });
+}
+
+function normalizeUiToken(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 const detailCommandeItemCards = computed(() => {
   const items = Array.isArray(detailCommande.value?.items) ? detailCommande.value.items : [];
+  const breakdown = buildItemPaymentBreakdown(items, detailCommande.value?.montantPaye || 0);
   return items.map((item, index) => {
     const mesuresLines = formatMesuresLines(item?.mesures || null);
+    const finance = breakdown[index] || { montant: Number(item?.prix || 0), paye: 0, reste: Number(item?.prix || 0) };
     return {
       id: item?.idItem || `detail-item-${index + 1}`,
+      index: index + 1,
       title: item?.description || humanizeContactLabel(item?.typeHabit) || item?.typeHabit || `Habit ${index + 1}`,
       typeHabit: item?.typeHabit || "",
-      prix: Number(item?.prix || 0),
+      statut: detailCommande.value?.statutCommande || "",
+      prix: finance.montant,
+      montantPaye: finance.paye,
+      reste: finance.reste,
       mesuresLines,
-      mesuresCount: mesuresLines.length
+      mesuresCount: mesuresLines.length,
+      canPay: canPayerDetail.value && finance.reste > 0
     };
   });
 });
-const detailCommandeBeneficiaryLines = computed(() => {
-  const lignes = Array.isArray(detailCommande.value?.lignesCommande) ? detailCommande.value.lignesCommande : [];
-  return lignes.map((ligne, index) => {
-    const directoryEntry = ligne.idClient ? clientDirectory.value.get(ligne.idClient) || null : null;
-    const nomComplet = `${String(ligne.nomAffiche || "").trim()} ${String(ligne.prenomAffiche || "").trim()}`.trim()
-      || directoryEntry?.nomComplet
-      || (ligne.idClient ? clientMap.value.get(ligne.idClient) : "")
-      || `Beneficiaire ${index + 1}`;
-    const mesures = ligne?.mesuresHabit?.valeurs && typeof ligne.mesuresHabit.valeurs === "object"
-      ? Object.keys(ligne.mesuresHabit.valeurs).length
-      : 0;
-    return {
-      id: ligne.idLigne || `ligne-${index + 1}`,
-      role: ligne.role,
-      nomComplet,
-      typeHabit: ligne.typeHabit,
-      mesuresCount: mesures
-    };
-  });
+const detailCommandeStatusAction = computed(() => {
+  if (canTerminerDetail.value) {
+    return { label: "Terminer", handler: onTerminerDetail };
+  }
+  if (canLivrerDetail.value) {
+    return { label: "Livrer", handler: onLivrerDetail };
+  }
+  if (canAnnulerDetail.value) {
+    return { label: "Annuler", handler: onAnnulerDetail };
+  }
+  return null;
 });
 const commandeDetailPrimaryAction = computed(() => {
   if (canPayerDetail.value) {
@@ -4274,26 +4296,39 @@ const canAnnulerRetoucheDetail = computed(() => {
   return false;
 });
 const canEmitRetoucheDetailFacture = computed(() => Boolean(detailRetouche.value && !detailRetoucheFacture.value && detailRetouche.value.statutRetouche !== "ANNULEE"));
-const detailRetoucheMesuresLines = computed(() => {
-  const primaryMeasuredItem = Array.isArray(detailRetouche.value?.items)
-    ? detailRetouche.value.items.find((item) => item?.mesures)
-    : null;
-  return formatMesuresLines(detailRetouche.value?.mesuresHabit || primaryMeasuredItem?.mesures);
-});
 const detailRetoucheItemCards = computed(() => {
   const items = Array.isArray(detailRetouche.value?.items) ? detailRetouche.value.items : [];
+  const breakdown = buildItemPaymentBreakdown(items, detailRetouche.value?.montantPaye || 0);
   return items.map((item, index) => {
     const mesuresLines = formatMesuresLines(item?.mesures);
+    const finance = breakdown[index] || { montant: Number(item?.prix || 0), paye: 0, reste: Number(item?.prix || 0) };
     return {
       id: item?.idItem || `retouche-item-${index + 1}`,
+      index: index + 1,
       title: item?.description || humanizeContactLabel(item?.typeRetouche) || item?.typeRetouche || `Intervention ${index + 1}`,
       typeRetouche: item?.typeRetouche || "",
       typeHabit: item?.typeHabit || detailRetouche.value?.typeHabit || "",
-      prix: Number(item?.prix || 0),
+      statut: detailRetouche.value?.statutRetouche || "",
+      prix: finance.montant,
+      montantPaye: finance.paye,
+      reste: finance.reste,
       mesuresLines,
-      mesuresCount: mesuresLines.length
+      mesuresCount: mesuresLines.length,
+      canPay: canPayerRetoucheDetail.value && finance.reste > 0
     };
   });
+});
+const detailRetoucheStatusAction = computed(() => {
+  if (canTerminerRetoucheDetail.value) {
+    return { label: "Terminer", handler: onTerminerRetoucheDetail };
+  }
+  if (canLivrerRetoucheDetail.value) {
+    return { label: "Livrer", handler: onLivrerRetoucheDetail };
+  }
+  if (canAnnulerRetoucheDetail.value) {
+    return { label: "Annuler", handler: onAnnulerRetoucheDetail };
+  }
+  return null;
 });
 const retoucheDetailPrimaryAction = computed(() => {
   if (canPayerRetoucheDetail.value) {
@@ -5095,6 +5130,80 @@ const detailRetoucheContactSelectedTemplateKey = computed(() =>
 const detailRetoucheContactMessagePreview = computed(() =>
   resolveContactMessagePreview(detailRetoucheContactTemplates.value, detailRetoucheContactSelectedTemplateKey.value)
 );
+
+const detailCommandeMediaByItemId = computed(() => {
+  const map = new Map();
+  const cards = Array.isArray(detailCommandeItemCards.value) ? detailCommandeItemCards.value : [];
+  const medias = Array.isArray(detailCommandeMedia.value) ? detailCommandeMedia.value : [];
+  const singleItemId = cards.length === 1 ? String(cards[0]?.id || "").trim() : "";
+  for (const card of cards) {
+    map.set(String(card.id || "").trim(), []);
+  }
+  for (const media of medias) {
+    const explicitItemId = String(media?.idItem || "").trim();
+    if (explicitItemId && map.has(explicitItemId)) {
+      map.get(explicitItemId)?.push(media);
+      continue;
+    }
+    if (singleItemId) {
+      map.get(singleItemId)?.push(media);
+      continue;
+    }
+    const haystack = normalizeUiToken([media?.note, media?.nomFichierOriginal, media?.sourceType].filter(Boolean).join(" "));
+    const match = cards.find((card) => {
+      const titleToken = normalizeUiToken(card.title);
+      const habitToken = normalizeUiToken(card.typeHabit);
+      const idToken = normalizeUiToken(card.id);
+      return Boolean(
+        (titleToken && haystack.includes(titleToken)) ||
+        (habitToken && haystack.includes(habitToken)) ||
+        (idToken && haystack.includes(idToken))
+      );
+    });
+    if (match) {
+      map.get(String(match.id || "").trim())?.push(media);
+    }
+  }
+  return map;
+});
+
+const commandeItemPhotoDialogItems = computed(() => {
+  const itemId = String(commandeItemPhotoDialog.itemId || "").trim();
+  return itemId ? detailCommandeMediaByItemId.value.get(itemId) || [] : [];
+});
+
+function getCommandeMediaRowsForItem(itemId = "") {
+  const normalizedId = String(itemId || "").trim();
+  return normalizedId ? detailCommandeMediaByItemId.value.get(normalizedId) || [] : [];
+}
+
+function openCommandeItemPhotoDialog(item) {
+  if (!item?.id) return;
+  commandeItemPhotoDialog.open = true;
+  commandeItemPhotoDialog.itemId = String(item.id || "").trim();
+  commandeItemPhotoDialog.title = item.title || "Photos";
+}
+
+function closeCommandeItemPhotoDialog() {
+  commandeItemPhotoDialog.open = false;
+  commandeItemPhotoDialog.itemId = "";
+  commandeItemPhotoDialog.title = "";
+}
+
+function onCommandeDetailStatusChange() {
+  detailCommandeStatusAction.value?.handler?.();
+}
+
+function onRetoucheDetailStatusChange() {
+  detailRetoucheStatusAction.value?.handler?.();
+}
+
+function openClientConsultationFromDetail(idClient = "") {
+  const targetId = String(idClient || "").trim();
+  if (!targetId) return;
+  selectedClientConsultationId.value = targetId;
+  openRoute("clientsMesures");
+}
 
 const clientConsultationContactProfile = computed(() => {
   if (!clientConsultationClient.value) return null;
@@ -9302,6 +9411,7 @@ function normalizeCommandeMedia(raw) {
     pendingDelete: raw.pendingDelete === true || raw.pending_delete === true,
     idMedia,
     idCommande,
+    idItem: raw.idItem || raw.id_item || "",
     idCommandeLocalId: raw.idCommandeLocalId || raw.id_commande_local_id || "",
     idCommandeServerId: raw.idCommandeServerId || raw.id_commande_server_id || (isRemoteEntityId(idCommande) ? idCommande : ""),
     typeMedia: raw.typeMedia || raw.type_media || "IMAGE",
@@ -12122,7 +12232,7 @@ async function openCommandeMedia(item) {
   }
 }
 
-async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD" }) {
+async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD", idItem = "" }) {
   if (!detailCommande.value?.idCommande || !file) return;
   detailCommandeMediaUploading.value = true;
   detailCommandeMediaError.value = "";
@@ -12139,6 +12249,7 @@ async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD" }) {
         file,
         note,
         sourceType,
+        idItem,
         existingCount: detailCommandeMedia.value.length
       });
       const refreshed = await loadCommandeMediaLocalFirst({
@@ -12155,6 +12266,7 @@ async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD" }) {
     const formData = new FormData();
     formData.append("photo", file);
     if (note) formData.append("note", note);
+    if (idItem) formData.append("idItem", idItem);
     if (sourceType) formData.append("sourceType", sourceType);
     await atelierApi.uploadCommandeMedia(detailCommande.value.idCommande, formData);
     await refreshCommandeMediaForDetail({
@@ -12168,6 +12280,13 @@ async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD" }) {
   } finally {
     detailCommandeMediaUploading.value = false;
   }
+}
+
+function uploadCommandeMediaForCurrentItem(payload = {}) {
+  return uploadCommandeMedia({
+    ...payload,
+    idItem: String(commandeItemPhotoDialog.itemId || "").trim()
+  });
 }
 
 async function setCommandeMediaPrimary(item) {
@@ -15028,31 +15147,31 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               <div class="row-actions">
                 <button class="mini-btn" @click="openRoute('commandes')">Retour</button>
                 <button
-                  v-if="!isMobileViewport && canEmitCommandeDetailFacture"
+                  v-show="!isMobileViewport && canEmitCommandeDetailFacture"
                   class="action-btn blue"
                   @click="onEmettreFactureCommandeDetail"
                   :disabled="detailLoading"
                 >
                   Emettre facture
                 </button>
-                <button class="mini-btn" v-if="detailCommandeFacture" @click="onVoirFactureParOrigine('COMMANDE', detailCommande.idCommande)">
+                <button class="mini-btn" v-show="!!detailCommandeFacture" @click="onVoirFactureParOrigine('COMMANDE', detailCommande.idCommande)">
                   Voir facture
                 </button>
-                <button class="mini-btn" v-if="detailCommandeFacture" @click="onImprimerFactureParOrigine('COMMANDE', detailCommande.idCommande)">
+                <button class="mini-btn" v-show="!!detailCommandeFacture" @click="onImprimerFactureParOrigine('COMMANDE', detailCommande.idCommande)">
                   {{ isMobileViewport ? "Telecharger facture" : "Imprimer facture" }}
                 </button>
-                <button v-if="!isMobileViewport && canPayerDetail" class="action-btn blue" @click="onPaiementDetail" :disabled="detailLoading || detailPaiementsLoading">
+                <button v-show="!isMobileViewport && canPayerDetail" class="action-btn blue" @click="onPaiementDetail" :disabled="detailLoading || detailPaiementsLoading">
                   Payer
                 </button>
-                <button v-if="!isMobileViewport && canLivrerDetail" class="action-btn green" @click="onLivrerDetail" :disabled="detailLoading">
+                <button v-show="!isMobileViewport && canLivrerDetail" class="action-btn green" @click="onLivrerDetail" :disabled="detailLoading">
                   Livrer
                 </button>
-                <button v-if="!isMobileViewport && canTerminerDetail" class="action-btn amber" @click="onTerminerDetail" :disabled="detailLoading">
+                <button v-show="!isMobileViewport && canTerminerDetail" class="action-btn amber" @click="onTerminerDetail" :disabled="detailLoading">
                   Terminer
                 </button>
                 <button
                   :class="isMobileViewport ? 'mini-btn' : 'action-btn red'"
-                  v-if="canAnnulerDetail"
+                  v-show="canAnnulerDetail"
                   @click="onAnnulerDetail"
                   :disabled="detailLoading"
                 >
@@ -15086,225 +15205,134 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </ResponsiveDataContainer>
 
           <div v-show="!!detailCommande">
-            <ResponsiveDataContainer :mobile="isMobileViewport">
-              <template #mobile>
-                <CommandeDetailOverviewCards
-                  :commande="detailCommande"
-                  :facture-number="detailCommandeFacture ? detailCommandeFacture.numeroFacture : ''"
-                  :mesures-lines="detailCommandeMesuresLines"
-                  :solde-restant="detailSoldeRestant"
-                  :format-currency="formatCurrency"
-                />
-              </template>
-              <template #desktop>
-                <article class="panel detail-grid" style="grid-template-columns: 1fr 1fr 1fr;">
-                  <div>
-                    <h4>Identite commande</h4>
-                    <p><strong>Client:</strong> {{ detailCommandeView.clientNom || detailCommandeView.idClient || "-" }}</p>
-                    <p><strong>Description:</strong> {{ detailCommandeView.descriptionCommande || "-" }}</p>
-                    <p><strong>Statut:</strong> {{ detailCommandeView.statutCommande || "-" }}</p>
-                    <p><strong>Facture:</strong> {{ detailCommandeFacture ? detailCommandeFacture.numeroFacture : "Non emise" }}</p>
-                    <p><strong>Date creation:</strong> {{ detailCommandeView.dateCreation || "-" }}</p>
-                    <p><strong>Date prevue:</strong> {{ detailCommandeView.datePrevue || "-" }}</p>
-                    <p><strong>Commande simple:</strong> Oui</p>
-                    <p><strong>Client associe:</strong> {{ detailCommandeView.clientNom || detailCommandeView.idClient || "-" }}</p>
+            <article class="panel detail-summary-shell">
+              <div class="detail-summary-columns">
+                <section class="detail-summary-column">
+                  <div class="detail-summary-heading">
+                    <p class="mobile-overline">Identite</p>
+                    <h4>Commande</h4>
                   </div>
-                  <div>
-                    <h4>Mesures de l'habit</h4>
-                    <p><strong>Type d'habit:</strong> {{ detailCommandeView.typeHabit || "-" }}</p>
-                    <p><strong>Unite:</strong> cm</p>
-                    <p><strong>Mode:</strong> Lecture par habit</p>
-                    <template v-for="(line, idx) in detailCommandeMesuresLines" :key="`cmd-mes-line-${idx}`">
-                      <p>{{ line }}</p>
-                    </template>
-                    <p v-if="detailCommandeMesuresLines.length === 0">Aucune mesure.</p>
+                  <div class="detail-summary-list">
+                    <p><strong>Client : </strong>{{ detailCommandeView.clientNom || detailCommandeView.idClient || "-" }}</p>
+                    <p><strong>Description : </strong>{{ detailCommandeView.descriptionCommande || "-" }}</p>
+                    <p><strong>Statut : </strong><span class="status-pill" :data-status="detailCommandeView.statutCommande || ''">{{ detailCommandeView.statutCommande || "-" }}</span></p>
+                    <p><strong>Facture : </strong>{{ detailCommandeFacture ? detailCommandeFacture.numeroFacture : "Non emise" }}</p>
+                    <p><strong>Date creation : </strong>{{ detailCommandeView.dateCreation || "-" }}</p>
+                    <p><strong>Date prevue : </strong>{{ detailCommandeView.datePrevue || "-" }}</p>
                   </div>
-                  <div>
+                </section>
+                <section class="detail-summary-column">
+                  <div class="detail-summary-heading">
+                    <p class="mobile-overline">Habits</p>
+                    <h4>Habits de la commande</h4>
+                  </div>
+                  <div class="detail-summary-list">
+                    <p><strong>Nombre d'habits : </strong>{{ detailCommandeItemCards.length }}</p>
+                    <ol class="detail-numbered-list">
+                      <li v-for="item in detailCommandeItemCards" :key="`cmd-summary-${item.id}`">{{ item.title }}</li>
+                    </ol>
+                  </div>
+                </section>
+                <section class="detail-summary-column">
+                  <div class="detail-summary-heading">
+                    <p class="mobile-overline">Finance</p>
                     <h4>Resume financier</h4>
-                    <p><strong>Montant total:</strong> {{ formatCurrency(detailCommandeView.montantTotal) }}</p>
-                    <p><strong>Total paye:</strong> {{ formatCurrency(detailCommandeView.montantPaye) }}</p>
-                    <p><strong>Solde restant:</strong> {{ formatCurrency(detailSoldeRestant) }}</p>
-                    <p><strong>Items:</strong> {{ detailCommandeView.items?.length || 0 }}</p>
-                    <template v-for="item in detailCommandeItemCards" :key="`detail-cmd-item-${item.id}`">
-                      <p>{{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "Habit" }} - {{ item.title || "Sans description" }} - {{ formatCurrency(item.prix) }} - {{ item.mesuresCount }} mesure(s)</p>
-                    </template>
                   </div>
-                </article>
-              </template>
-            </ResponsiveDataContainer>
+                  <div class="detail-finance-list">
+                    <p class="detail-finance-row"><span>Total : </span><strong class="detail-finance-value blue">{{ formatCurrency(detailCommandeView.montantTotal) }}</strong></p>
+                    <p class="detail-finance-row"><span>Paye : </span><strong class="detail-finance-value green">{{ formatCurrency(detailCommandeView.montantPaye) }}</strong></p>
+                    <p class="detail-finance-row"><span>Reste : </span><strong class="detail-finance-value red">{{ formatCurrency(detailSoldeRestant) }}</strong></p>
+                  </div>
+                </section>
+              </div>
+            </article>
 
-            <ResponsiveDataContainer v-if="detailCommandeItemCards.length > 0" :mobile="isMobileViewport">
-              <template #mobile>
-                <article class="panel order-lines-panel">
-                  <div class="order-lines-head">
+            <article class="panel order-lines-panel detail-items-shell" v-show="detailCommandeItemCards.length > 0">
+              <div class="order-lines-head">
+                <div>
+                  <p class="mobile-overline">Habits</p>
+                  <h4>Habits de la commande</h4>
+                </div>
+                <span class="status-chip">{{ detailCommandeItemCards.length }} habit(s)</span>
+              </div>
+              <div class="order-lines-list detail-items-list">
+                <article v-for="item in detailCommandeItemCards" :key="`cmd-item-card-${item.id}`" class="order-line-card detail-item-card">
+                  <div class="order-line-card-head">
                     <div>
-                      <p class="mobile-overline">Commande</p>
-                      <h4>Habits et mesures</h4>
+                      <p class="detail-item-index">Habit {{ item.index }}</p>
+                      <strong class="detail-item-title">{{ item.title }}</strong>
                     </div>
-                    <span class="status-chip">{{ detailCommandeItemCards.length }} item(s)</span>
+                    <span class="status-pill" :data-status="item.statut || ''">{{ item.statut || "-" }}</span>
                   </div>
-                  <div class="order-lines-list">
-                    <article v-for="item in detailCommandeItemCards" :key="`cmd-item-mobile-${item.id}`" class="order-line-card">
-                      <div class="order-line-card-head">
-                        <strong>{{ item.title }}</strong>
-                        <span class="status-chip">{{ humanizeContactLabel(item.typeHabit) || item.typeHabit }}</span>
-                      </div>
-                      <p class="helper">{{ formatCurrency(item.prix) }}</p>
-                      <p class="helper">{{ item.mesuresCount }} mesure(s) renseignee(s)</p>
-                      <ul v-if="item.mesuresLines.length > 0" class="client-insight-list">
-                        <li v-for="(line, idx) in item.mesuresLines" :key="`cmd-item-mobile-line-${item.id}-${idx}`">{{ line }}</li>
-                      </ul>
-                    </article>
+                  <div class="detail-item-metrics">
+                    <p><strong>Montant : </strong>{{ formatCurrency(item.prix) }}</p>
+                    <p><strong>Reste : </strong>{{ formatCurrency(item.reste) }}</p>
+                    <p><strong>Type : </strong>{{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "-" }}</p>
+                  </div>
+                  <div class="detail-item-measures">
+                    <strong>Mesures</strong>
+                    <ul v-show="item.mesuresLines.length > 0" class="client-insight-list detail-measures-list">
+                      <li v-for="(line, idx) in item.mesuresLines" :key="`cmd-item-line-${item.id}-${idx}`">{{ line }}</li>
+                    </ul>
+                    <p v-show="item.mesuresLines.length === 0" class="helper">Aucune mesure renseignee.</p>
+                  </div>
+                  <div class="row-actions detail-item-actions">
+                    <button v-show="item.canPay" class="mini-btn" :disabled="detailLoading || detailPaiementsLoading" @click="onPaiementDetail">Payer</button>
+                    <button class="mini-btn" v-show="!!detailCommandeStatusAction" :disabled="detailLoading || !detailCommandeStatusAction" @click="onCommandeDetailStatusChange">
+                      Changer statut
+                    </button>
+                    <button
+                      class="mini-btn"
+                      :disabled="detailCommandeMediaLoading"
+                      @click="openCommandeItemPhotoDialog(item)"
+                    >
+                      Voir photos
+                    </button>
                   </div>
                 </article>
-              </template>
-              <template #desktop>
-                <article class="panel order-lines-panel">
-                  <div class="order-lines-head">
-                    <div>
-                      <p class="mobile-overline">Commande</p>
-                      <h4>Habits et mesures</h4>
-                    </div>
-                    <span class="status-chip">{{ detailCommandeItemCards.length }} item(s)</span>
-                  </div>
-                  <div class="order-lines-list">
-                    <article v-for="item in detailCommandeItemCards" :key="`cmd-item-desktop-${item.id}`" class="order-line-card">
-                      <div class="order-line-card-head">
-                        <strong>{{ item.title }}</strong>
-                        <span class="status-chip">{{ humanizeContactLabel(item.typeHabit) || item.typeHabit }}</span>
-                      </div>
-                      <p class="helper">{{ formatCurrency(item.prix) }}</p>
-                      <p class="helper">{{ item.mesuresCount }} mesure(s) renseignee(s)</p>
-                      <ul v-if="item.mesuresLines.length > 0" class="client-insight-list">
-                        <li v-for="(line, idx) in item.mesuresLines" :key="`cmd-item-desktop-line-${item.id}-${idx}`">{{ line }}</li>
-                      </ul>
-                    </article>
-                  </div>
-                </article>
-              </template>
-            </ResponsiveDataContainer>
+              </div>
+            </article>
 
-            <ResponsiveDataContainer v-if="detailCommandeBeneficiaryLines.length > 0" :mobile="isMobileViewport">
-              <template #mobile>
-                <article class="panel order-lines-panel">
-                  <div class="order-lines-head">
-                    <div>
-                      <p class="mobile-overline">Commande</p>
-                      <h4>Client associe</h4>
-                    </div>
-                    <span class="status-chip">{{ detailCommandeBeneficiaryLines.length }} ligne(s)</span>
-                  </div>
-                  <div class="order-lines-list">
-                    <article v-for="ligne in detailCommandeBeneficiaryLines" :key="`cmd-line-mobile-${ligne.id}`" class="order-line-card">
-                      <div class="order-line-card-head">
-                        <strong>{{ ligne.nomComplet }}</strong>
-                        <span class="status-chip">{{ humanizeContactLabel(ligne.typeHabit) || ligne.typeHabit }}</span>
-                      </div>
-                      <p class="helper">Client de la commande</p>
-                      <p class="helper">{{ ligne.mesuresCount }} mesure(s) renseignee(s)</p>
-                    </article>
-                  </div>
-                </article>
-              </template>
-              <template #desktop>
-                <article class="panel order-lines-panel">
-                  <div class="order-lines-head">
-                    <div>
-                      <p class="mobile-overline">Commande</p>
-                      <h4>Client associe</h4>
-                    </div>
-                    <span class="status-chip">{{ detailCommandeBeneficiaryLines.length }} ligne(s)</span>
-                  </div>
-                  <div class="order-lines-list">
-                    <article v-for="ligne in detailCommandeBeneficiaryLines" :key="`cmd-line-desktop-${ligne.id}`" class="order-line-card">
-                      <div class="order-line-card-head">
-                        <strong>{{ ligne.nomComplet }}</strong>
-                        <span class="status-chip">{{ humanizeContactLabel(ligne.typeHabit) || ligne.typeHabit }}</span>
-                      </div>
-                      <p class="helper">Client de la commande</p>
-                      <p class="helper">{{ ligne.mesuresCount }} mesure(s) renseignee(s)</p>
-                    </article>
-                  </div>
-                </article>
-              </template>
-            </ResponsiveDataContainer>
+            <article class="panel detail-lite-contact">
+              <div class="detail-summary-heading">
+                <p class="mobile-overline">Client</p>
+                <h4>Telephone</h4>
+              </div>
+              <div class="detail-lite-contact-grid">
+                <p><strong>Telephone : </strong>{{ detailCommandeContactProfile?.telephone || "-" }}</p>
+                <div class="row-actions detail-item-actions">
+                  <a class="mini-btn" :href="buildPhoneDialHref(detailCommandeContactProfile?.telephone)">Appeler</a>
+                  <a
+                    class="mini-btn"
+                    :href="buildPreferredWhatsAppHref(detailCommandeContactProfile?.telephone, detailCommandeContactMessagePreview)"
+                    :target="isMobileViewport ? '_self' : '_blank'"
+                    rel="noreferrer"
+                  >
+                    WhatsApp
+                  </a>
+                  <button class="mini-btn" @click="copyTextToClipboard(detailCommandeContactProfile?.telephone, 'Numero copie.')">Copier numero</button>
+                  <button class="mini-btn" @click="openClientConsultationFromDetail(detailCommandeView.idClient)">Voir fiche client</button>
+                </div>
+              </div>
+            </article>
 
-          <ContactClientPanel
-            title="Contacter le client"
-            :subtitle="detailCommandeContactProfile?.reference ? `Commande ${detailCommandeContactProfile.reference}` : 'Contact rapide depuis la commande.'"
-            :telephone="detailCommandeContactProfile?.telephone || ''"
-            :call-href="buildPhoneDialHref(detailCommandeContactProfile?.telephone)"
-            :whatsapp-href="buildPreferredWhatsAppHref(detailCommandeContactProfile?.telephone, detailCommandeContactMessagePreview)"
-            :whatsapp-fallback-href="buildWhatsAppWebHref(detailCommandeContactProfile?.telephone, detailCommandeContactMessagePreview)"
-            :whatsapp-target="isMobileViewport ? '_self' : '_blank'"
-            :templates="detailCommandeContactTemplates"
-            :selected-template-key="detailCommandeContactSelectedTemplateKey"
-            :message-preview="detailCommandeContactMessagePreview"
-              :disabled="detailLoading"
-              :last-contact-summary="buildLastContactSummary(detailCommandeContactFollowUp.lastContact)"
-              :last-contact-note="detailCommandeContactFollowUp.lastContact?.note || ''"
-              :follow-up-status="detailCommandeContactFollowUp.status"
-              :follow-up-note="detailCommandeContactFollowUp.note"
-              :status-options="contactFollowUpStatusOptions"
-              :tracking-loading="detailCommandeContactFollowUp.loading"
-              :tracking-saving="detailCommandeContactFollowUp.saving"
-              @update:selected-template-key="detailCommandeContactTemplateKey = $event"
-              @update:follow-up-status="detailCommandeContactFollowUp.status = $event"
-              @update:follow-up-note="detailCommandeContactFollowUp.note = $event"
-              @call="handleContactCall({ profile: detailCommandeContactProfile, state: detailCommandeContactFollowUp, origineType: 'COMMANDE', origineId: detailCommandeContactProfile?.originId, modeleKey: detailCommandeContactSelectedTemplateKey })"
-              @whatsapp="handleContactWhatsApp({ profile: detailCommandeContactProfile, message: detailCommandeContactMessagePreview, state: detailCommandeContactFollowUp, origineType: 'COMMANDE', origineId: detailCommandeContactProfile?.originId, modeleKey: detailCommandeContactSelectedTemplateKey })"
-              @copy-number="copyTextToClipboard(detailCommandeContactProfile?.telephone, 'Numero copie.')"
-              @copy-message="copyTextToClipboard(detailCommandeContactMessagePreview, 'Message copie.')"
-              @save-follow-up="handleSaveContactFollowUp({ profile: detailCommandeContactProfile, state: detailCommandeContactFollowUp, origineType: 'COMMANDE', origineId: detailCommandeContactProfile?.originId, modeleKey: detailCommandeContactSelectedTemplateKey })"
-            />
-
-            <CommandeMediaGallery
-              :items="detailCommandeMedia"
-              :loading="detailCommandeMediaLoading"
-              :error="detailCommandeMediaError"
-              :uploading="detailCommandeMediaUploading"
-              :action-id="detailCommandeMediaActionId"
-              @upload="uploadCommandeMedia"
-              @open="openCommandeMedia"
-              @remove="deleteCommandeMedia"
-              @set-primary="setCommandeMediaPrimary"
-              @move="moveCommandeMedia"
-              @save-note="saveCommandeMediaNote"
-            />
-
-            <ResponsiveDataContainer :mobile="isMobileViewport">
-              <template #mobile>
-                <article class="panel">
-                  <MobileSectionHeader
-                    title="Historique des paiements"
-                    subtitle="Consultez rapidement les derniers paiements de la commande."
-                  />
+            <article class="panel detail-history-panel">
+              <div class="panel-header detail-panel-header">
+                <h4>Historique des paiements</h4>
+                <button class="mini-btn detail-collapsible-toggle" @click="detailCommandeHistoryPanels.paiements = !detailCommandeHistoryPanels.paiements">
+                  {{ detailCommandeHistoryPanels.paiements ? "Replier" : "Afficher" }}
+                </button>
+              </div>
+              <div v-show="detailCommandeHistoryPanels.paiements" class="stack">
+                <div v-show="isMobileViewport">
                   <CommandeDetailPaymentMobileList
                     :items="detailPaiementsPaged"
                     :loading="detailPaiementsLoading"
                     :format-currency="formatCurrency"
                     :format-date-time="formatDateTime"
                   />
-                  <ResponsivePagination
-                    v-if="detailPaiements.length > 0"
-                    :page="detailPaiementsPagination.page"
-                    :pages="detailPaiementsPages"
-                    :page-size="detailPaiementsPagination.pageSize"
-                    :page-size-options="[5, 10, 20]"
-                    :prev-disabled="detailPaiementsPagination.page <= 1"
-                    :next-disabled="detailPaiementsPagination.page >= detailPaiementsPages"
-                    @update:page-size="detailPaiementsPagination.pageSize = $event"
-                    @prev="detailPaiementsPagination.page -= 1"
-                    @next="detailPaiementsPagination.page += 1"
-                  />
-                </article>
-              </template>
-              <template #desktop>
-                <article class="panel">
-                  <div class="panel-header detail-panel-header">
-                    <h4>Historique des paiements</h4>
-                    <span class="helper" v-if="detailPaiementsLoading">Chargement...</span>
-                  </div>
+                </div>
+                <div v-show="!isMobileViewport">
                   <table class="data-table mobile-stack-table">
                     <thead>
                       <tr>
@@ -15328,53 +15356,38 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       </tr>
                     </tbody>
                   </table>
-                  <ResponsivePagination
-                    :page="detailPaiementsPagination.page"
-                    :pages="detailPaiementsPages"
-                    :page-size="detailPaiementsPagination.pageSize"
-                    :page-size-options="[5, 10, 20]"
-                    :prev-disabled="detailPaiementsPagination.page <= 1"
-                    :next-disabled="detailPaiementsPagination.page >= detailPaiementsPages"
-                    @update:page-size="detailPaiementsPagination.pageSize = $event"
-                    @prev="detailPaiementsPagination.page -= 1"
-                    @next="detailPaiementsPagination.page += 1"
-                  />
-                </article>
-              </template>
-            </ResponsiveDataContainer>
+                </div>
+                <ResponsivePagination
+                  v-show="detailPaiements.length > 0"
+                  :page="detailPaiementsPagination.page"
+                  :pages="detailPaiementsPages"
+                  :page-size="detailPaiementsPagination.pageSize"
+                  :page-size-options="[5, 10, 20]"
+                  :prev-disabled="detailPaiementsPagination.page <= 1"
+                  :next-disabled="detailPaiementsPagination.page >= detailPaiementsPages"
+                  @update:page-size="detailPaiementsPagination.pageSize = $event"
+                  @prev="detailPaiementsPagination.page -= 1"
+                  @next="detailPaiementsPagination.page += 1"
+                />
+              </div>
+            </article>
 
-            <ResponsiveDataContainer :mobile="isMobileViewport">
-              <template #mobile>
-                <article class="panel">
-                  <MobileSectionHeader
-                    title="Historique des evenements"
-                    subtitle="Suivi des changements d'etat et des interventions sur la commande."
-                  />
+            <article class="panel detail-history-panel">
+              <div class="panel-header detail-panel-header">
+                <h4>Historique des evenements</h4>
+                <button class="mini-btn detail-collapsible-toggle" @click="detailCommandeHistoryPanels.evenements = !detailCommandeHistoryPanels.evenements">
+                  {{ detailCommandeHistoryPanels.evenements ? "Replier" : "Afficher" }}
+                </button>
+              </div>
+              <div v-show="detailCommandeHistoryPanels.evenements" class="stack">
+                <div v-show="isMobileViewport">
                   <CommandeDetailEventMobileList
                     :items="detailCommandeEventsPaged"
                     :loading="detailCommandeEventsLoading"
                     :format-date-time="formatDateTime"
                   />
-                  <ResponsivePagination
-                    v-if="detailCommandeEvents.length > 0"
-                    :page="detailCommandeEventsPagination.page"
-                    :pages="detailCommandeEventsPages"
-                    :page-size="detailCommandeEventsPagination.pageSize"
-                    :page-size-options="[5, 10, 20]"
-                    :prev-disabled="detailCommandeEventsPagination.page <= 1"
-                    :next-disabled="detailCommandeEventsPagination.page >= detailCommandeEventsPages"
-                    @update:page-size="detailCommandeEventsPagination.pageSize = $event"
-                    @prev="detailCommandeEventsPagination.page -= 1"
-                    @next="detailCommandeEventsPagination.page += 1"
-                  />
-                </article>
-              </template>
-              <template #desktop>
-                <article class="panel">
-                  <div class="panel-header detail-panel-header">
-                    <h4>Historique des evenements</h4>
-                    <span class="helper" v-if="detailCommandeEventsLoading">Chargement...</span>
-                  </div>
+                </div>
+                <div v-show="!isMobileViewport">
                   <table class="data-table mobile-stack-table">
                     <thead>
                       <tr>
@@ -15390,12 +15403,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <tr v-for="event in detailCommandeEventsPaged" :key="event.idEvent">
                         <td data-label="Date">{{ formatDateTime(event.dateEvent) }}</td>
                         <td data-label="Evenement">{{ event.typeEventLabel }}</td>
-                        <td data-label="Etat precedent">
-                          <span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span>
-                        </td>
-                        <td data-label="Nouvel etat">
-                          <span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span>
-                        </td>
+                        <td data-label="Etat precedent"><span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span></td>
+                        <td data-label="Nouvel etat"><span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span></td>
                         <td data-label="Utilisateur">{{ event.utilisateurNom }}</td>
                         <td data-label="Role">{{ event.role }}</td>
                       </tr>
@@ -15404,20 +15413,50 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       </tr>
                     </tbody>
                   </table>
-                  <ResponsivePagination
-                    :page="detailCommandeEventsPagination.page"
-                    :pages="detailCommandeEventsPages"
-                    :page-size="detailCommandeEventsPagination.pageSize"
-                    :page-size-options="[5, 10, 20]"
-                    :prev-disabled="detailCommandeEventsPagination.page <= 1"
-                    :next-disabled="detailCommandeEventsPagination.page >= detailCommandeEventsPages"
-                    @update:page-size="detailCommandeEventsPagination.pageSize = $event"
-                    @prev="detailCommandeEventsPagination.page -= 1"
-                    @next="detailCommandeEventsPagination.page += 1"
-                  />
-                </article>
-              </template>
-            </ResponsiveDataContainer>
+                </div>
+                <ResponsivePagination
+                  v-show="detailCommandeEvents.length > 0"
+                  :page="detailCommandeEventsPagination.page"
+                  :pages="detailCommandeEventsPages"
+                  :page-size="detailCommandeEventsPagination.pageSize"
+                  :page-size-options="[5, 10, 20]"
+                  :prev-disabled="detailCommandeEventsPagination.page <= 1"
+                  :next-disabled="detailCommandeEventsPagination.page >= detailCommandeEventsPages"
+                  @update:page-size="detailCommandeEventsPagination.pageSize = $event"
+                  @prev="detailCommandeEventsPagination.page -= 1"
+                  @next="detailCommandeEventsPagination.page += 1"
+                />
+              </div>
+            </article>
+
+            <div v-show="commandeItemPhotoDialog.open" class="detail-photo-dialog-backdrop" @click.self="closeCommandeItemPhotoDialog">
+              <article class="panel detail-photo-dialog">
+                <div class="panel-header detail-panel-header">
+                  <div>
+                    <h4>Photos de l'habit</h4>
+                    <p class="helper">{{ commandeItemPhotoDialog.title }}</p>
+                  </div>
+                  <button class="mini-btn" @click="closeCommandeItemPhotoDialog">Fermer</button>
+                </div>
+                <p v-show="detailCommandeMediaLoading" class="helper">Chargement des photos...</p>
+                <p v-show="!!detailCommandeMediaError" class="helper">{{ detailCommandeMediaError }}</p>
+                <CommandeMediaGallery
+                  v-show="commandeItemPhotoDialog.open"
+                  :items="commandeItemPhotoDialogItems"
+                  :loading="detailCommandeMediaLoading"
+                  :error="detailCommandeMediaError"
+                  :uploading="detailCommandeMediaUploading"
+                  :action-id="detailCommandeMediaActionId"
+                  @upload="uploadCommandeMediaForCurrentItem"
+                  @open="openCommandeMedia"
+                  @remove="deleteCommandeMedia"
+                  @set-primary="setCommandeMediaPrimary"
+                  @move="moveCommandeMedia"
+                  @save-note="saveCommandeMediaNote"
+                />
+                <p v-show="!detailCommandeMediaLoading && commandeItemPhotoDialogItems.length === 0" class="helper">Aucune photo rattachee a cet habit.</p>
+              </article>
+            </div>
           </div>
 
           <template #action>
@@ -15450,36 +15489,36 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               <div class="row-actions">
                 <button class="mini-btn" @click="openRoute('retouches')">Retour</button>
                 <button
-                  v-if="!isMobileViewport && canEmitRetoucheDetailFacture"
+                  v-show="!isMobileViewport && canEmitRetoucheDetailFacture"
                   class="action-btn blue"
                   @click="onEmettreFactureRetoucheDetail"
                   :disabled="detailRetoucheLoading"
                 >
                   Emettre facture
                 </button>
-                <button class="mini-btn" v-if="detailRetoucheFacture" @click="onVoirFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
+                <button class="mini-btn" v-show="!!detailRetoucheFacture" @click="onVoirFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
                   Voir facture
                 </button>
-                <button class="mini-btn" v-if="detailRetoucheFacture" @click="onImprimerFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
+                <button class="mini-btn" v-show="!!detailRetoucheFacture" @click="onImprimerFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
                   {{ isMobileViewport ? "Telecharger facture" : "Imprimer facture" }}
                 </button>
                 <button
-                  v-if="!isMobileViewport && canPayerRetoucheDetail"
+                  v-show="!isMobileViewport && canPayerRetoucheDetail"
                   class="action-btn blue"
                   @click="onPaiementRetoucheDetail"
                   :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading"
                 >
                   Payer
                 </button>
-                <button v-if="!isMobileViewport && canLivrerRetoucheDetail" class="action-btn green" @click="onLivrerRetoucheDetail" :disabled="detailRetoucheLoading">
+                <button v-show="!isMobileViewport && canLivrerRetoucheDetail" class="action-btn green" @click="onLivrerRetoucheDetail" :disabled="detailRetoucheLoading">
                   Livrer
                 </button>
-                <button v-if="!isMobileViewport && canTerminerRetoucheDetail" class="action-btn amber" @click="onTerminerRetoucheDetail" :disabled="detailRetoucheLoading">
+                <button v-show="!isMobileViewport && canTerminerRetoucheDetail" class="action-btn amber" @click="onTerminerRetoucheDetail" :disabled="detailRetoucheLoading">
                   Terminer
                 </button>
                 <button
                   :class="isMobileViewport ? 'mini-btn' : 'action-btn red'"
-                  v-if="canAnnulerRetoucheDetail"
+                  v-show="canAnnulerRetoucheDetail"
                   @click="onAnnulerRetoucheDetail"
                   :disabled="detailRetoucheLoading"
                 >
@@ -15513,165 +15552,127 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </ResponsiveDataContainer>
 
           <div v-show="!!detailRetouche">
-            <ResponsiveDataContainer :mobile="isMobileViewport">
-              <template #mobile>
-                <RetoucheDetailOverviewCards
-                  :retouche="detailRetouche"
-                  :facture-number="detailRetoucheFacture ? detailRetoucheFacture.numeroFacture : ''"
-                  :mesures-lines="detailRetoucheMesuresLines"
-                  :solde-restant="detailRetoucheSoldeRestant"
-                  :format-currency="formatCurrency"
-                />
-              </template>
-              <template #desktop>
-                <article class="panel detail-grid" style="grid-template-columns: 1fr 1fr 1fr;">
-                  <div>
-                    <h4>Identite retouche</h4>
-                    <p><strong>Client:</strong> {{ detailRetoucheView.clientNom || detailRetoucheView.idClient || "-" }}</p>
-                    <p><strong>Type:</strong> {{ detailRetoucheView.typeRetouche || "-" }}</p>
-                    <p><strong>Description:</strong> {{ detailRetoucheView.descriptionRetouche || "-" }}</p>
-                    <p><strong>Statut:</strong> {{ detailRetoucheView.statutRetouche || "-" }}</p>
-                    <p><strong>Facture:</strong> {{ detailRetoucheFacture ? detailRetoucheFacture.numeroFacture : "Non emise" }}</p>
-                    <p><strong>Date depot:</strong> {{ detailRetoucheView.dateDepot || "-" }}</p>
-                    <p><strong>Date prevue:</strong> {{ detailRetoucheView.datePrevue || "-" }}</p>
+            <article class="panel detail-summary-shell">
+              <div class="detail-summary-columns">
+                <section class="detail-summary-column">
+                  <div class="detail-summary-heading">
+                    <p class="mobile-overline">Identite</p>
+                    <h4>Retouche</h4>
                   </div>
-                  <div>
-                    <h4>Mesures de reference</h4>
-                    <p><strong>Type d'habit:</strong> {{ detailRetoucheView.typeHabit || detailRetoucheItemCards[0]?.typeHabit || "-" }}</p>
-                    <p><strong>Unite:</strong> cm</p>
-                    <p><strong>Mode:</strong> {{ detailRetoucheItemCards.length > 0 ? "Lecture par intervention" : "Lecture seule" }}</p>
-                    <template v-for="(line, idx) in detailRetoucheMesuresLines" :key="`ret-mes-line-${idx}`">
-                      <p>{{ line }}</p>
-                    </template>
-                    <p v-if="detailRetoucheMesuresLines.length === 0">Aucune mesure.</p>
+                  <div class="detail-summary-list">
+                    <p><strong>Client : </strong>{{ detailRetoucheView.clientNom || detailRetoucheView.idClient || "-" }}</p>
+                    <p><strong>Description : </strong>{{ detailRetoucheView.descriptionRetouche || "-" }}</p>
+                    <p><strong>Statut : </strong><span class="status-pill" :data-status="detailRetoucheView.statutRetouche || ''">{{ detailRetoucheView.statutRetouche || "-" }}</span></p>
+                    <p><strong>Facture : </strong>{{ detailRetoucheFacture ? detailRetoucheFacture.numeroFacture : "Non emise" }}</p>
+                    <p><strong>Date depot : </strong>{{ detailRetoucheView.dateDepot || "-" }}</p>
+                    <p><strong>Date prevue : </strong>{{ detailRetoucheView.datePrevue || "-" }}</p>
                   </div>
-                  <div>
+                </section>
+                <section class="detail-summary-column">
+                  <div class="detail-summary-heading">
+                    <p class="mobile-overline">Retouches</p>
+                    <h4>Retouches de la fiche</h4>
+                  </div>
+                  <div class="detail-summary-list">
+                    <p><strong>Nombre d'interventions : </strong>{{ detailRetoucheItemCards.length }}</p>
+                    <ol class="detail-numbered-list">
+                      <li v-for="item in detailRetoucheItemCards" :key="`ret-summary-${item.id}`">{{ item.title }}</li>
+                    </ol>
+                  </div>
+                </section>
+                <section class="detail-summary-column">
+                  <div class="detail-summary-heading">
+                    <p class="mobile-overline">Finance</p>
                     <h4>Resume financier</h4>
-                    <p><strong>Montant total:</strong> {{ formatCurrency(detailRetoucheView.montantTotal) }}</p>
-                    <p><strong>Total paye:</strong> {{ formatCurrency(detailRetoucheView.montantPaye) }}</p>
-                    <p><strong>Solde restant:</strong> {{ formatCurrency(detailRetoucheSoldeRestant) }}</p>
-                    <p><strong>Interventions:</strong> {{ detailRetoucheItemCards.length }}</p>
-                    <template v-for="item in detailRetoucheItemCards" :key="`detail-ret-item-${item.id}`">
-                      <p>{{ humanizeContactLabel(item.typeRetouche) || item.typeRetouche || "Retouche" }} - {{ item.title || "Sans description" }} - {{ formatCurrency(item.prix) }} - {{ item.mesuresCount }} mesure(s)</p>
-                    </template>
                   </div>
-                </article>
-              </template>
-            </ResponsiveDataContainer>
+                  <div class="detail-finance-list">
+                    <p class="detail-finance-row"><span>Total : </span><strong class="detail-finance-value blue">{{ formatCurrency(detailRetoucheView.montantTotal) }}</strong></p>
+                    <p class="detail-finance-row"><span>Paye : </span><strong class="detail-finance-value green">{{ formatCurrency(detailRetoucheView.montantPaye) }}</strong></p>
+                    <p class="detail-finance-row"><span>Reste : </span><strong class="detail-finance-value red">{{ formatCurrency(detailRetoucheSoldeRestant) }}</strong></p>
+                  </div>
+                </section>
+              </div>
+            </article>
 
-            <ResponsiveDataContainer v-if="detailRetoucheItemCards.length > 0" :mobile="isMobileViewport">
-              <template #mobile>
-                <article class="panel order-lines-panel">
-                  <div class="order-lines-head">
+            <article class="panel order-lines-panel detail-items-shell" v-show="detailRetoucheItemCards.length > 0">
+              <div class="order-lines-head">
+                <div>
+                  <p class="mobile-overline">Retouches</p>
+                  <h4>Interventions de la retouche</h4>
+                </div>
+                <span class="status-chip">{{ detailRetoucheItemCards.length }} intervention(s)</span>
+              </div>
+              <div class="order-lines-list detail-items-list">
+                <article v-for="item in detailRetoucheItemCards" :key="`ret-item-card-${item.id}`" class="order-line-card detail-item-card">
+                  <div class="order-line-card-head">
                     <div>
-                      <p class="mobile-overline">Retouche</p>
-                      <h4>Interventions et mesures</h4>
+                      <p class="detail-item-index">Intervention {{ item.index }}</p>
+                      <strong class="detail-item-title">{{ item.title }}</strong>
                     </div>
-                    <span class="status-chip">{{ detailRetoucheItemCards.length }} item(s)</span>
+                    <span class="status-pill" :data-status="item.statut || ''">{{ item.statut || "-" }}</span>
                   </div>
-                  <div class="order-lines-list">
-                    <article v-for="item in detailRetoucheItemCards" :key="`ret-item-mobile-${item.id}`" class="order-line-card">
-                      <div class="order-line-card-head">
-                        <strong>{{ item.title }}</strong>
-                        <span class="status-chip">{{ humanizeContactLabel(item.typeRetouche) || item.typeRetouche }}</span>
-                      </div>
-                      <p class="helper">{{ item.typeHabit ? `${humanizeContactLabel(item.typeHabit) || item.typeHabit} · ` : "" }}{{ formatCurrency(item.prix) }}</p>
-                      <p class="helper">{{ item.mesuresCount }} mesure(s) renseignee(s)</p>
-                      <ul v-if="item.mesuresLines.length > 0" class="client-insight-list">
-                        <li v-for="(line, idx) in item.mesuresLines" :key="`ret-item-mobile-line-${item.id}-${idx}`">{{ line }}</li>
-                      </ul>
-                    </article>
+                  <div class="detail-item-metrics">
+                    <p><strong>Montant : </strong>{{ formatCurrency(item.prix) }}</p>
+                    <p><strong>Reste : </strong>{{ formatCurrency(item.reste) }}</p>
+                    <p><strong>Type : </strong>{{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "-" }}</p>
+                  </div>
+                  <div class="detail-item-measures">
+                    <strong>Mesures</strong>
+                    <ul v-show="item.mesuresLines.length > 0" class="client-insight-list detail-measures-list">
+                      <li v-for="(line, idx) in item.mesuresLines" :key="`ret-item-line-${item.id}-${idx}`">{{ line }}</li>
+                    </ul>
+                    <p v-show="item.mesuresLines.length === 0" class="helper">Aucune mesure renseignee.</p>
+                  </div>
+                  <div class="row-actions detail-item-actions">
+                    <button v-show="item.canPay" class="mini-btn" :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading" @click="onPaiementRetoucheDetail">Payer</button>
+                    <button class="mini-btn" v-show="!!detailRetoucheStatusAction" :disabled="detailRetoucheLoading || !detailRetoucheStatusAction" @click="onRetoucheDetailStatusChange">
+                      Changer statut
+                    </button>
                   </div>
                 </article>
-              </template>
-              <template #desktop>
-                <article class="panel order-lines-panel">
-                  <div class="order-lines-head">
-                    <div>
-                      <p class="mobile-overline">Retouche</p>
-                      <h4>Interventions et mesures</h4>
-                    </div>
-                    <span class="status-chip">{{ detailRetoucheItemCards.length }} item(s)</span>
-                  </div>
-                  <div class="order-lines-list">
-                    <article v-for="item in detailRetoucheItemCards" :key="`ret-item-desktop-${item.id}`" class="order-line-card">
-                      <div class="order-line-card-head">
-                        <strong>{{ item.title }}</strong>
-                        <span class="status-chip">{{ humanizeContactLabel(item.typeRetouche) || item.typeRetouche }}</span>
-                      </div>
-                      <p class="helper">{{ item.typeHabit ? `${humanizeContactLabel(item.typeHabit) || item.typeHabit} · ` : "" }}{{ formatCurrency(item.prix) }}</p>
-                      <p class="helper">{{ item.mesuresCount }} mesure(s) renseignee(s)</p>
-                      <ul v-if="item.mesuresLines.length > 0" class="client-insight-list">
-                        <li v-for="(line, idx) in item.mesuresLines" :key="`ret-item-desktop-line-${item.id}-${idx}`">{{ line }}</li>
-                      </ul>
-                    </article>
-                  </div>
-                </article>
-              </template>
-            </ResponsiveDataContainer>
+              </div>
+            </article>
 
-            <ContactClientPanel
-              title="Contacter le client"
-              :subtitle="detailRetoucheContactProfile?.reference ? `Retouche ${detailRetoucheContactProfile.reference}` : 'Contact rapide depuis la retouche.'"
-              :telephone="detailRetoucheContactProfile?.telephone || ''"
-              :call-href="buildPhoneDialHref(detailRetoucheContactProfile?.telephone)"
-              :whatsapp-href="buildPreferredWhatsAppHref(detailRetoucheContactProfile?.telephone, detailRetoucheContactMessagePreview)"
-              :whatsapp-fallback-href="buildWhatsAppWebHref(detailRetoucheContactProfile?.telephone, detailRetoucheContactMessagePreview)"
-              :whatsapp-target="isMobileViewport ? '_self' : '_blank'"
-              :templates="detailRetoucheContactTemplates"
-              :selected-template-key="detailRetoucheContactSelectedTemplateKey"
-              :message-preview="detailRetoucheContactMessagePreview"
-              :disabled="detailRetoucheLoading"
-              :last-contact-summary="buildLastContactSummary(detailRetoucheContactFollowUp.lastContact)"
-              :last-contact-note="detailRetoucheContactFollowUp.lastContact?.note || ''"
-              :follow-up-status="detailRetoucheContactFollowUp.status"
-              :follow-up-note="detailRetoucheContactFollowUp.note"
-              :status-options="contactFollowUpStatusOptions"
-              :tracking-loading="detailRetoucheContactFollowUp.loading"
-              :tracking-saving="detailRetoucheContactFollowUp.saving"
-              @update:selected-template-key="detailRetoucheContactTemplateKey = $event"
-              @update:follow-up-status="detailRetoucheContactFollowUp.status = $event"
-              @update:follow-up-note="detailRetoucheContactFollowUp.note = $event"
-              @call="handleContactCall({ profile: detailRetoucheContactProfile, state: detailRetoucheContactFollowUp, origineType: 'RETOUCHE', origineId: detailRetoucheContactProfile?.originId, modeleKey: detailRetoucheContactSelectedTemplateKey })"
-              @whatsapp="handleContactWhatsApp({ profile: detailRetoucheContactProfile, message: detailRetoucheContactMessagePreview, state: detailRetoucheContactFollowUp, origineType: 'RETOUCHE', origineId: detailRetoucheContactProfile?.originId, modeleKey: detailRetoucheContactSelectedTemplateKey })"
-              @copy-number="copyTextToClipboard(detailRetoucheContactProfile?.telephone, 'Numero copie.')"
-              @copy-message="copyTextToClipboard(detailRetoucheContactMessagePreview, 'Message copie.')"
-              @save-follow-up="handleSaveContactFollowUp({ profile: detailRetoucheContactProfile, state: detailRetoucheContactFollowUp, origineType: 'RETOUCHE', origineId: detailRetoucheContactProfile?.originId, modeleKey: detailRetoucheContactSelectedTemplateKey })"
-            />
+            <article class="panel detail-lite-contact">
+              <div class="detail-summary-heading">
+                <p class="mobile-overline">Client</p>
+                <h4>Telephone</h4>
+              </div>
+              <div class="detail-lite-contact-grid">
+                <p><strong>Telephone : </strong>{{ detailRetoucheContactProfile?.telephone || "-" }}</p>
+                <div class="row-actions detail-item-actions">
+                  <a class="mini-btn" :href="buildPhoneDialHref(detailRetoucheContactProfile?.telephone)">Appeler</a>
+                  <a
+                    class="mini-btn"
+                    :href="buildPreferredWhatsAppHref(detailRetoucheContactProfile?.telephone, detailRetoucheContactMessagePreview)"
+                    :target="isMobileViewport ? '_self' : '_blank'"
+                    rel="noreferrer"
+                  >
+                    WhatsApp
+                  </a>
+                  <button class="mini-btn" @click="copyTextToClipboard(detailRetoucheContactProfile?.telephone, 'Numero copie.')">Copier numero</button>
+                  <button class="mini-btn" @click="openClientConsultationFromDetail(detailRetoucheView.idClient)">Voir fiche client</button>
+                </div>
+              </div>
+            </article>
 
-            <ResponsiveDataContainer :mobile="isMobileViewport">
-              <template #mobile>
-                <article class="panel">
-                  <MobileSectionHeader
-                    title="Historique des paiements"
-                    subtitle="Consultez rapidement les derniers paiements de la retouche."
-                  />
+            <article class="panel detail-history-panel">
+              <div class="panel-header detail-panel-header">
+                <h4>Historique des paiements</h4>
+                <button class="mini-btn detail-collapsible-toggle" @click="detailRetoucheHistoryPanels.paiements = !detailRetoucheHistoryPanels.paiements">
+                  {{ detailRetoucheHistoryPanels.paiements ? "Replier" : "Afficher" }}
+                </button>
+              </div>
+              <div v-show="detailRetoucheHistoryPanels.paiements" class="stack">
+                <div v-show="isMobileViewport">
                   <RetoucheDetailPaymentMobileList
                     :items="detailRetouchePaiementsPaged"
                     :loading="detailRetouchePaiementsLoading"
                     :format-currency="formatCurrency"
                     :format-date-time="formatDateTime"
                   />
-                  <ResponsivePagination
-                    v-if="detailRetouchePaiements.length > 0"
-                    :page="detailRetouchePaiementsPagination.page"
-                    :pages="detailRetouchePaiementsPages"
-                    :page-size="detailRetouchePaiementsPagination.pageSize"
-                    :page-size-options="[5, 10, 20]"
-                    :prev-disabled="detailRetouchePaiementsPagination.page <= 1"
-                    :next-disabled="detailRetouchePaiementsPagination.page >= detailRetouchePaiementsPages"
-                    @update:page-size="detailRetouchePaiementsPagination.pageSize = $event"
-                    @prev="detailRetouchePaiementsPagination.page -= 1"
-                    @next="detailRetouchePaiementsPagination.page += 1"
-                  />
-                </article>
-              </template>
-              <template #desktop>
-                <article class="panel">
-                  <div class="panel-header detail-panel-header">
-                    <h4>Historique des paiements</h4>
-                    <span class="helper" v-if="detailRetouchePaiementsLoading">Chargement...</span>
-                  </div>
+                </div>
+                <div v-show="!isMobileViewport">
                   <table class="data-table mobile-stack-table">
                     <thead>
                       <tr>
@@ -15695,53 +15696,38 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       </tr>
                     </tbody>
                   </table>
-                  <ResponsivePagination
-                    :page="detailRetouchePaiementsPagination.page"
-                    :pages="detailRetouchePaiementsPages"
-                    :page-size="detailRetouchePaiementsPagination.pageSize"
-                    :page-size-options="[5, 10, 20]"
-                    :prev-disabled="detailRetouchePaiementsPagination.page <= 1"
-                    :next-disabled="detailRetouchePaiementsPagination.page >= detailRetouchePaiementsPages"
-                    @update:page-size="detailRetouchePaiementsPagination.pageSize = $event"
-                    @prev="detailRetouchePaiementsPagination.page -= 1"
-                    @next="detailRetouchePaiementsPagination.page += 1"
-                  />
-                </article>
-              </template>
-            </ResponsiveDataContainer>
+                </div>
+                <ResponsivePagination
+                  v-show="detailRetouchePaiements.length > 0"
+                  :page="detailRetouchePaiementsPagination.page"
+                  :pages="detailRetouchePaiementsPages"
+                  :page-size="detailRetouchePaiementsPagination.pageSize"
+                  :page-size-options="[5, 10, 20]"
+                  :prev-disabled="detailRetouchePaiementsPagination.page <= 1"
+                  :next-disabled="detailRetouchePaiementsPagination.page >= detailRetouchePaiementsPages"
+                  @update:page-size="detailRetouchePaiementsPagination.pageSize = $event"
+                  @prev="detailRetouchePaiementsPagination.page -= 1"
+                  @next="detailRetouchePaiementsPagination.page += 1"
+                />
+              </div>
+            </article>
 
-            <ResponsiveDataContainer :mobile="isMobileViewport">
-              <template #mobile>
-                <article class="panel">
-                  <MobileSectionHeader
-                    title="Historique des evenements"
-                    subtitle="Suivi des changements d'etat et des interventions sur la retouche."
-                  />
+            <article class="panel detail-history-panel">
+              <div class="panel-header detail-panel-header">
+                <h4>Historique des evenements</h4>
+                <button class="mini-btn detail-collapsible-toggle" @click="detailRetoucheHistoryPanels.evenements = !detailRetoucheHistoryPanels.evenements">
+                  {{ detailRetoucheHistoryPanels.evenements ? "Replier" : "Afficher" }}
+                </button>
+              </div>
+              <div v-show="detailRetoucheHistoryPanels.evenements" class="stack">
+                <div v-show="isMobileViewport">
                   <RetoucheDetailEventMobileList
                     :items="detailRetoucheEventsPaged"
                     :loading="detailRetoucheEventsLoading"
                     :format-date-time="formatDateTime"
                   />
-                  <ResponsivePagination
-                    v-if="detailRetoucheEvents.length > 0"
-                    :page="detailRetoucheEventsPagination.page"
-                    :pages="detailRetoucheEventsPages"
-                    :page-size="detailRetoucheEventsPagination.pageSize"
-                    :page-size-options="[5, 10, 20]"
-                    :prev-disabled="detailRetoucheEventsPagination.page <= 1"
-                    :next-disabled="detailRetoucheEventsPagination.page >= detailRetoucheEventsPages"
-                    @update:page-size="detailRetoucheEventsPagination.pageSize = $event"
-                    @prev="detailRetoucheEventsPagination.page -= 1"
-                    @next="detailRetoucheEventsPagination.page += 1"
-                  />
-                </article>
-              </template>
-              <template #desktop>
-                <article class="panel">
-                  <div class="panel-header detail-panel-header">
-                    <h4>Historique des evenements</h4>
-                    <span class="helper" v-if="detailRetoucheEventsLoading">Chargement...</span>
-                  </div>
+                </div>
+                <div v-show="!isMobileViewport">
                   <table class="data-table mobile-stack-table">
                     <thead>
                       <tr>
@@ -15757,12 +15743,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <tr v-for="event in detailRetoucheEventsPaged" :key="event.idEvent">
                         <td data-label="Date">{{ formatDateTime(event.dateEvent) }}</td>
                         <td data-label="Evenement">{{ event.typeEventLabel }}</td>
-                        <td data-label="Etat precedent">
-                          <span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span>
-                        </td>
-                        <td data-label="Nouvel etat">
-                          <span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span>
-                        </td>
+                        <td data-label="Etat precedent"><span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span></td>
+                        <td data-label="Nouvel etat"><span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span></td>
                         <td data-label="Utilisateur">{{ event.utilisateurNom }}</td>
                         <td data-label="Role">{{ event.role }}</td>
                       </tr>
@@ -15771,20 +15753,21 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       </tr>
                     </tbody>
                   </table>
-                  <ResponsivePagination
-                    :page="detailRetoucheEventsPagination.page"
-                    :pages="detailRetoucheEventsPages"
-                    :page-size="detailRetoucheEventsPagination.pageSize"
-                    :page-size-options="[5, 10, 20]"
-                    :prev-disabled="detailRetoucheEventsPagination.page <= 1"
-                    :next-disabled="detailRetoucheEventsPagination.page >= detailRetoucheEventsPages"
-                    @update:page-size="detailRetoucheEventsPagination.pageSize = $event"
-                    @prev="detailRetoucheEventsPagination.page -= 1"
-                    @next="detailRetoucheEventsPagination.page += 1"
-                  />
-                </article>
-              </template>
-            </ResponsiveDataContainer>
+                </div>
+                <ResponsivePagination
+                  v-show="detailRetoucheEvents.length > 0"
+                  :page="detailRetoucheEventsPagination.page"
+                  :pages="detailRetoucheEventsPages"
+                  :page-size="detailRetoucheEventsPagination.pageSize"
+                  :page-size-options="[5, 10, 20]"
+                  :prev-disabled="detailRetoucheEventsPagination.page <= 1"
+                  :next-disabled="detailRetoucheEventsPagination.page >= detailRetoucheEventsPages"
+                  @update:page-size="detailRetoucheEventsPagination.pageSize = $event"
+                  @prev="detailRetoucheEventsPagination.page -= 1"
+                  @next="detailRetoucheEventsPagination.page += 1"
+                />
+              </div>
+            </article>
           </div>
 
           <template #action>
