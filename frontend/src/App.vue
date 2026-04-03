@@ -850,6 +850,8 @@ const detailCommandeMediaError = ref("");
 const detailError = ref("");
 const detailCommandeHistoryPanels = reactive({ paiements: false, evenements: false });
 const detailRetoucheHistoryPanels = reactive({ paiements: false, evenements: false });
+const detailCommandeItemStatuses = reactive({});
+const detailRetoucheItemStatuses = reactive({});
 const commandeItemPhotoDialog = reactive({ open: false, itemId: "", title: "" });
 const commandeMediaViewerCurrentItem = computed(() => {
   if (commandeMediaViewer.index >= 0 && commandeMediaViewer.index < commandeMediaViewer.items.length) {
@@ -4172,6 +4174,70 @@ const canAnnulerDetail = computed(() => {
   return false;
 });
 const canEmitCommandeDetailFacture = computed(() => Boolean(detailCommande.value && !detailCommandeFacture.value && detailCommande.value.statutCommande !== "ANNULEE"));
+const ITEM_STATUS_SEQUENCE = Object.freeze(["CREEE", "EN_COURS", "TERMINEE", "LIVREE"]);
+
+function resetReactiveRecord(target) {
+  for (const key of Object.keys(target)) {
+    delete target[key];
+  }
+}
+
+function syncDetailItemStatuses(target, items = [], fallbackStatus = "") {
+  const nextEntries = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const id = String(item?.idItem || item?.id || "").trim();
+    if (!id) continue;
+    nextEntries.set(id, String(item?.statut || item?.statutCommande || item?.statutRetouche || fallbackStatus || "").trim());
+  }
+  for (const key of Object.keys(target)) {
+    if (!nextEntries.has(key)) delete target[key];
+  }
+  for (const [key, value] of nextEntries.entries()) {
+    target[key] = value;
+  }
+}
+
+function resolveDetailItemStatus(target, item, fallbackStatus = "") {
+  const id = String(item?.idItem || item?.id || "").trim();
+  if (!id) return String(fallbackStatus || "").trim();
+  return String(target[id] || item?.statut || item?.statutCommande || item?.statutRetouche || fallbackStatus || "").trim();
+}
+
+function resolveNextDetailItemStatus(currentStatus = "") {
+  const normalized = String(currentStatus || "").trim().toUpperCase();
+  if (!normalized || normalized === "ANNULEE" || normalized === "LIVREE") return null;
+  const currentIndex = ITEM_STATUS_SEQUENCE.indexOf(normalized);
+  if (currentIndex === -1) return "TERMINEE";
+  if (normalized === "TERMINEE") return "LIVREE";
+  return "TERMINEE";
+}
+
+function resolveDetailItemStatusLabel(currentStatus = "") {
+  const nextStatus = resolveNextDetailItemStatus(currentStatus);
+  if (!nextStatus) return "";
+  if (nextStatus === "TERMINEE") return "Terminer";
+  if (nextStatus === "LIVREE") return "Livrer";
+  return "Changer statut";
+}
+
+function updateCommandeItemStatus(itemId = "") {
+  const normalizedId = String(itemId || "").trim();
+  if (!normalizedId) return;
+  const currentStatus = String(detailCommandeItemStatuses[normalizedId] || "").trim();
+  const nextStatus = resolveNextDetailItemStatus(currentStatus);
+  if (!nextStatus) return;
+  detailCommandeItemStatuses[normalizedId] = nextStatus;
+}
+
+function updateRetoucheItemStatus(itemId = "") {
+  const normalizedId = String(itemId || "").trim();
+  if (!normalizedId) return;
+  const currentStatus = String(detailRetoucheItemStatuses[normalizedId] || "").trim();
+  const nextStatus = resolveNextDetailItemStatus(currentStatus);
+  if (!nextStatus) return;
+  detailRetoucheItemStatuses[normalizedId] = nextStatus;
+}
+
 function buildItemPaymentBreakdown(items = [], totalPaid = 0) {
   let remainingPaid = Math.max(0, Number(totalPaid || 0));
   return (Array.isArray(items) ? items : []).map((item) => {
@@ -4201,18 +4267,21 @@ const detailCommandeItemCards = computed(() => {
   return items.map((item, index) => {
     const mesuresLines = formatMesuresLines(item?.mesures || null);
     const finance = breakdown[index] || { montant: Number(item?.prix || 0), paye: 0, reste: Number(item?.prix || 0) };
+    const statut = resolveDetailItemStatus(detailCommandeItemStatuses, item, detailCommande.value?.statutCommande || "");
     return {
       id: item?.idItem || `detail-item-${index + 1}`,
       index: index + 1,
       title: item?.description || humanizeContactLabel(item?.typeHabit) || item?.typeHabit || `Habit ${index + 1}`,
       typeHabit: item?.typeHabit || "",
-      statut: detailCommande.value?.statutCommande || "",
+      statut,
       prix: finance.montant,
       montantPaye: finance.paye,
       reste: finance.reste,
       mesuresLines,
       mesuresCount: mesuresLines.length,
-      canPay: canPayerDetail.value && finance.reste > 0
+      canPay: canPayerDetail.value && finance.reste > 0,
+      canAdvanceStatus: Boolean(resolveNextDetailItemStatus(statut)),
+      statusActionLabel: resolveDetailItemStatusLabel(statut)
     };
   });
 });
@@ -4233,7 +4302,7 @@ const commandeDetailPrimaryAction = computed(() => {
     return {
       label: "Payer",
       subtitle: "Enregistrez rapidement un paiement sur cette commande.",
-      tone: "blue",
+      tone: "green",
       handler: onPaiementDetail
     };
   }
@@ -4241,7 +4310,7 @@ const commandeDetailPrimaryAction = computed(() => {
     return {
       label: "Livrer",
       subtitle: "Marquez la commande comme livree depuis le detail.",
-      tone: "green",
+      tone: "blue",
       handler: onLivrerDetail
     };
   }
@@ -4249,7 +4318,7 @@ const commandeDetailPrimaryAction = computed(() => {
     return {
       label: "Terminer",
       subtitle: "Finalisez la commande pour preparer la livraison.",
-      tone: "amber",
+      tone: "blue",
       handler: onTerminerDetail
     };
   }
@@ -4302,19 +4371,22 @@ const detailRetoucheItemCards = computed(() => {
   return items.map((item, index) => {
     const mesuresLines = formatMesuresLines(item?.mesures);
     const finance = breakdown[index] || { montant: Number(item?.prix || 0), paye: 0, reste: Number(item?.prix || 0) };
+    const statut = resolveDetailItemStatus(detailRetoucheItemStatuses, item, detailRetouche.value?.statutRetouche || "");
     return {
       id: item?.idItem || `retouche-item-${index + 1}`,
       index: index + 1,
       title: item?.description || humanizeContactLabel(item?.typeRetouche) || item?.typeRetouche || `Intervention ${index + 1}`,
       typeRetouche: item?.typeRetouche || "",
       typeHabit: item?.typeHabit || detailRetouche.value?.typeHabit || "",
-      statut: detailRetouche.value?.statutRetouche || "",
+      statut,
       prix: finance.montant,
       montantPaye: finance.paye,
       reste: finance.reste,
       mesuresLines,
       mesuresCount: mesuresLines.length,
-      canPay: canPayerRetoucheDetail.value && finance.reste > 0
+      canPay: canPayerRetoucheDetail.value && finance.reste > 0,
+      canAdvanceStatus: Boolean(resolveNextDetailItemStatus(statut)),
+      statusActionLabel: resolveDetailItemStatusLabel(statut)
     };
   });
 });
@@ -4335,7 +4407,7 @@ const retoucheDetailPrimaryAction = computed(() => {
     return {
       label: "Payer",
       subtitle: "Enregistrez rapidement un paiement sur cette retouche.",
-      tone: "blue",
+      tone: "green",
       handler: onPaiementRetoucheDetail
     };
   }
@@ -4343,7 +4415,7 @@ const retoucheDetailPrimaryAction = computed(() => {
     return {
       label: "Livrer",
       subtitle: "Marquez la retouche comme livree depuis le detail.",
-      tone: "green",
+      tone: "blue",
       handler: onLivrerRetoucheDetail
     };
   }
@@ -4351,7 +4423,7 @@ const retoucheDetailPrimaryAction = computed(() => {
     return {
       label: "Terminer",
       subtitle: "Finalisez la retouche avant la livraison.",
-      tone: "amber",
+      tone: "blue",
       handler: onTerminerRetoucheDetail
     };
   }
@@ -12003,6 +12075,7 @@ async function loadCommandeDetail(idCommande, { preserveExisting = true } = {}) 
     const atelierId = currentAtelierId.value;
     if (!atelierId) {
       detailCommande.value = null;
+      resetReactiveRecord(detailCommandeItemStatuses);
       detailPaiements.value = [];
       detailCommandeEvents.value = [];
       detailPaiementsLoading.value = false;
@@ -12025,6 +12098,7 @@ async function loadCommandeDetail(idCommande, { preserveExisting = true } = {}) 
 
     if (localFirst.cached) {
       detailCommande.value = normalizeCommande(localFirst.cached);
+      syncDetailItemStatuses(detailCommandeItemStatuses, detailCommande.value?.items, detailCommande.value?.statutCommande || "");
       activeCommandeId = detailCommande.value?.idCommande || activeCommandeId;
       hasCachedDetail = true;
     }
@@ -12032,6 +12106,7 @@ async function loadCommandeDetail(idCommande, { preserveExisting = true } = {}) 
     if (!localFirst.online) {
       if (!hasCachedDetail) {
         detailCommande.value = null;
+        resetReactiveRecord(detailCommandeItemStatuses);
         detailCommandeActions.value = null;
         await setDetailCommandeMediaRows([]);
         detailCommandeMediaError.value = "";
@@ -12057,6 +12132,7 @@ async function loadCommandeDetail(idCommande, { preserveExisting = true } = {}) 
         if (requestId !== commandeDetailLoadRequestId) return null;
         if (refreshed?.row) {
           detailCommande.value = normalizeCommande(refreshed.row);
+          syncDetailItemStatuses(detailCommandeItemStatuses, detailCommande.value?.items, detailCommande.value?.statutCommande || "");
           activeCommandeId = detailCommande.value?.idCommande || activeCommandeId;
         } else if (!hasCachedDetail) {
           throw new Error("Commande introuvable");
@@ -12070,6 +12146,7 @@ async function loadCommandeDetail(idCommande, { preserveExisting = true } = {}) 
           detailError.value = readableError(err);
         } else {
           detailCommande.value = null;
+          resetReactiveRecord(detailCommandeItemStatuses);
           detailCommandeActions.value = null;
           await setDetailCommandeMediaRows([]);
           detailCommandeMediaError.value = "";
@@ -12491,6 +12568,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
     const atelierId = currentAtelierId.value;
     if (!atelierId) {
       detailRetouche.value = null;
+      resetReactiveRecord(detailRetoucheItemStatuses);
       detailRetouchePaiements.value = [];
       detailRetoucheEvents.value = [];
       detailRetouchePaiementsLoading.value = false;
@@ -12512,6 +12590,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
     if (localFirst.cached) {
       detailRetouche.value = normalizeRetouche(localFirst.cached);
+      syncDetailItemStatuses(detailRetoucheItemStatuses, detailRetouche.value?.items, detailRetouche.value?.statutRetouche || "");
       activeRetoucheId = detailRetouche.value?.idRetouche || activeRetoucheId;
       hasCachedDetail = true;
     }
@@ -12519,6 +12598,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
     if (!localFirst.online) {
       if (!hasCachedDetail) {
         detailRetouche.value = null;
+        resetReactiveRecord(detailRetoucheItemStatuses);
         detailRetoucheActions.value = null;
         detailRetouchePaiements.value = [];
         detailRetoucheEvents.value = [];
@@ -12544,6 +12624,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
       if (requestId !== retoucheDetailLoadRequestId) return null;
       if (refreshed?.row) {
         detailRetouche.value = normalizeRetouche(refreshed.row);
+        syncDetailItemStatuses(detailRetoucheItemStatuses, detailRetouche.value?.items, detailRetouche.value?.statutRetouche || "");
         activeRetoucheId = detailRetouche.value?.idRetouche || activeRetoucheId;
       } else if (!hasCachedDetail) {
         throw new Error("Retouche introuvable");
@@ -12557,6 +12638,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         detailRetoucheError.value = readableError(err);
       } else {
         detailRetouche.value = null;
+        resetReactiveRecord(detailRetoucheItemStatuses);
         detailRetoucheActions.value = null;
         detailRetouchePaiements.value = [];
         detailRetoucheEvents.value = [];
@@ -13484,8 +13566,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             <MobileSectionHeader title="Actions rapides" subtitle="Raccourcis utiles pour poursuivre le flux sans changer de contexte." />
             <div class="quick-actions">
               <button v-if="canCreateCommande" class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
-              <button class="action-btn green" @click="commandeSection = 'liste'">Voir la liste</button>
-              <button v-if="canAccessModule('clientsMesures')" class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
+              <button class="action-btn gray" @click="commandeSection = 'liste'">Voir la liste</button>
+              <button v-if="canAccessModule('clientsMesures')" class="action-btn gray" @click="openRoute('clientsMesures')">Consulter client</button>
             </div>
           </article>
 
@@ -13578,22 +13660,22 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                           </svg>
                           Voir
                         </button>
-                        <button class="mini-btn" v-if="canPayer(commande)" @click="onPaiementCommande(commande)">
+                        <button class="mini-btn green" v-if="canPayer(commande)" @click="onPaiementCommande(commande)">
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                             <path v-for="(path, i) in iconPaths.cash" :key="`cash-${commande.idCommande}-${i}`" :d="path" />
                           </svg>
                           Paiement
                         </button>
-                        <button class="mini-btn" v-if="canLivrer(commande)" @click="onLivrerCommande(commande)">
+                        <button class="mini-btn blue" v-if="canLivrer(commande)" @click="onLivrerCommande(commande)">
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                             <path v-for="(path, i) in iconPaths.check" :key="`liv-${commande.idCommande}-${i}`" :d="path" />
                           </svg>
                           Livrer
                         </button>
-                        <button class="mini-btn" v-if="canTerminer(commande)" @click="onTerminerCommande(commande)">
+                        <button class="mini-btn blue" v-if="canTerminer(commande)" @click="onTerminerCommande(commande)">
                           Terminer
                         </button>
-                        <button class="mini-btn" v-if="canAnnuler(commande)" @click="onAnnulerCommande(commande)">
+                        <button class="mini-btn red" v-if="canAnnuler(commande)" @click="onAnnulerCommande(commande)">
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 3l18 18" />
                             <path d="M21 3L3 21" />
@@ -13778,8 +13860,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             <MobileSectionHeader title="Actions rapides" subtitle="Raccourcis utiles pour poursuivre le flux sans changer de contexte." />
             <div class="quick-actions">
               <button v-if="canCreateRetouche" class="action-btn blue" @click="openNouvelleRetouche">Nouvelle retouche</button>
-              <button class="action-btn green" @click="retoucheSection = 'liste'">Voir la liste</button>
-              <button v-if="canAccessModule('clientsMesures')" class="action-btn amber" @click="openRoute('clientsMesures')">Consulter client</button>
+              <button class="action-btn gray" @click="retoucheSection = 'liste'">Voir la liste</button>
+              <button v-if="canAccessModule('clientsMesures')" class="action-btn gray" @click="openRoute('clientsMesures')">Consulter client</button>
             </div>
           </article>
 
@@ -13876,22 +13958,22 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                           </svg>
                           Voir
                         </button>
-                        <button class="mini-btn" v-if="canPayerRetouche(retouche)" @click="onPaiementRetouche(retouche)">
+                        <button class="mini-btn green" v-if="canPayerRetouche(retouche)" @click="onPaiementRetouche(retouche)">
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                             <path v-for="(path, i) in iconPaths.cash" :key="`cash-ret-${retouche.idRetouche}-${i}`" :d="path" />
                           </svg>
                           Paiement
                         </button>
-                        <button class="mini-btn" v-if="canLivrerRetouche(retouche)" @click="onLivrerRetouche(retouche)">
+                        <button class="mini-btn blue" v-if="canLivrerRetouche(retouche)" @click="onLivrerRetouche(retouche)">
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                             <path v-for="(path, i) in iconPaths.check" :key="`liv-ret-${retouche.idRetouche}-${i}`" :d="path" />
                           </svg>
                           Livrer
                         </button>
-                        <button class="mini-btn" v-if="canTerminerRetouche(retouche)" @click="onTerminerRetouche(retouche)">
+                        <button class="mini-btn blue" v-if="canTerminerRetouche(retouche)" @click="onTerminerRetouche(retouche)">
                           Terminer
                         </button>
-                        <button class="mini-btn" v-if="canAnnulerRetouche(retouche)" @click="onAnnulerRetouche(retouche)">
+                        <button class="mini-btn red" v-if="canAnnulerRetouche(retouche)" @click="onAnnulerRetouche(retouche)">
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 3l18 18" />
                             <path d="M21 3L3 21" />
@@ -14946,7 +15028,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <div class="row-actions dossier-workspace-actions">
                   <button class="mini-btn" @click="openRoute('dossiers')">Retour</button>
                   <button class="action-btn blue" @click="openCommandeWizardFromDossier">Ajouter une commande</button>
-                  <button class="action-btn amber" @click="openRetoucheWizardFromDossier">Ajouter une retouche</button>
+                  <button class="action-btn blue" @click="openRetoucheWizardFromDossier">Ajouter une retouche</button>
                   <button
                     v-if="canAccessRoute('caisse') && detailDossier?.synthese?.documentsAvecSolde > 0"
                     class="action-btn green"
@@ -15160,13 +15242,13 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <button class="mini-btn" v-show="!!detailCommandeFacture" @click="onImprimerFactureParOrigine('COMMANDE', detailCommande.idCommande)">
                   {{ isMobileViewport ? "Telecharger facture" : "Imprimer facture" }}
                 </button>
-                <button v-show="!isMobileViewport && canPayerDetail" class="action-btn blue" @click="onPaiementDetail" :disabled="detailLoading || detailPaiementsLoading">
+                <button v-show="!isMobileViewport && canPayerDetail" class="action-btn green" @click="onPaiementDetail" :disabled="detailLoading || detailPaiementsLoading">
                   Payer
                 </button>
-                <button v-show="!isMobileViewport && canLivrerDetail" class="action-btn green" @click="onLivrerDetail" :disabled="detailLoading">
+                <button v-show="!isMobileViewport && canLivrerDetail" class="action-btn blue" @click="onLivrerDetail" :disabled="detailLoading">
                   Livrer
                 </button>
-                <button v-show="!isMobileViewport && canTerminerDetail" class="action-btn amber" @click="onTerminerDetail" :disabled="detailLoading">
+                <button v-show="!isMobileViewport && canTerminerDetail" class="action-btn blue" @click="onTerminerDetail" :disabled="detailLoading">
                   Terminer
                 </button>
                 <button
@@ -15265,8 +15347,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <span class="status-pill" :data-status="item.statut || ''">{{ item.statut || "-" }}</span>
                   </div>
                   <div class="detail-item-metrics">
-                    <p><strong>Montant : </strong>{{ formatCurrency(item.prix) }}</p>
-                    <p><strong>Reste : </strong>{{ formatCurrency(item.reste) }}</p>
+                    <p><strong>Montant : </strong><span class="detail-inline-value blue">{{ formatCurrency(item.prix) }}</span></p>
+                    <p><strong>Reste : </strong><span class="detail-inline-value red">{{ formatCurrency(item.reste) }}</span></p>
                     <p><strong>Type : </strong>{{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "-" }}</p>
                   </div>
                   <div class="detail-item-measures">
@@ -15277,9 +15359,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <p v-show="item.mesuresLines.length === 0" class="helper">Aucune mesure renseignee.</p>
                   </div>
                   <div class="row-actions detail-item-actions">
-                    <button v-show="item.canPay" class="mini-btn" :disabled="detailLoading || detailPaiementsLoading" @click="onPaiementDetail">Payer</button>
-                    <button class="mini-btn" v-show="!!detailCommandeStatusAction" :disabled="detailLoading || !detailCommandeStatusAction" @click="onCommandeDetailStatusChange">
-                      Changer statut
+                    <button v-show="item.canPay" class="mini-btn green" :disabled="detailLoading || detailPaiementsLoading" @click="onPaiementDetail">Payer</button>
+                    <button class="mini-btn blue" v-show="item.canAdvanceStatus" :disabled="detailLoading || !item.canAdvanceStatus" @click="updateCommandeItemStatus(item.id)">
+                      {{ item.statusActionLabel }}
                     </button>
                     <button
                       class="mini-btn"
@@ -15301,9 +15383,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               <div class="detail-lite-contact-grid">
                 <p><strong>Telephone : </strong>{{ detailCommandeContactProfile?.telephone || "-" }}</p>
                 <div class="row-actions detail-item-actions">
-                  <a class="mini-btn" :href="buildPhoneDialHref(detailCommandeContactProfile?.telephone)">Appeler</a>
+                  <a class="mini-btn blue" :href="buildPhoneDialHref(detailCommandeContactProfile?.telephone)">Appeler</a>
                   <a
-                    class="mini-btn"
+                    class="mini-btn whatsapp"
                     :href="buildPreferredWhatsAppHref(detailCommandeContactProfile?.telephone, detailCommandeContactMessagePreview)"
                     :target="isMobileViewport ? '_self' : '_blank'"
                     rel="noreferrer"
@@ -15504,16 +15586,16 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </button>
                 <button
                   v-show="!isMobileViewport && canPayerRetoucheDetail"
-                  class="action-btn blue"
+                  class="action-btn green"
                   @click="onPaiementRetoucheDetail"
                   :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading"
                 >
                   Payer
                 </button>
-                <button v-show="!isMobileViewport && canLivrerRetoucheDetail" class="action-btn green" @click="onLivrerRetoucheDetail" :disabled="detailRetoucheLoading">
+                <button v-show="!isMobileViewport && canLivrerRetoucheDetail" class="action-btn blue" @click="onLivrerRetoucheDetail" :disabled="detailRetoucheLoading">
                   Livrer
                 </button>
-                <button v-show="!isMobileViewport && canTerminerRetoucheDetail" class="action-btn amber" @click="onTerminerRetoucheDetail" :disabled="detailRetoucheLoading">
+                <button v-show="!isMobileViewport && canTerminerRetoucheDetail" class="action-btn blue" @click="onTerminerRetoucheDetail" :disabled="detailRetoucheLoading">
                   Terminer
                 </button>
                 <button
@@ -15612,8 +15694,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <span class="status-pill" :data-status="item.statut || ''">{{ item.statut || "-" }}</span>
                   </div>
                   <div class="detail-item-metrics">
-                    <p><strong>Montant : </strong>{{ formatCurrency(item.prix) }}</p>
-                    <p><strong>Reste : </strong>{{ formatCurrency(item.reste) }}</p>
+                    <p><strong>Montant : </strong><span class="detail-inline-value blue">{{ formatCurrency(item.prix) }}</span></p>
+                    <p><strong>Reste : </strong><span class="detail-inline-value red">{{ formatCurrency(item.reste) }}</span></p>
                     <p><strong>Type : </strong>{{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "-" }}</p>
                   </div>
                   <div class="detail-item-measures">
@@ -15624,9 +15706,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <p v-show="item.mesuresLines.length === 0" class="helper">Aucune mesure renseignee.</p>
                   </div>
                   <div class="row-actions detail-item-actions">
-                    <button v-show="item.canPay" class="mini-btn" :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading" @click="onPaiementRetoucheDetail">Payer</button>
-                    <button class="mini-btn" v-show="!!detailRetoucheStatusAction" :disabled="detailRetoucheLoading || !detailRetoucheStatusAction" @click="onRetoucheDetailStatusChange">
-                      Changer statut
+                    <button v-show="item.canPay" class="mini-btn green" :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading" @click="onPaiementRetoucheDetail">Payer</button>
+                    <button class="mini-btn blue" v-show="item.canAdvanceStatus" :disabled="detailRetoucheLoading || !item.canAdvanceStatus" @click="updateRetoucheItemStatus(item.id)">
+                      {{ item.statusActionLabel }}
                     </button>
                   </div>
                 </article>
@@ -15641,9 +15723,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               <div class="detail-lite-contact-grid">
                 <p><strong>Telephone : </strong>{{ detailRetoucheContactProfile?.telephone || "-" }}</p>
                 <div class="row-actions detail-item-actions">
-                  <a class="mini-btn" :href="buildPhoneDialHref(detailRetoucheContactProfile?.telephone)">Appeler</a>
+                  <a class="mini-btn blue" :href="buildPhoneDialHref(detailRetoucheContactProfile?.telephone)">Appeler</a>
                   <a
-                    class="mini-btn"
+                    class="mini-btn whatsapp"
                     :href="buildPreferredWhatsAppHref(detailRetoucheContactProfile?.telephone, detailRetoucheContactMessagePreview)"
                     :target="isMobileViewport ? '_self' : '_blank'"
                     rel="noreferrer"

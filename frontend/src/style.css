@@ -957,12 +957,16 @@ body {
   background: linear-gradient(180deg, #2f6aaf, #1f4f87);
 }
 
+.action-btn.gray {
+  background: linear-gradient(180deg, #7c8ea3, #5f7388);
+}
+
 .action-btn.green {
   background: linear-gradient(180deg, #2ca160, #1f7d4c);
 }
 
 .action-btn.amber {
-  background: linear-gradient(180deg, #c37a36, #9f5c1f);
+  background: linear-gradient(180deg, #2f6aaf, #1f4f87);
 }
 
 .action-btn.red {
@@ -1848,6 +1852,19 @@ body {
   gap: 8px;
 }
 
+.detail-inline-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-inline-value.blue {
+  color: #1f5aa2;
+}
+
+.detail-inline-value.red {
+  color: #b74235;
+}
+
 .detail-item-measures {
   display: grid;
   gap: 8px;
@@ -2497,6 +2514,30 @@ body {
   align-items: center;
   gap: 4px;
   cursor: pointer;
+}
+
+.mini-btn.blue {
+  border-color: rgba(31, 90, 162, 0.24);
+  background: #edf4fd;
+  color: #1f4f87;
+}
+
+.mini-btn.green {
+  border-color: rgba(47, 153, 82, 0.24);
+  background: #edf9f1;
+  color: #1f6d3d;
+}
+
+.mini-btn.red {
+  border-color: rgba(190, 67, 54, 0.24);
+  background: #fff1ef;
+  color: #8d2f25;
+}
+
+.mini-btn.whatsapp {
+  border-color: rgba(37, 172, 99, 0.24);
+  background: #ecfbf2;
+  color: #1d8d4d;
 }
 
 button:focus-visible,
