@@ -174,6 +174,58 @@ function run() {
   assert.equal(cPartielle.typeHabit, "ROBE");
   assert.equal(Number(cPartielle.mesuresHabit.valeurs.poitrine), 91);
 
+  const cItems = creerCommande(
+    {
+      idCommande: "CMD-ITEMS",
+      idClient: "CL-1",
+      descriptionCommande: "Commande multi-items",
+      montantTotal: 55,
+      typeHabit: "CHEMISE",
+      mesuresHabit: {
+        poitrine: 92,
+        longueurChemise: 72,
+        typeManches: "longues",
+        poignet: 19,
+        carrure: 44,
+        longueurManches: 61
+      },
+      items: [
+        {
+          idItem: "ITEM-CHEMISE",
+          typeHabit: "CHEMISE",
+          description: "Chemise blanche",
+          prix: 25,
+          mesures: {
+            poitrine: 92,
+            longueurChemise: 72,
+            typeManches: "longues",
+            poignet: 19,
+            carrure: 44,
+            longueurManches: 61
+          }
+        },
+        {
+          idItem: "ITEM-PANTALON",
+          typeHabit: "PANTALON",
+          description: "Pantalon bleu",
+          prix: 30,
+          mesures: {
+            longueur: 106,
+            tourTaille: 84,
+            tourHanche: 98,
+            largeurBas: 18,
+            hauteurFourche: 29
+          }
+        }
+      ]
+    },
+    { policy: basePolicy }
+  );
+  assert.equal(cItems.items.length, 2);
+  assert.equal(cItems.items[0].typeHabit, "CHEMISE");
+  assert.equal(cItems.items[1].typeHabit, "PANTALON");
+  assert.equal(Number(cItems.items[1].mesures.valeurs.longueur), 106);
+
   // Valeurs decimales interdites
   shouldFail(() =>
     creerCommande(

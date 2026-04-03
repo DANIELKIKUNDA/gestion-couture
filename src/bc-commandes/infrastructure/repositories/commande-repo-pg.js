@@ -1,10 +1,12 @@
-﻿import { pool } from "../../../shared/infrastructure/db.js";
+import { pool } from "../../../shared/infrastructure/db.js";
 import { Commande } from "../../domain/commande.js";
+import { CommandeItemRepoPg } from "./commande-item-repo-pg.js";
 
 export class CommandeRepoPg {
   constructor(atelierId = "ATELIER", db = pool) {
     this.atelierId = String(atelierId || "ATELIER");
     this.db = db;
+    this.itemRepo = new CommandeItemRepoPg(this.atelierId, this.db);
   }
 
   forAtelier(atelierId) {
@@ -22,7 +24,6 @@ export class CommandeRepoPg {
     return res.rowCount > 0;
   }
 
-  // Fetch a Commande by ID and rehydrate the aggregate
   async getById(idCommande) {
     const res = await this.db.query(
       "SELECT id_commande, id_client, id_dossier, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM commandes WHERE id_commande = $1 AND atelier_id = $2",
@@ -31,6 +32,7 @@ export class CommandeRepoPg {
     if (res.rowCount === 0) return null;
 
     const row = res.rows[0];
+    const items = await this.itemRepo.listByCommande(row.id_commande).catch(() => []);
     return new Commande({
       idCommande: row.id_commande,
       idClient: row.id_client,
@@ -43,11 +45,11 @@ export class CommandeRepoPg {
       statutCommande: row.statut,
       typeHabit: row.type_habit,
       mesuresHabit: row.mesures_habit_snapshot,
+      items,
       rehydrate: true
     });
   }
 
-  // Upsert Commande
   async save(commande) {
     await this.db.query(
       `INSERT INTO commandes (id_commande, atelier_id, id_client, id_dossier, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)

@@ -35,6 +35,8 @@ import { saveLatestMeasuresForClientAndType } from "../../../bc-clients/applicat
 import { hasCommandeLignesTable } from "../../infrastructure/repositories/commande-ligne-schema.js";
 import { CommandeItemRepoPg } from "../../infrastructure/repositories/commande-item-repo-pg.js";
 import { generateCommandeItemId } from "../../../shared/domain/id-generator.js";
+import { createMesuresCommande } from "../../../shared/domain/mesures-habit.js";
+import { CommandeItem } from "../../domain/commande-item.js";
 
 const router = express.Router();
 const commandeRepo = new CommandeRepoPg();
@@ -274,26 +276,68 @@ function normalizeCommandeItemInput(rawItem, index = 0) {
     typeHabit: String(item.typeHabit || item.type_habit || "").trim().toUpperCase(),
     description: String(item.description || "").trim(),
     prix: Number(item.prix ?? 0),
-    ordreAffichage: Number(item.ordreAffichage ?? item.ordre_affichage ?? index + 1) || index + 1
+    ordreAffichage: Number(item.ordreAffichage ?? item.ordre_affichage ?? index + 1) || index + 1,
+    mesuresBrutes:
+      item.mesures ||
+      item.mesuresSnapshot ||
+      item.mesures_snapshot_json ||
+      item.mesuresHabit ||
+      null
   };
 }
 
-function buildCommandeItemsFromPayload(body = {}) {
+function normalizeCommandeItemMesures(typeHabit, rawMesures, policy = null) {
+  if (!typeHabit || !rawMesures || typeof rawMesures !== "object" || Array.isArray(rawMesures)) return null;
+  const resolvedPolicy = resolveCommandePolicy(policy);
+  const hasExplicitValues =
+    rawMesures.typeHabit ||
+    rawMesures.unite ||
+    (rawMesures.valeurs && typeof rawMesures.valeurs === "object");
+  if (hasExplicitValues) {
+    return createMesuresCommande(rawMesures.typeHabit || typeHabit, rawMesures.valeurs || rawMesures, {
+      requireComplete: resolvedPolicy.mesuresObligatoiresPourCommande && resolvedPolicy.interdireEnregistrementSansToutesMesuresUtiles,
+      requireAtLeastOne: resolvedPolicy.mesuresObligatoiresPourCommande,
+      allowDecimals: resolvedPolicy.valeursDecimalesAutorisees,
+      unit: rawMesures.unite || resolvedPolicy.uniteMesure,
+      habitDefinitions: resolvedPolicy.habits
+    });
+  }
+  return createMesuresCommande(typeHabit, rawMesures, {
+    requireComplete: resolvedPolicy.mesuresObligatoiresPourCommande && resolvedPolicy.interdireEnregistrementSansToutesMesuresUtiles,
+    requireAtLeastOne: resolvedPolicy.mesuresObligatoiresPourCommande,
+    allowDecimals: resolvedPolicy.valeursDecimalesAutorisees,
+    unit: resolvedPolicy.uniteMesure,
+    habitDefinitions: resolvedPolicy.habits
+  });
+}
+
+function buildCommandeItemsFromPayload(body = {}, policy = null) {
   const sourceItems = Array.isArray(body.items) ? body.items : [];
   const items = sourceItems
-    .map((row, index) => normalizeCommandeItemInput(row, index))
-    .filter((item) => item.typeHabit && Number.isFinite(item.prix) && item.prix >= 0);
+    .map((row, index) => {
+      const item = normalizeCommandeItemInput(row, index);
+      const fallbackMesures = index === 0 ? body.mesuresHabit : null;
+      const { mesuresBrutes, ...baseItem } = item;
+      return {
+        ...baseItem,
+        mesures: normalizeCommandeItemMesures(item.typeHabit, mesuresBrutes || fallbackMesures, policy)
+      };
+    })
+    .filter((item) => item.typeHabit && Number.isFinite(item.prix) && item.prix >= 0)
+    .map((item) => new CommandeItem({ ...item, policy }));
   if (items.length > 0) return items;
   const fallbackTypeHabit = String(body.typeHabit || "").trim().toUpperCase();
   if (!fallbackTypeHabit) return [];
   return [
-    {
+    new CommandeItem({
       idItem: generateCommandeItemId(),
       typeHabit: fallbackTypeHabit,
       description: String(body.descriptionCommande || "").trim(),
       prix: Number(body.montantTotal || 0),
-      ordreAffichage: 1
-    }
+      ordreAffichage: 1,
+      mesures: normalizeCommandeItemMesures(fallbackTypeHabit, body.mesuresHabit, policy),
+      policy
+    })
   ];
 }
 
@@ -301,15 +345,16 @@ function hydrateCommandeItems(items = [], commandeRow = null) {
   if (Array.isArray(items) && items.length > 0) return items;
   if (!commandeRow?.type_habit) return [];
   return [
-    {
+    new CommandeItem({
       idItem: `LEGACY-${commandeRow.id_commande}`,
       idCommande: commandeRow.id_commande,
       typeHabit: commandeRow.type_habit,
       description: String(commandeRow.description || "").trim() || commandeRow.type_habit,
       prix: Number(commandeRow.montant_total || 0),
       ordreAffichage: 1,
+      mesures: commandeRow.mesures_habit_snapshot || null,
       dateCreation: commandeRow.date_creation
-    }
+    })
   ];
 }
 
@@ -352,13 +397,27 @@ async function loadCommandeLignesMap(db, atelierId, commandeIds = []) {
 async function loadCommandeItemsMap(db, atelierId, commandeIds = []) {
   const ids = Array.from(new Set((commandeIds || []).map((value) => String(value || "").trim()).filter(Boolean)));
   if (ids.length === 0) return new Map();
+  const measuresColumnResult = await db.query(
+    `SELECT 1
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'commande_items'
+       AND column_name = 'mesures_snapshot_json'
+     LIMIT 1`
+  ).catch(() => ({ rowCount: 0 }));
+  const includeMeasures = measuresColumnResult.rowCount > 0;
   let result;
   try {
     result = await db.query(
-      `SELECT id_item, id_commande, type_habit, description, prix, ordre_affichage, date_creation
-       FROM commande_items
-       WHERE atelier_id = $1 AND id_commande = ANY($2::text[])
-       ORDER BY ordre_affichage ASC, date_creation ASC`,
+      includeMeasures
+        ? `SELECT id_item, id_commande, type_habit, description, prix, ordre_affichage, mesures_snapshot_json, date_creation
+           FROM commande_items
+           WHERE atelier_id = $1 AND id_commande = ANY($2::text[])
+           ORDER BY ordre_affichage ASC, date_creation ASC`
+        : `SELECT id_item, id_commande, type_habit, description, prix, ordre_affichage, date_creation
+           FROM commande_items
+           WHERE atelier_id = $1 AND id_commande = ANY($2::text[])
+           ORDER BY ordre_affichage ASC, date_creation ASC`,
       [atelierId, ids]
     );
   } catch (error) {
@@ -375,6 +434,7 @@ async function loadCommandeItemsMap(db, atelierId, commandeIds = []) {
       description: row.description || "",
       prix: Number(row.prix || 0),
       ordreAffichage: Number(row.ordre_affichage || 1),
+      mesures: row.mesures_snapshot_json || null,
       dateCreation: row.date_creation
     });
     map.set(row.id_commande, current);
@@ -949,7 +1009,9 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
             idItem: z.string().min(1).optional(),
             typeHabit: z.string().min(1),
             description: z.string().optional(),
-            prix: z.coerce.number().nonnegative()
+            prix: z.coerce.number().nonnegative(),
+            mesures: z.any().optional(),
+            mesuresHabit: z.any().optional()
           }).passthrough()
         )
         .optional(),
@@ -1044,28 +1106,34 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
       policy: policyInput
     });
 
-    const commande = creerCommande({
-      idCommande: resolvedCommandeId,
-      idClient: clientResolution.idClient,
-      descriptionCommande: body.descriptionCommande,
-      montantTotal: body.montantTotal,
-      typeHabit: lignesResolution.typeHabitReference,
-      mesuresHabit: lignesResolution.mesuresHabitReference?.valeurs || lignesResolution.mesuresHabitReference || null,
-      datePrevue: body.datePrevue
-    }, {
-      policy: policyInput
-    });
     const commandeItems = buildCommandeItemsFromPayload({
       ...body,
       typeHabit: lignesResolution.typeHabitReference
-    });
+    }, policyInput);
     if (commandeItems.length === 0) {
       throw new Error("Ajoutez au moins un habit a cette commande.");
     }
-    commande.montantTotal = computeCommandeTotalFromItems(commandeItems, body.montantTotal);
-    commande.typeHabit = commandeItems[0]?.typeHabit || commande.typeHabit;
-    commande.descriptionCommande = String(body.descriptionCommande || commandeItems[0]?.description || "").trim();
-    commande.dossierId = requestedDossierId;
+
+    const primaryMeasuredItem = commandeItems.find((item) => item.mesures) || commandeItems[0] || null;
+
+    const commande = creerCommande({
+      idCommande: resolvedCommandeId,
+      idClient: clientResolution.idClient,
+      dossierId: requestedDossierId,
+      descriptionCommande: String(body.descriptionCommande || commandeItems[0]?.description || "").trim(),
+      montantTotal: computeCommandeTotalFromItems(commandeItems, body.montantTotal),
+      typeHabit: primaryMeasuredItem?.typeHabit || lignesResolution.typeHabitReference,
+      mesuresHabit:
+        primaryMeasuredItem?.mesures?.valeurs ||
+        primaryMeasuredItem?.mesures ||
+        lignesResolution.mesuresHabitReference?.valeurs ||
+        lignesResolution.mesuresHabitReference ||
+        null,
+      datePrevue: body.datePrevue,
+      items: commandeItems
+    }, {
+      policy: policyInput
+    });
     await repo.save(commande);
     await scopedCommandeItemRepo(req).withExecutor(dbClient).replaceForCommande(commande.idCommande, commandeItems);
     await lignesRepo.replaceForCommande(commande.idCommande, lignesResolution.lignesCommande);
@@ -1073,13 +1141,24 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
       await dossiers.touch(requestedDossierId, acteur.utilisateur);
     }
     for (const ligne of lignesResolution.lignesCommande) {
-      if (!ligne.idClient) continue;
+      if (!ligne.idClient || !ligne.mesuresHabit) continue;
       await saveLatestMeasuresForClientAndType({
         idClient: ligne.idClient,
         typeHabit: ligne.typeHabit,
         mesuresSnapshot: ligne.mesuresHabit,
         prisePar: acteur.utilisateur,
         observations: `Commande ${commande.idCommande}`,
+        serieRepo: mesuresRepo
+      });
+    }
+    for (const item of commandeItems) {
+      if (!item.mesures) continue;
+      await saveLatestMeasuresForClientAndType({
+        idClient: clientResolution.idClient,
+        typeHabit: item.typeHabit,
+        mesuresSnapshot: item.mesures,
+        prisePar: acteur.utilisateur,
+        observations: `Commande ${commande.idCommande} / item ${item.idItem}`,
         serieRepo: mesuresRepo
       });
     }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
 import { pool } from "../src/shared/infrastructure/db.js";
+import { CommandeRepoPg } from "../src/bc-commandes/infrastructure/repositories/commande-repo-pg.js";
 import {
   createAuthenticatedSession,
   createClientViaApi,
@@ -69,11 +70,24 @@ async function getCommandeLignes(atelierId, idCommande) {
 }
 
 async function getCommandeItems(atelierId, idCommande) {
+  const hasMeasuresColumn = await pool.query(
+    `SELECT 1
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'commande_items'
+       AND column_name = 'mesures_snapshot_json'
+     LIMIT 1`
+  );
   const result = await pool.query(
-    `SELECT id_item, type_habit, description, prix
-     FROM commande_items
-     WHERE atelier_id = $1 AND id_commande = $2
-     ORDER BY ordre_affichage ASC, date_creation ASC`,
+    hasMeasuresColumn.rowCount > 0
+      ? `SELECT id_item, type_habit, description, prix, mesures_snapshot_json
+         FROM commande_items
+         WHERE atelier_id = $1 AND id_commande = $2
+         ORDER BY ordre_affichage ASC, date_creation ASC`
+      : `SELECT id_item, type_habit, description, prix
+         FROM commande_items
+         WHERE atelier_id = $1 AND id_commande = $2
+         ORDER BY ordre_affichage ASC, date_creation ASC`,
     [atelierId, idCommande]
   );
   return result.rows;
@@ -88,6 +102,7 @@ async function getClientLatestMeasures(session, idClient, typeHabit) {
 }
 
 async function run() {
+  await pool.query("ALTER TABLE commande_items ADD COLUMN IF NOT EXISTS mesures_snapshot_json JSONB NULL").catch(() => {});
   const atelierId = `ATELIER_CMD_SRP_${Date.now()}`;
   const session = await createAuthenticatedSession({
     atelierId,
@@ -132,8 +147,20 @@ async function run() {
     typeHabit: "PANTALON",
     mesuresHabit: pantalonMesuresCompletes,
     items: [
-      { typeHabit: "PANTALON", description: "Pantalon uniforme", prix: 95 },
-      { typeHabit: "CHEMISE", description: "Chemise blanche", prix: 55 }
+      { typeHabit: "PANTALON", description: "Pantalon uniforme", prix: 95, mesures: pantalonMesuresCompletes },
+      {
+        typeHabit: "CHEMISE",
+        description: "Chemise blanche",
+        prix: 55,
+        mesures: {
+          poitrine: 98,
+          longueurChemise: 74,
+          typeManches: "longues",
+          poignet: 18,
+          carrure: 44,
+          longueurManches: 63
+        }
+      }
     ]
   };
   const multiItemCreation = await withAuth(session.client.post("/api/commandes"), session.token).send(multiItemPayload);
@@ -141,6 +168,48 @@ async function run() {
   assert.equal(Number(multiItemCreation.body?.montantTotal ?? multiItemCreation.body?.commande?.montantTotal ?? 0), 150);
   const multiItems = await getCommandeItems(atelierId, multiItemPayload.idCommande);
   assert.equal(multiItems.length, 2, "les items commande doivent etre persistés atomiquement");
+
+  assert.equal(Number(multiItems[0]?.mesures_snapshot_json?.valeurs?.tourTaille || 0), 82);
+  assert.equal(String(multiItems[1]?.mesures_snapshot_json?.typeHabit || ""), "CHEMISE");
+  const commandeRepo = new CommandeRepoPg(atelierId);
+  const rehydratedCommande = await commandeRepo.getById(multiItemPayload.idCommande);
+  assert.ok(rehydratedCommande, "la commande multi-items doit etre rehydratable");
+  assert.equal(rehydratedCommande.items.length, 2, "la rehydratation doit recharger les items");
+  assert.equal(rehydratedCommande.items[0]?.typeHabit, "PANTALON");
+  assert.equal(rehydratedCommande.items[1]?.typeHabit, "CHEMISE");
+  assert.equal(Number(rehydratedCommande.items[1]?.mesures?.valeurs?.longueurChemise || 0), 74);
+  assert.equal(Number(rehydratedCommande.montantTotal || 0), 150, "le total rehydrate doit suivre les items");
+
+  const itemDrivenPayload = {
+    idCommande: buildTestId("CMD"),
+    clientPayeurId: createPayload.nouveauClient.idClient,
+    descriptionCommande: "Commande pilotee par les items",
+    montantTotal: 0,
+    items: [
+      {
+        typeHabit: "CHEMISE",
+        description: "Chemise principale",
+        prix: 60,
+        mesures: {
+          poitrine: 100,
+          longueurChemise: 75,
+          typeManches: "courtes",
+          poignet: 19,
+          carrure: 45
+        }
+      },
+      {
+        typeHabit: "PANTALON",
+        description: "Pantalon secondaire",
+        prix: 80,
+        mesures: pantalonMesuresCompletes
+      }
+    ]
+  };
+  const itemDrivenCreation = await withAuth(session.client.post("/api/commandes"), session.token).send(itemDrivenPayload);
+  assert.equal(itemDrivenCreation.status, 201, "une commande doit pouvoir etre creee a partir des mesures portees par les items");
+  assert.equal(String(itemDrivenCreation.body?.typeHabit || itemDrivenCreation.body?.commande?.typeHabit || ""), "CHEMISE");
+  assert.equal(Number(itemDrivenCreation.body?.montantTotal ?? itemDrivenCreation.body?.commande?.montantTotal ?? 0), 140);
 
   const replay = await withAuth(session.client.post("/api/commandes"), session.token).send(createPayload);
   assert.equal(replay.status, 200, "rejouer la meme creation doit renvoyer la commande existante");

@@ -10,6 +10,7 @@ import {
 } from "./errors.js";
 import { createMesuresCommande } from "../../shared/domain/mesures-habit.js";
 import { resolveCommandePolicy } from "./commande-policy.js";
+import { CommandeItem } from "./commande-item.js";
 
 export class Commande {
   constructor({
@@ -24,6 +25,7 @@ export class Commande {
     statutCommande = StatutCommande.CREEE,
     typeHabit,
     mesuresHabit,
+    items = [],
     policy = null,
     rehydrate = false
   }) {
@@ -50,24 +52,48 @@ export class Commande {
     this.descriptionCommande = descriptionCommande;
     this.dateCreation = dateCreation;
     this.datePrevue = datePrevue;
-    this.montantTotal = montantTotal;
-    this.montantPaye = montantPaye;
-    this.statutCommande = statutCommande;
     this.habitDefinitions = policy?.habits && typeof policy.habits === "object" ? policy.habits : null;
     this.commandePolicy = resolveCommandePolicy(policy);
+    this.items = Array.isArray(items)
+      ? items.map((item, index) =>
+          item instanceof CommandeItem
+            ? item
+            : new CommandeItem({
+                ...item,
+                ordreAffichage: item?.ordreAffichage ?? item?.ordre_affichage ?? index + 1,
+                policy,
+                rehydrate
+              })
+        )
+      : [];
+    const totalFromItems = this.items.reduce((sum, item) => sum + Number(item?.prix || 0), 0);
+    this.montantTotal = this.items.length > 0 ? totalFromItems : montantTotal;
+    this.montantPaye = montantPaye;
+    this.statutCommande = statutCommande;
+    if (this.montantTotal < 0) throw new Error("montantTotal doit etre >= 0");
+    if (this.montantPaye < 0) throw new Error("montantPaye doit etre >= 0");
+    if (this.montantPaye > this.montantTotal) throw new PaiementExcedentaire("montantPaye > montantTotal");
+    const primaryItemWithMeasures = this.items.find((item) => item?.mesures) || null;
+    const primaryItem = primaryItemWithMeasures || this.items[0] || null;
+    const effectiveTypeHabit = primaryItem?.typeHabit || typeHabit;
+    const effectiveMesuresHabit = primaryItemWithMeasures?.mesures || mesuresHabit;
+    const effectiveMesuresPayload =
+      effectiveMesuresHabit && typeof effectiveMesuresHabit === "object" && effectiveMesuresHabit.valeurs && typeof effectiveMesuresHabit.valeurs === "object"
+        ? effectiveMesuresHabit.valeurs
+        : effectiveMesuresHabit;
     const hasMesuresInput =
-      mesuresHabit &&
-      typeof mesuresHabit === "object" &&
-      Object.values(mesuresHabit).some((value) => value !== undefined && value !== null && value !== "");
-    if (typeHabit || mesuresHabit) {
+      effectiveMesuresPayload &&
+      typeof effectiveMesuresPayload === "object" &&
+      Object.values(effectiveMesuresPayload).some((value) => value !== undefined && value !== null && value !== "");
+    if (effectiveTypeHabit || effectiveMesuresHabit) {
       if (!hasMesuresInput && !this.commandePolicy.mesuresObligatoiresPourCommande) {
-        this.typeHabit = null;
+        this.typeHabit = effectiveTypeHabit ? String(effectiveTypeHabit).trim().toUpperCase() : null;
         this.mesuresHabit = null;
         return;
       }
       try {
         const requireMesures = this.commandePolicy.mesuresObligatoiresPourCommande;
-        const snapshot = createMesuresCommande(typeHabit, mesuresHabit, {
+        const snapshot = createMesuresCommande(effectiveTypeHabit, effectiveMesuresPayload, {
           requireComplete: requireMesures && this.commandePolicy.interdireEnregistrementSansToutesMesuresUtiles,
           requireAtLeastOne: requireMesures,
           allowDecimals: this.commandePolicy.valeursDecimalesAutorisees,
@@ -79,8 +105,8 @@ export class Commande {
       } catch (err) {
         if (!rehydrate) throw err;
         // Compatibility for historical rows with incomplete measures.
-        this.typeHabit = typeHabit || mesuresHabit?.typeHabit || null;
-        this.mesuresHabit = mesuresHabit || null;
+        this.typeHabit = effectiveTypeHabit || effectiveMesuresHabit?.typeHabit || null;
+        this.mesuresHabit = effectiveMesuresHabit || null;
       }
     } else {
       // Compatibility for historical rows created before mesures were enforced.
@@ -186,5 +212,9 @@ export class Commande {
 
   estLivrable() {
     return this.statutCommande === StatutCommande.TERMINEE && this.montantPaye >= this.montantTotal;
+  }
+
+  getPrimaryItem() {
+    return this.items.find((item) => item?.mesures) || this.items[0] || null;
   }
 }

@@ -28,12 +28,24 @@ function normalizeLineInput(raw = {}, index = 0) {
 }
 
 function createLegacySingleLine(body = {}) {
+  const items = Array.isArray(body.items) ? body.items : [];
+  const referenceItem =
+    items.find((item) => item && typeof item === "object" && item.typeHabit && (item.mesures || item.mesuresHabit)) ||
+    items.find((item) => item && typeof item === "object" && item.typeHabit) ||
+    null;
   return [
     {
       utiliseClientPayeur: true,
       role: "PAYEUR_BENEFICIAIRE",
-      typeHabit: normalizeText(body.typeHabit).toUpperCase(),
-      mesuresHabit: body.mesuresHabit && typeof body.mesuresHabit === "object" ? body.mesuresHabit : {},
+      typeHabit: normalizeText(referenceItem?.typeHabit || body.typeHabit).toUpperCase(),
+      mesuresHabit:
+        (referenceItem?.mesuresHabit && typeof referenceItem.mesuresHabit === "object"
+          ? referenceItem.mesuresHabit
+          : referenceItem?.mesures && typeof referenceItem.mesures === "object"
+            ? referenceItem.mesures
+            : body.mesuresHabit && typeof body.mesuresHabit === "object"
+              ? body.mesuresHabit
+              : {}),
       ordreAffichage: 1
     }
   ];

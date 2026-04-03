@@ -305,7 +305,10 @@ export async function createCommandeInCurrentDossierThroughUi(page: Page) {
   await step.locator('article input[type="number"]:visible').first().fill("150");
   await step.getByPlaceholder(/Commande mariage/i).fill(label);
   await step.locator('input[type="date"]:visible').first().fill(futureDate());
-  await fillVisibleMeasureFields(step);
+
+  await modal.getByRole("button", { name: /Continuer vers les mesures/i }).click();
+  const mesuresStep = modal.locator("section.modal-body:visible").first();
+  await fillVisibleMeasureFields(mesuresStep);
 
   await modal.getByRole("button", { name: /Continuer vers le resume/i }).click();
   await expect(modal.getByRole("heading", { name: /Verification finale/i })).toBeVisible();
@@ -323,27 +326,33 @@ export async function createRetoucheInCurrentDossierThroughUi(page: Page) {
   const step = modal.locator("section.modal-body:visible").first();
   const selects = step.locator("select:visible");
   const typeSelect = selects.nth(0);
-  const habitSelect = selects.nth(1);
   const matchedType =
     (await chooseOptionByLabel(typeSelect, [/ourlet pantalon/i])) ||
     (await chooseOptionByLabel(typeSelect, [/ourlet/i])) ||
     false;
   if (!matchedType) await chooseFirstNonPlaceholder(typeSelect);
   await step.locator('article input[type="number"]:visible').first().fill("40");
+  const label = `Retouche E2E ${Date.now()}`;
+  await step.getByPlaceholder(/Ajuster l'ourlet/i).fill(label);
+  await modal.getByRole("button", { name: /Continuer vers la configuration/i }).click();
+
+  const configStep = modal.locator("section.modal-body:visible").first();
+  const habitSelect = configStep.locator("select:visible").first();
   const matchedHabit =
     (await chooseOptionByLabel(habitSelect, [/pantalon/i, /robe/i])) ||
     false;
   if (!matchedHabit) await chooseFirstNonPlaceholder(habitSelect);
-  await fillVisibleMeasureFields(step);
-  const label = `Retouche E2E ${Date.now()}`;
-  await step.getByPlaceholder(/Ajuster l'ourlet/i).fill(label);
-  const textInputs = step.locator('input[type="text"]:visible');
+  await fillVisibleMeasureFields(configStep);
+  const textInputs = configStep.locator('input[type="text"]:visible');
   const textCount = await textInputs.count();
-  if (textCount > 1) {
-    await textInputs.nth(textCount - 1).fill(label);
+  if (textCount > 0) {
+    await textInputs.first().fill(label);
   }
-  await step.locator('input[type="date"]:visible').first().fill(futureDate());
-  const submitButton = modal.getByRole("button", { name: /Enregistrer la retouche|Creer la retouche/i }).first();
+  await configStep.locator('input[type="date"]:visible').first().fill(futureDate());
+
+  await modal.getByRole("button", { name: /Continuer vers le resume/i }).click();
+  await expect(modal.getByRole("heading", { name: /Verification finale/i })).toBeVisible();
+  const submitButton = modal.getByRole("button", { name: /Creer la retouche/i }).first();
 
   // Le wizard retouche synchronise encore quelques champs derives avant de soumettre.
   // En CI Windows, un clic trop rapide peut laisser la modal ouverte sans creation.
