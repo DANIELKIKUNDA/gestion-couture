@@ -203,6 +203,9 @@ let commandeDetailLoadRequestId = 0;
 let retoucheDetailLoadPromise = null;
 let retoucheDetailLoadTargetId = "";
 let retoucheDetailLoadRequestId = 0;
+let dossierDetailLoadPromise = null;
+let dossierDetailLoadTargetId = "";
+let dossierDetailLoadRequestId = 0;
 let commandeMediaRenderSequence = 0;
 let contentScrollElement = null;
 let globalErrorClearTimer = null;
@@ -3321,14 +3324,6 @@ const mobileNavItems = computed(() => {
     ].filter((item) => canAccessRoute(item.target));
   }
 
-  const activitiesTarget = canAccessRoute("dossiers")
-    ? "dossiers"
-    : canAccessRoute("commandes")
-      ? "commandes"
-      : canAccessRoute("retouches")
-        ? "retouches"
-        : "";
-
   return [
     {
       id: "dashboard",
@@ -3338,18 +3333,25 @@ const mobileNavItems = computed(() => {
       activeRoutes: ["dashboard"]
     },
     {
-      id: "activities",
-      target: activitiesTarget,
-      label: "Activites",
-      icon: activitiesTarget === "retouches" ? "scissors" : activitiesTarget === "dossiers" ? "users" : "clipboard",
-      activeRoutes: ["dossiers", "dossier-detail", "commandes", "commande-detail", "retouches", "retouche-detail"]
+      id: "dossiers",
+      target: canAccessRoute("dossiers") ? "dossiers" : "",
+      label: "Dossiers",
+      icon: "users",
+      activeRoutes: ["dossiers", "dossier-detail"]
     },
     {
-      id: "clients",
-      target: canAccessRoute("clientsMesures") ? "clientsMesures" : "",
-      label: "Clients",
-      icon: "users",
-      activeRoutes: ["clientsMesures"]
+      id: "commandes",
+      target: canAccessRoute("commandes") ? "commandes" : "",
+      label: "Commandes",
+      icon: "clipboard",
+      activeRoutes: ["commandes", "commande-detail"]
+    },
+    {
+      id: "retouches",
+      target: canAccessRoute("retouches") ? "retouches" : "",
+      label: "Retouches",
+      icon: "scissors",
+      activeRoutes: ["retouches", "retouche-detail"]
     },
     {
       id: "caisse",
@@ -3357,13 +3359,6 @@ const mobileNavItems = computed(() => {
       label: "Caisse",
       icon: "wallet",
       activeRoutes: ["caisse"]
-    },
-    {
-      id: "parametres",
-      target: canAccessRoute("parametres") ? "parametres" : "",
-      label: "Parametres",
-      icon: "settings",
-      activeRoutes: ["parametres"]
     }
   ].filter((item) => item.target);
 });
@@ -7801,9 +7796,6 @@ async function reloadAll() {
   if (currentRoute.value === "dashboard") {
     await loadDashboardContactBoard();
   }
-  if (currentRoute.value === "dossier-detail" && selectedDossierId.value) {
-    await loadDossierDetail(selectedDossierId.value);
-  }
 
   loading.value = false;
 }
@@ -7827,25 +7819,74 @@ const dossiersFiltered = computed(() => {
   });
 });
 
+const hasActiveDossierFilters = computed(() => {
+  return (
+    String(dossierFilters.recherche || "").trim().length > 0 ||
+    String(dossierFilters.type || "ALL").trim().toUpperCase() !== "ALL" ||
+    String(dossierFilters.statut || "ALL").trim().toUpperCase() !== "ALL"
+  );
+});
+
+const dossierEmptyStateTitle = computed(() => {
+  return hasActiveDossierFilters.value ? "Aucun dossier ne correspond" : "Aucun dossier pour le moment";
+});
+
+const dossierEmptyStateDescription = computed(() => {
+  return hasActiveDossierFilters.value
+    ? "Essayez une autre recherche ou reinitialisez les filtres."
+    : "Creez votre premier dossier pour commencer.";
+});
+
 const dossiersPages = computed(() => Math.max(1, Math.ceil(dossiersFiltered.value.length / dossiersPagination.pageSize)));
 const dossiersPaged = computed(() => dossiersFiltered.value.slice(0, dossiersVisibleCount.value));
 
-async function loadDossierDetail(idDossier) {
-  if (!idDossier) {
+async function loadDossierDetail(idDossier, { preserveExisting = true } = {}) {
+  const requestedId = String(idDossier || "").trim();
+  if (!requestedId) {
     detailDossier.value = null;
     detailDossierError.value = "";
-    return;
+    return null;
   }
-  detailDossierLoading.value = true;
-  detailDossierError.value = "";
+  if (dossierDetailLoadPromise && dossierDetailLoadTargetId === requestedId) {
+    return dossierDetailLoadPromise;
+  }
+
+  const requestId = ++dossierDetailLoadRequestId;
+  dossierDetailLoadTargetId = requestedId;
+  const keepCurrentDetailVisible = preserveExisting && String(detailDossier.value?.idDossier || "").trim() === requestedId;
+
+  dossierDetailLoadPromise = (async () => {
+    detailDossierLoading.value = true;
+    if (!keepCurrentDetailVisible) {
+      detailDossierError.value = "";
+    }
+    try {
+      const payload = await atelierApi.getDossier(requestedId);
+      if (requestId !== dossierDetailLoadRequestId) return null;
+      detailDossier.value = normalizeDossier(payload);
+      detailDossierError.value = "";
+      return detailDossier.value;
+    } catch (err) {
+      if (requestId !== dossierDetailLoadRequestId) return null;
+      if (!keepCurrentDetailVisible) {
+        detailDossier.value = null;
+      }
+      detailDossierError.value = readableError(err);
+      return null;
+    } finally {
+      if (requestId === dossierDetailLoadRequestId) {
+        detailDossierLoading.value = false;
+      }
+    }
+  })();
+
   try {
-    const payload = await atelierApi.getDossier(idDossier);
-    detailDossier.value = normalizeDossier(payload);
-  } catch (err) {
-    detailDossier.value = null;
-    detailDossierError.value = readableError(err);
+    return await dossierDetailLoadPromise;
   } finally {
-    detailDossierLoading.value = false;
+    if (requestId === dossierDetailLoadRequestId) {
+      dossierDetailLoadPromise = null;
+      dossierDetailLoadTargetId = "";
+    }
   }
 }
 
@@ -8515,17 +8556,8 @@ async function refreshVisibleDataAfterReconnect() {
 
   reconnectRefreshPromise = (async () => {
     await loadAtelierRuntimeSettings();
-    if (currentRoute.value === "dossier-detail" && selectedDossierId.value) {
-      await loadDossierDetail(selectedDossierId.value);
-      return;
-    }
-    if (currentRoute.value === "commande-detail" && selectedCommandeId.value) {
-      await loadCommandeDetail(selectedCommandeId.value);
-      return;
-    }
-    if (currentRoute.value === "retouche-detail" && selectedRetoucheId.value) {
-      await loadRetoucheDetail(selectedRetoucheId.value);
-      return;
+    if (["dossier-detail", "commande-detail", "retouche-detail"].includes(String(currentRoute.value || "").trim())) {
+      return true;
     }
     await reloadAll();
   })();
@@ -8547,11 +8579,11 @@ function scheduleSyncUiRefresh() {
   }, 250);
 }
 
-const CROSS_DEVICE_REFRESH_ROUTES = new Set(["dashboard", "dossiers", "commandes", "retouches", "dossier-detail", "commande-detail", "retouche-detail", "caisse"]);
+const CROSS_DEVICE_REFRESH_ROUTES = new Set(["dashboard", "dossiers", "commandes", "retouches", "caisse"]);
 const CROSS_DEVICE_REFRESH_MIN_INTERVAL_MS = 2500;
 
 function getCrossDeviceRefreshInterval(routeName = currentRoute.value) {
-  if (routeName === "dossier-detail" || routeName === "commande-detail" || routeName === "retouche-detail" || routeName === "caisse") return 10000;
+  if (routeName === "caisse") return 10000;
   if (routeName === "dashboard" || routeName === "dossiers" || routeName === "commandes" || routeName === "retouches") return 15000;
   return 0;
 }
@@ -8564,7 +8596,8 @@ function hasBlockingUiStateForCrossDeviceRefresh() {
     systemAtelierModal.open ||
     settingsConfirmModal.open ||
     actionModal.open ||
-    commandeMediaViewer.open
+    commandeMediaViewer.open ||
+    commandeItemPhotoDialog.open
   );
 }
 
@@ -8681,24 +8714,6 @@ async function refreshVisibleRouteInBackground({ force = false } = {}) {
   const routeName = String(currentRoute.value || "").trim();
   crossDeviceRefreshPromise = (async () => {
     lastCrossDeviceRefreshAt = Date.now();
-
-    if (routeName === "dossier-detail" && selectedDossierId.value) {
-      await loadAtelierRuntimeSettings();
-      await loadDossierDetail(selectedDossierId.value);
-      return true;
-    }
-
-    if (routeName === "commande-detail" && selectedCommandeId.value) {
-      await loadAtelierRuntimeSettings();
-      await loadCommandeDetail(selectedCommandeId.value);
-      return true;
-    }
-
-    if (routeName === "retouche-detail" && selectedRetoucheId.value) {
-      await loadAtelierRuntimeSettings();
-      await loadRetoucheDetail(selectedRetoucheId.value);
-      return true;
-    }
 
     if (routeName === "commandes") {
       await loadAtelierRuntimeSettings();
@@ -13300,30 +13315,30 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                   <p class="helper dossier-card-summary">{{ dossierSummaryLine(dossier) }}</p>
                   <div class="mobile-kpi-grid dossier-kpis">
-                    <div class="mobile-kpi">
+                    <div class="mobile-kpi dossier-mobile-kpi-card">
                       <span>Commandes</span>
                       <strong>{{ dossier.totalCommandes }}</strong>
                     </div>
-                    <div class="mobile-kpi">
+                    <div class="mobile-kpi dossier-mobile-kpi-card">
                       <span>Retouches</span>
                       <strong>{{ dossier.totalRetouches }}</strong>
                     </div>
-                    <div class="mobile-kpi">
+                    <div class="mobile-kpi dossier-mobile-kpi-card">
                       <span>Total</span>
-                      <strong>{{ formatCurrency(dossier.totalMontant) }}</strong>
+                      <strong class="dossier-value-blue">{{ formatCurrency(dossier.totalMontant) }}</strong>
                     </div>
-                    <div class="mobile-kpi">
+                    <div class="mobile-kpi dossier-mobile-kpi-card">
                       <span>Total paye</span>
-                      <strong>{{ formatCurrency(dossier.totalPaye) }}</strong>
+                      <strong class="dossier-value-green">{{ formatCurrency(dossier.totalPaye) }}</strong>
                     </div>
-                    <div class="mobile-kpi">
+                    <div class="mobile-kpi dossier-mobile-kpi-card">
                       <span>Reste</span>
-                      <strong>{{ formatCurrency(dossier.soldeRestant) }}</strong>
+                      <strong class="dossier-value-red">{{ formatCurrency(dossier.soldeRestant) }}</strong>
                     </div>
                   </div>
                   <div class="row-between dossier-card-footer">
                     <p class="helper">Activite : {{ formatDossierLastActivity(dossier) }}</p>
-                    <span class="mini-btn">Ouvrir</span>
+                    <span class="mini-btn gray">Ouvrir</span>
                   </div>
                 </article>
               </div>
@@ -13331,8 +13346,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <span class="helper">Chargement des dossiers suivants...</span>
               </div>
               <article v-else class="panel empty-state">
-                <h3>Aucun dossier a afficher</h3>
-                <p>Aucun des {{ dossiers.length }} dossier(s) charges ne correspond a votre recherche ou a vos filtres actuels.</p>
+                <h3>{{ dossierEmptyStateTitle }}</h3>
+                <p>{{ dossierEmptyStateDescription }}</p>
               </article>
             </template>
 
@@ -13400,15 +13415,15 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </article>
                     <article class="dossier-kpi-card">
                       <span>Total</span>
-                      <strong>{{ formatCurrency(dossier.totalMontant) }}</strong>
+                      <strong class="dossier-value-blue">{{ formatCurrency(dossier.totalMontant) }}</strong>
                     </article>
                     <article class="dossier-kpi-card">
                       <span>Total paye</span>
-                      <strong>{{ formatCurrency(dossier.totalPaye) }}</strong>
+                      <strong class="dossier-value-green">{{ formatCurrency(dossier.totalPaye) }}</strong>
                     </article>
                     <article class="dossier-kpi-card">
                       <span>Reste</span>
-                      <strong>{{ formatCurrency(dossier.soldeRestant) }}</strong>
+                      <strong class="dossier-value-red">{{ formatCurrency(dossier.soldeRestant) }}</strong>
                     </article>
                   </div>
                   <div class="row-between dossier-card-footer">
@@ -13421,8 +13436,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <span class="helper">Chargement des dossiers suivants...</span>
               </div>
               <article v-else class="panel empty-state">
-                <h3>Aucun dossier a afficher</h3>
-                <p>Aucun des {{ dossiers.length }} dossier(s) charges ne correspond a votre recherche ou a vos filtres actuels.</p>
+                <h3>{{ dossierEmptyStateTitle }}</h3>
+                <p>{{ dossierEmptyStateDescription }}</p>
               </article>
             </template>
           </ResponsiveDataContainer>
@@ -14856,7 +14871,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </div>
               </article>
 
-              <article v-if="detailDossierLoading" class="panel dossier-skeleton-card">
+              <article v-if="!detailDossier && detailDossierLoading" class="panel dossier-skeleton-card">
                 <div class="dossier-skeleton-line lg"></div>
                 <div class="dossier-skeleton-line md"></div>
                 <div class="dossier-skeleton-grid">
@@ -14900,9 +14915,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </article>
                   </div>
                   <div class="mobile-kpi-grid dossier-workspace-kpis">
-                    <div class="mobile-kpi dossier-kpi-card"><span>Total montant</span><strong>{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong></div>
-                    <div class="mobile-kpi dossier-kpi-card"><span>Total paye</span><strong>{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong></div>
-                    <div class="mobile-kpi dossier-kpi-card"><span>Solde restant</span><strong>{{ formatCurrency(detailDossier.synthese.soldeRestant) }}</strong></div>
+                    <div class="mobile-kpi dossier-kpi-card"><span>Total montant</span><strong class="dossier-value-blue">{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong></div>
+                    <div class="mobile-kpi dossier-kpi-card"><span>Total paye</span><strong class="dossier-value-green">{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong></div>
+                    <div class="mobile-kpi dossier-kpi-card"><span>Solde restant</span><strong class="dossier-value-red">{{ formatCurrency(detailDossier.synthese.soldeRestant) }}</strong></div>
                     <div class="mobile-kpi dossier-kpi-card"><span>Commandes en cours</span><strong>{{ detailDossier.synthese.commandesEnCours }}</strong></div>
                     <div class="mobile-kpi dossier-kpi-card"><span>Retouches en cours</span><strong>{{ detailDossier.synthese.retouchesEnCours }}</strong></div>
                     <div class="mobile-kpi dossier-kpi-card"><span>Documents avec solde</span><strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong></div>
@@ -14934,8 +14949,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                         </div>
                         <div class="dossier-simple-metrics">
                           <span>Statut : {{ document.status || "Non renseigne" }}</span>
-                          <span>Montant total : {{ formatCurrency(document.amount) }}</span>
-                          <span>Reste a payer : {{ formatCurrency(document.remaining) }}</span>
+                          <span>Montant total : <strong class="dossier-value-blue">{{ formatCurrency(document.amount) }}</strong></span>
+                          <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
                         </div>
                         <div class="row-actions dossier-card-actions">
                           <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
@@ -14981,8 +14996,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                         </div>
                         <div class="dossier-simple-metrics">
                           <span>Statut : {{ document.status || "Non renseigne" }}</span>
-                          <span>Montant total : {{ formatCurrency(document.amount) }}</span>
-                          <span>Reste a payer : {{ formatCurrency(document.remaining) }}</span>
+                          <span>Montant total : <strong class="dossier-value-blue">{{ formatCurrency(document.amount) }}</strong></span>
+                          <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
                         </div>
                         <div class="row-actions dossier-card-actions">
                           <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
@@ -15087,15 +15102,15 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <div class="dossier-workspace-kpi-grid">
                     <article class="dossier-kpi-card">
                       <span>Total montant</span>
-                      <strong>{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong>
+                      <strong class="dossier-value-blue">{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong>
                     </article>
                     <article class="dossier-kpi-card">
                       <span>Total paye</span>
-                      <strong>{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong>
+                      <strong class="dossier-value-green">{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong>
                     </article>
                     <article class="dossier-kpi-card">
                       <span>Solde restant</span>
-                      <strong>{{ formatCurrency(detailDossier.synthese.soldeRestant) }}</strong>
+                      <strong class="dossier-value-red">{{ formatCurrency(detailDossier.synthese.soldeRestant) }}</strong>
                     </article>
                     <article class="dossier-kpi-card">
                       <span>Commandes en cours</span>
@@ -15137,8 +15152,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                         </div>
                         <div class="dossier-simple-metrics">
                           <span>Statut : {{ document.status || "Non renseigne" }}</span>
-                          <span>Montant total : {{ formatCurrency(document.amount) }}</span>
-                          <span>Reste a payer : {{ formatCurrency(document.remaining) }}</span>
+                          <span>Montant total : <strong class="dossier-value-blue">{{ formatCurrency(document.amount) }}</strong></span>
+                          <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
                         </div>
                         <div class="row-actions dossier-card-actions">
                           <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
@@ -15184,8 +15199,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                         </div>
                         <div class="dossier-simple-metrics">
                           <span>Statut : {{ document.status || "Non renseigne" }}</span>
-                          <span>Montant total : {{ formatCurrency(document.amount) }}</span>
-                          <span>Reste a payer : {{ formatCurrency(document.remaining) }}</span>
+                          <span>Montant total : <strong class="dossier-value-blue">{{ formatCurrency(document.amount) }}</strong></span>
+                          <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
                         </div>
                         <div class="row-actions dossier-card-actions">
                           <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">

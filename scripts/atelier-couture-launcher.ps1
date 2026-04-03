@@ -71,6 +71,40 @@ function Start-BackgroundProcess {
   Start-Process @params
 }
 
+function Ensure-NpmDependencies {
+  param(
+    [Parameter(Mandatory = $true)][string]$WorkingDirectory,
+    [Parameter(Mandatory = $true)][string]$PackageLockPath,
+    [Parameter(Mandatory = $true)][string]$RequiredBinaryPath,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+
+  $mustInstall = -not (Test-Path $RequiredBinaryPath)
+  if (-not $mustInstall -and (Test-Path $PackageLockPath)) {
+    $requiredBinary = Get-Item $RequiredBinaryPath -ErrorAction SilentlyContinue
+    $packageLock = Get-Item $PackageLockPath -ErrorAction SilentlyContinue
+    if ($null -ne $requiredBinary -and $null -ne $packageLock -and $packageLock.LastWriteTime -gt $requiredBinary.LastWriteTime) {
+      $mustInstall = $true
+    }
+  }
+
+  if (-not $mustInstall) {
+    Write-Host "$Label dependencies deja disponibles."
+    return
+  }
+
+  Write-Host "Installation des dependencies $Label..."
+  Push-Location $WorkingDirectory
+  try {
+    & $npmPath ci
+    if ($LASTEXITCODE -ne 0) {
+      throw "L'installation npm a echoue pour $Label."
+    }
+  } finally {
+    Pop-Location
+  }
+}
+
 function Wait-HttpReady {
   param(
     [Parameter(Mandatory = $true)][string]$Url,
@@ -121,6 +155,12 @@ function Get-LatestWriteTime {
 }
 
 function Ensure-FrontendBuild {
+  Ensure-NpmDependencies `
+    -WorkingDirectory $frontendDir `
+    -PackageLockPath (Join-Path $frontendDir "package-lock.json") `
+    -RequiredBinaryPath (Join-Path $frontendDir "node_modules\\.bin\\vite.cmd") `
+    -Label "frontend"
+
   $distIndex = Join-Path $frontendDistDir "index.html"
   $sourceTimes = @(
     (Get-LatestWriteTime -Path $frontendSrcDir),
@@ -146,6 +186,12 @@ function Ensure-FrontendBuild {
     Write-Host "Frontend dist deja a jour."
   }
 }
+
+Ensure-NpmDependencies `
+  -WorkingDirectory $root `
+  -PackageLockPath (Join-Path $root "package-lock.json") `
+  -RequiredBinaryPath (Join-Path $root "node_modules\\dotenv\\package.json") `
+  -Label "backend"
 
 Ensure-FrontendBuild
 

@@ -152,7 +152,7 @@ function buildOfflineCommandeLine(input, clientRecord, timestamp) {
     nomAffiche: normalizeString(clientRecord?.nom),
     prenomAffiche: normalizeString(clientRecord?.prenom),
     typeHabit: normalizeString(firstItem?.typeHabit || input?.typeHabit),
-    mesuresHabit: cloneSerializable(input?.mesuresHabit || {}),
+    mesuresHabit: cloneSerializable(firstItem?.mesures || input?.mesuresHabit || {}),
     ordreAffichage: 1
   };
 }
@@ -165,6 +165,7 @@ function buildCommandeRecord(input, clientRecord, timestamp, options = {}) {
         typeHabit: normalizeString(item?.typeHabit),
         description: normalizeString(item?.description),
         prix: Number(item?.prix || 0),
+        mesures: cloneSerializable(item?.mesures || {}),
         ordreAffichage: index + 1
       })).filter((item) => item.typeHabit)
     : [];
@@ -199,7 +200,7 @@ function buildCommandeRecord(input, clientRecord, timestamp, options = {}) {
     montantPaye: 0,
     typeHabit,
     items,
-    mesuresHabit: cloneSerializable(input?.mesuresHabit || {}),
+    mesuresHabit: cloneSerializable(primaryItem?.mesures || input?.mesuresHabit || {}),
     lignesCommande: [buildOfflineCommandeLine(input, clientRecord, timestamp)],
     statutCommande: "CREEE",
     dateCreation: timestamp,

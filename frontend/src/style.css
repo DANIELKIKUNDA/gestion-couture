@@ -3466,6 +3466,25 @@ textarea:focus-visible {
   margin-top: 14px;
 }
 
+.dossier-mobile-kpi-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.dossier-mobile-kpi-card span {
+  font-size: 0.76rem;
+  color: #667085;
+}
+
+.dossier-mobile-kpi-card strong {
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
 .dossier-filter-grid {
   align-items: stretch;
 }
@@ -3509,6 +3528,7 @@ textarea:focus-visible {
 
 .dossier-card-summary {
   min-height: 20px;
+  line-height: 1.45;
 }
 
 .dossier-card-footer {
@@ -3659,6 +3679,25 @@ textarea:focus-visible {
 .dossier-kpi-card strong {
   font-size: 1.2rem;
   color: #101828;
+  line-height: 1.25;
+}
+
+.dossier-value-blue,
+.dossier-value-green,
+.dossier-value-red {
+  font-variant-numeric: tabular-nums;
+}
+
+.dossier-value-blue {
+  color: #1f5aa2;
+}
+
+.dossier-value-green {
+  color: #237246;
+}
+
+.dossier-value-red {
+  color: #b74235;
 }
 
 .dossier-workspace-list {
@@ -3733,6 +3772,11 @@ textarea:focus-visible {
   gap: 6px;
   font-size: 0.92rem;
   color: #344054;
+}
+
+.dossier-simple-metrics strong {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .dossier-status-badge[data-status="LIVREE"] {
@@ -3877,6 +3921,15 @@ textarea:focus-visible {
   .dossier-grid-desktop {
     grid-template-columns: 1fr;
   }
+
+  .dossier-workspace-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dossier-badge-stack {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 640px) {
@@ -3893,8 +3946,62 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .dossier-card {
+    gap: 12px;
+  }
+
+  .dossier-card .row-between {
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .dossier-card h3 {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.25;
+  }
+
   .dossier-card-footer {
     align-items: flex-start;
     flex-direction: column;
+    gap: 10px;
+  }
+
+  .dossier-card-footer .mini-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .dossier-workspace-hero {
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .dossier-highlight-strip {
+    gap: 12px;
+  }
+
+  .dossier-kpi-card {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .dossier-kpi-card strong {
+    font-size: 1.05rem;
+  }
+
+  .dossier-simple-metrics {
+    gap: 8px;
+    font-size: 0.88rem;
+  }
+
+  .dossier-card-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dossier-action-btn {
+    width: 100%;
+    justify-content: center;
   }
 }
