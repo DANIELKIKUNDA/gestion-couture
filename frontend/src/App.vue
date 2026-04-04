@@ -346,6 +346,10 @@ const commandesPagination = reactive({
   page: 1,
   pageSize: 10
 });
+const commandesVisibleCount = ref(commandesPagination.pageSize);
+const commandesLoadingMore = ref(false);
+const commandeInfiniteSentinel = ref(null);
+let commandeInfiniteObserver = null;
 
 const retoucheFilters = reactive({
   statut: "ALL",
@@ -361,6 +365,10 @@ const retouchesPagination = reactive({
   page: 1,
   pageSize: 10
 });
+const retouchesVisibleCount = ref(retouchesPagination.pageSize);
+const retouchesLoadingMore = ref(false);
+const retoucheInfiniteSentinel = ref(null);
+let retoucheInfiniteObserver = null;
 const factureFilters = reactive({
   statut: "ALL",
   source: "ALL",
@@ -374,14 +382,26 @@ const facturesPagination = reactive({
   page: 1,
   pageSize: 10
 });
+const facturesVisibleCount = ref(facturesPagination.pageSize);
+const facturesLoadingMore = ref(false);
+const factureInfiniteSentinel = ref(null);
+let factureInfiniteObserver = null;
 const ventesPagination = reactive({
   page: 1,
   pageSize: 10
 });
+const ventesVisibleCount = ref(ventesPagination.pageSize);
+const ventesLoadingMore = ref(false);
+const venteInfiniteSentinel = ref(null);
+let venteInfiniteObserver = null;
 const caisseOperationsPagination = reactive({
   page: 1,
   pageSize: 10
 });
+const caisseOperationsVisibleCount = ref(caisseOperationsPagination.pageSize);
+const caisseOperationsLoadingMore = ref(false);
+const caisseInfiniteSentinel = ref(null);
+let caisseInfiniteObserver = null;
 
 const dashboardPeriod = ref("LAST_7");
 const dashboardPeriodOptions = [
@@ -621,6 +641,213 @@ function resetDossierFilters() {
   dossiersVisibleCount.value = dossiersPagination.pageSize;
 }
 
+function resetCommandeVisibleCount() {
+  commandesVisibleCount.value = commandesPagination.pageSize;
+}
+
+async function loadMoreCommandes() {
+  const nextCount = Math.min(commandesFiltered.value.length, commandesVisibleCount.value + commandesPagination.pageSize);
+  if (commandesLoadingMore.value || nextCount <= commandesVisibleCount.value) return;
+  commandesLoadingMore.value = true;
+  await nextTick();
+  commandesVisibleCount.value = nextCount;
+  await nextTick();
+  commandesLoadingMore.value = false;
+}
+
+function setupCommandeInfiniteObserver() {
+  if (typeof window === "undefined" || typeof IntersectionObserver === "undefined") return;
+  if (commandeInfiniteObserver) {
+    commandeInfiniteObserver.disconnect();
+    commandeInfiniteObserver = null;
+  }
+  nextTick(() => {
+    const target = commandeInfiniteSentinel.value;
+    if (!target) return;
+    commandeInfiniteObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          void loadMoreCommandes();
+        }
+      },
+      { root: null, rootMargin: "0px 0px 260px 0px", threshold: 0.05 }
+    );
+    commandeInfiniteObserver.observe(target);
+  });
+}
+
+function resetRetoucheVisibleCount() {
+  retouchesVisibleCount.value = retouchesPagination.pageSize;
+}
+
+async function loadMoreRetouches() {
+  const nextCount = Math.min(retouchesFiltered.value.length, retouchesVisibleCount.value + retouchesPagination.pageSize);
+  if (retouchesLoadingMore.value || nextCount <= retouchesVisibleCount.value) return;
+  retouchesLoadingMore.value = true;
+  await nextTick();
+  retouchesVisibleCount.value = nextCount;
+  await nextTick();
+  retouchesLoadingMore.value = false;
+}
+
+function setupRetoucheInfiniteObserver() {
+  if (typeof window === "undefined" || typeof IntersectionObserver === "undefined") return;
+  if (retoucheInfiniteObserver) {
+    retoucheInfiniteObserver.disconnect();
+    retoucheInfiniteObserver = null;
+  }
+  nextTick(() => {
+    const target = retoucheInfiniteSentinel.value;
+    if (!target) return;
+    retoucheInfiniteObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          void loadMoreRetouches();
+        }
+      },
+      { root: null, rootMargin: "0px 0px 260px 0px", threshold: 0.05 }
+    );
+    retoucheInfiniteObserver.observe(target);
+  });
+}
+
+function resetFactureVisibleCount() {
+  facturesVisibleCount.value = facturesPagination.pageSize;
+}
+
+async function loadMoreFactures() {
+  const nextCount = Math.min(facturesFiltered.value.length, facturesVisibleCount.value + facturesPagination.pageSize);
+  if (facturesLoadingMore.value || nextCount <= facturesVisibleCount.value) return;
+  facturesLoadingMore.value = true;
+  await nextTick();
+  facturesVisibleCount.value = nextCount;
+  await nextTick();
+  facturesLoadingMore.value = false;
+}
+
+function setupFactureInfiniteObserver() {
+  if (typeof window === "undefined" || typeof IntersectionObserver === "undefined") return;
+  if (factureInfiniteObserver) {
+    factureInfiniteObserver.disconnect();
+    factureInfiniteObserver = null;
+  }
+  nextTick(() => {
+    const target = factureInfiniteSentinel.value;
+    if (!target) return;
+    factureInfiniteObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          void loadMoreFactures();
+        }
+      },
+      { root: null, rootMargin: "0px 0px 260px 0px", threshold: 0.05 }
+    );
+    factureInfiniteObserver.observe(target);
+  });
+}
+
+function resetVenteVisibleCount() {
+  ventesVisibleCount.value = ventesPagination.pageSize;
+}
+
+async function loadMoreVentes() {
+  const nextCount = Math.min(ventesView.value.length, ventesVisibleCount.value + ventesPagination.pageSize);
+  if (ventesLoadingMore.value || nextCount <= ventesVisibleCount.value) return;
+  ventesLoadingMore.value = true;
+  await nextTick();
+  ventesVisibleCount.value = nextCount;
+  await nextTick();
+  ventesLoadingMore.value = false;
+}
+
+function setupVenteInfiniteObserver() {
+  if (typeof window === "undefined" || typeof IntersectionObserver === "undefined") return;
+  if (venteInfiniteObserver) {
+    venteInfiniteObserver.disconnect();
+    venteInfiniteObserver = null;
+  }
+  nextTick(() => {
+    const target = venteInfiniteSentinel.value;
+    if (!target) return;
+    venteInfiniteObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          void loadMoreVentes();
+        }
+      },
+      { root: null, rootMargin: "0px 0px 260px 0px", threshold: 0.05 }
+    );
+    venteInfiniteObserver.observe(target);
+  });
+}
+
+function resetCaisseOperationsVisibleCount() {
+  caisseOperationsVisibleCount.value = caisseOperationsPagination.pageSize;
+}
+
+async function loadMoreCaisseOperations() {
+  const nextCount = Math.min(caisseOperations.value.length, caisseOperationsVisibleCount.value + caisseOperationsPagination.pageSize);
+  if (caisseOperationsLoadingMore.value || nextCount <= caisseOperationsVisibleCount.value) return;
+  caisseOperationsLoadingMore.value = true;
+  await nextTick();
+  caisseOperationsVisibleCount.value = nextCount;
+  await nextTick();
+  caisseOperationsLoadingMore.value = false;
+}
+
+function setupCaisseInfiniteObserver() {
+  if (typeof window === "undefined" || typeof IntersectionObserver === "undefined") return;
+  if (caisseInfiniteObserver) {
+    caisseInfiniteObserver.disconnect();
+    caisseInfiniteObserver = null;
+  }
+  nextTick(() => {
+    const target = caisseInfiniteSentinel.value;
+    if (!target) return;
+    caisseInfiniteObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          void loadMoreCaisseOperations();
+        }
+      },
+      { root: null, rootMargin: "0px 0px 260px 0px", threshold: 0.05 }
+    );
+    caisseInfiniteObserver.observe(target);
+  });
+}
+
+function setupInfiniteObserver(targetRef, observerHolder, onIntersect) {
+  if (typeof window === "undefined" || typeof IntersectionObserver === "undefined") return null;
+  if (observerHolder.current) {
+    observerHolder.current.disconnect();
+    observerHolder.current = null;
+  }
+  nextTick(() => {
+    const target = targetRef.value;
+    if (!target) return;
+    observerHolder.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          void onIntersect();
+        }
+      },
+      { root: null, rootMargin: "0px 0px 220px 0px", threshold: 0.05 }
+    );
+    observerHolder.current.observe(target);
+  });
+  return observerHolder.current;
+}
+
+async function loadMoreDetailRows(sourceRows, visibleCountRef, pageSize, loadingRef) {
+  const nextCount = Math.min(sourceRows.value.length, visibleCountRef.value + pageSize);
+  if (loadingRef.value || nextCount <= visibleCountRef.value) return;
+  loadingRef.value = true;
+  await nextTick();
+  visibleCountRef.value = nextCount;
+  await nextTick();
+  loadingRef.value = false;
+}
+
 function normalizeDocumentStatus(status) {
   return String(status || "").trim().toUpperCase();
 }
@@ -857,9 +1084,13 @@ const commandeMediaViewer = reactive({
 });
 const detailPaiementsPagination = createPagination(10);
 const detailCommandeEventsPagination = createPagination(10);
+const detailPaiementsVisibleCount = ref(detailPaiementsPagination.pageSize);
+const detailCommandeEventsVisibleCount = ref(detailCommandeEventsPagination.pageSize);
 const detailLoading = ref(false);
 const detailPaiementsLoading = ref(false);
 const detailCommandeEventsLoading = ref(false);
+const detailPaiementsLoadingMore = ref(false);
+const detailCommandeEventsLoadingMore = ref(false);
 const detailCommandeMediaLoading = ref(false);
 const detailCommandeMediaUploading = ref(false);
 const detailCommandeMediaActionId = ref("");
@@ -867,6 +1098,10 @@ const detailCommandeMediaError = ref("");
 const detailError = ref("");
 const detailCommandeHistoryPanels = reactive({ paiements: false, evenements: false });
 const detailRetoucheHistoryPanels = reactive({ paiements: false, evenements: false });
+const detailPaiementsInfiniteSentinel = ref(null);
+const detailCommandeEventsInfiniteSentinel = ref(null);
+let detailPaiementsInfiniteObserver = null;
+let detailCommandeEventsInfiniteObserver = null;
 const detailCommandeItemStatuses = reactive({});
 const detailRetoucheItemStatuses = reactive({});
 const commandeItemPhotoDialog = reactive({ open: false, itemId: "", title: "" });
@@ -914,10 +1149,18 @@ const detailRetoucheContactTemplateKey = ref("");
 const detailRetoucheContactFollowUp = createContactFollowUpState();
 const detailRetouchePaiementsPagination = createPagination(10);
 const detailRetoucheEventsPagination = createPagination(10);
+const detailRetouchePaiementsVisibleCount = ref(detailRetouchePaiementsPagination.pageSize);
+const detailRetoucheEventsVisibleCount = ref(detailRetoucheEventsPagination.pageSize);
 const detailRetoucheLoading = ref(false);
 const detailRetouchePaiementsLoading = ref(false);
 const detailRetoucheEventsLoading = ref(false);
+const detailRetouchePaiementsLoadingMore = ref(false);
+const detailRetoucheEventsLoadingMore = ref(false);
 const detailRetoucheError = ref("");
+const detailRetouchePaiementsInfiniteSentinel = ref(null);
+const detailRetoucheEventsInfiniteSentinel = ref(null);
+let detailRetouchePaiementsInfiniteObserver = null;
+let detailRetoucheEventsInfiniteObserver = null;
 
 const selectedVenteId = ref("");
 const detailVente = ref(null);
@@ -944,10 +1187,20 @@ const detailItemEditModal = reactive({
   submitting: false,
   error: ""
 });
-const { pages: detailPaiementsPages, paged: detailPaiementsPaged } = createClientSidePager(detailPaiements, detailPaiementsPagination);
-const { pages: detailCommandeEventsPages, paged: detailCommandeEventsPaged } = createClientSidePager(detailCommandeEvents, detailCommandeEventsPagination);
-const { pages: detailRetouchePaiementsPages, paged: detailRetouchePaiementsPaged } = createClientSidePager(detailRetouchePaiements, detailRetouchePaiementsPagination);
-const { pages: detailRetoucheEventsPages, paged: detailRetoucheEventsPaged } = createClientSidePager(detailRetoucheEvents, detailRetoucheEventsPagination);
+const detailPaiementsPaged = computed(() => detailPaiements.value.slice(0, detailPaiementsVisibleCount.value));
+const detailCommandeEventsPaged = computed(() => detailCommandeEvents.value.slice(0, detailCommandeEventsVisibleCount.value));
+const detailRetouchePaiementsPaged = computed(() => detailRetouchePaiements.value.slice(0, detailRetouchePaiementsVisibleCount.value));
+const detailRetoucheEventsPaged = computed(() => detailRetoucheEvents.value.slice(0, detailRetoucheEventsVisibleCount.value));
+const detailPaiementsInfiniteEndReached = computed(() => detailPaiements.value.length > 0 && detailPaiementsPaged.value.length >= detailPaiements.value.length);
+const detailCommandeEventsInfiniteEndReached = computed(
+  () => detailCommandeEvents.value.length > 0 && detailCommandeEventsPaged.value.length >= detailCommandeEvents.value.length
+);
+const detailRetouchePaiementsInfiniteEndReached = computed(
+  () => detailRetouchePaiements.value.length > 0 && detailRetouchePaiementsPaged.value.length >= detailRetouchePaiements.value.length
+);
+const detailRetoucheEventsInfiniteEndReached = computed(
+  () => detailRetoucheEvents.value.length > 0 && detailRetoucheEventsPaged.value.length >= detailRetoucheEvents.value.length
+);
 
 const selectedClientConsultationId = ref("");
 const clientConsultationQuery = ref("");
@@ -4681,12 +4934,8 @@ const ventesView = computed(() =>
     total: Number(vente.total || 0)
   }))
 );
-const ventesPages = computed(() => Math.max(1, Math.ceil(ventesView.value.length / ventesPagination.pageSize)));
-const ventesPaged = computed(() => {
-  const page = Math.min(Math.max(1, ventesPagination.page), ventesPages.value);
-  const start = (page - 1) * ventesPagination.pageSize;
-  return ventesView.value.slice(start, start + ventesPagination.pageSize);
-});
+const ventesPaged = computed(() => ventesView.value.slice(0, ventesVisibleCount.value));
+const ventesInfiniteEndReached = computed(() => ventesView.value.length > 0 && ventesPaged.value.length >= ventesView.value.length);
 
 const facturesView = computed(() =>
   factures.value.map((facture) => ({
@@ -4719,11 +4968,8 @@ const facturesFiltered = computed(() => {
   });
 });
 
-const facturesPages = computed(() => Math.max(1, Math.ceil(facturesFiltered.value.length / facturesPagination.pageSize)));
-const facturesPaged = computed(() => {
-  const start = (facturesPagination.page - 1) * facturesPagination.pageSize;
-  return facturesFiltered.value.slice(start, start + facturesPagination.pageSize);
-});
+const facturesPaged = computed(() => facturesFiltered.value.slice(0, facturesVisibleCount.value));
+const facturesInfiniteEndReached = computed(() => facturesFiltered.value.length > 0 && facturesPaged.value.length >= facturesFiltered.value.length);
 
 const facturesKpi = computed(() => ({
   total: facturesFiltered.value.length,
@@ -6054,12 +6300,10 @@ const caisseOperations = computed(() =>
     String(b.dateOperation || "").localeCompare(String(a.dateOperation || ""))
   )
 );
-const caisseOperationsPages = computed(() => Math.max(1, Math.ceil(caisseOperations.value.length / caisseOperationsPagination.pageSize)));
-const caisseOperationsPaged = computed(() => {
-  const page = Math.min(Math.max(1, caisseOperationsPagination.page), caisseOperationsPages.value);
-  const start = (page - 1) * caisseOperationsPagination.pageSize;
-  return caisseOperations.value.slice(start, start + caisseOperationsPagination.pageSize);
-});
+const caisseOperationsPaged = computed(() => caisseOperations.value.slice(0, caisseOperationsVisibleCount.value));
+const caisseOperationsInfiniteEndReached = computed(
+  () => caisseOperations.value.length > 0 && caisseOperationsPaged.value.length >= caisseOperations.value.length
+);
 const caisseTotals = computed(() => {
   const totalEntrees = Number(caisseJour.value?.totalEntreesJour ?? 0);
   const totalSortiesQuotidiennes = Number(caisseJour.value?.totalSortiesQuotidiennesJour ?? 0);
@@ -6129,11 +6373,8 @@ const commandesFiltered = computed(() => {
 });
 
 const commandesSoldeRestantCount = computed(() => commandesFiltered.value.filter((commande) => commande.soldeRestant > 0).length);
-const commandesPages = computed(() => Math.max(1, Math.ceil(commandesFiltered.value.length / commandesPagination.pageSize)));
-const commandesPaged = computed(() => {
-  const start = (commandesPagination.page - 1) * commandesPagination.pageSize;
-  return commandesFiltered.value.slice(start, start + commandesPagination.pageSize);
-});
+const commandesPaged = computed(() => commandesFiltered.value.slice(0, commandesVisibleCount.value));
+const commandesInfiniteEndReached = computed(() => commandesFiltered.value.length > 0 && commandesPaged.value.length >= commandesFiltered.value.length);
 const commandesKpi = computed(() => ({
   total: commandesFiltered.value.length,
   enCours: commandesFiltered.value.filter((item) => item.statutCommande === "EN_COURS").length,
@@ -6201,11 +6442,8 @@ const retouchesFiltered = computed(() => {
 });
 
 const retouchesSoldeRestantCount = computed(() => retouchesFiltered.value.filter((retouche) => retouche.soldeRestant > 0).length);
-const retouchesPages = computed(() => Math.max(1, Math.ceil(retouchesFiltered.value.length / retouchesPagination.pageSize)));
-const retouchesPaged = computed(() => {
-  const start = (retouchesPagination.page - 1) * retouchesPagination.pageSize;
-  return retouchesFiltered.value.slice(start, start + retouchesPagination.pageSize);
-});
+const retouchesPaged = computed(() => retouchesFiltered.value.slice(0, retouchesVisibleCount.value));
+const retouchesInfiniteEndReached = computed(() => retouchesFiltered.value.length > 0 && retouchesPaged.value.length >= retouchesFiltered.value.length);
 const retouchesKpi = computed(() => ({
   total: retouchesFiltered.value.length,
   enCours: retouchesFiltered.value.filter((item) => item.statutRetouche === "EN_COURS").length,
@@ -6721,6 +6959,16 @@ onUnmounted(() => {
   clearCrossDeviceRefreshTimer();
   clearGlobalErrorMessage();
   clearSystemAteliersSearchDebounce();
+  if (dossierInfiniteObserver) dossierInfiniteObserver.disconnect();
+  if (commandeInfiniteObserver) commandeInfiniteObserver.disconnect();
+  if (retoucheInfiniteObserver) retoucheInfiniteObserver.disconnect();
+  if (factureInfiniteObserver) factureInfiniteObserver.disconnect();
+  if (venteInfiniteObserver) venteInfiniteObserver.disconnect();
+  if (caisseInfiniteObserver) caisseInfiniteObserver.disconnect();
+  if (detailPaiementsInfiniteObserver) detailPaiementsInfiniteObserver.disconnect();
+  if (detailCommandeEventsInfiniteObserver) detailCommandeEventsInfiniteObserver.disconnect();
+  if (detailRetouchePaiementsInfiniteObserver) detailRetouchePaiementsInfiniteObserver.disconnect();
+  if (detailRetoucheEventsInfiniteObserver) detailRetoucheEventsInfiniteObserver.disconnect();
   clearDossierWorkspaceActionFeedback();
   revokeCommandeMediaObjectUrls(detailCommandeMedia.value);
   revokeSettingsLogoPreviewUrl();
@@ -7002,23 +7250,47 @@ watch(
 watch(
   () => [retoucheFilters.statut, retoucheFilters.client, retoucheFilters.periode, retoucheFilters.soldeRestant, retoucheFilters.recherche, retouchesPagination.pageSize],
   () => {
-    retouchesPagination.page = 1;
+    resetRetoucheVisibleCount();
+    setupRetoucheInfiniteObserver();
   }
 );
 
-watch(retouchesPages, (total) => {
-  if (retouchesPagination.page > total) retouchesPagination.page = total;
+watch(
+  () => [currentRoute.value, retoucheSection.value],
+  ([routeName, sectionName]) => {
+    if (routeName === "retouches" && sectionName === "liste") {
+      resetRetoucheVisibleCount();
+      setupRetoucheInfiniteObserver();
+    }
+  },
+  { immediate: true }
+);
+
+watch(retoucheInfiniteSentinel, () => {
+  setupRetoucheInfiniteObserver();
 });
 
 watch(
   () => [factureFilters.statut, factureFilters.source, factureFilters.recherche, factureFilters.soldeRestant, facturesPagination.pageSize],
   () => {
-    facturesPagination.page = 1;
+    resetFactureVisibleCount();
+    setupFactureInfiniteObserver();
   }
 );
 
-watch(facturesPages, (total) => {
-  if (facturesPagination.page > total) facturesPagination.page = total;
+watch(
+  () => [currentRoute.value, factureSection.value],
+  ([routeName, sectionName]) => {
+    if (routeName === "facturation" && sectionName === "liste") {
+      resetFactureVisibleCount();
+      setupFactureInfiniteObserver();
+    }
+  },
+  { immediate: true }
+);
+
+watch(factureInfiniteSentinel, () => {
+  setupFactureInfiniteObserver();
 });
 
 watch(
@@ -7035,27 +7307,180 @@ watch(auditUtilisateursPages, (total) => {
 watch(
   () => [filters.statut, filters.client, filters.periode, filters.soldeRestant, filters.recherche, commandesPagination.pageSize],
   () => {
-    commandesPagination.page = 1;
+    resetCommandeVisibleCount();
+    setupCommandeInfiniteObserver();
   }
 );
 
-watch(commandesPages, (total) => {
-  if (commandesPagination.page > total) commandesPagination.page = total;
-});
+watch(
+  () => [currentRoute.value, commandeSection.value],
+  ([routeName, sectionName]) => {
+    if (routeName === "commandes" && sectionName === "liste") {
+      resetCommandeVisibleCount();
+      setupCommandeInfiniteObserver();
+    }
+  },
+  { immediate: true }
+);
 
-watch(ventesPages, (total) => {
-  if (ventesPagination.page > total) ventesPagination.page = total;
+watch(commandeInfiniteSentinel, () => {
+  setupCommandeInfiniteObserver();
 });
 
 watch(
   () => ventesPagination.pageSize,
   () => {
-    ventesPagination.page = 1;
+    resetVenteVisibleCount();
+    setupVenteInfiniteObserver();
   }
 );
 
-watch(caisseOperationsPages, (total) => {
-  if (caisseOperationsPagination.page > total) caisseOperationsPagination.page = total;
+watch(
+  () => [currentRoute.value, stockVentesTab.value, ventesPagination.pageSize],
+  ([routeName, activeTab]) => {
+    if (routeName === "stockVentes" && activeTab === "ventes") {
+      resetVenteVisibleCount();
+      setupVenteInfiniteObserver();
+    }
+  },
+  { immediate: true }
+);
+
+watch(venteInfiniteSentinel, () => {
+  setupVenteInfiniteObserver();
+});
+
+watch(
+  () => [currentRoute.value, caisseOperationsPagination.pageSize, caisseOperations.value.length],
+  ([routeName]) => {
+    if (routeName === "caisse") {
+      resetCaisseOperationsVisibleCount();
+      setupCaisseInfiniteObserver();
+    }
+  },
+  { immediate: true }
+);
+
+watch(caisseInfiniteSentinel, () => {
+  setupCaisseInfiniteObserver();
+});
+
+watch(
+  () => [detailCommandeHistoryPanels.paiements, detailPaiements.value.length, detailPaiementsPagination.pageSize],
+  ([open]) => {
+    detailPaiementsVisibleCount.value = detailPaiementsPagination.pageSize;
+    if (!open) return;
+    const holder = { current: detailPaiementsInfiniteObserver };
+    setupInfiniteObserver(detailPaiementsInfiniteSentinel, holder, () =>
+      loadMoreDetailRows(detailPaiements, detailPaiementsVisibleCount, detailPaiementsPagination.pageSize, detailPaiementsLoadingMore)
+    );
+    detailPaiementsInfiniteObserver = holder.current;
+  }
+);
+
+watch(detailPaiementsInfiniteSentinel, () => {
+  if (!detailCommandeHistoryPanels.paiements) return;
+  const holder = { current: detailPaiementsInfiniteObserver };
+  setupInfiniteObserver(detailPaiementsInfiniteSentinel, holder, () =>
+    loadMoreDetailRows(detailPaiements, detailPaiementsVisibleCount, detailPaiementsPagination.pageSize, detailPaiementsLoadingMore)
+  );
+  detailPaiementsInfiniteObserver = holder.current;
+});
+
+watch(
+  () => [detailCommandeHistoryPanels.evenements, detailCommandeEvents.value.length, detailCommandeEventsPagination.pageSize],
+  ([open]) => {
+    detailCommandeEventsVisibleCount.value = detailCommandeEventsPagination.pageSize;
+    if (!open) return;
+    const holder = { current: detailCommandeEventsInfiniteObserver };
+    setupInfiniteObserver(detailCommandeEventsInfiniteSentinel, holder, () =>
+      loadMoreDetailRows(
+        detailCommandeEvents,
+        detailCommandeEventsVisibleCount,
+        detailCommandeEventsPagination.pageSize,
+        detailCommandeEventsLoadingMore
+      )
+    );
+    detailCommandeEventsInfiniteObserver = holder.current;
+  }
+);
+
+watch(detailCommandeEventsInfiniteSentinel, () => {
+  if (!detailCommandeHistoryPanels.evenements) return;
+  const holder = { current: detailCommandeEventsInfiniteObserver };
+  setupInfiniteObserver(detailCommandeEventsInfiniteSentinel, holder, () =>
+    loadMoreDetailRows(
+      detailCommandeEvents,
+      detailCommandeEventsVisibleCount,
+      detailCommandeEventsPagination.pageSize,
+      detailCommandeEventsLoadingMore
+    )
+  );
+  detailCommandeEventsInfiniteObserver = holder.current;
+});
+
+watch(
+  () => [detailRetoucheHistoryPanels.paiements, detailRetouchePaiements.value.length, detailRetouchePaiementsPagination.pageSize],
+  ([open]) => {
+    detailRetouchePaiementsVisibleCount.value = detailRetouchePaiementsPagination.pageSize;
+    if (!open) return;
+    const holder = { current: detailRetouchePaiementsInfiniteObserver };
+    setupInfiniteObserver(detailRetouchePaiementsInfiniteSentinel, holder, () =>
+      loadMoreDetailRows(
+        detailRetouchePaiements,
+        detailRetouchePaiementsVisibleCount,
+        detailRetouchePaiementsPagination.pageSize,
+        detailRetouchePaiementsLoadingMore
+      )
+    );
+    detailRetouchePaiementsInfiniteObserver = holder.current;
+  }
+);
+
+watch(detailRetouchePaiementsInfiniteSentinel, () => {
+  if (!detailRetoucheHistoryPanels.paiements) return;
+  const holder = { current: detailRetouchePaiementsInfiniteObserver };
+  setupInfiniteObserver(detailRetouchePaiementsInfiniteSentinel, holder, () =>
+    loadMoreDetailRows(
+      detailRetouchePaiements,
+      detailRetouchePaiementsVisibleCount,
+      detailRetouchePaiementsPagination.pageSize,
+      detailRetouchePaiementsLoadingMore
+    )
+  );
+  detailRetouchePaiementsInfiniteObserver = holder.current;
+});
+
+watch(
+  () => [detailRetoucheHistoryPanels.evenements, detailRetoucheEvents.value.length, detailRetoucheEventsPagination.pageSize],
+  ([open]) => {
+    detailRetoucheEventsVisibleCount.value = detailRetoucheEventsPagination.pageSize;
+    if (!open) return;
+    const holder = { current: detailRetoucheEventsInfiniteObserver };
+    setupInfiniteObserver(detailRetoucheEventsInfiniteSentinel, holder, () =>
+      loadMoreDetailRows(
+        detailRetoucheEvents,
+        detailRetoucheEventsVisibleCount,
+        detailRetoucheEventsPagination.pageSize,
+        detailRetoucheEventsLoadingMore
+      )
+    );
+    detailRetoucheEventsInfiniteObserver = holder.current;
+  }
+);
+
+watch(detailRetoucheEventsInfiniteSentinel, () => {
+  if (!detailRetoucheHistoryPanels.evenements) return;
+  const holder = { current: detailRetoucheEventsInfiniteObserver };
+  setupInfiniteObserver(detailRetoucheEventsInfiniteSentinel, holder, () =>
+    loadMoreDetailRows(
+      detailRetoucheEvents,
+      detailRetoucheEventsVisibleCount,
+      detailRetoucheEventsPagination.pageSize,
+      detailRetoucheEventsLoadingMore
+    )
+  );
+  detailRetoucheEventsInfiniteObserver = holder.current;
 });
 
 watch(
@@ -7186,7 +7611,7 @@ function resetRetoucheFilters() {
   retoucheFilters.recherche = "";
   retoucheFilters.soldeRestant = "ALL";
   retoucheClientQuery.value = "";
-  retouchesPagination.page = 1;
+  resetRetoucheVisibleCount();
 }
 
 function resetFactureFilters() {
@@ -7194,7 +7619,7 @@ function resetFactureFilters() {
   factureFilters.source = "ALL";
   factureFilters.recherche = "";
   factureFilters.soldeRestant = "ALL";
-  facturesPagination.page = 1;
+  resetFactureVisibleCount();
 }
 
 function resetCommandeFilters() {
@@ -7204,7 +7629,7 @@ function resetCommandeFilters() {
   filters.recherche = "";
   filters.soldeRestant = "ALL";
   commandeClientQuery.value = "";
-  commandesPagination.page = 1;
+  resetCommandeVisibleCount();
 }
 
 async function openRoute(routeId) {
@@ -13282,13 +13707,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
   <GlobalToastHost :message="toast" :offset-for-offline-banner="!networkIsOnline" />
 
   <div v-if="!authReady" class="auth-shell">
-    <article class="auth-card">
+    <article class="auth-card auth-loading-card">
       <header class="auth-card-head">
-        <div class="auth-logo">
-          <img v-if="atelierLogoUrl && authPortal === 'atelier'" :src="atelierLogoUrl" alt="Logo atelier" />
-          <span v-else>{{ workspaceLogoText }}</span>
-        </div>
-        <h2>Chargement de la session...</h2>
+        <div class="auth-logo auth-logo-app">AP</div>
+        <h2>AtelierPro</h2>
+        <div class="auth-loading-spinner" aria-hidden="true"></div>
+        <p>Chargement...</p>
       </header>
     </article>
   </div>
@@ -14314,18 +14738,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </table>
               </div>
             </ResponsiveDataContainer>
-
-            <ResponsivePagination
-              :page="commandesPagination.page"
-              :pages="commandesPages"
-              :page-size="commandesPagination.pageSize"
-              :page-size-options="[5, 10, 20, 50]"
-              :prev-disabled="commandesPagination.page <= 1"
-              :next-disabled="commandesPagination.page >= commandesPages"
-              @update:page-size="commandesPagination.pageSize = $event"
-              @prev="commandesPagination.page -= 1"
-              @next="commandesPagination.page += 1"
-            />
+            <div
+              v-if="commandesPaged.length > 0 && commandesPaged.length < commandesFiltered.length"
+              ref="commandeInfiniteSentinel"
+              class="dossier-infinite-sentinel infinite-list-status"
+            >
+              <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+              <span class="helper">{{ commandesLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
+            </div>
+            <div v-else-if="commandesInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+              <span class="helper">Aucune autre commande</span>
+            </div>
           </article>
 
           <template #action>
@@ -14612,18 +15035,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </table>
               </div>
             </ResponsiveDataContainer>
-
-            <ResponsivePagination
-              :page="retouchesPagination.page"
-              :pages="retouchesPages"
-              :page-size="retouchesPagination.pageSize"
-              :page-size-options="[5, 10, 20, 50]"
-              :prev-disabled="retouchesPagination.page <= 1"
-              :next-disabled="retouchesPagination.page >= retouchesPages"
-              @update:page-size="retouchesPagination.pageSize = $event"
-              @prev="retouchesPagination.page -= 1"
-              @next="retouchesPagination.page += 1"
-            />
+            <div
+              v-if="retouchesPaged.length > 0 && retouchesPaged.length < retouchesFiltered.length"
+              ref="retoucheInfiniteSentinel"
+              class="dossier-infinite-sentinel infinite-list-status"
+            >
+              <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+              <span class="helper">{{ retouchesLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
+            </div>
+            <div v-else-if="retouchesInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+              <span class="helper">Aucune autre retouche</span>
+            </div>
           </article>
 
           <template #action>
@@ -15417,18 +15839,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               </template>
             </ResponsiveDataContainer>
 
-            <ResponsivePagination
-              :page="ventesPagination.page"
-              :pages="ventesPages"
-              :page-size="ventesPagination.pageSize"
-              :page-size-options="[5, 10, 20]"
-              :prev-disabled="ventesPagination.page <= 1"
-              :next-disabled="ventesPagination.page >= ventesPages"
-              :desktop-summary="`Page ${ventesPagination.page} / ${ventesPages} · ${ventesView.length} vente(s)`"
-              @update:page-size="ventesPagination.pageSize = $event"
-              @prev="ventesPagination.page -= 1"
-              @next="ventesPagination.page += 1"
-            />
+            <div
+              v-if="ventesPaged.length > 0 && ventesPaged.length < ventesView.length"
+              ref="venteInfiniteSentinel"
+              class="dossier-infinite-sentinel infinite-list-status"
+            >
+              <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+              <span class="helper">{{ ventesLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
+            </div>
+            <div v-else-if="ventesInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+              <span class="helper">Aucune autre vente</span>
+            </div>
           </article>
         </template>
 
@@ -16066,18 +16487,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </tbody>
                   </table>
                 </div>
-                <ResponsivePagination
-                  v-show="detailPaiements.length > 0"
-                  :page="detailPaiementsPagination.page"
-                  :pages="detailPaiementsPages"
-                  :page-size="detailPaiementsPagination.pageSize"
-                  :page-size-options="[5, 10, 20]"
-                  :prev-disabled="detailPaiementsPagination.page <= 1"
-                  :next-disabled="detailPaiementsPagination.page >= detailPaiementsPages"
-                  @update:page-size="detailPaiementsPagination.pageSize = $event"
-                  @prev="detailPaiementsPagination.page -= 1"
-                  @next="detailPaiementsPagination.page += 1"
-                />
+                <div
+                  v-if="detailPaiementsPaged.length > 0 && detailPaiementsPaged.length < detailPaiements.length"
+                  ref="detailPaiementsInfiniteSentinel"
+                  class="dossier-infinite-sentinel infinite-list-status"
+                >
+                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+                  <span class="helper">{{ detailPaiementsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
+                </div>
+                <div v-else-if="detailPaiementsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+                  <span class="helper">Aucun autre paiement</span>
+                </div>
               </div>
             </article>
 
@@ -16123,18 +16543,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </tbody>
                   </table>
                 </div>
-                <ResponsivePagination
-                  v-show="detailCommandeEvents.length > 0"
-                  :page="detailCommandeEventsPagination.page"
-                  :pages="detailCommandeEventsPages"
-                  :page-size="detailCommandeEventsPagination.pageSize"
-                  :page-size-options="[5, 10, 20]"
-                  :prev-disabled="detailCommandeEventsPagination.page <= 1"
-                  :next-disabled="detailCommandeEventsPagination.page >= detailCommandeEventsPages"
-                  @update:page-size="detailCommandeEventsPagination.pageSize = $event"
-                  @prev="detailCommandeEventsPagination.page -= 1"
-                  @next="detailCommandeEventsPagination.page += 1"
-                />
+                <div
+                  v-if="detailCommandeEventsPaged.length > 0 && detailCommandeEventsPaged.length < detailCommandeEvents.length"
+                  ref="detailCommandeEventsInfiniteSentinel"
+                  class="dossier-infinite-sentinel infinite-list-status"
+                >
+                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+                  <span class="helper">{{ detailCommandeEventsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
+                </div>
+                <div v-else-if="detailCommandeEventsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+                  <span class="helper">Aucun autre evenement</span>
+                </div>
               </div>
             </article>
 
@@ -16410,18 +16829,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </tbody>
                   </table>
                 </div>
-                <ResponsivePagination
-                  v-show="detailRetouchePaiements.length > 0"
-                  :page="detailRetouchePaiementsPagination.page"
-                  :pages="detailRetouchePaiementsPages"
-                  :page-size="detailRetouchePaiementsPagination.pageSize"
-                  :page-size-options="[5, 10, 20]"
-                  :prev-disabled="detailRetouchePaiementsPagination.page <= 1"
-                  :next-disabled="detailRetouchePaiementsPagination.page >= detailRetouchePaiementsPages"
-                  @update:page-size="detailRetouchePaiementsPagination.pageSize = $event"
-                  @prev="detailRetouchePaiementsPagination.page -= 1"
-                  @next="detailRetouchePaiementsPagination.page += 1"
-                />
+                <div
+                  v-if="detailRetouchePaiementsPaged.length > 0 && detailRetouchePaiementsPaged.length < detailRetouchePaiements.length"
+                  ref="detailRetouchePaiementsInfiniteSentinel"
+                  class="dossier-infinite-sentinel infinite-list-status"
+                >
+                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+                  <span class="helper">{{ detailRetouchePaiementsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
+                </div>
+                <div v-else-if="detailRetouchePaiementsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+                  <span class="helper">Aucun autre paiement</span>
+                </div>
               </div>
             </article>
 
@@ -16467,18 +16885,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </tbody>
                   </table>
                 </div>
-                <ResponsivePagination
-                  v-show="detailRetoucheEvents.length > 0"
-                  :page="detailRetoucheEventsPagination.page"
-                  :pages="detailRetoucheEventsPages"
-                  :page-size="detailRetoucheEventsPagination.pageSize"
-                  :page-size-options="[5, 10, 20]"
-                  :prev-disabled="detailRetoucheEventsPagination.page <= 1"
-                  :next-disabled="detailRetoucheEventsPagination.page >= detailRetoucheEventsPages"
-                  @update:page-size="detailRetoucheEventsPagination.pageSize = $event"
-                  @prev="detailRetoucheEventsPagination.page -= 1"
-                  @next="detailRetoucheEventsPagination.page += 1"
-                />
+                <div
+                  v-if="detailRetoucheEventsPaged.length > 0 && detailRetoucheEventsPaged.length < detailRetoucheEvents.length"
+                  ref="detailRetoucheEventsInfiniteSentinel"
+                  class="dossier-infinite-sentinel infinite-list-status"
+                >
+                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+                  <span class="helper">{{ detailRetoucheEventsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
+                </div>
+                <div v-else-if="detailRetoucheEventsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+                  <span class="helper">Aucun autre evenement</span>
+                </div>
               </div>
             </article>
           </div>
@@ -16840,18 +17257,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               </div>
             </template>
           </ResponsiveDataContainer>
-          <ResponsivePagination
-            v-if="facturesFiltered.length > 0"
-            :page="facturesPagination.page"
-            :pages="facturesPages"
-            :page-size="facturesPagination.pageSize"
-            :page-size-options="[5, 10, 20, 50]"
-            :prev-disabled="facturesPagination.page <= 1"
-            :next-disabled="facturesPagination.page >= facturesPages"
-            @update:page-size="facturesPagination.pageSize = $event"
-            @prev="facturesPagination.page -= 1"
-            @next="facturesPagination.page += 1"
-          />
+          <div
+            v-if="facturesPaged.length > 0 && facturesPaged.length < facturesFiltered.length"
+            ref="factureInfiniteSentinel"
+            class="dossier-infinite-sentinel infinite-list-status"
+          >
+            <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+            <span class="helper">{{ facturesLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
+          </div>
+          <div v-else-if="facturesInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+            <span class="helper">Aucune autre facture</span>
+          </div>
         </article>
 
         <template #action>
@@ -17962,17 +18378,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   :depense-type-label="depenseTypeLabel"
                 />
 
-                <ResponsivePagination
-                  :page="caisseOperationsPagination.page"
-                  :pages="caisseOperationsPages"
-                  :page-size="caisseOperationsPagination.pageSize"
-                  :page-size-options="[10, 20, 50]"
-                  :prev-disabled="caisseOperationsPagination.page <= 1"
-                  :next-disabled="caisseOperationsPagination.page >= caisseOperationsPages"
-                  @update:page-size="caisseOperationsPagination.pageSize = $event"
-                  @prev="caisseOperationsPagination.page -= 1"
-                  @next="caisseOperationsPagination.page += 1"
-                />
+                <div
+                  v-if="caisseOperationsPaged.length > 0 && caisseOperationsPaged.length < caisseOperations.length"
+                  ref="caisseInfiniteSentinel"
+                  class="dossier-infinite-sentinel infinite-list-status"
+                >
+                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+                  <span class="helper">{{ caisseOperationsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
+                </div>
+                <div v-else-if="caisseOperationsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+                  <span class="helper">Aucune autre operation</span>
+                </div>
               </article>
             </template>
 
@@ -18045,17 +18461,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </tr>
                   </tbody>
                 </table>
-                <ResponsivePagination
-                  :page="caisseOperationsPagination.page"
-                  :pages="caisseOperationsPages"
-                  :page-size="caisseOperationsPagination.pageSize"
-                  :page-size-options="[10, 20, 50]"
-                  :prev-disabled="caisseOperationsPagination.page <= 1"
-                  :next-disabled="caisseOperationsPagination.page >= caisseOperationsPages"
-                  @update:page-size="caisseOperationsPagination.pageSize = $event"
-                  @prev="caisseOperationsPagination.page -= 1"
-                  @next="caisseOperationsPagination.page += 1"
-                />
+                <div
+                  v-if="caisseOperationsPaged.length > 0 && caisseOperationsPaged.length < caisseOperations.length"
+                  ref="caisseInfiniteSentinel"
+                  class="dossier-infinite-sentinel infinite-list-status"
+                >
+                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+                  <span class="helper">{{ caisseOperationsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
+                </div>
+                <div v-else-if="caisseOperationsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+                  <span class="helper">Aucune autre operation</span>
+                </div>
               </article>
             </template>
           </ResponsiveDataContainer>
