@@ -2113,6 +2113,12 @@ body {
   gap: 8px;
 }
 
+.detail-item-lock {
+  font-size: 12px;
+  font-weight: 700;
+  color: #7a4c05;
+}
+
 .detail-lite-contact-grid {
   display: grid;
   gap: 12px;

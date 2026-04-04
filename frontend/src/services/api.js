@@ -701,6 +701,13 @@ export const atelierApi = {
     return request(`/commandes/${idCommande}/actions`, { method: "GET" });
   },
 
+  updateCommandeItem(idCommande, idItem, payload) {
+    return request(`/commandes/${encodeURIComponent(idCommande)}/items/${encodeURIComponent(idItem)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload || {})
+    });
+  },
+
   listCommandeEvents(idCommande) {
     return request(`/commandes/${idCommande}/events`, { method: "GET" });
   },
@@ -767,6 +774,13 @@ export const atelierApi = {
 
   getRetoucheActions(idRetouche) {
     return request(`/retouches/${idRetouche}/actions`, { method: "GET" });
+  },
+
+  updateRetoucheItem(idRetouche, idItem, payload) {
+    return request(`/retouches/${encodeURIComponent(idRetouche)}/items/${encodeURIComponent(idItem)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload || {})
+    });
   },
 
   listRetoucheEvents(idRetouche) {

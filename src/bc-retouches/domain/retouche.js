@@ -162,6 +162,14 @@ export class Retouche {
     }
   }
 
+  assertModifiableAvantPaiement() {
+    this.assertNotLivree();
+    this.assertNotAnnulee();
+    if (Number(this.montantPaye || 0) > 0) {
+      throw new TransitionStatutRetoucheInvalide("Modification interdite apres paiement");
+    }
+  }
+
   demarrerTravail(parametresAtelier) {
     this.assertNotLivree();
     this.assertNotAnnulee();

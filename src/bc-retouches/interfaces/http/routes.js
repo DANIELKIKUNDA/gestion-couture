@@ -10,6 +10,7 @@ import { appliquerPaiement } from "../../application/use-cases/appliquer-paiemen
 import { enregistrerPaiementRetoucheViaCaisse } from "../../application/use-cases/enregistrer-paiement-via-caisse.js";
 import { livrerRetouche } from "../../application/use-cases/livrer-retouche.js";
 import { annulerRetoucheViaCaisse } from "../../application/use-cases/annuler-retouche-via-caisse.js";
+import { modifierRetoucheItem } from "../../application/use-cases/modifier-retouche-item.js";
 import { CaisseRepoPg } from "../../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
 import { requireFields, requireNumber, validateSchema } from "../../../shared/interfaces/validation.js";
 import { generateRetoucheId } from "../../../shared/domain/id-generator.js";
@@ -254,7 +255,8 @@ function actionRulesForRetouche(retouche) {
     payer: false,
     terminer: false,
     livrer: false,
-    annuler: false
+    annuler: false,
+    modifier: statut !== "LIVREE" && statut !== "ANNULEE" && Number(retouche.montantPaye || 0) === 0
   };
   if (statut === "DEPOSEE") {
     actions.payer = soldeRestant > 0;
@@ -280,6 +282,7 @@ function actionRulesForRetoucheAvecPermissions(retouche, auth) {
     ...base,
     actions: {
       ...base.actions,
+      modifier: base.actions.modifier && hasPermission(auth, PERMISSIONS.CREER_RETOUCHE),
       terminer: base.actions.terminer && hasPermission(auth, PERMISSIONS.TERMINER_COMMANDE),
       livrer: base.actions.livrer && hasPermission(auth, PERMISSIONS.LIVRER_COMMANDE),
       annuler: base.actions.annuler && hasPermission(auth, PERMISSIONS.ANNULER_COMMANDE)
@@ -495,6 +498,59 @@ router.get("/retouches/:id/actions", requireRetoucheReadAccess, async (req, res)
     res.json(actionRulesForRetoucheAvecPermissions(retouche, req.auth));
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch("/retouches/:id/items/:itemId", requireRetoucheCreateAccess, async (req, res) => {
+  const schema = z
+    .object({
+      description: z.string().optional(),
+      prix: z.coerce.number().nonnegative().optional(),
+      mesures: z.any().optional()
+    })
+    .refine((data) => Object.keys(data || {}).length > 0, {
+      message: "Aucune modification fournie"
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query("BEGIN");
+    const policy = await loadRetouchePolicy({ req });
+    const repo = scopedRetoucheRepo(req).withExecutor(dbClient);
+    const itemRepo = scopedRetoucheItemRepo(req).withExecutor(dbClient);
+    const before = await repo.getById(req.params.id);
+    const retouche = await modifierRetoucheItem({
+      idRetouche: req.params.id,
+      idItem: req.params.itemId,
+      patch: parsed.data,
+      retoucheRepo: repo,
+      retoucheItemRepo: itemRepo,
+      policy
+    });
+    await enregistrerEvenementRetouche({
+      atelierId: atelierIdFromReq(req),
+      idRetouche: retouche.idRetouche,
+      typeEvent: "ITEM_RETOUCHE_MODIFIE",
+      utilisateur: resolveActeur(req).utilisateur,
+      ancienStatut: before?.statutRetouche || null,
+      nouveauStatut: retouche.statutRetouche,
+      payload: {
+        utilisateurId: req.auth?.utilisateurId || null,
+        utilisateurNom: req.auth?.nom || null,
+        role: req.auth?.role || null,
+        idItem: req.params.itemId
+      }
+    }, dbClient);
+    await dbClient.query("COMMIT");
+    res.json(retouche);
+  } catch (err) {
+    await dbClient.query("ROLLBACK").catch(() => {});
+    res.status(400).json({ error: err.message });
+  } finally {
+    dbClient.release();
   }
 });
 

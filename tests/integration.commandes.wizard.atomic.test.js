@@ -169,7 +169,39 @@ async function run() {
   const multiItems = await getCommandeItems(atelierId, multiItemPayload.idCommande);
   assert.equal(multiItems.length, 2, "les items commande doivent etre persistés atomiquement");
 
-  assert.equal(Number(multiItems[0]?.mesures_snapshot_json?.valeurs?.tourTaille || 0), 82);
+  const itemPatched = await withAuth(
+    session.client.patch(`/api/commandes/${encodeURIComponent(multiItemPayload.idCommande)}/items/${encodeURIComponent(multiItems[0].id_item)}`),
+    session.token
+  ).send({
+    description: "Pantalon uniforme corrige",
+    prix: 110,
+    mesures: {
+      ...pantalonMesuresCompletes,
+      tourTaille: 84
+    }
+  });
+  assert.equal(itemPatched.status, 200, "un item commande doit etre modifiable avant paiement");
+  const patchedItems = await getCommandeItems(atelierId, multiItemPayload.idCommande);
+  assert.equal(String(patchedItems[0]?.description || ""), "Pantalon uniforme corrige");
+  assert.equal(Number(patchedItems[0]?.prix || 0), 110);
+  assert.equal(Number(patchedItems[0]?.mesures_snapshot_json?.valeurs?.tourTaille || 0), 84);
+
+  const paiementCommande = await withAuth(
+    session.client.post(`/api/commandes/${encodeURIComponent(multiItemPayload.idCommande)}/paiements`),
+    session.token
+  ).send({ montant: 20, utilisateur: "integration-test" });
+  assert.equal(paiementCommande.status, 200, "le paiement commande doit reussir");
+
+  const forbiddenPatch = await withAuth(
+    session.client.patch(`/api/commandes/${encodeURIComponent(multiItemPayload.idCommande)}/items/${encodeURIComponent(multiItems[1].id_item)}`),
+    session.token
+  ).send({
+    description: "Chemise interdite apres paiement"
+  });
+  assert.equal(forbiddenPatch.status, 400, "un item commande ne doit plus etre modifiable apres paiement");
+  assert.match(String(forbiddenPatch.body?.error || ""), /paiement/i);
+
+  assert.equal(Number(patchedItems[0]?.mesures_snapshot_json?.valeurs?.tourTaille || 0), 84);
   assert.equal(String(multiItems[1]?.mesures_snapshot_json?.typeHabit || ""), "CHEMISE");
   const commandeRepo = new CommandeRepoPg(atelierId);
   const rehydratedCommande = await commandeRepo.getById(multiItemPayload.idCommande);
@@ -178,7 +210,7 @@ async function run() {
   assert.equal(rehydratedCommande.items[0]?.typeHabit, "PANTALON");
   assert.equal(rehydratedCommande.items[1]?.typeHabit, "CHEMISE");
   assert.equal(Number(rehydratedCommande.items[1]?.mesures?.valeurs?.longueurChemise || 0), 74);
-  assert.equal(Number(rehydratedCommande.montantTotal || 0), 150, "le total rehydrate doit suivre les items");
+  assert.equal(Number(rehydratedCommande.montantTotal || 0), 165, "le total rehydrate doit suivre les items");
 
   const itemDrivenPayload = {
     idCommande: buildTestId("CMD"),

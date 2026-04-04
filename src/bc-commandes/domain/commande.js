@@ -131,6 +131,14 @@ export class Commande {
     }
   }
 
+  assertModifiableAvantPaiement() {
+    this.assertNotLivree();
+    this.assertNotAnnulee();
+    if (Number(this.montantPaye || 0) > 0) {
+      throw new TransitionStatutCommandeInvalide("Modification interdite apres paiement");
+    }
+  }
+
   terminerTravail() {
     this.assertNotLivree();
     this.assertNotAnnulee();

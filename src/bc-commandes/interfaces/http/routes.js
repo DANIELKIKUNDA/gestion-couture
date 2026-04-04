@@ -12,6 +12,7 @@ import { appliquerPaiement } from "../../application/use-cases/appliquer-paiemen
 import { enregistrerPaiementViaCaisse } from "../../application/use-cases/enregistrer-paiement-via-caisse.js";
 import { livrerCommande } from "../../application/use-cases/livrer-commande.js";
 import { annulerCommandeViaCaisse } from "../../application/use-cases/annuler-commande-via-caisse.js";
+import { modifierCommandeItem } from "../../application/use-cases/modifier-commande-item.js";
 import { listerCommandeMedia } from "../../application/use-cases/lister-commande-media.js";
 import { ajouterCommandeMedia } from "../../application/use-cases/ajouter-commande-media.js";
 import { supprimerCommandeMedia } from "../../application/use-cases/supprimer-commande-media.js";
@@ -161,7 +162,8 @@ function actionRulesForCommande(commande, policy) {
     payer: false,
     terminer: false,
     livrer: false,
-    annuler: false
+    annuler: false,
+    modifier: statut !== "LIVREE" && statut !== "ANNULEE" && Number(commande.montantPaye || 0) === 0
   };
 
   if (statut === "CREEE") {
@@ -190,6 +192,7 @@ function actionRulesForCommandeAvecPermissions(commande, auth, policy) {
     ...base,
     actions: {
       ...base.actions,
+      modifier: base.actions.modifier && hasPermission(auth, PERMISSIONS.CREER_COMMANDE),
       terminer: base.actions.terminer && hasPermission(auth, PERMISSIONS.TERMINER_COMMANDE),
       livrer: base.actions.livrer && hasPermission(auth, PERMISSIONS.LIVRER_COMMANDE),
       annuler: base.actions.annuler && hasPermission(auth, PERMISSIONS.ANNULER_COMMANDE)
@@ -689,6 +692,59 @@ router.get("/commandes/:id/actions", requireCommandeReadAccess, async (req, res)
     res.json(actionRulesForCommandeAvecPermissions(commande, req.auth, policyMeta.policy));
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch("/commandes/:id/items/:itemId", requireCommandeCreateAccess, async (req, res) => {
+  const schema = z
+    .object({
+      description: z.string().optional(),
+      prix: z.coerce.number().nonnegative().optional(),
+      mesures: z.any().optional()
+    })
+    .refine((data) => Object.keys(data || {}).length > 0, {
+      message: "Aucune modification fournie"
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query("BEGIN");
+    const policyMeta = await loadCommandePolicy("commandes.items.patch", req);
+    const repo = scopedCommandeRepo(req).withExecutor(dbClient);
+    const itemRepo = scopedCommandeItemRepo(req).withExecutor(dbClient);
+    const before = await repo.getById(req.params.id);
+    const commande = await modifierCommandeItem({
+      idCommande: req.params.id,
+      idItem: req.params.itemId,
+      patch: parsed.data,
+      commandeRepo: repo,
+      commandeItemRepo: itemRepo,
+      policy: policyMeta.payload || { commandes: policyMeta.policy }
+    });
+    await enregistrerEvenementCommande({
+      atelierId: atelierIdFromReq(req),
+      idCommande: commande.idCommande,
+      typeEvent: "ITEM_COMMANDE_MODIFIE",
+      utilisateur: resolveActeur(req).utilisateur,
+      ancienStatut: before?.statutCommande || null,
+      nouveauStatut: commande.statutCommande,
+      payload: {
+        utilisateurId: req.auth?.utilisateurId || null,
+        utilisateurNom: req.auth?.nom || null,
+        role: req.auth?.role || null,
+        idItem: req.params.itemId
+      }
+    }, dbClient);
+    await dbClient.query("COMMIT");
+    res.json(commande);
+  } catch (err) {
+    await dbClient.query("ROLLBACK").catch(() => {});
+    res.status(400).json({ error: err.message });
+  } finally {
+    dbClient.release();
   }
 });
 

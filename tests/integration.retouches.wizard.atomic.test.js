@@ -120,8 +120,37 @@ async function run() {
   const multiItems = await getRetoucheItems(atelierId, multiItemPayload.idRetouche);
   assert.equal(multiItems.length, 2, "les items retouche doivent etre persistés atomiquement");
 
+  const itemPatched = await withAuth(
+    session.client.patch(`/api/retouches/${encodeURIComponent(multiItemPayload.idRetouche)}/items/${encodeURIComponent(multiItems[0].id_item)}`),
+    session.token
+  ).send({
+    description: "Ourlet bas corrige",
+    prix: 27,
+    mesures: { longueur: 146 }
+  });
+  assert.equal(itemPatched.status, 200, "un item retouche doit etre modifiable avant paiement");
+  const patchedItems = await getRetoucheItems(atelierId, multiItemPayload.idRetouche);
+  assert.equal(String(patchedItems[0]?.description || ""), "Ourlet bas corrige");
+  assert.equal(Number(patchedItems[0]?.prix || 0), 27);
+  assert.equal(Number(patchedItems[0]?.mesures_snapshot_json?.valeurs?.longueur || 0), 146);
+
+  const paiementRetouche = await withAuth(
+    session.client.post(`/api/retouches/${encodeURIComponent(multiItemPayload.idRetouche)}/paiements`),
+    session.token
+  ).send({ montant: 10, utilisateur: "integration-test" });
+  assert.equal(paiementRetouche.status, 200, "le paiement retouche doit reussir");
+
+  const forbiddenPatch = await withAuth(
+    session.client.patch(`/api/retouches/${encodeURIComponent(multiItemPayload.idRetouche)}/items/${encodeURIComponent(multiItems[1].id_item)}`),
+    session.token
+  ).send({
+    description: "Ourlet interdit apres paiement"
+  });
+  assert.equal(forbiddenPatch.status, 400, "un item retouche ne doit plus etre modifiable apres paiement");
+  assert.match(String(forbiddenPatch.body?.error || ""), /paiement/i);
+
   assert.equal(multiItems[0]?.type_habit, "ROBE");
-  assert.equal(Number(multiItems[0]?.mesures_snapshot_json?.valeurs?.longueur || 0), 144);
+  assert.equal(Number(patchedItems[0]?.mesures_snapshot_json?.valeurs?.longueur || 0), 146);
   assert.equal(Number(multiItems[1]?.mesures_snapshot_json?.valeurs?.longueur || 0), 132);
 
   const retoucheRepo = new RetoucheRepoPg(atelierId);
@@ -131,7 +160,7 @@ async function run() {
   assert.equal(rehydratedRetouche?.items?.[0]?.typeRetouche, "OURLET");
   assert.equal(rehydratedRetouche?.items?.[0]?.typeHabit, "ROBE");
   assert.equal(Number(rehydratedRetouche?.items?.[1]?.mesures?.valeurs?.longueur || 0), 132);
-  assert.equal(Number(rehydratedRetouche?.montantTotal || 0), 43);
+  assert.equal(Number(rehydratedRetouche?.montantTotal || 0), 45);
 
   const itemDrivenPayload = {
     idRetouche: buildTestId("RET"),

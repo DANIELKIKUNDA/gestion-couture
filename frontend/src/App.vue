@@ -930,6 +930,20 @@ const detailFactureLoading = ref(false);
 const detailFactureError = ref("");
 const detailCommandeActions = ref(null);
 const detailRetoucheActions = ref(null);
+const detailItemEditModal = reactive({
+  open: false,
+  kind: "",
+  parentId: "",
+  itemId: "",
+  title: "",
+  subtitle: "",
+  description: "",
+  prix: "",
+  mesures: {},
+  fields: [],
+  submitting: false,
+  error: ""
+});
 const { pages: detailPaiementsPages, paged: detailPaiementsPaged } = createClientSidePager(detailPaiements, detailPaiementsPagination);
 const { pages: detailCommandeEventsPages, paged: detailCommandeEventsPaged } = createClientSidePager(detailCommandeEvents, detailCommandeEventsPagination);
 const { pages: detailRetouchePaiementsPages, paged: detailRetouchePaiementsPaged } = createClientSidePager(detailRetouchePaiements, detailRetouchePaiementsPagination);
@@ -3787,6 +3801,23 @@ function getCommandeItemMeasureFields(item) {
   return resolveCommandeMesureFields(item?.typeHabit);
 }
 
+function resolveRetoucheMeasureFieldsForType(typeRetouche = "") {
+  const code = String(typeRetouche || "").trim().toUpperCase();
+  if (!code) return [];
+  const definition = availableRetoucheTypeDefinitions.value.find((row) => row.code === code) || null;
+  if (!definition || definition.necessiteMesures !== true) return [];
+  return (definition.mesures || [])
+    .filter((mesure) => mesure?.actif !== false)
+    .sort((left, right) => normalizeSortOrder(left?.ordre) - normalizeSortOrder(right?.ordre))
+    .map((mesure) => ({
+      key: mesure.code,
+      label: mesure.label || mesureLabelFromKey(mesure.code),
+      required: mesure.obligatoire === true,
+      inputType: normalizeMesureFieldType(mesure.typeChamp),
+      unite: mesure.unite || "cm"
+    }));
+}
+
 function isCommandeMeasureFilled(value) {
   if (value === null || value === undefined) return false;
   if (typeof value === "number") return Number.isFinite(value);
@@ -4250,6 +4281,15 @@ const canAnnulerDetail = computed(() => {
   }
   return false;
 });
+const canEditCommandeDetail = computed(() => {
+  if (!detailCommande.value) return false;
+  if (detailCommandeActions.value && typeof detailCommandeActions.value.modifier === "boolean") {
+    return detailCommandeActions.value.modifier;
+  }
+  return Number(detailCommande.value.montantPaye || 0) === 0 &&
+    detailCommande.value.statutCommande !== "LIVREE" &&
+    detailCommande.value.statutCommande !== "ANNULEE";
+});
 const canEmitCommandeDetailFacture = computed(() => Boolean(detailCommande.value && !detailCommandeFacture.value && detailCommande.value.statutCommande !== "ANNULEE"));
 const ITEM_STATUS_SEQUENCE = Object.freeze(["CREEE", "EN_COURS", "TERMINEE", "LIVREE"]);
 
@@ -4357,6 +4397,7 @@ const detailCommandeItemCards = computed(() => {
       mesuresLines,
       mesuresCount: mesuresLines.length,
       canPay: canPayerDetail.value && finance.reste > 0,
+      canEdit: canEditCommandeDetail.value,
       canAdvanceStatus: Boolean(resolveNextDetailItemStatus(statut)),
       statusActionLabel: resolveDetailItemStatusLabel(statut)
     };
@@ -4441,6 +4482,15 @@ const canAnnulerRetoucheDetail = computed(() => {
   }
   return false;
 });
+const canEditRetoucheDetail = computed(() => {
+  if (!detailRetouche.value) return false;
+  if (detailRetoucheActions.value && typeof detailRetoucheActions.value.modifier === "boolean") {
+    return detailRetoucheActions.value.modifier;
+  }
+  return Number(detailRetouche.value.montantPaye || 0) === 0 &&
+    detailRetouche.value.statutRetouche !== "LIVREE" &&
+    detailRetouche.value.statutRetouche !== "ANNULEE";
+});
 const canEmitRetoucheDetailFacture = computed(() => Boolean(detailRetouche.value && !detailRetoucheFacture.value && detailRetouche.value.statutRetouche !== "ANNULEE"));
 const detailRetoucheItemCards = computed(() => {
   const items = Array.isArray(detailRetouche.value?.items) ? detailRetouche.value.items : [];
@@ -4462,6 +4512,7 @@ const detailRetoucheItemCards = computed(() => {
       mesuresLines,
       mesuresCount: mesuresLines.length,
       canPay: canPayerRetoucheDetail.value && finance.reste > 0,
+      canEdit: canEditRetoucheDetail.value,
       canAdvanceStatus: Boolean(resolveNextDetailItemStatus(statut)),
       statusActionLabel: resolveDetailItemStatusLabel(statut)
     };
@@ -5354,6 +5405,114 @@ function openClientConsultationFromDetail(idClient = "") {
   openRoute("clientsMesures");
 }
 
+function focusDetailItemSection(kind = "commande") {
+  nextTick(() => {
+    if (typeof document === "undefined") return;
+    const selector = kind === "retouche" ? ".retouche-detail .detail-items-shell" : ".commande-detail .detail-items-shell";
+    const element = document.querySelector(selector);
+    if (element && typeof element.scrollIntoView === "function") {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+}
+
+function resetDetailItemEditModal() {
+  detailItemEditModal.open = false;
+  detailItemEditModal.kind = "";
+  detailItemEditModal.parentId = "";
+  detailItemEditModal.itemId = "";
+  detailItemEditModal.title = "";
+  detailItemEditModal.subtitle = "";
+  detailItemEditModal.description = "";
+  detailItemEditModal.prix = "";
+  detailItemEditModal.mesures = {};
+  detailItemEditModal.fields = [];
+  detailItemEditModal.submitting = false;
+  detailItemEditModal.error = "";
+}
+
+function openCommandeItemEditModal(card) {
+  if (!card?.id || !detailCommande.value?.idCommande || !canEditCommandeDetail.value) return;
+  const item = (detailCommande.value.items || []).find((row) => String(row?.idItem || "").trim() === String(card.id || "").trim());
+  if (!item) return;
+  const fields = getCommandeItemMeasureFields(item);
+  detailItemEditModal.open = true;
+  detailItemEditModal.kind = "commande";
+  detailItemEditModal.parentId = String(detailCommande.value.idCommande || "").trim();
+  detailItemEditModal.itemId = String(item.idItem || "").trim();
+  detailItemEditModal.title = "Modifier l'habit";
+  detailItemEditModal.subtitle = card.title || "Correction avant paiement";
+  detailItemEditModal.description = String(item.description || "");
+  detailItemEditModal.prix = String(item.prix ?? "");
+  detailItemEditModal.fields = fields;
+  detailItemEditModal.mesures = {};
+  for (const field of fields) {
+    detailItemEditModal.mesures[field.key] = item?.mesures?.valeurs?.[field.key] ?? item?.mesures?.[field.key] ?? "";
+  }
+  detailItemEditModal.error = "";
+}
+
+function openRetoucheItemEditModal(card) {
+  if (!card?.id || !detailRetouche.value?.idRetouche || !canEditRetoucheDetail.value) return;
+  const item = (detailRetouche.value.items || []).find((row) => String(row?.idItem || "").trim() === String(card.id || "").trim());
+  if (!item) return;
+  const fields = resolveRetoucheMeasureFieldsForType(item.typeRetouche);
+  detailItemEditModal.open = true;
+  detailItemEditModal.kind = "retouche";
+  detailItemEditModal.parentId = String(detailRetouche.value.idRetouche || "").trim();
+  detailItemEditModal.itemId = String(item.idItem || "").trim();
+  detailItemEditModal.title = "Modifier l'intervention";
+  detailItemEditModal.subtitle = card.title || "Correction avant paiement";
+  detailItemEditModal.description = String(item.description || "");
+  detailItemEditModal.prix = String(item.prix ?? "");
+  detailItemEditModal.fields = fields;
+  detailItemEditModal.mesures = {};
+  for (const field of fields) {
+    detailItemEditModal.mesures[field.key] = item?.mesures?.valeurs?.[field.key] ?? item?.mesures?.[field.key] ?? "";
+  }
+  detailItemEditModal.error = "";
+}
+
+function buildDetailItemEditPayload() {
+  const payload = {
+    description: String(detailItemEditModal.description || "").trim(),
+    prix: Number(detailItemEditModal.prix || 0)
+  };
+  if (detailItemEditModal.fields.length > 0) {
+    const mesures = {};
+    for (const field of detailItemEditModal.fields) {
+      const raw = detailItemEditModal.mesures[field.key];
+      if (raw === undefined || raw === null || String(raw).trim() === "") continue;
+      mesures[field.key] = mesureInputType(field) === "number" ? Number(raw) : String(raw).trim();
+    }
+    payload.mesures = mesures;
+  }
+  return payload;
+}
+
+async function submitDetailItemEdit() {
+  if (detailItemEditModal.submitting) return;
+  detailItemEditModal.submitting = true;
+  detailItemEditModal.error = "";
+  try {
+    const payload = buildDetailItemEditPayload();
+    if (detailItemEditModal.kind === "commande") {
+      await atelierApi.updateCommandeItem(detailItemEditModal.parentId, detailItemEditModal.itemId, payload);
+      await loadCommandeDetail(detailItemEditModal.parentId, { preserveExisting: true });
+      notify("Habit mis a jour avant paiement.");
+    } else if (detailItemEditModal.kind === "retouche") {
+      await atelierApi.updateRetoucheItem(detailItemEditModal.parentId, detailItemEditModal.itemId, payload);
+      await loadRetoucheDetail(detailItemEditModal.parentId, { preserveExisting: true });
+      notify("Intervention mise a jour avant paiement.");
+    }
+    resetDetailItemEditModal();
+  } catch (err) {
+    detailItemEditModal.error = readableError(err);
+  } finally {
+    detailItemEditModal.submitting = false;
+  }
+}
+
 const clientConsultationContactProfile = computed(() => {
   if (!clientConsultationClient.value) return null;
   return {
@@ -6089,7 +6248,8 @@ function normalizeActionFlags(payload) {
     payer: actions.payer === true,
     terminer: actions.terminer === true,
     livrer: actions.livrer === true,
-    annuler: actions.annuler === true
+    annuler: actions.annuler === true,
+    modifier: actions.modifier === true
   };
 }
 
@@ -15691,6 +15851,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               />
               <div class="row-actions">
                 <button class="mini-btn" @click="openRoute('commandes')">Retour</button>
+                <button v-show="canEditCommandeDetail" class="mini-btn" @click="focusDetailItemSection('commande')">Modifier</button>
+                <span v-show="!canEditCommandeDetail" class="status-chip warning">Verrouille apres paiement</span>
                 <button
                   v-show="!isMobileViewport && canEmitCommandeDetailFacture"
                   class="action-btn blue"
@@ -15823,6 +15985,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                   <div class="row-actions detail-item-actions">
                     <button v-show="item.canPay" class="mini-btn green" :disabled="detailLoading || detailPaiementsLoading" @click="onPaiementDetail">Payer</button>
+                    <button v-show="item.canEdit" class="mini-btn" :disabled="detailLoading" @click="openCommandeItemEditModal(item)">Modifier</button>
                     <button class="mini-btn blue" v-show="item.canAdvanceStatus" :disabled="detailLoading || !item.canAdvanceStatus" @click="updateCommandeItemStatus(item.id)">
                       {{ item.statusActionLabel }}
                     </button>
@@ -15833,6 +15996,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     >
                       Voir photos
                     </button>
+                    <span v-show="!item.canEdit" class="detail-item-lock">Verrouille apres paiement</span>
                   </div>
                 </article>
               </div>
@@ -16033,6 +16197,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               />
               <div class="row-actions">
                 <button class="mini-btn" @click="openRoute('retouches')">Retour</button>
+                <button v-show="canEditRetoucheDetail" class="mini-btn" @click="focusDetailItemSection('retouche')">Modifier</button>
+                <span v-show="!canEditRetoucheDetail" class="status-chip warning">Verrouille apres paiement</span>
                 <button
                   v-show="!isMobileViewport && canEmitRetoucheDetailFacture"
                   class="action-btn blue"
@@ -16170,9 +16336,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                   <div class="row-actions detail-item-actions">
                     <button v-show="item.canPay" class="mini-btn green" :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading" @click="onPaiementRetoucheDetail">Payer</button>
+                    <button v-show="item.canEdit" class="mini-btn" :disabled="detailRetoucheLoading" @click="openRetoucheItemEditModal(item)">Modifier</button>
                     <button class="mini-btn blue" v-show="item.canAdvanceStatus" :disabled="detailRetoucheLoading || !item.canAdvanceStatus" @click="updateRetoucheItemStatus(item.id)">
                       {{ item.statusActionLabel }}
                     </button>
+                    <span v-show="!item.canEdit" class="detail-item-lock">Verrouille apres paiement</span>
                   </div>
                 </article>
               </div>
@@ -19998,6 +20166,58 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         <div class="modal-actions wizard-modal-actions wizard-actions-footer">
           <button class="mini-btn" @click="retoucheWizard.step = 3">Retour</button>
           <button class="action-btn green" @click="onRetoucheWizardStep4" :disabled="retoucheWizard.submitting">Creer la retouche</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div v-if="detailItemEditModal.open" class="modal-backdrop" @click.self="resetDetailItemEditModal">
+    <div class="modal-card">
+      <header class="modal-header">
+        <div>
+          <h3>{{ detailItemEditModal.title }}</h3>
+          <p class="helper">{{ detailItemEditModal.subtitle }}</p>
+        </div>
+      </header>
+      <section class="modal-body stack-form">
+        <label>Description item</label>
+        <input v-model="detailItemEditModal.description" type="text" placeholder="Description" />
+
+        <label>Montant (FC)</label>
+        <input v-model="detailItemEditModal.prix" type="number" min="0" step="0.01" />
+
+        <template v-if="detailItemEditModal.fields.length > 0">
+          <label>Mesures</label>
+          <div class="form-grid">
+            <div v-for="field in detailItemEditModal.fields" :key="`detail-edit-${detailItemEditModal.itemId}-${field.key}`" class="form-row">
+              <label>{{ mesureDisplayLabel(field) }} <span v-if="field.required">*</span></label>
+              <select
+                v-if="mesureInputType(field) === 'select'"
+                v-model="detailItemEditModal.mesures[field.key]"
+              >
+                <option value="">Choisir</option>
+                <option value="courtes">courtes</option>
+                <option value="longues">longues</option>
+              </select>
+              <input
+                v-else
+                v-model="detailItemEditModal.mesures[field.key]"
+                :type="mesureInputType(field) === 'number' ? 'number' : 'text'"
+                min="0"
+                :step="mesureInputType(field) === 'number' ? '0.1' : undefined"
+                :placeholder="mesurePlaceholder(field)"
+              />
+            </div>
+          </div>
+        </template>
+
+        <p v-if="detailItemEditModal.error" class="auth-error">{{ detailItemEditModal.error }}</p>
+
+        <div class="modal-actions">
+          <button class="mini-btn" @click="resetDetailItemEditModal">Annuler</button>
+          <button class="action-btn blue" :disabled="detailItemEditModal.submitting" @click="submitDetailItemEdit">
+            Enregistrer
+          </button>
         </div>
       </section>
     </div>
