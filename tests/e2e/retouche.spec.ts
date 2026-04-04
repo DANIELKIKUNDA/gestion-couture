@@ -53,23 +53,23 @@ test("paye une intervention ciblee et masque la modification apres paiement", as
     idDossier: dossier.idDossier,
     idClient: dossier.idResponsableClient,
     descriptionRetouche: "Retouche edition item",
-    typeRetouche: "OURLET",
-    typeHabit: "ROBE",
+    typeRetouche: "OURLET_PANTALON",
+    typeHabit: "PANTALON",
     montantTotal: 40,
     mesuresHabit: { longueur: 140 },
     items: [
       {
         idItem: `RET-ITEM-1-${Date.now()}`,
-        typeRetouche: "OURLET",
-        typeHabit: "ROBE",
+        typeRetouche: "OURLET_PANTALON",
+        typeHabit: "PANTALON",
         description: "Ourlet principal",
         prix: 25,
         mesures: { longueur: 140 }
       },
       {
         idItem: `RET-ITEM-2-${Date.now()}`,
-        typeRetouche: "OURLET",
-        typeHabit: "ROBE",
+        typeRetouche: "OURLET_PANTALON",
+        typeHabit: "PANTALON",
         description: "Ourlet secondaire",
         prix: 15,
         mesures: { longueur: 136 }

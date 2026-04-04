@@ -413,7 +413,7 @@ export async function createCommandeViaApi(actor: TestActor, payload: Record<str
 
 export async function createRetoucheViaApi(actor: TestActor, payload: Record<string, unknown>) {
   const response = await withAuth(actor.client.post("/api/retouches"), actor.token).send(payload);
-  expect(response.status).toBe(201);
+  expect(response.status, JSON.stringify(response.body || {})).toBe(201);
   return response.body?.retouche || response.body;
 }
 
