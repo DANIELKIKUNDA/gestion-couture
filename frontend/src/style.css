@@ -1620,6 +1620,65 @@ body {
   gap: 10px;
 }
 
+.wizard-measure-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.wizard-measure-tab {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  text-align: left;
+  border: 1px solid #dbe7f4;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  color: #17314f;
+  cursor: pointer;
+}
+
+.wizard-measure-tab.active {
+  border-color: #2f6db4;
+  box-shadow: 0 0 0 3px rgba(47, 109, 180, 0.12);
+}
+
+.wizard-measure-tab.complete {
+  border-color: rgba(35, 114, 70, 0.28);
+}
+
+.wizard-measure-tab.warning {
+  border-color: rgba(241, 199, 123, 0.9);
+}
+
+.wizard-measure-tab-index {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #667085;
+}
+
+.wizard-measure-tab strong {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.wizard-measure-tab-state {
+  font-size: 12px;
+  color: #5f7590;
+}
+
+.wizard-measure-stage-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 2px 2px 0;
+  color: #5f7590;
+  font-size: 12px;
+}
+
 .wizard-measure-progress-card {
   display: grid;
   gap: 4px;
@@ -1660,6 +1719,19 @@ body {
 
 .wizard-measure-alert span {
   font-size: 12px;
+}
+
+.wizard-item-card-active {
+  border-color: #cfe0f0;
+  box-shadow: 0 12px 28px rgba(21, 49, 79, 0.08);
+}
+
+.wizard-measure-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding-top: 6px;
 }
 
 .wizard-total-bar {
@@ -3285,6 +3357,16 @@ textarea:focus-visible {
 
   .wizard-measure-progress {
     grid-template-columns: 1fr;
+  }
+
+  .wizard-measure-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-measure-stage-summary,
+  .wizard-measure-nav {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .wizard-total-bar {

@@ -879,6 +879,7 @@ const commandeMediaViewerSubtitle = computed(() => {
   if (!commandeMediaViewerCurrentItem.value || commandeMediaViewer.items.length <= 1) return "";
   return `Photo ${commandeMediaViewer.index + 1} sur ${commandeMediaViewer.items.length}`;
 });
+const wizardCommandeMeasureIndex = ref(0);
 const commandeMediaViewerImageUrl = computed(
   () => commandeMediaViewer.currentBlobUrl || commandeMediaViewerCurrentItem.value?.fileBlobUrl || ""
 );
@@ -3781,6 +3782,14 @@ function getCommandeItemMeasureProgress(item) {
   };
 }
 
+function getCommandeMeasureStateLabel(item) {
+  const progress = getCommandeItemMeasureProgress(item);
+  if (progress.total === 0) return "Sans mesures";
+  if (progress.completed === 0) return "A completer";
+  if (progress.missingRequired > 0) return "Partiel";
+  return "Complet";
+}
+
 function resetCommandeItemMesures(item) {
   if (!item || typeof item !== "object") return;
   item.mesures = {};
@@ -3821,6 +3830,37 @@ function removeCommandeItem(index) {
   wizard.commande.items.splice(index, 1);
   syncCommandePrimaryTypeFromItems();
   recalculateCommandeTotalFromItems();
+}
+
+const wizardCommandeMeasureItems = computed(() => (wizard.commande.items || []).filter((row) => String(row?.typeHabit || "").trim()));
+const wizardCommandeMeasureActiveItem = computed(() => wizardCommandeMeasureItems.value[wizardCommandeMeasureIndex.value] || null);
+const wizardCommandeMeasureCompletion = computed(() => {
+  const items = wizardCommandeMeasureItems.value;
+  const complete = items.filter((item) => {
+    const progress = getCommandeItemMeasureProgress(item);
+    return progress.total === 0 || progress.missingRequired === 0;
+  }).length;
+  return {
+    total: items.length,
+    complete
+  };
+});
+
+function setWizardCommandeMeasureIndex(index) {
+  const total = wizardCommandeMeasureItems.value.length;
+  if (total <= 0) {
+    wizardCommandeMeasureIndex.value = 0;
+    return;
+  }
+  wizardCommandeMeasureIndex.value = Math.max(0, Math.min(total - 1, Number(index || 0)));
+}
+
+function goToPreviousCommandeMeasureItem() {
+  setWizardCommandeMeasureIndex(wizardCommandeMeasureIndex.value - 1);
+}
+
+function goToNextCommandeMeasureItem() {
+  setWizardCommandeMeasureIndex(wizardCommandeMeasureIndex.value + 1);
 }
 
 function addRetoucheItem() {
@@ -6866,6 +6906,17 @@ watch(
   () => {
     retoucheWizard.retouche.mesuresHabit = {};
     resetMesuresModel(retoucheWizard.retouche.mesuresHabit);
+  }
+);
+
+watch(
+  () => [wizard.step, wizardCommandeMeasureItems.value.length, wizard.commande.items.map((item) => item.idItem).join("|")],
+  () => {
+    if (wizard.step !== 3) {
+      wizardCommandeMeasureIndex.value = 0;
+      return;
+    }
+    setWizardCommandeMeasureIndex(wizardCommandeMeasureIndex.value);
   }
 );
 
@@ -10779,6 +10830,7 @@ async function onWizardStep2() {
     if (items.length === 0) throw new Error("Ajoutez au moins un habit.");
     if (!String(wizard.commande.typeHabit || "").trim()) throw new Error("Selectionnez le type d'habit principal.");
     wizard.step = 3;
+    setWizardCommandeMeasureIndex(0);
   } catch (err) {
     notify(readableError(err));
   } finally {
@@ -18913,50 +18965,72 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               </div>
               <span class="status-chip">{{ wizard.commande.items.filter((item) => item.typeHabit).length }} habit(s)</span>
             </div>
-            <div class="wizard-items-stack">
-              <article v-for="(item, index) in wizard.commande.items.filter((row) => row.typeHabit)" :key="`cmd-item-mes-step-${item.idItem}`" class="panel subtle-panel wizard-item-card">
+            <div class="wizard-measure-tabs" v-if="wizardCommandeMeasureItems.length > 0">
+              <button
+                v-for="(item, index) in wizardCommandeMeasureItems"
+                :key="`cmd-measure-tab-${item.idItem}`"
+                type="button"
+                class="wizard-measure-tab"
+                :class="{
+                  active: wizardCommandeMeasureIndex === index,
+                  complete: getCommandeMeasureStateLabel(item) === 'Complet',
+                  warning: getCommandeMeasureStateLabel(item) === 'Partiel' || getCommandeMeasureStateLabel(item) === 'A completer'
+                }"
+                @click="setWizardCommandeMeasureIndex(index)"
+              >
+                <span class="wizard-measure-tab-index">Habit {{ index + 1 }}</span>
+                <strong>{{ item.description || humanizeContactLabel(item.typeHabit) || item.typeHabit || "Habit" }}</strong>
+                <span class="wizard-measure-tab-state">{{ getCommandeMeasureStateLabel(item) }}</span>
+              </button>
+            </div>
+            <div class="wizard-measure-stage-summary" v-if="wizardCommandeMeasureItems.length > 0">
+              <span>{{ wizardCommandeMeasureCompletion.complete }} / {{ wizardCommandeMeasureCompletion.total }} habit(s) completes</span>
+              <span>Vous renseignez un habit a la fois pour eviter un formulaire trop long.</span>
+            </div>
+            <div class="wizard-items-stack" v-if="wizardCommandeMeasureActiveItem">
+              <article :key="`cmd-item-mes-step-${wizardCommandeMeasureActiveItem.idItem}`" class="panel subtle-panel wizard-item-card wizard-item-card-active">
                 <div class="wizard-item-card-head">
                   <div>
-                    <p class="mobile-overline">Habit {{ index + 1 }}</p>
-                    <h6>{{ item.description || humanizeContactLabel(item.typeHabit) || item.typeHabit || "Habit" }}</h6>
+                    <p class="mobile-overline">Habit {{ wizardCommandeMeasureIndex + 1 }}</p>
+                    <h6>{{ wizardCommandeMeasureActiveItem.description || humanizeContactLabel(wizardCommandeMeasureActiveItem.typeHabit) || wizardCommandeMeasureActiveItem.typeHabit || "Habit" }}</h6>
                   </div>
-                  <span class="status-chip">{{ humanizeContactLabel(item.typeHabit) || item.typeHabit }}</span>
+                  <span class="status-chip">{{ humanizeContactLabel(wizardCommandeMeasureActiveItem.typeHabit) || wizardCommandeMeasureActiveItem.typeHabit }}</span>
                 </div>
                 <div class="wizard-item-meta">
-                  <span>{{ index === 0 ? "Reference historique" : "Mesures propres a cet habit" }}</span>
-                  <strong>{{ formatCurrency(Number(item.prix || 0)) }}</strong>
+                  <span>{{ wizardCommandeMeasureIndex === 0 ? "Reference historique" : "Mesures propres a cet habit" }}</span>
+                  <strong>{{ formatCurrency(Number(wizardCommandeMeasureActiveItem.prix || 0)) }}</strong>
                 </div>
                 <div class="wizard-measure-progress">
                   <article class="wizard-measure-progress-card">
                     <span>Etat</span>
-                    <strong>{{ getCommandeItemMeasureProgress(item).completionLabel }}</strong>
+                    <strong>{{ getCommandeItemMeasureProgress(wizardCommandeMeasureActiveItem).completionLabel }}</strong>
                   </article>
                   <article class="wizard-measure-progress-card">
                     <span>Obligatoires</span>
-                    <strong>{{ getCommandeItemMeasureProgress(item).requiredCompleted }}/{{ getCommandeItemMeasureProgress(item).requiredTotal }}</strong>
+                    <strong>{{ getCommandeItemMeasureProgress(wizardCommandeMeasureActiveItem).requiredCompleted }}/{{ getCommandeItemMeasureProgress(wizardCommandeMeasureActiveItem).requiredTotal }}</strong>
                   </article>
-                  <article class="wizard-measure-progress-card" :class="{ warning: getCommandeItemMeasureProgress(item).missingRequired > 0 }">
+                  <article class="wizard-measure-progress-card" :class="{ warning: getCommandeItemMeasureProgress(wizardCommandeMeasureActiveItem).missingRequired > 0 }">
                     <span>Reste</span>
                     <strong>
-                      {{ getCommandeItemMeasureProgress(item).missingRequired > 0 ? `${getCommandeItemMeasureProgress(item).missingRequired} mesure(s) requise(s)` : "Complet" }}
+                      {{ getCommandeItemMeasureProgress(wizardCommandeMeasureActiveItem).missingRequired > 0 ? `${getCommandeItemMeasureProgress(wizardCommandeMeasureActiveItem).missingRequired} mesure(s) requise(s)` : "Complet" }}
                     </strong>
                   </article>
                 </div>
                 <div class="stack-form wizard-item-measures-block">
-                  <label>Mesures {{ index === 0 ? "(habit principal)" : "" }}</label>
+                  <label>Mesures {{ wizardCommandeMeasureIndex === 0 ? "(habit principal)" : "" }}</label>
                   <p class="helper">
-                    {{ index === 0 ? "Le pre-remplissage s'applique sur ce premier habit quand un historique existe." : "Renseignez les mesures propres a cet habit." }}
+                    {{ wizardCommandeMeasureIndex === 0 ? "Le pre-remplissage s'applique sur ce premier habit quand un historique existe." : "Renseignez les mesures propres a cet habit." }}
                   </p>
-                  <div v-if="getCommandeItemMeasureProgress(item).missingRequired > 0" class="wizard-measure-alert">
+                  <div v-if="getCommandeItemMeasureProgress(wizardCommandeMeasureActiveItem).missingRequired > 0" class="wizard-measure-alert">
                     <strong>Mesures obligatoires encore attendues.</strong>
                     <span>Completez les champs marques d'une asterisque avant de continuer.</span>
                   </div>
                   <div class="form-grid">
-                    <div v-for="field in getCommandeItemMeasureFields(item)" :key="`cmd-item-mes-${item.idItem}-${field.key}`" class="form-row">
+                    <div v-for="field in getCommandeItemMeasureFields(wizardCommandeMeasureActiveItem)" :key="`cmd-item-mes-${wizardCommandeMeasureActiveItem.idItem}-${field.key}`" class="form-row">
                       <label>{{ mesureDisplayLabel(field) }} <span v-if="field.required">*</span></label>
                       <select
                         v-if="mesureInputType(field) === 'select'"
-                        v-model="item.mesures[field.key]"
+                        v-model="wizardCommandeMeasureActiveItem.mesures[field.key]"
                       >
                         <option value="">Choisir</option>
                         <option value="courtes">courtes</option>
@@ -18964,7 +19038,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       </select>
                       <input
                         v-else
-                        v-model="item.mesures[field.key]"
+                        v-model="wizardCommandeMeasureActiveItem.mesures[field.key]"
                         :type="mesureInputType(field) === 'number' ? 'number' : 'text'"
                         min="0"
                         :step="mesureInputType(field) === 'number' ? '0.1' : undefined"
@@ -18973,8 +19047,23 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </div>
                   </div>
                 </div>
+                <div class="wizard-measure-nav">
+                  <button class="mini-btn" type="button" :disabled="wizardCommandeMeasureIndex <= 0" @click="goToPreviousCommandeMeasureItem">
+                    Precedent
+                  </button>
+                  <button
+                    v-if="wizardCommandeMeasureIndex < wizardCommandeMeasureItems.length - 1"
+                    class="mini-btn blue"
+                    type="button"
+                    @click="goToNextCommandeMeasureItem"
+                  >
+                    Suivant
+                  </button>
+                  <span v-else class="helper">Dernier habit</span>
+                </div>
               </article>
             </div>
+            <p v-else class="helper">Ajoutez d'abord un habit avec un type defini pour afficher ses mesures.</p>
           </section>
 
           <div class="modal-actions wizard-modal-actions wizard-actions-footer">
