@@ -68,7 +68,9 @@ const props = defineProps({
   ownerActionError: { type: String, default: "" },
   recoveryActionKey: { type: String, default: "" },
   recoveryActionError: { type: String, default: "" },
-  formatDateTime: { type: Function, required: true }
+  formatDateTime: { type: Function, required: true },
+  buildPhoneHref: { type: Function, required: true },
+  buildWhatsAppHref: { type: Function, required: true }
 });
 
 const emit = defineEmits([
@@ -76,6 +78,7 @@ const emit = defineEmits([
   "refresh",
   "toggle-activation",
   "toggle-owner-activation",
+  "update-owner-contact",
   "reset-owner-password",
   "revoke-owner-sessions",
   "promote-user-to-owner",
@@ -236,6 +239,10 @@ watch(
               <strong>{{ detail.proprietaire.etatCompte || "ACTIVE" }}</strong>
             </div>
             <div>
+              <span class="helper">Telephone</span>
+              <strong>{{ detail.proprietaire.telephone || "Non renseigne" }}</strong>
+            </div>
+            <div>
               <span class="helper">Sessions actives</span>
               <strong>{{ detail.proprietaire.sessions?.totalActives ?? 0 }}</strong>
             </div>
@@ -246,6 +253,11 @@ watch(
           </div>
 
           <div class="row-actions">
+            <button class="mini-btn" :disabled="ownerActionKey === 'contact'" @click="emit('update-owner-contact')">
+              {{ ownerActionKey === "contact" ? "Traitement..." : "Modifier le telephone" }}
+            </button>
+            <a class="mini-btn blue" :href="buildPhoneHref(detail.proprietaire.telephone)">Appeler</a>
+            <a class="mini-btn whatsapp" :href="buildWhatsAppHref(detail.proprietaire.telephone)">WhatsApp</a>
             <button class="mini-btn" :disabled="ownerActionKey === 'activation'" @click="emit('toggle-owner-activation')">
               {{
                 ownerActionKey === "activation"

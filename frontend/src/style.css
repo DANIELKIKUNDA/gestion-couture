@@ -1191,6 +1191,57 @@ body {
   gap: 4px;
 }
 
+.system-notifications-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.system-notification-compose,
+.system-notification-history,
+.system-contacts-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.system-notification-list,
+.system-contacts-list {
+  display: grid;
+  gap: 12px;
+}
+
+.system-notification-item,
+.system-contact-item {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.system-notification-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.system-notification-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 10px;
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+}
+
+.system-contact-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
 .system-atelier-activity {
   margin-top: 18px;
   display: grid;
@@ -2945,6 +2996,15 @@ textarea:focus-visible {
   .system-recent-meta,
   .system-atelier-health-grid {
     grid-template-columns: 1fr;
+  }
+
+  .system-notifications-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .system-contact-item,
+  .system-notification-item-head {
+    flex-direction: column;
   }
 
   .system-activity-item {

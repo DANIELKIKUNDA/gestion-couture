@@ -9,6 +9,7 @@ defineProps({
   slug: { type: String, default: "" },
   proprietaireNom: { type: String, default: "" },
   proprietaireEmail: { type: String, default: "" },
+  proprietaireTelephone: { type: String, default: "" },
   proprietaireMotDePasse: { type: String, default: "" }
 });
 
@@ -19,6 +20,7 @@ const emit = defineEmits([
   "update-slug",
   "update-proprietaire-nom",
   "update-proprietaire-email",
+  "update-proprietaire-telephone",
   "update-proprietaire-mot-de-passe"
 ]);
 
@@ -73,6 +75,15 @@ function emitField(eventName, value) {
           type="email"
           autocomplete="email"
           @input="emitField('update-proprietaire-email', $event.target.value)"
+        />
+
+        <label for="system-owner-phone">Telephone du proprietaire</label>
+        <input
+          id="system-owner-phone"
+          :value="proprietaireTelephone"
+          type="text"
+          autocomplete="tel"
+          @input="emitField('update-proprietaire-telephone', $event.target.value)"
         />
 
         <label for="system-owner-password">Mot de passe initial</label>

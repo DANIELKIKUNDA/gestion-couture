@@ -173,10 +173,11 @@ function mapSystemAtelierDetailRow(row) {
     updatedAt: row.updated_at || null,
     proprietaire: row.proprietaire_id
       ? {
-          id: row.proprietaire_id,
-          nom: row.proprietaire_nom || "",
-          email: row.proprietaire_email || "",
-          actif: row.proprietaire_actif !== false,
+        id: row.proprietaire_id,
+        nom: row.proprietaire_nom || "",
+        email: row.proprietaire_email || "",
+        telephone: row.proprietaire_telephone || "",
+        actif: row.proprietaire_actif !== false,
           etatCompte: normalizeAccountState(row.proprietaire_etat_compte || (row.proprietaire_actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)),
           sessions: {
             totalActives: 0,
@@ -222,6 +223,7 @@ async function resolveSystemAtelierOwner(atelierId) {
             owner.id_utilisateur AS proprietaire_id,
             owner.nom AS proprietaire_nom,
             owner.email AS proprietaire_email,
+            owner.telephone AS proprietaire_telephone,
             owner.actif AS proprietaire_actif,
             owner.etat_compte AS proprietaire_etat_compte
      FROM ateliers a
@@ -250,6 +252,7 @@ async function resolveSystemAtelierOwner(atelierId) {
       id: row.proprietaire_id,
       nom: row.proprietaire_nom || "",
       email: row.proprietaire_email || "",
+      telephone: row.proprietaire_telephone || "",
       actif: row.proprietaire_actif !== false,
       etatCompte: normalizeAccountState(
         row.proprietaire_etat_compte || (row.proprietaire_actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE)
@@ -496,6 +499,7 @@ async function withPermissions(user) {
     id: user.id,
     nom: user.nom,
     email: user.email,
+    telephone: user.telephone || "",
     roleId: user.roleId,
     atelierId: user.atelierId || LEGACY_ATELIER_ID,
     actif: user.actif !== false,
@@ -505,11 +509,12 @@ async function withPermissions(user) {
   };
 }
 
-async function createAtelierWithOwner({ nomAtelier, slug, ownerNom, ownerEmail, ownerPassword, createdBy = "system" }) {
+async function createAtelierWithOwner({ nomAtelier, slug, ownerNom, ownerEmail, ownerTelephone, ownerPassword, createdBy = "system" }) {
   const atelierNom = String(nomAtelier || "").trim();
   const atelierSlug = normalizeAtelierSlug(slug);
   const proprietaireNom = String(ownerNom || "").trim();
   const proprietaireEmail = String(ownerEmail || "").trim().toLowerCase();
+  const proprietaireTelephone = String(ownerTelephone || "").trim();
   const proprietairePassword = String(ownerPassword || "");
 
   if (!isValidAtelierSlug(atelierSlug)) {
@@ -552,9 +557,9 @@ async function createAtelierWithOwner({ nomAtelier, slug, ownerNom, ownerEmail, 
     const ownerId = randomUUID();
     const ownerHash = hashPassword(proprietairePassword);
     await dbClient.query(
-      `INSERT INTO utilisateurs (id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash, date_mise_a_jour)
-       VALUES ($1, $2, $3, $4, $5, true, $6, 1, $7, NOW())`,
-      [ownerId, proprietaireNom, proprietaireEmail, ROLES.PROPRIETAIRE, atelier.idAtelier, ACCOUNT_STATES.ACTIVE, ownerHash]
+      `INSERT INTO utilisateurs (id_utilisateur, nom, email, telephone, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash, date_mise_a_jour)
+       VALUES ($1, $2, $3, $4, $5, $6, true, $7, 1, $8, NOW())`,
+      [ownerId, proprietaireNom, proprietaireEmail, proprietaireTelephone, ROLES.PROPRIETAIRE, atelier.idAtelier, ACCOUNT_STATES.ACTIVE, ownerHash]
     );
 
     await insertDefaultRolePermissionsForAtelier(dbClient, atelier.idAtelier, createdBy || ownerId);
@@ -568,6 +573,7 @@ async function createAtelierWithOwner({ nomAtelier, slug, ownerNom, ownerEmail, 
         id: ownerId,
         nom: proprietaireNom,
         email: proprietaireEmail,
+        telephone: proprietaireTelephone,
         roleId: ROLES.PROPRIETAIRE,
         atelierId: atelier.idAtelier,
         actif: true,
@@ -753,12 +759,13 @@ router.get("/system/dashboard", requireSystemManager, async (_req, res) => {
               owner.id_utilisateur AS proprietaire_id,
               owner.nom AS proprietaire_nom,
               owner.email AS proprietaire_email,
+              owner.telephone AS proprietaire_telephone,
               owner.actif AS proprietaire_actif,
               owner.etat_compte AS proprietaire_etat_compte,
               COALESCE(stats.total_utilisateurs, 0)::int AS total_utilisateurs
        FROM ateliers a
        LEFT JOIN LATERAL (
-         SELECT u.id_utilisateur, u.nom, u.email, u.actif, u.etat_compte
+         SELECT u.id_utilisateur, u.nom, u.email, u.telephone, u.actif, u.etat_compte
          FROM utilisateurs u
          WHERE u.atelier_id = a.id_atelier
            AND UPPER(u.role_id) = 'PROPRIETAIRE'
@@ -1174,7 +1181,7 @@ router.get("/system/ateliers/:id", requireSystemManager, async (req, res) => {
       [atelierId]
     );
     const usersResult = await pool.query(
-      `SELECT u.id_utilisateur, u.nom, u.email, u.role_id, u.actif, u.etat_compte, u.token_version
+      `SELECT u.id_utilisateur, u.nom, u.email, u.telephone, u.role_id, u.actif, u.etat_compte, u.token_version
        FROM utilisateurs u
        WHERE u.atelier_id = $1
        ORDER BY
@@ -1527,6 +1534,7 @@ router.post("/system/ateliers", requireSystemManager, async (req, res) => {
       proprietaire: z.object({
         nom: z.string().min(1),
         email: z.string().email(),
+        telephone: z.string().trim().min(1),
         motDePasse: z.string().min(8)
       })
     })
@@ -1540,6 +1548,7 @@ router.post("/system/ateliers", requireSystemManager, async (req, res) => {
       slug: parsed.data.slug,
       ownerNom: parsed.data.proprietaire?.nom,
       ownerEmail: parsed.data.proprietaire?.email,
+      ownerTelephone: parsed.data.proprietaire?.telephone,
       ownerPassword: parsed.data.proprietaire?.motDePasse,
       createdBy: req.auth?.utilisateurId || "system"
     });
@@ -1554,7 +1563,8 @@ router.post("/system/ateliers", requireSystemManager, async (req, res) => {
       details: {
         nomAtelier: out.atelier?.nom || parsed.data.nomAtelier,
         slug: out.atelier?.slug || parsed.data.slug,
-        proprietaireEmail: out.proprietaire?.email || parsed.data.proprietaire?.email || null
+        proprietaireEmail: out.proprietaire?.email || parsed.data.proprietaire?.email || null,
+        proprietaireTelephone: out.proprietaire?.telephone || parsed.data.proprietaire?.telephone || null
       }
     });
     res.status(201).json({
@@ -1564,6 +1574,53 @@ router.post("/system/ateliers", requireSystemManager, async (req, res) => {
   } catch (err) {
     if (err?.code === "ATELIER_CONFLICT") return res.status(409).json({ error: err.message });
     if (err?.code === "EMAIL_CONFLICT") return res.status(409).json({ error: err.message });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch("/system/ateliers/:id/proprietaire/contact", requireSystemManager, async (req, res) => {
+  try {
+    const schema = z.object({ telephone: z.string().trim().min(1) }).passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const ownerContext = await resolveSystemAtelierOwner(req.params.id);
+    if (!ownerContext) return res.status(404).json({ error: "Proprietaire introuvable" });
+
+    const current = await utilisateurRepo.getById(ownerContext.proprietaire.id);
+    if (!current) return res.status(404).json({ error: "Proprietaire introuvable" });
+
+    const updated = await utilisateurRepo.save({
+      ...current,
+      telephone: parsed.data.telephone
+    });
+
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: ownerContext.atelierId,
+      action: "SYSTEM_OWNER_CONTACT_UPDATED",
+      entite: "system/ateliers/proprietaire/contact",
+      entiteId: updated.id,
+      succes: true,
+      details: {
+        atelierNom: ownerContext.atelierNom,
+        proprietaireEmail: updated.email || ownerContext.proprietaire.email || null,
+        proprietaireTelephone: updated.telephone || null
+      }
+    });
+
+    res.json({
+      proprietaire: {
+        id: updated.id,
+        nom: updated.nom,
+        email: updated.email,
+        telephone: updated.telephone || "",
+        actif: updated.actif !== false,
+        etatCompte: updated.etatCompte || ACCOUNT_STATES.ACTIVE
+      }
+    });
+  } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });

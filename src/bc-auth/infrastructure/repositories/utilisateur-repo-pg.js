@@ -45,6 +45,7 @@ async function ensureSchema() {
       id_utilisateur TEXT PRIMARY KEY,
       nom TEXT NOT NULL,
       email TEXT NULL,
+      telephone TEXT NULL,
       role_id TEXT NOT NULL,
       atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
       actif BOOLEAN NOT NULL DEFAULT true,
@@ -57,6 +58,7 @@ async function ensureSchema() {
   `);
   await pool.query(`ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS nom TEXT NULL`);
   await pool.query(`ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS email TEXT NULL`);
+  await pool.query(`ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS telephone TEXT NULL`);
   await pool.query(`ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS role_id TEXT NULL`);
   await pool.query(`ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS atelier_id TEXT NOT NULL DEFAULT 'ATELIER'`);
   await pool.query(`ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS actif BOOLEAN NOT NULL DEFAULT true`);
@@ -80,6 +82,7 @@ async function ensureSchema() {
     "id_utilisateur",
     "nom",
     "email",
+    "telephone",
     "role_id",
     "atelier_id",
     "actif",
@@ -166,6 +169,7 @@ function mapRow(row) {
     id: row.id_utilisateur,
     nom: row.nom,
     email: row.email,
+    telephone: row.telephone || "",
     roleId: row.role_id,
     actif: etatCompte !== ACCOUNT_STATES.DISABLED,
     etatCompte,
@@ -180,7 +184,7 @@ export class UtilisateurRepoPg {
     const value = String(email || "").trim().toLowerCase();
     await ensureSchema();
     const result = await pool.query(
-      `SELECT id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+      `SELECT id_utilisateur, nom, email, telephone, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
        FROM utilisateurs
        WHERE LOWER(email) = $1
        LIMIT 1`,
@@ -194,7 +198,7 @@ export class UtilisateurRepoPg {
     const atelierValue = String(atelierId || "ATELIER");
     await ensureSchema();
     const result = await pool.query(
-      `SELECT id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+      `SELECT id_utilisateur, nom, email, telephone, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
        FROM utilisateurs
        WHERE LOWER(email) = $1
          AND atelier_id = $2
@@ -208,7 +212,7 @@ export class UtilisateurRepoPg {
     const value = String(id || "");
     await ensureSchema();
     const result = await pool.query(
-      `SELECT id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+      `SELECT id_utilisateur, nom, email, telephone, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
        FROM utilisateurs
        WHERE id_utilisateur = $1
        LIMIT 1`,
@@ -220,7 +224,7 @@ export class UtilisateurRepoPg {
   async list() {
     await ensureSchema();
     const result = await pool.query(
-      `SELECT id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+      `SELECT id_utilisateur, nom, email, telephone, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
        FROM utilisateurs
        ORDER BY date_creation DESC`
     );
@@ -231,7 +235,7 @@ export class UtilisateurRepoPg {
     const value = String(atelierId || "ATELIER");
     await ensureSchema();
     const result = await pool.query(
-      `SELECT id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+      `SELECT id_utilisateur, nom, email, telephone, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
        FROM utilisateurs
        WHERE atelier_id = $1
        ORDER BY date_creation DESC`,
@@ -245,7 +249,7 @@ export class UtilisateurRepoPg {
     const atelierValue = String(atelierId || "ATELIER");
     await ensureSchema();
     const result = await pool.query(
-      `SELECT id_utilisateur, nom, email, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+      `SELECT id_utilisateur, nom, email, telephone, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
        FROM utilisateurs
        WHERE id_utilisateur = $1
          AND atelier_id = $2
@@ -261,6 +265,7 @@ export class UtilisateurRepoPg {
       id: String(user.id || ""),
       nom: String(user.nom || "").trim(),
       email: String(user.email || "").trim().toLowerCase() || null,
+      telephone: String(user.telephone || "").trim() || null,
       roleId: String(user.roleId || "").toUpperCase(),
       atelierId: String(user.atelierId || "ATELIER"),
       actif: etatCompte !== ACCOUNT_STATES.DISABLED,
@@ -273,6 +278,7 @@ export class UtilisateurRepoPg {
       "id_utilisateur",
       "nom",
       "email",
+      "telephone",
       "role_id",
       "atelier_id",
       "actif",
@@ -284,6 +290,7 @@ export class UtilisateurRepoPg {
       payload.id,
       payload.nom,
       payload.email,
+      payload.telephone,
       payload.roleId,
       payload.atelierId,
       payload.actif,
@@ -297,7 +304,7 @@ export class UtilisateurRepoPg {
       values.splice(2, 0, payload.nom);
     }
     if (hasLegacyRole) {
-      const roleInsertIndex = hasLegacyNomComplet ? 5 : 4;
+      const roleInsertIndex = hasLegacyNomComplet ? 6 : 5;
       columns.splice(roleInsertIndex, 0, "role");
       values.splice(roleInsertIndex, 0, payload.roleId);
     }
@@ -306,6 +313,7 @@ export class UtilisateurRepoPg {
     const updates = [
       "nom = EXCLUDED.nom",
       "email = EXCLUDED.email",
+      "telephone = EXCLUDED.telephone",
       "role_id = EXCLUDED.role_id",
       "atelier_id = EXCLUDED.atelier_id",
       "actif = EXCLUDED.actif",
@@ -360,6 +368,7 @@ export class UtilisateurRepoPg {
       id: payload.id,
       nom: payload.nom,
       email: payload.email,
+      telephone: payload.telephone,
       roleId: payload.roleId,
       atelierId: payload.atelierId,
       actif: payload.actif,

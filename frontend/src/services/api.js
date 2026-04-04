@@ -496,6 +496,33 @@ export const atelierApi = {
     return request(`/system/ateliers/${encodeURIComponent(idAtelier)}`, { method: "GET" });
   },
 
+  updateSystemAtelierOwnerContact(idAtelier, telephone) {
+    return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/proprietaire/contact`, {
+      method: "PATCH",
+      body: JSON.stringify({ telephone: String(telephone || "").trim() })
+    });
+  },
+
+  listSystemNotifications() {
+    return request("/system/notifications", { method: "GET" });
+  },
+
+  createSystemNotification(input) {
+    return request("/system/notifications", {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
+  },
+
+  listSystemAtelierContacts(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.set("search", String(params.search).trim());
+    if (params.atelierId) query.set("atelierId", String(params.atelierId).trim());
+    if (params.includeInactive) query.set("includeInactive", "true");
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request(`/system/ateliers/contacts${suffix}`, { method: "GET" });
+  },
+
   setSystemAtelierOwnerActivation(idAtelier, actif) {
     return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/proprietaire/activation`, {
       method: "PATCH",

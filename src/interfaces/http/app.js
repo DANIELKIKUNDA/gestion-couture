@@ -17,6 +17,7 @@ import stockRoutes from "../../bc-stock/interfaces/http/routes.js";
 import caisseRoutes from "../../bc-caisse/interfaces/http/routes.js";
 import facturationRoutes from "../../bc-facturation/interfaces/http/routes.js";
 import parametresRoutes from "../../bc-parametres/interfaces/http/routes.js";
+import notificationsSystemeRoutes from "../../bc-notifications-systeme/interfaces/http/routes.js";
 
 const IS_PROD = String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
 
@@ -92,6 +93,7 @@ export function createApp() {
   app.use("/api", requireAuth, caisseRoutes);
   app.use("/api", requireAuth, facturationRoutes);
   app.use("/api", requireAuth, parametresRoutes);
+  app.use("/api", requireAuth, notificationsSystemeRoutes);
 
   app.use((err, req, res, _next) => {
     sendHttpError(res, err, 500, req);

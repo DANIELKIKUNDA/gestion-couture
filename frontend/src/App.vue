@@ -83,6 +83,7 @@ import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateMod
 import SystemAtelierDetailPage from "./components/system/SystemAtelierDetailPage.vue";
 import SystemDashboardPage from "./components/system/SystemDashboardPage.vue";
 import SystemAteliersPage from "./components/system/SystemAteliersPage.vue";
+import SystemNotificationsPage from "./components/system/SystemNotificationsPage.vue";
 import { getPasswordPolicyError } from "./utils/password-policy.js";
 
 function createPagination(pageSize = 10) {
@@ -238,6 +239,11 @@ const systemRecoveryActionError = ref("");
 const systemDashboard = ref(createEmptySystemDashboard());
 const systemDashboardLoading = ref(false);
 const systemDashboardError = ref("");
+const systemNotifications = ref([]);
+const systemNotificationsContacts = ref([]);
+const systemNotificationsLoading = ref(false);
+const systemNotificationsSubmitting = ref(false);
+const systemNotificationsError = ref("");
 const systemAtelierModal = reactive({
   open: false,
   submitting: false,
@@ -247,6 +253,7 @@ const systemAtelierModal = reactive({
   slugTouched: false,
   proprietaireNom: "",
   proprietaireEmail: "",
+  proprietaireTelephone: "",
   proprietaireMotDePasse: ""
 });
 
@@ -1771,6 +1778,7 @@ function resetSystemAtelierModal() {
   systemAtelierModal.slugTouched = false;
   systemAtelierModal.proprietaireNom = "";
   systemAtelierModal.proprietaireEmail = "";
+  systemAtelierModal.proprietaireTelephone = "";
   systemAtelierModal.proprietaireMotDePasse = "";
 }
 
@@ -3084,6 +3092,7 @@ const iconPaths = {
   clipboard: ["M9 3h6", "M8 2h8v4H8z", "M6 6h12v16H6z"],
   scissors: ["M6 6 18 18", "M18 6 6 18", "M6 6a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z", "M6 14a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"],
   users: ["M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 7a4 4 0 1 0 0 0.01", "M22 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
+  bell: ["M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5", "M10 17a2 2 0 1 0 4 0"],
   wallet: ["M2 7h20v12H2z", "M16 13h4", "M2 7V5a2 2 0 0 1 2-2h14"],
   box: ["M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8Z", "M3.3 7 12 12l8.7-5", "M12 22V12"],
   invoice: ["M7 3h10a2 2 0 0 1 2 2v16l-2-1-2 1-2-1-2 1-2-1-2 1V5a2 2 0 0 1 2-2Z", "M9 8h6", "M9 12h6", "M9 16h4"],
@@ -3210,6 +3219,7 @@ const canAccessContactFollowUpDashboard = computed(() =>
 
 function hasModuleAccessPermissions(moduleId) {
   if (moduleId === "systemAteliers") return hasPermission(PERMISSIONS.GERER_ATELIERS);
+  if (moduleId === "systemNotifications") return hasPermission(PERMISSIONS.GERER_ATELIERS);
   if (moduleId === "dashboard") return true;
   if (moduleId === "dossiers") {
     return (
@@ -3274,9 +3284,9 @@ function canAccessAuditPath(path = "/audit") {
 function canAccessModule(moduleId) {
   if (!isAuthenticated.value) return false;
   if (currentRole.value === "MANAGER_SYSTEME") {
-    return ["systemDashboard", "systemAteliers"].includes(moduleId) && hasPermission(PERMISSIONS.GERER_ATELIERS);
+    return ["systemDashboard", "systemAteliers", "systemNotifications"].includes(moduleId) && hasPermission(PERMISSIONS.GERER_ATELIERS);
   }
-  if (currentRole.value === "PROPRIETAIRE") return !["systemDashboard", "systemAteliers"].includes(moduleId);
+  if (currentRole.value === "PROPRIETAIRE") return !["systemDashboard", "systemAteliers", "systemNotifications"].includes(moduleId);
   return hasModuleAccessPermissions(moduleId);
 }
 
@@ -3305,7 +3315,8 @@ const atelierMenuItems = [
 
 const systemMenuItems = [
   { id: "systemDashboard", label: "Vue globale", icon: "dashboard" },
-  { id: "systemAteliers", label: "Ateliers", icon: "users" }
+  { id: "systemAteliers", label: "Ateliers", icon: "users" },
+  { id: "systemNotifications", label: "Notifications", icon: "bell" }
 ];
 const menuItems = computed(() => (isSystemManager.value ? systemMenuItems : atelierMenuItems));
 const visibleMenuItems = computed(() => menuItems.value.filter((item) => canAccessModule(item.id)));
@@ -3331,6 +3342,13 @@ const mobileNavItems = computed(() => {
         label: "Ateliers",
         icon: "users",
         activeRoutes: ["systemAteliers", "systemAtelierDetail"]
+      },
+      {
+        id: "system-notifications",
+        target: "systemNotifications",
+        label: "Notifs",
+        icon: "bell",
+        activeRoutes: ["systemNotifications"]
       }
     ].filter((item) => canAccessRoute(item.target));
   }
@@ -4159,6 +4177,7 @@ function stockArticleLabel(idArticle) {
 const currentTitle = computed(() => {
   if (currentRoute.value === "systemDashboard") return "Vue Globale";
   if (currentRoute.value === "systemAteliers") return "Ateliers";
+  if (currentRoute.value === "systemNotifications") return "Notifications";
   if (currentRoute.value === "systemAtelierDetail") return "Detail Atelier";
   if (currentRoute.value === "dossier-detail") return "Detail Dossier";
   if (currentRoute.value === "commande-detail") return "Detail Commande";
@@ -6450,6 +6469,7 @@ async function submitLogout() {
   systemDashboard.value = createEmptySystemDashboard();
   systemDashboardError.value = "";
   systemDashboardLoading.value = false;
+  clearSystemNotificationsState();
   closeSystemAtelierDetail();
   await detectAuthMode();
 }
@@ -7176,6 +7196,46 @@ async function loadSystemDashboard({ syncGlobalError = false } = {}) {
   }
 }
 
+async function loadSystemNotifications({ syncGlobalError = false } = {}) {
+  systemNotificationsLoading.value = true;
+  systemNotificationsError.value = "";
+  try {
+    const [notificationsPayload, contactsPayload] = await Promise.all([
+      atelierApi.listSystemNotifications(),
+      atelierApi.listSystemAtelierContacts({ includeInactive: true })
+    ]);
+    const contacts = normalizeSystemAtelierContacts(contactsPayload);
+    const contactsById = new Map(contacts.map((item) => [item.idAtelier, item.nomAtelier]));
+    systemNotificationsContacts.value = contacts;
+    systemNotifications.value = normalizeSystemNotifications(notificationsPayload).map((item) => ({
+      ...item,
+      atelierNom: item.atelierNom || contactsById.get(item.atelierId) || ""
+    }));
+  } catch (err) {
+    systemNotifications.value = [];
+    systemNotificationsContacts.value = [];
+    systemNotificationsError.value = readableError(err);
+    if (syncGlobalError) appendError(err);
+  } finally {
+    systemNotificationsLoading.value = false;
+  }
+}
+
+async function submitSystemNotification(payload) {
+  if (systemNotificationsSubmitting.value) return;
+  systemNotificationsSubmitting.value = true;
+  systemNotificationsError.value = "";
+  try {
+    await atelierApi.createSystemNotification(payload);
+    await loadSystemNotifications();
+    notify("Notification systeme envoyee.");
+  } catch (err) {
+    systemNotificationsError.value = readableError(err);
+  } finally {
+    systemNotificationsSubmitting.value = false;
+  }
+}
+
 async function refreshSystemAteliersList() {
   if (!canReloadSystemAteliers()) return;
   await loadSystemAteliers({ scrollToTop: true });
@@ -7200,6 +7260,14 @@ function updateSystemAteliersPageSize(value) {
     return;
   }
   void loadSystemAteliers({ page: 1, pageSize: nextPageSize, scrollToTop: true });
+}
+
+function clearSystemNotificationsState() {
+  systemNotifications.value = [];
+  systemNotificationsContacts.value = [];
+  systemNotificationsError.value = "";
+  systemNotificationsLoading.value = false;
+  systemNotificationsSubmitting.value = false;
 }
 
 function updateSystemAteliersStatus(value) {
@@ -7317,6 +7385,7 @@ async function submitSystemAtelierCreate() {
   systemAtelierModal.slug = normalizeAtelierSlugInput(systemAtelierModal.slug);
   systemAtelierModal.proprietaireNom = String(systemAtelierModal.proprietaireNom || "").trim();
   systemAtelierModal.proprietaireEmail = String(systemAtelierModal.proprietaireEmail || "").trim();
+  systemAtelierModal.proprietaireTelephone = String(systemAtelierModal.proprietaireTelephone || "").trim();
 
   if (!systemAtelierModal.nomAtelier) {
     systemAtelierModal.error = "Le nom de l'atelier est obligatoire.";
@@ -7334,6 +7403,10 @@ async function submitSystemAtelierCreate() {
     systemAtelierModal.error = "L'email du proprietaire est obligatoire.";
     return;
   }
+  if (!systemAtelierModal.proprietaireTelephone) {
+    systemAtelierModal.error = "Le telephone du proprietaire est obligatoire.";
+    return;
+  }
   const passwordError = getPasswordPolicyError(systemAtelierModal.proprietaireMotDePasse);
   if (passwordError) {
     systemAtelierModal.error = passwordError;
@@ -7348,12 +7421,14 @@ async function submitSystemAtelierCreate() {
       proprietaire: {
         nom: systemAtelierModal.proprietaireNom,
         email: systemAtelierModal.proprietaireEmail,
+        telephone: systemAtelierModal.proprietaireTelephone,
         motDePasse: systemAtelierModal.proprietaireMotDePasse
       }
     });
     closeSystemAtelierModal();
     await loadSystemAteliers({ page: 1 });
     await loadSystemDashboard();
+    await loadSystemNotifications();
     const createdAtelierId = String(created?.atelier?.idAtelier || "");
     if (createdAtelierId) {
       openSystemAtelierDetail(createdAtelierId);
@@ -7387,6 +7462,7 @@ async function toggleSystemAtelierActivation(atelier) {
     await atelierApi.setSystemAtelierActivation(idAtelier, nextActif);
     await loadSystemAteliers();
     await loadSystemDashboard();
+    await loadSystemNotifications();
     if (systemAtelierDetailId.value === idAtelier) {
       await loadSystemAtelierDetail(idAtelier);
     }
@@ -7416,6 +7492,7 @@ function getSystemAtelierUserOptionLabel(user) {
 async function refreshSystemAtelierRecoveryContext(idAtelier) {
   await loadSystemAteliers();
   await loadSystemDashboard();
+  await loadSystemNotifications();
   await loadSystemAtelierDetail(idAtelier);
 }
 
@@ -7718,6 +7795,7 @@ async function reloadAll() {
     }
     await loadSystemAteliers({ syncGlobalError: true });
     await loadSystemDashboard({ syncGlobalError: true });
+    await loadSystemNotifications({ syncGlobalError: true });
     if (currentRoute.value === "systemAtelierDetail" && systemAtelierDetailId.value) {
       await loadSystemAtelierDetail(systemAtelierDetailId.value);
     }
@@ -7859,6 +7937,40 @@ async function reloadAll() {
   }
 
   loading.value = false;
+}
+
+async function updateSystemAtelierOwnerContact() {
+  if (!systemAtelierDetail.value?.idAtelier || systemOwnerActionKey.value) return;
+  const atelier = systemAtelierDetail.value;
+  const payload = await openActionModal({
+    title: "Modifier le telephone proprietaire",
+    message: `Mettre a jour le contact principal de ${atelier.nom}.`,
+    confirmLabel: "Enregistrer",
+    cancelLabel: "Annuler",
+    tone: "blue",
+    fields: [
+      {
+        key: "telephone",
+        label: "Telephone",
+        type: "text",
+        required: true,
+        defaultValue: String(atelier.proprietaire?.telephone || "").trim()
+      }
+    ]
+  });
+  if (!payload) return;
+
+  systemOwnerActionKey.value = "contact";
+  systemOwnerActionError.value = "";
+  try {
+    await atelierApi.updateSystemAtelierOwnerContact(atelier.idAtelier, payload.telephone);
+    await refreshSystemAtelierRecoveryContext(atelier.idAtelier);
+    notify(`Telephone proprietaire mis a jour pour ${atelier.nom}.`);
+  } catch (err) {
+    systemOwnerActionError.value = readableError(err);
+  } finally {
+    systemOwnerActionKey.value = "";
+  }
 }
 
 const dossiersFiltered = computed(() => {
@@ -9033,6 +9145,7 @@ function normalizeSystemAtelierDetail(raw) {
           id: raw.proprietaire.id || "",
           nom: String(raw.proprietaire.nom || "").trim(),
           email: String(raw.proprietaire.email || "").trim(),
+          telephone: String(raw.proprietaire.telephone || "").trim(),
           actif: raw.proprietaire.actif !== false,
           etatCompte: String(raw.proprietaire.etatCompte || raw.proprietaire.etat_compte || "ACTIVE").trim().toUpperCase(),
           sessions: {
@@ -9089,6 +9202,47 @@ function normalizeSystemAtelierDetail(raw) {
   };
 }
 
+function normalizeSystemNotification(raw) {
+  return {
+    idNotification: raw?.idNotification || raw?.id_notification || "",
+    portee: String(raw?.portee || "").trim().toUpperCase(),
+    atelierId: String(raw?.atelierId || raw?.atelier_id || "").trim(),
+    atelierNom: String(raw?.atelierNom || raw?.atelier_nom || "").trim(),
+    titre: String(raw?.titre || "").trim(),
+    message: String(raw?.message || "").trim(),
+    creeParNom: String(raw?.creeParNom || raw?.cree_par_nom || "").trim(),
+    dateCreation: raw?.dateCreation || raw?.date_creation || "",
+    dateEnvoi: raw?.dateEnvoi || raw?.date_envoi || ""
+  };
+}
+
+function normalizeSystemNotifications(payload) {
+  const rows = Array.isArray(payload) ? payload : payload?.items;
+  return Array.isArray(rows) ? rows.map(normalizeSystemNotification) : [];
+}
+
+function normalizeSystemAtelierContact(raw) {
+  return {
+    idAtelier: raw?.idAtelier || raw?.id_atelier || "",
+    nomAtelier: String(raw?.nomAtelier || raw?.nom || "").trim(),
+    slug: String(raw?.slug || "").trim(),
+    actif: raw?.actif !== false,
+    proprietaire: raw?.proprietaire
+      ? {
+          id: raw.proprietaire.id || "",
+          nom: String(raw.proprietaire.nom || "").trim(),
+          email: String(raw.proprietaire.email || "").trim(),
+          telephone: String(raw.proprietaire.telephone || "").trim()
+        }
+      : null
+  };
+}
+
+function normalizeSystemAtelierContacts(payload) {
+  const rows = Array.isArray(payload) ? payload : payload?.items;
+  return Array.isArray(rows) ? rows.map(normalizeSystemAtelierContact) : [];
+}
+
 function matchesSystemAtelierSearch(atelier, rawSearch = "") {
   const query = String(rawSearch || "").trim().toLowerCase();
   if (!query) return true;
@@ -9142,6 +9296,7 @@ function buildSystemAtelierDetailFallback(raw) {
           id: atelier.proprietaire.id || "",
           nom: atelier.proprietaire.nom || "",
           email: atelier.proprietaire.email || "",
+          telephone: atelier.proprietaire.telephone || "",
           actif: true,
           etatCompte: "ACTIVE",
           sessions: {
@@ -13028,6 +13183,20 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           @next-page="goToNextSystemAteliersPage"
         />
 
+        <SystemNotificationsPage
+          v-if="currentRoute === 'systemNotifications'"
+          :loading="systemNotificationsLoading"
+          :submitting="systemNotificationsSubmitting"
+          :error="systemNotificationsError"
+          :notifications="systemNotifications"
+          :contacts="systemNotificationsContacts"
+          :format-date-time="formatDateTime"
+          :build-phone-href="buildPhoneDialHref"
+          :build-whatsapp-href="(telephone) => buildPreferredWhatsAppHref(telephone, 'Bonjour, ici l administration systeme AtelierPro.')"
+          @refresh="loadSystemNotifications"
+          @submit-notification="submitSystemNotification"
+        />
+
         <SystemAtelierDetailPage
           v-if="currentRoute === 'systemAtelierDetail'"
           :selected-atelier-id="systemAtelierDetailId"
@@ -13040,10 +13209,13 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :recovery-action-key="systemRecoveryActionKey"
           :recovery-action-error="systemRecoveryActionError"
           :format-date-time="formatDateTime"
+          :build-phone-href="buildPhoneDialHref"
+          :build-whatsapp-href="(telephone) => buildPreferredWhatsAppHref(telephone, 'Bonjour, ici l administration systeme AtelierPro.')"
           @back="returnToSystemAteliers"
           @refresh="refreshSystemAtelierDetail"
           @toggle-activation="toggleSystemAtelierActivation"
           @toggle-owner-activation="toggleSystemAtelierOwnerActivation"
+          @update-owner-contact="updateSystemAtelierOwnerContact"
           @reset-owner-password="resetSystemAtelierOwnerPassword"
           @revoke-owner-sessions="revokeSystemAtelierOwnerSessions"
           @promote-user-to-owner="promoteSystemAtelierUserToOwner"
@@ -18526,6 +18698,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
       :slug="systemAtelierModal.slug"
       :proprietaire-nom="systemAtelierModal.proprietaireNom"
       :proprietaire-email="systemAtelierModal.proprietaireEmail"
+      :proprietaire-telephone="systemAtelierModal.proprietaireTelephone"
       :proprietaire-mot-de-passe="systemAtelierModal.proprietaireMotDePasse"
       @close="closeSystemAtelierModal"
       @submit="submitSystemAtelierCreate"
@@ -18536,6 +18709,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
       "
       @update-proprietaire-nom="systemAtelierModal.proprietaireNom = $event"
       @update-proprietaire-email="systemAtelierModal.proprietaireEmail = $event"
+      @update-proprietaire-telephone="systemAtelierModal.proprietaireTelephone = $event"
       @update-proprietaire-mot-de-passe="systemAtelierModal.proprietaireMotDePasse = $event"
     />
 

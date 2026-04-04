@@ -57,6 +57,7 @@ async function run() {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const sharedPrefix = `tenant-sort-${suffix}`;
   const ownerEmail = `owner.system.ateliers.${suffix}@atelier.local`;
+  const ownerTelephone = "+243810000001";
   const ownerPassword = "Passw0rd!OwnerTenant";
   const slug = `${sharedPrefix}-zeta`;
 
@@ -66,6 +67,7 @@ async function run() {
     proprietaire: {
       nom: "Owner Tenant Systeme",
       email: ownerEmail,
+      telephone: ownerTelephone,
       motDePasse: ownerPassword
     }
   });
@@ -81,6 +83,7 @@ async function run() {
   assert.equal(Number(createdRow?.nombreUtilisateurs || 0) >= 1, true, "nombre utilisateurs atelier liste systeme incorrect");
 
   const ownerEmailTwo = `owner.system.ateliers.second.${suffix}@atelier.local`;
+  const ownerTelephoneTwo = "+243810000002";
   const slugTwo = `${sharedPrefix}-alpha`;
   const createAtelierTwo = await withAuth(client.post("/api/system/ateliers"), managerToken).send({
     nomAtelier: "Atelier Manager Systeme Alpha",
@@ -88,6 +91,7 @@ async function run() {
     proprietaire: {
       nom: "Owner Tenant Systeme Second",
       email: ownerEmailTwo,
+      telephone: ownerTelephoneTwo,
       motDePasse: ownerPassword
     }
   });
@@ -131,6 +135,7 @@ async function run() {
   assert.equal(detail.status, 200, "detail atelier systeme doit repondre 200");
   assert.equal(detail.body?.idAtelier, atelierId, "detail atelier systeme id incorrect");
   assert.equal(detail.body?.proprietaire?.email, ownerEmail, "detail atelier systeme proprietaire incorrect");
+  assert.equal(detail.body?.proprietaire?.telephone, ownerTelephone, "detail atelier systeme telephone proprietaire incorrect");
   assert.equal(Number(detail.body?.stats?.totalUtilisateurs || 0) >= 1, true, "detail atelier systeme stats incorrectes");
   assert.equal(Array.isArray(detail.body?.recentActivity), true, "detail atelier systeme doit exposer recentActivity");
   assert.equal(detail.body?.recentActivity?.some((row) => row.action === "SYSTEM_ATELIER_CREATED"), true, "creation atelier doit etre auditée");
@@ -151,6 +156,22 @@ async function run() {
   assert.equal(detailWithSessions.status, 200, "detail atelier apres login owner doit repondre 200");
   assert.equal(Number(detailWithSessions.body?.proprietaire?.sessions?.totalActives || 0) >= 1, true, "sessions proprietaire detail systeme incorrectes");
   assert.equal(Array.isArray(detailWithSessions.body?.proprietaire?.sessions?.recentSessions), true, "recentSessions proprietaire detail systeme incorrect");
+
+  const updatedOwnerTelephone = "+243810009999";
+  const updateContact = await withAuth(
+    client.patch(`/api/system/ateliers/${encodeURIComponent(atelierId)}/proprietaire/contact`),
+    managerToken
+  ).send({ telephone: updatedOwnerTelephone });
+  assert.equal(updateContact.status, 200, "mise a jour telephone proprietaire doit repondre 200");
+  assert.equal(updateContact.body?.proprietaire?.telephone, updatedOwnerTelephone, "telephone proprietaire mis a jour incorrect");
+
+  const detailAfterContactUpdate = await withAuth(client.get(`/api/system/ateliers/${encodeURIComponent(atelierId)}`), managerToken);
+  assert.equal(detailAfterContactUpdate.status, 200, "detail atelier apres mise a jour telephone doit repondre 200");
+  assert.equal(
+    detailAfterContactUpdate.body?.proprietaire?.telephone,
+    updatedOwnerTelephone,
+    "detail atelier doit exposer le telephone proprietaire mis a jour"
+  );
 
   const revokeSessions = await withAuth(client.post(`/api/system/ateliers/${encodeURIComponent(atelierId)}/proprietaire/revoke-sessions`), managerToken);
   assert.equal(revokeSessions.status, 200, "revocation sessions proprietaire doit repondre 200");
