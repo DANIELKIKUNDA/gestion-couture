@@ -53,6 +53,10 @@ test("paye une intervention ciblee et masque la modification apres paiement", as
     idDossier: dossier.idDossier,
     idClient: dossier.idResponsableClient,
     descriptionRetouche: "Retouche edition item",
+    typeRetouche: "OURLET",
+    typeHabit: "ROBE",
+    montantTotal: 40,
+    mesuresHabit: { longueur: 140 },
     items: [
       {
         idItem: `RET-ITEM-1-${Date.now()}`,
