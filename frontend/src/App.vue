@@ -79,6 +79,7 @@ import Sidebar from "./components/Sidebar.vue";
 import StockArticleMobileList from "./components/stock/StockArticleMobileList.vue";
 import VenteDraftMobileList from "./components/stock/VenteDraftMobileList.vue";
 import VenteMobileList from "./components/stock/VenteMobileList.vue";
+import AtelierNotificationsPage from "./components/notifications/AtelierNotificationsPage.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
 import SystemAtelierDetailPage from "./components/system/SystemAtelierDetailPage.vue";
 import SystemDashboardPage from "./components/system/SystemDashboardPage.vue";
@@ -244,6 +245,11 @@ const systemNotificationsContacts = ref([]);
 const systemNotificationsLoading = ref(false);
 const systemNotificationsSubmitting = ref(false);
 const systemNotificationsError = ref("");
+const atelierNotifications = ref([]);
+const atelierNotificationsLoading = ref(false);
+const atelierNotificationsError = ref("");
+const atelierNotificationsUnreadCount = ref(0);
+const atelierNotificationsActiveId = ref("");
 const systemAtelierModal = reactive({
   open: false,
   submitting: false,
@@ -3283,6 +3289,9 @@ function canAccessAuditPath(path = "/audit") {
 
 function canAccessModule(moduleId) {
   if (!isAuthenticated.value) return false;
+  if (moduleId === "notifications") {
+    return !isSystemManager.value && currentRole.value === "PROPRIETAIRE" && Boolean(currentAtelierId.value);
+  }
   if (currentRole.value === "MANAGER_SYSTEME") {
     return ["systemDashboard", "systemAteliers", "systemNotifications"].includes(moduleId) && hasPermission(PERMISSIONS.GERER_ATELIERS);
   }
@@ -3291,6 +3300,7 @@ function canAccessModule(moduleId) {
 }
 
 function canAccessRoute(routeId) {
+  if (routeId === "notifications") return canAccessModule("notifications");
   if (routeId === "commande-detail" || routeId === "retouche-detail") return canAccessModule("commandes");
   if (routeId === "dossier-detail") return canAccessModule("dossiers");
   if (routeId === "vente-detail") return canAccessModule("stockVentes");
@@ -4178,6 +4188,7 @@ const currentTitle = computed(() => {
   if (currentRoute.value === "systemDashboard") return "Vue Globale";
   if (currentRoute.value === "systemAteliers") return "Ateliers";
   if (currentRoute.value === "systemNotifications") return "Notifications";
+  if (currentRoute.value === "notifications") return "Notifications";
   if (currentRoute.value === "systemAtelierDetail") return "Detail Atelier";
   if (currentRoute.value === "dossier-detail") return "Detail Dossier";
   if (currentRoute.value === "commande-detail") return "Detail Commande";
@@ -4190,6 +4201,8 @@ const currentTitle = computed(() => {
   }
   return menuItems.value.find((item) => item.id === currentRoute.value)?.label || "Atelier";
 });
+
+const canOpenAtelierNotifications = computed(() => canAccessRoute("notifications"));
 
 const currentAuditRoute = computed(() => {
   return auditRoutes.find((item) => item.path === auditSubRoute.value) || auditRoutes[0];
@@ -6470,6 +6483,7 @@ async function submitLogout() {
   systemDashboardError.value = "";
   systemDashboardLoading.value = false;
   clearSystemNotificationsState();
+  clearOwnerNotificationsState();
   closeSystemAtelierDetail();
   await detectAuthMode();
 }
@@ -6559,6 +6573,9 @@ watch(currentRoute, (routeName) => {
   }
   if (routeName === "dashboard" && isAuthenticated.value && !loading.value) {
     void loadDashboardContactBoard();
+  }
+  if (routeName === "notifications" && isAuthenticated.value && !loading.value) {
+    void loadAtelierNotifications();
   }
   scheduleCrossDeviceRefresh();
   nextTick(() => {
@@ -7236,6 +7253,76 @@ async function submitSystemNotification(payload) {
   }
 }
 
+async function loadAtelierNotificationsUnreadCount({ syncGlobalError = false } = {}) {
+  if (!canOpenAtelierNotifications.value) {
+    atelierNotificationsUnreadCount.value = 0;
+    return;
+  }
+  try {
+    const payload = await atelierApi.countUnreadNotifications();
+    atelierNotificationsUnreadCount.value = Math.max(0, Number(payload?.total || 0));
+  } catch (err) {
+    atelierNotificationsUnreadCount.value = 0;
+    if (syncGlobalError) appendError(err);
+  }
+}
+
+async function loadAtelierNotifications({ syncGlobalError = false } = {}) {
+  if (!canOpenAtelierNotifications.value) {
+    atelierNotifications.value = [];
+    atelierNotificationsError.value = "";
+    atelierNotificationsLoading.value = false;
+    return;
+  }
+  atelierNotificationsLoading.value = true;
+  atelierNotificationsError.value = "";
+  try {
+    const payload = await atelierApi.listAtelierNotifications();
+    const items = normalizeAtelierNotifications(payload);
+    atelierNotifications.value = items;
+    atelierNotificationsUnreadCount.value = items.filter((item) => !item.estLue).length;
+  } catch (err) {
+    atelierNotifications.value = [];
+    atelierNotificationsError.value = readableError(err);
+    if (syncGlobalError) appendError(err);
+  } finally {
+    atelierNotificationsLoading.value = false;
+  }
+}
+
+async function openAtelierNotification(notification) {
+  const notificationId = String(notification?.idNotification || "").trim();
+  if (!notificationId || atelierNotificationsActiveId.value === notificationId || notification?.estLue) return;
+  atelierNotificationsActiveId.value = notificationId;
+  try {
+    await atelierApi.markNotificationAsRead(notificationId);
+    const target = atelierNotifications.value.find((item) => item.idNotification === notificationId);
+    if (target) {
+      target.estLue = true;
+      target.luAt = new Date().toISOString();
+    }
+    atelierNotificationsUnreadCount.value = Math.max(0, atelierNotificationsUnreadCount.value - 1);
+  } catch (err) {
+    atelierNotificationsError.value = readableError(err);
+  } finally {
+    atelierNotificationsActiveId.value = "";
+  }
+}
+
+function clearAtelierNotificationsState() {
+  atelierNotifications.value = [];
+  atelierNotificationsLoading.value = false;
+  atelierNotificationsError.value = "";
+  atelierNotificationsUnreadCount.value = 0;
+  atelierNotificationsActiveId.value = "";
+}
+
+async function openAtelierNotificationsPage() {
+  if (!canOpenAtelierNotifications.value) return;
+  await openRoute("notifications");
+  await loadAtelierNotifications();
+}
+
 async function refreshSystemAteliersList() {
   if (!canReloadSystemAteliers()) return;
   await loadSystemAteliers({ scrollToTop: true });
@@ -7268,6 +7355,10 @@ function clearSystemNotificationsState() {
   systemNotificationsError.value = "";
   systemNotificationsLoading.value = false;
   systemNotificationsSubmitting.value = false;
+}
+
+function clearOwnerNotificationsState() {
+  clearAtelierNotificationsState();
 }
 
 function updateSystemAteliersStatus(value) {
@@ -7818,6 +7909,7 @@ async function reloadAll() {
     dashboardContactBoard.value = createEmptyDashboardContactBoard();
     dashboardContactBoardError.value = "";
     dashboardContactBoardLoading.value = false;
+    clearOwnerNotificationsState();
     loading.value = false;
     return;
   }
@@ -7859,6 +7951,12 @@ async function reloadAll() {
       dashboardContactBoard.value = createEmptyDashboardContactBoard();
       dashboardContactBoardError.value = canAccessContactFollowUpDashboard.value ? "Suivi client indisponible hors ligne." : "";
       dashboardContactBoardLoading.value = false;
+    }
+    atelierNotificationsUnreadCount.value = 0;
+    if (currentRoute.value === "notifications") {
+      atelierNotifications.value = [];
+      atelierNotificationsError.value = "Notifications indisponibles hors ligne.";
+      atelierNotificationsLoading.value = false;
     }
 
     loading.value = false;
@@ -7934,6 +8032,11 @@ async function reloadAll() {
 
   if (currentRoute.value === "dashboard") {
     await loadDashboardContactBoard();
+  }
+
+  await loadAtelierNotificationsUnreadCount({ syncGlobalError: true });
+  if (currentRoute.value === "notifications") {
+    await loadAtelierNotifications({ syncGlobalError: true });
   }
 
   loading.value = false;
@@ -9219,6 +9322,20 @@ function normalizeSystemNotification(raw) {
 function normalizeSystemNotifications(payload) {
   const rows = Array.isArray(payload) ? payload : payload?.items;
   return Array.isArray(rows) ? rows.map(normalizeSystemNotification) : [];
+}
+
+function normalizeAtelierNotification(raw) {
+  const base = normalizeSystemNotification(raw);
+  return {
+    ...base,
+    estLue: raw?.estLue === true || raw?.est_lue === true,
+    luAt: raw?.luAt || raw?.lu_at || ""
+  };
+}
+
+function normalizeAtelierNotifications(payload) {
+  const rows = Array.isArray(payload) ? payload : payload?.items;
+  return Array.isArray(rows) ? rows.map(normalizeAtelierNotification) : [];
 }
 
 function normalizeSystemAtelierContact(raw) {
@@ -13114,7 +13231,14 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
     />
 
     <main class="main">
-      <MobileHeader v-if="isMobileViewport" :title="currentTitle" @toggle-menu="toggleSidebarDrawer" />
+      <MobileHeader
+        v-if="isMobileViewport"
+        :title="currentTitle"
+        :show-notifications="canOpenAtelierNotifications"
+        :unread-count="atelierNotificationsUnreadCount"
+        @toggle-menu="toggleSidebarDrawer"
+        @open-notifications="openAtelierNotificationsPage"
+      />
 
       <header class="topbar classic-topbar">
         <div>
@@ -13129,6 +13253,20 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           <span class="status-pill" :data-tone="syncStatusTone">
             {{ syncStatusLabel }}
           </span>
+          <button
+            v-if="canOpenAtelierNotifications"
+            class="mini-btn topbar-notification-btn"
+            type="button"
+            @click="openAtelierNotificationsPage"
+          >
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path v-for="(path, i) in iconPaths.bell" :key="`topbar-notif-${i}`" :d="path" />
+            </svg>
+            <span>Notifications</span>
+            <span v-if="atelierNotificationsUnreadCount > 0" class="topbar-notification-badge">
+              {{ atelierNotificationsUnreadCount > 99 ? "99+" : atelierNotificationsUnreadCount }}
+            </span>
+          </button>
           <button v-if="isPwaInstallAvailable" class="mini-btn pwa-topbar-btn" @click="installApplication">
             Installer l'application
           </button>
@@ -13195,6 +13333,18 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :build-whatsapp-href="(telephone) => buildPreferredWhatsAppHref(telephone, 'Bonjour, ici l administration systeme AtelierPro.')"
           @refresh="loadSystemNotifications"
           @submit-notification="submitSystemNotification"
+        />
+
+        <AtelierNotificationsPage
+          v-else-if="currentRoute === 'notifications'"
+          :loading="atelierNotificationsLoading"
+          :error="atelierNotificationsError"
+          :notifications="atelierNotifications"
+          :unread-count="atelierNotificationsUnreadCount"
+          :active-notification-id="atelierNotificationsActiveId"
+          :format-date-time="formatDateTime"
+          @refresh="loadAtelierNotifications"
+          @open-notification="openAtelierNotification"
         />
 
         <SystemAtelierDetailPage

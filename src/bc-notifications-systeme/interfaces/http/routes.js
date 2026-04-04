@@ -6,12 +6,17 @@ import { requireSystemManager } from "../../../bc-auth/interfaces/http/middlewar
 import { envoyerNotificationSysteme } from "../../application/use-cases/envoyer-notification-systeme.js";
 import { listerNotificationsSysteme } from "../../application/use-cases/lister-notifications-systeme.js";
 import { listerContactsAteliers } from "../../application/use-cases/lister-contacts-ateliers.js";
+import { listerNotificationsPourAtelier } from "../../application/use-cases/lister-notifications-pour-atelier.js";
+import { compterNotificationsNonLues } from "../../application/use-cases/compter-notifications-non-lues.js";
+import { marquerNotificationCommeLue } from "../../application/use-cases/marquer-notification-comme-lue.js";
 import { NotificationSystemeRepoPg } from "../../infrastructure/repositories/notification-systeme-repo-pg.js";
 import { AtelierContactQueryPg } from "../../infrastructure/repositories/atelier-contact-query-pg.js";
+import { NotificationLectureRepoPg } from "../../infrastructure/repositories/notification-lecture-repo-pg.js";
 
 const router = express.Router();
 const notificationRepo = new NotificationSystemeRepoPg();
 const atelierContactQuery = new AtelierContactQueryPg();
+const notificationLectureRepo = new NotificationLectureRepoPg();
 
 function mapNotification(notification) {
   return {
@@ -27,6 +32,21 @@ function mapNotification(notification) {
     dateCreation: notification.dateCreation || null,
     dateEnvoi: notification.dateEnvoi || null
   };
+}
+
+function mapAtelierNotification(entry) {
+  return {
+    ...mapNotification(entry.notification),
+    estLue: Boolean(entry.estLue),
+    luAt: entry.luAt || null
+  };
+}
+
+function resolveAtelierNotificationAccess(req) {
+  const role = String(req.auth?.roleId || req.auth?.role || "").trim().toUpperCase();
+  const atelierId = String(req.auth?.atelierId || "").trim();
+  if (!atelierId || role === "MANAGER_SYSTEME") return null;
+  return atelierId;
 }
 
 router.get("/system/notifications", requireSystemManager, async (_req, res) => {
@@ -97,6 +117,65 @@ router.get("/system/ateliers/contacts", requireSystemManager, async (req, res) =
     res.json({
       items: contacts
     });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/notifications", async (req, res) => {
+  try {
+    const atelierId = resolveAtelierNotificationAccess(req);
+    if (!atelierId) return res.status(403).json({ error: "Acces non autorise" });
+
+    const notifications = await listerNotificationsPourAtelier({
+      notificationLectureRepo,
+      atelierId
+    });
+
+    res.json({
+      items: notifications.map(mapAtelierNotification)
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/notifications/unread-count", async (req, res) => {
+  try {
+    const atelierId = resolveAtelierNotificationAccess(req);
+    if (!atelierId) return res.status(403).json({ error: "Acces non autorise" });
+
+    const total = await compterNotificationsNonLues({
+      notificationLectureRepo,
+      atelierId
+    });
+
+    res.json({ total });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/notifications/:id/read", async (req, res) => {
+  try {
+    const atelierId = resolveAtelierNotificationAccess(req);
+    if (!atelierId) return res.status(403).json({ error: "Acces non autorise" });
+
+    const schema = z.object({
+      id: z.string().trim().min(1)
+    });
+    const parsed = validateSchema(schema, req.params || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const result = await marquerNotificationCommeLue({
+      notificationLectureRepo,
+      notificationRepo,
+      notificationId: parsed.data.id,
+      atelierId,
+      luParUserId: req.auth?.utilisateurId || null
+    });
+
+    res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -523,6 +523,21 @@ export const atelierApi = {
     return request(`/system/ateliers/contacts${suffix}`, { method: "GET" });
   },
 
+  listAtelierNotifications() {
+    return request("/notifications", { method: "GET" });
+  },
+
+  countUnreadNotifications() {
+    return request("/notifications/unread-count", { method: "GET" });
+  },
+
+  markNotificationAsRead(idNotification) {
+    return request(`/notifications/${encodeURIComponent(idNotification)}/read`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  },
+
   setSystemAtelierOwnerActivation(idAtelier, actif) {
     return request(`/system/ateliers/${encodeURIComponent(idAtelier)}/proprietaire/activation`, {
       method: "PATCH",

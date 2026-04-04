@@ -51,6 +51,7 @@ async function run() {
 
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const ownerEmail = `owner.notifications.${suffix}@atelier.local`;
+  const ownerPassword = "Passw0rd!OwnerNotif";
   const ownerTelephone = "+243810001111";
   const atelierCreate = await withAuth(client.post("/api/system/ateliers"), managerToken).send({
     nomAtelier: "Atelier Notifications",
@@ -59,7 +60,7 @@ async function run() {
       nom: "Owner Notifications",
       email: ownerEmail,
       telephone: ownerTelephone,
-      motDePasse: "Passw0rd!OwnerNotif"
+      motDePasse: ownerPassword
     }
   });
   assert.equal(atelierCreate.status, 201);
@@ -97,6 +98,47 @@ async function run() {
     notifications.body.items.some((row) => row.portee === "ATELIER" && row.atelierId === atelierId),
     true
   );
+
+  const ownerLogin = await client.post("/api/auth/login").send({
+    email: ownerEmail,
+    motDePasse: ownerPassword
+  });
+  assert.equal(ownerLogin.status, 200);
+  const ownerToken = String(ownerLogin.body?.token || "");
+  assert.ok(ownerToken);
+
+  const ownerNotifications = await withAuth(client.get("/api/notifications"), ownerToken);
+  assert.equal(ownerNotifications.status, 200);
+  assert.equal(Array.isArray(ownerNotifications.body?.items), true);
+  assert.equal(ownerNotifications.body.items.some((row) => row.portee === "GLOBAL" && row.titre === "Maintenance"), true);
+  const ownerTargetNotification = ownerNotifications.body.items.find(
+    (row) => row.portee === "ATELIER" && row.atelierId === atelierId && row.titre === "Contact atelier"
+  );
+  assert.ok(ownerTargetNotification);
+  assert.equal(ownerTargetNotification.estLue, false);
+
+  const unreadBefore = await withAuth(client.get("/api/notifications/unread-count"), ownerToken);
+  assert.equal(unreadBefore.status, 200);
+  assert.equal(Number(unreadBefore.body?.total || 0) >= 2, true);
+
+  const markAsRead = await withAuth(
+    client.post(`/api/notifications/${ownerTargetNotification.idNotification}/read`),
+    ownerToken
+  ).send({});
+  assert.equal(markAsRead.status, 200);
+  assert.equal(markAsRead.body?.estLue, true);
+
+  const ownerNotificationsAfterRead = await withAuth(client.get("/api/notifications"), ownerToken);
+  assert.equal(ownerNotificationsAfterRead.status, 200);
+  const ownerTargetNotificationAfterRead = ownerNotificationsAfterRead.body.items.find(
+    (row) => row.idNotification === ownerTargetNotification.idNotification
+  );
+  assert.ok(ownerTargetNotificationAfterRead);
+  assert.equal(ownerTargetNotificationAfterRead.estLue, true);
+
+  const unreadAfter = await withAuth(client.get("/api/notifications/unread-count"), ownerToken);
+  assert.equal(unreadAfter.status, 200);
+  assert.equal(Number(unreadAfter.body?.total || 0), Number(unreadBefore.body?.total || 0) - 1);
 }
 
 run()
