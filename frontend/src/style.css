@@ -365,6 +365,14 @@ body {
   box-shadow: 0 14px 30px rgba(31, 79, 135, 0.12);
 }
 
+.mobile-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
 .mobile-header-menu {
   width: 44px;
   height: 44px;
@@ -379,7 +387,6 @@ body {
 }
 
 .mobile-header-notification {
-  margin-left: auto;
   width: 44px;
   height: 44px;
   flex: 0 0 44px;

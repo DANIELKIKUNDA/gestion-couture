@@ -18791,12 +18791,6 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </article>
         </section>
 
-        <section v-else class="placeholder">
-          <article class="panel">
-            <h3>{{ menuItems.find((item) => item.id === currentRoute)?.label }}</h3>
-            <p>Vue en lecture/preparation. Le dashboard et la page commandes sont relies a la BD via l'API.</p>
-          </article>
-        </section>
       </div>
     </main>
 
