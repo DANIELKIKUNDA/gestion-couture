@@ -14,6 +14,7 @@ import {
   createAuthenticatedSession,
   createDefaultParametresPayload,
   ensureDossierSchema,
+  openCaisseViaApi as openCaisseViaApiFixture,
   saveAtelierParametres,
   withAuth
 } from "../../helpers/integration-fixtures.js";
@@ -165,6 +166,15 @@ export async function createActor(label = "e2e"): Promise<TestActor> {
     password: session.password,
     client: session.client
   };
+}
+
+export async function openCaisseForActor(actor: TestActor, { utilisateur = "E2E User", soldeOuverture = 100 } = {}) {
+  return openCaisseViaApiFixture({
+    client: actor.client,
+    token: actor.token,
+    utilisateur,
+    soldeOuverture
+  });
 }
 
 export async function loginInBrowser(page: Page, actor: TestActor) {

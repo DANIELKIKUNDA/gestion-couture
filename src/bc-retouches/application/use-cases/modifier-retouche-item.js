@@ -35,6 +35,7 @@ export async function modifierRetoucheItem({
     typeHabit: currentItem.typeHabit,
     description: Object.prototype.hasOwnProperty.call(patch, "description") ? patch.description : currentItem.description,
     prix: Object.prototype.hasOwnProperty.call(patch, "prix") ? patch.prix : currentItem.prix,
+    montantPaye: currentItem.montantPaye,
     ordreAffichage: currentItem.ordreAffichage,
     mesures: Object.prototype.hasOwnProperty.call(patch, "mesures") ? patch.mesures : currentItem.mesures,
     dateCreation: currentItem.dateCreation,

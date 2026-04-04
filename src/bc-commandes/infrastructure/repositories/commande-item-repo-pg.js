@@ -12,14 +12,17 @@ function normalizeMeasures(value) {
 
 async function hasCommandeItemMeasuresColumn(db) {
   const result = await db.query(
-    `SELECT 1
+    `SELECT column_name
      FROM information_schema.columns
      WHERE table_schema = 'public'
        AND table_name = 'commande_items'
-       AND column_name = 'mesures_snapshot_json'
-     LIMIT 1`
+       AND column_name IN ('mesures_snapshot_json', 'montant_paye')`
   );
-  return result.rowCount > 0;
+  const names = new Set((result.rows || []).map((row) => String(row.column_name || "").trim()));
+  return {
+    hasMeasures: names.has("mesures_snapshot_json"),
+    hasMontantPaye: names.has("montant_paye")
+  };
 }
 
 export class CommandeItemRepoPg {
@@ -39,11 +42,13 @@ export class CommandeItemRepoPg {
   async listByCommande(idCommande) {
     const normalizedId = normalizeText(idCommande);
     if (!normalizedId) return [];
-    const includeMeasures = await hasCommandeItemMeasuresColumn(this.db).catch(() => false);
+    const columns = await hasCommandeItemMeasuresColumn(this.db).catch(() => ({ hasMeasures: false, hasMontantPaye: false }));
     try {
       const result = await this.db.query(
-        includeMeasures
-          ? `SELECT id_item, id_commande, type_habit, description, prix, ordre_affichage, mesures_snapshot_json, date_creation
+        columns.hasMeasures || columns.hasMontantPaye
+          ? `SELECT id_item, id_commande, type_habit, description, prix, ordre_affichage, ${
+              columns.hasMontantPaye ? "montant_paye," : ""
+            } ${columns.hasMeasures ? "mesures_snapshot_json," : ""} date_creation
              FROM commande_items
              WHERE atelier_id = $1 AND id_commande = $2
              ORDER BY ordre_affichage ASC, date_creation ASC`
@@ -59,6 +64,7 @@ export class CommandeItemRepoPg {
         typeHabit: row.type_habit || "",
         description: row.description || "",
         prix: Number(row.prix || 0),
+        montantPaye: Number(row.montant_paye || 0),
         ordreAffichage: Number(row.ordre_affichage || 1),
         mesures: normalizeMeasures(row.mesures_snapshot_json),
         dateCreation: row.date_creation
@@ -73,36 +79,47 @@ export class CommandeItemRepoPg {
     const normalizedCommandeId = normalizeText(idCommande);
     if (!normalizedCommandeId) throw new Error("idCommande obligatoire pour enregistrer les items.");
     await this.db.query("DELETE FROM commande_items WHERE atelier_id = $1 AND id_commande = $2", [this.atelierId, normalizedCommandeId]);
-    const includeMeasures = await hasCommandeItemMeasuresColumn(this.db).catch(() => false);
+    const columns = await hasCommandeItemMeasuresColumn(this.db).catch(() => ({ hasMeasures: false, hasMontantPaye: false }));
     for (const [index, item] of items.entries()) {
+      const insertColumns = [
+        "id_item",
+        "atelier_id",
+        "id_commande",
+        "type_habit",
+        "description",
+        "prix"
+      ];
+      const insertValues = [
+        item.idItem,
+        this.atelierId,
+        normalizedCommandeId,
+        normalizeText(item.typeHabit),
+        normalizeText(item.description),
+        Number(item.prix || 0)
+      ];
+      if (columns.hasMontantPaye) {
+        insertColumns.push("montant_paye");
+        insertValues.push(Number(item.montantPaye || 0));
+      }
+      insertColumns.push("ordre_affichage");
+      insertValues.push(Number(item.ordreAffichage || index + 1));
+      if (columns.hasMeasures) {
+        insertColumns.push("mesures_snapshot_json");
+        insertValues.push(item.mesures ? JSON.stringify(item.mesures) : null);
+      }
+      insertColumns.push("date_creation");
+      insertValues.push(item.dateCreation || null);
+      const placeholders = insertValues.map((_, valueIndex) => `$${valueIndex + 1}`);
+      if (columns.hasMeasures) {
+        const measuresIndex = insertColumns.indexOf("mesures_snapshot_json");
+        placeholders[measuresIndex] = `${placeholders[measuresIndex]}::jsonb`;
+      }
+      const dateCreationIndex = insertValues.length;
+      placeholders[placeholders.length - 1] = `COALESCE($${dateCreationIndex}, NOW())`;
       await this.db.query(
-        includeMeasures
-          ? `INSERT INTO commande_items (id_item, atelier_id, id_commande, type_habit, description, prix, ordre_affichage, mesures_snapshot_json, date_creation)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,COALESCE($9, NOW()))`
-          : `INSERT INTO commande_items (id_item, atelier_id, id_commande, type_habit, description, prix, ordre_affichage, date_creation)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, NOW()))`,
-        includeMeasures
-          ? [
-              item.idItem,
-              this.atelierId,
-              normalizedCommandeId,
-              normalizeText(item.typeHabit),
-              normalizeText(item.description),
-              Number(item.prix || 0),
-              Number(item.ordreAffichage || index + 1),
-              item.mesures ? JSON.stringify(item.mesures) : null,
-              item.dateCreation || null
-            ]
-          : [
-              item.idItem,
-              this.atelierId,
-              normalizedCommandeId,
-              normalizeText(item.typeHabit),
-              normalizeText(item.description),
-              Number(item.prix || 0),
-              Number(item.ordreAffichage || index + 1),
-              item.dateCreation || null
-            ]
+        `INSERT INTO commande_items (${insertColumns.join(", ")})
+         VALUES (${placeholders.join(", ")})`,
+        insertValues
       );
     }
   }

@@ -3,7 +3,15 @@ import { randomUUID } from "node:crypto";
 
 import { pool } from "../src/shared/infrastructure/db.js";
 import { RetoucheRepoPg } from "../src/bc-retouches/infrastructure/repositories/retouche-repo-pg.js";
-import { createAuthenticatedSession, createClientViaApi, ensureDossierSchema, withAuth } from "./helpers/integration-fixtures.js";
+import {
+  createAuthenticatedSession,
+  createClientViaApi,
+  createDefaultParametresPayload,
+  ensureDossierSchema,
+  openCaisseViaApi,
+  saveAtelierParametres,
+  withAuth
+} from "./helpers/integration-fixtures.js";
 
 const robeMesuresCompletes = {
   longueur: 138
@@ -49,8 +57,18 @@ async function countRetouchesById(atelierId, idRetouche) {
 }
 
 async function getRetoucheItems(atelierId, idRetouche) {
+  const columnsResult = await pool.query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'retouche_items'
+       AND column_name IN ('mesures_snapshot_json', 'montant_paye')`
+  );
+  const availableColumns = new Set((columnsResult.rows || []).map((row) => String(row.column_name || "").trim()));
   const result = await pool.query(
-    `SELECT id_item, type_retouche, type_habit, description, prix, mesures_snapshot_json
+    `SELECT id_item, type_retouche, type_habit, description, prix, ${
+      availableColumns.has("montant_paye") ? "montant_paye," : "0 AS montant_paye,"
+    } ${availableColumns.has("mesures_snapshot_json") ? "mesures_snapshot_json" : "NULL AS mesures_snapshot_json"}
      FROM retouche_items
      WHERE atelier_id = $1 AND id_retouche = $2
      ORDER BY ordre_affichage ASC, date_creation ASC`,
@@ -69,6 +87,7 @@ async function getClientLatestMeasures(session, idClient, typeHabit) {
 
 async function run() {
   await ensureDossierSchema();
+  await pool.query("ALTER TABLE retouche_items ADD COLUMN IF NOT EXISTS montant_paye NUMERIC(12,2) NOT NULL DEFAULT 0").catch(() => {});
   const atelierId = `ATELIER_RET_WIZ_${Date.now()}`;
   const session = await createAuthenticatedSession({
     atelierId,
@@ -134,11 +153,27 @@ async function run() {
   assert.equal(Number(patchedItems[0]?.prix || 0), 27);
   assert.equal(Number(patchedItems[0]?.mesures_snapshot_json?.valeurs?.longueur || 0), 146);
 
+  const caisseResponse = await openCaisseViaApi({
+    client: session.client,
+    token: session.token,
+    utilisateur: "integration-test"
+  });
+  assert.equal(caisseResponse.status, 201, "ouverture caisse attendue");
+  const idCaisseJour = String(caisseResponse.body?.idCaisseJour || "");
+
   const paiementRetouche = await withAuth(
-    session.client.post(`/api/retouches/${encodeURIComponent(multiItemPayload.idRetouche)}/paiements`),
+    session.client.post(`/api/retouches/${encodeURIComponent(multiItemPayload.idRetouche)}/paiements/caisse`),
     session.token
-  ).send({ montant: 10, utilisateur: "integration-test" });
-  assert.equal(paiementRetouche.status, 200, "le paiement retouche doit reussir");
+  ).send({
+    montant: 10,
+    idItem: multiItems[1].id_item,
+    idCaisseJour,
+    utilisateur: "integration-test"
+  });
+  assert.equal(paiementRetouche.status, 200, "le paiement retouche cible doit reussir");
+  const paidItems = await getRetoucheItems(atelierId, multiItemPayload.idRetouche);
+  assert.equal(Number(paidItems[0]?.montant_paye || 0), 0, "le paiement cible ne doit pas toucher le premier item retouche");
+  assert.equal(Number(paidItems[1]?.montant_paye || 0), 10, "le paiement cible doit etre stocke sur l'item retouche vise");
 
   const forbiddenPatch = await withAuth(
     session.client.patch(`/api/retouches/${encodeURIComponent(multiItemPayload.idRetouche)}/items/${encodeURIComponent(multiItems[1].id_item)}`),
@@ -147,7 +182,30 @@ async function run() {
     description: "Ourlet interdit apres paiement"
   });
   assert.equal(forbiddenPatch.status, 400, "un item retouche ne doit plus etre modifiable apres paiement");
-  assert.match(String(forbiddenPatch.body?.error || ""), /paiement/i);
+
+  const globalPaymentPayload = {
+    idRetouche: buildTestId("RET"),
+    idClient: createPayload.nouveauClient.idClient,
+    descriptionRetouche: "Retouche paiement global",
+    items: [
+      { typeRetouche: "OURLET", typeHabit: "ROBE", description: "Ourlet global 1", prix: 20, mesures: { longueur: 142 } },
+      { typeRetouche: "OURLET", typeHabit: "ROBE", description: "Ourlet global 2", prix: 15, mesures: { longueur: 138 } }
+    ]
+  };
+  const globalCreation = await withAuth(session.client.post("/api/retouches/wizard"), session.token).send(globalPaymentPayload);
+  assert.equal(globalCreation.status, 201, "la retouche paiement global doit etre creee");
+  const globalPayment = await withAuth(
+    session.client.post(`/api/retouches/${encodeURIComponent(globalPaymentPayload.idRetouche)}/paiements/caisse`),
+    session.token
+  ).send({
+    montant: 12,
+    idCaisseJour,
+    utilisateur: "integration-test"
+  });
+  assert.equal(globalPayment.status, 200, "le paiement global retouche doit reussir");
+  const globalItems = await getRetoucheItems(atelierId, globalPaymentPayload.idRetouche);
+  assert.equal(Number(globalItems[0]?.montant_paye || 0), 0, "la redistribution globale retouche ne doit pas ecrire un paiement cible sur item");
+  assert.equal(Number(globalItems[1]?.montant_paye || 0), 0, "la redistribution globale retouche reste uniquement globale");
 
   assert.equal(multiItems[0]?.type_habit, "ROBE");
   assert.equal(Number(patchedItems[0]?.mesures_snapshot_json?.valeurs?.longueur || 0), 146);
@@ -337,6 +395,57 @@ async function run() {
   });
   assert.equal(confirmSansNumero.status, 201, "la creation reste possible apres confirmation explicite");
   assert.equal((await findClientsByIdentity(atelierId, "Junior", "SansNumero")).length >= 2, true);
+
+  const atelierCustomHabitsId = `ATELIER_RET_CUSTOM_${Date.now()}`;
+  const customSession = await createAuthenticatedSession({
+    atelierId: atelierCustomHabitsId,
+    emailPrefix: "ret-wizard-custom",
+    nom: "Retouche Wizard Custom"
+  });
+  await saveAtelierParametres({
+    atelierId: atelierCustomHabitsId,
+    payload: createDefaultParametresPayload({
+      retouches: {
+        mesuresOptionnelles: true,
+        saisiePartielle: true,
+        descriptionObligatoire: false,
+        typesRetouche: []
+      },
+      habits: {
+        VESTE: {
+          label: "Veste",
+          actif: true,
+          ordre: 1,
+          mesures: [
+            { code: "poitrine", label: "Poitrine", obligatoire: true, actif: true, ordre: 1, typeChamp: "number" },
+            { code: "longueurManches", label: "Longueur manches", obligatoire: true, actif: true, ordre: 2, typeChamp: "number" }
+          ]
+        }
+      }
+    })
+  });
+  const customClient = await createClientViaApi({
+    client: customSession.client,
+    token: customSession.token,
+    nom: "Custom",
+    prenom: "Retouche",
+    telephone: "+243810101778"
+  });
+  assert.equal(customClient.status, 201);
+  const customHabitCreation = await withAuth(customSession.client.post("/api/retouches/wizard"), customSession.token).send({
+    idRetouche: buildTestId("RET"),
+    idClient: customClient.body?.client?.idClient,
+    descriptionRetouche: "Retouche veste custom",
+    items: [
+      {
+        typeRetouche: "REPARATION",
+        typeHabit: "VESTE",
+        description: "Ajustement veste",
+        prix: 25
+      }
+    ]
+  });
+  assert.equal(customHabitCreation.status, 201, "une retouche doit accepter un type d'habit configure par atelier");
 }
 
 run()

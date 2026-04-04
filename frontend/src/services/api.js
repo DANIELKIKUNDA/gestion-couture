@@ -1165,29 +1165,31 @@ export const atelierApi = {
     });
   },
 
-  async enregistrerPaiementViaCaisse({ idCommande, montant, utilisateur = CAISSE_USER, idCaisseJour = "" }) {
-    const caisseJourId = await resolveCaisseJourId(idCaisseJour);
-    return request(`/commandes/${idCommande}/paiements/caisse`, {
-      method: "POST",
-      body: JSON.stringify({
-        montant,
-        idCaisseJour: caisseJourId,
-        modePaiement: CAISSE_MODE_PAIEMENT,
-        utilisateur
-      })
-    });
-  },
+  async enregistrerPaiementViaCaisse({ idCommande, idItem = "", montant, utilisateur = CAISSE_USER, idCaisseJour = "" }) {
+      const caisseJourId = await resolveCaisseJourId(idCaisseJour);
+      return request(`/commandes/${idCommande}/paiements/caisse`, {
+        method: "POST",
+        body: JSON.stringify({
+          montant,
+          idCaisseJour: caisseJourId,
+          modePaiement: CAISSE_MODE_PAIEMENT,
+          utilisateur,
+          ...(idItem ? { idItem } : {})
+        })
+      });
+    },
 
-  async enregistrerPaiementRetoucheViaCaisse({ idRetouche, montant, utilisateur = CAISSE_USER, idCaisseJour = "" }) {
-    const caisseJourId = await resolveCaisseJourId(idCaisseJour);
-    return request(`/retouches/${idRetouche}/paiements/caisse`, {
-      method: "POST",
-      body: JSON.stringify({
-        montant,
-        idCaisseJour: caisseJourId,
-        modePaiement: CAISSE_MODE_PAIEMENT,
-        utilisateur
-      })
-    });
-  }
-};
+  async enregistrerPaiementRetoucheViaCaisse({ idRetouche, idItem = "", montant, utilisateur = CAISSE_USER, idCaisseJour = "" }) {
+      const caisseJourId = await resolveCaisseJourId(idCaisseJour);
+      return request(`/retouches/${idRetouche}/paiements/caisse`, {
+        method: "POST",
+        body: JSON.stringify({
+          montant,
+          idCaisseJour: caisseJourId,
+          modePaiement: CAISSE_MODE_PAIEMENT,
+          utilisateur,
+          ...(idItem ? { idItem } : {})
+        })
+      });
+    }
+  };

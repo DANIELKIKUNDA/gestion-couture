@@ -24,6 +24,7 @@ export class RetoucheItem {
     typeHabit = null,
     description = "",
     prix = 0,
+    montantPaye = 0,
     ordreAffichage = 1,
     mesures = null,
     dateCreation = null,
@@ -37,6 +38,13 @@ export class RetoucheItem {
     const normalizedPrice = Number(prix || 0);
     if (!Number.isFinite(normalizedPrice) || normalizedPrice < 0) {
       throw new Error("prix item retouche invalide");
+    }
+    const normalizedPaid = Number(montantPaye || 0);
+    if (!Number.isFinite(normalizedPaid) || normalizedPaid < 0) {
+      throw new Error("montantPaye item retouche invalide");
+    }
+    if (normalizedPaid > normalizedPrice) {
+      throw new Error("montantPaye item retouche > prix");
     }
 
     const resolvedPolicy = resolveRetouchePolicy(policy);
@@ -77,6 +85,7 @@ export class RetoucheItem {
     this.typeHabit = normalizedTypeHabit;
     this.description = normalizeText(description);
     this.prix = normalizedPrice;
+    this.montantPaye = normalizedPaid;
     this.ordreAffichage = Number(ordreAffichage || 1) || 1;
     this.mesures = normalizedMeasures
       ? {
@@ -96,6 +105,7 @@ export class RetoucheItem {
       typeHabit: this.typeHabit,
       description: this.description,
       prix: this.prix,
+      montantPaye: this.montantPaye,
       ordreAffichage: this.ordreAffichage,
       mesures: this.mesures,
       dateCreation: this.dateCreation

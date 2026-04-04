@@ -21,6 +21,7 @@ export class CommandeItem {
     typeHabit,
     description = "",
     prix,
+    montantPaye = 0,
     ordreAffichage = 1,
     mesures = null,
     dateCreation = null,
@@ -32,11 +33,18 @@ export class CommandeItem {
     if (!Number.isFinite(Number(prix)) || Number(prix) < 0) {
       throw new Error("prix item doit etre >= 0");
     }
+    if (!Number.isFinite(Number(montantPaye)) || Number(montantPaye) < 0) {
+      throw new Error("montantPaye item doit etre >= 0");
+    }
+    if (Number(montantPaye) > Number(prix || 0)) {
+      throw new Error("montantPaye item > prix");
+    }
 
     this.idItem = normalizeText(idItem);
     this.idCommande = normalizeText(idCommande) || null;
     this.description = normalizeText(description);
     this.prix = Number(prix || 0);
+    this.montantPaye = Number(montantPaye || 0);
     this.ordreAffichage = Number(ordreAffichage || 1) || 1;
     this.dateCreation = dateCreation || null;
 
@@ -79,6 +87,7 @@ export class CommandeItem {
       typeHabit: this.typeHabit,
       description: this.description,
       prix: this.prix,
+      montantPaye: this.montantPaye,
       ordreAffichage: this.ordreAffichage,
       mesures: this.mesures,
       dateCreation: this.dateCreation

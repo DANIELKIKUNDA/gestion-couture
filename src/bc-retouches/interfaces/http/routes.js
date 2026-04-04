@@ -8,6 +8,7 @@ import { demarrerTravail } from "../../application/use-cases/demarrer-travail.js
 import { terminerTravail } from "../../application/use-cases/terminer-travail.js";
 import { appliquerPaiement } from "../../application/use-cases/appliquer-paiement.js";
 import { enregistrerPaiementRetoucheViaCaisse } from "../../application/use-cases/enregistrer-paiement-via-caisse.js";
+import { enregistrerPaiementRetoucheItemViaCaisse } from "../../application/use-cases/enregistrer-paiement-item-via-caisse.js";
 import { livrerRetouche } from "../../application/use-cases/livrer-retouche.js";
 import { annulerRetoucheViaCaisse } from "../../application/use-cases/annuler-retouche-via-caisse.js";
 import { modifierRetoucheItem } from "../../application/use-cases/modifier-retouche-item.js";
@@ -508,10 +509,10 @@ router.patch("/retouches/:id/items/:itemId", requireRetoucheCreateAccess, async 
       prix: z.coerce.number().nonnegative().optional(),
       mesures: z.any().optional()
     })
+    .passthrough()
     .refine((data) => Object.keys(data || {}).length > 0, {
       message: "Aucune modification fournie"
-    })
-    .passthrough();
+    });
   const parsed = validateSchema(schema, req.body || {});
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
@@ -1135,7 +1136,8 @@ router.post("/retouches/:id/paiements/caisse", async (req, res) => {
       montant: z.coerce.number(),
       idCaisseJour: z.string().min(1),
       utilisateur: z.string().min(1),
-      modePaiement: z.string().optional()
+      modePaiement: z.string().optional(),
+      idItem: z.string().min(1).optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -1150,15 +1152,29 @@ router.post("/retouches/:id/paiements/caisse", async (req, res) => {
     const acteur = resolveActeur(req, body.utilisateur);
     const repo = scopedRetoucheRepo(req);
     const before = await repo.getById(req.params.id);
-    const retouche = await enregistrerPaiementRetoucheViaCaisse({
-      idRetouche: req.params.id,
-      montant: body.montant,
-      idCaisseJour: body.idCaisseJour,
-      utilisateur: acteur.utilisateur || body.utilisateur,
-      modePaiement: body.modePaiement || "CASH",
-      retoucheRepo: repo,
-      caisseRepo: scopedCaisseRepo(req)
-    });
+    const normalizedIdItem = String(body.idItem || "").trim();
+    const retouche = normalizedIdItem
+      ? await enregistrerPaiementRetoucheItemViaCaisse({
+          idRetouche: req.params.id,
+          idItem: normalizedIdItem,
+          montant: body.montant,
+          idCaisseJour: body.idCaisseJour,
+          utilisateur: acteur.utilisateur || body.utilisateur,
+          modePaiement: body.modePaiement || "CASH",
+          retoucheRepo: repo,
+          retoucheItemRepo: scopedRetoucheItemRepo(req),
+          caisseRepo: scopedCaisseRepo(req),
+          policy: await loadRetouchePolicy({ req })
+        })
+      : await enregistrerPaiementRetoucheViaCaisse({
+          idRetouche: req.params.id,
+          montant: body.montant,
+          idCaisseJour: body.idCaisseJour,
+          utilisateur: acteur.utilisateur || body.utilisateur,
+          modePaiement: body.modePaiement || "CASH",
+          retoucheRepo: repo,
+          caisseRepo: scopedCaisseRepo(req)
+        });
     await enregistrerEvenementRetouche({
       atelierId: atelierIdFromReq(req),
       idRetouche: retouche.idRetouche,
@@ -1171,6 +1187,7 @@ router.post("/retouches/:id/paiements/caisse", async (req, res) => {
         utilisateurNom: acteur.utilisateurNom,
         role: acteur.role,
         montant: Number(body.montant || 0),
+        idItem: normalizedIdItem || null,
         idCaisseJour: body.idCaisseJour || null,
         modePaiement: body.modePaiement || "CASH"
       }
@@ -1185,6 +1202,7 @@ router.post("/retouches/:id/paiements/caisse", async (req, res) => {
       payload: {
         utilisateurNom: acteur.utilisateurNom,
         montant: Number(body.montant || 0),
+        idItem: normalizedIdItem || null,
         idCaisseJour: body.idCaisseJour || null
       }
     });

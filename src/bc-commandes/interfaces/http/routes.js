@@ -10,6 +10,7 @@ import { creerCommande } from "../../application/use-cases/creer-commande.js";
 import { terminerTravail } from "../../application/use-cases/terminer-travail.js";
 import { appliquerPaiement } from "../../application/use-cases/appliquer-paiement.js";
 import { enregistrerPaiementViaCaisse } from "../../application/use-cases/enregistrer-paiement-via-caisse.js";
+import { enregistrerPaiementCommandeItemViaCaisse } from "../../application/use-cases/enregistrer-paiement-item-via-caisse.js";
 import { livrerCommande } from "../../application/use-cases/livrer-commande.js";
 import { annulerCommandeViaCaisse } from "../../application/use-cases/annuler-commande-via-caisse.js";
 import { modifierCommandeItem } from "../../application/use-cases/modifier-commande-item.js";
@@ -401,24 +402,25 @@ async function loadCommandeLignesMap(db, atelierId, commandeIds = []) {
 async function loadCommandeItemsMap(db, atelierId, commandeIds = []) {
   const ids = Array.from(new Set((commandeIds || []).map((value) => String(value || "").trim()).filter(Boolean)));
   if (ids.length === 0) return new Map();
-  const measuresColumnResult = await db.query(
-    `SELECT 1
+  const itemColumnsResult = await db.query(
+    `SELECT column_name
      FROM information_schema.columns
      WHERE table_schema = 'public'
        AND table_name = 'commande_items'
-       AND column_name = 'mesures_snapshot_json'
-     LIMIT 1`
-  ).catch(() => ({ rowCount: 0 }));
-  const includeMeasures = measuresColumnResult.rowCount > 0;
+       AND column_name IN ('mesures_snapshot_json', 'montant_paye')`
+  ).catch(() => ({ rows: [] }));
+  const itemColumns = new Set((itemColumnsResult.rows || []).map((row) => String(row.column_name || "").trim()));
+  const includeMeasures = itemColumns.has("mesures_snapshot_json");
+  const includeMontantPaye = itemColumns.has("montant_paye");
   let result;
   try {
     result = await db.query(
       includeMeasures
-        ? `SELECT id_item, id_commande, type_habit, description, prix, ordre_affichage, mesures_snapshot_json, date_creation
+        ? `SELECT id_item, id_commande, type_habit, description, prix, ${includeMontantPaye ? "montant_paye," : ""} ordre_affichage, mesures_snapshot_json, date_creation
            FROM commande_items
            WHERE atelier_id = $1 AND id_commande = ANY($2::text[])
            ORDER BY ordre_affichage ASC, date_creation ASC`
-        : `SELECT id_item, id_commande, type_habit, description, prix, ordre_affichage, date_creation
+        : `SELECT id_item, id_commande, type_habit, description, prix, ${includeMontantPaye ? "montant_paye," : ""} ordre_affichage, date_creation
            FROM commande_items
            WHERE atelier_id = $1 AND id_commande = ANY($2::text[])
            ORDER BY ordre_affichage ASC, date_creation ASC`,
@@ -437,6 +439,7 @@ async function loadCommandeItemsMap(db, atelierId, commandeIds = []) {
       typeHabit: row.type_habit || "",
       description: row.description || "",
       prix: Number(row.prix || 0),
+      montantPaye: Number(row.montant_paye || 0),
       ordreAffichage: Number(row.ordre_affichage || 1),
       mesures: row.mesures_snapshot_json || null,
       dateCreation: row.date_creation
@@ -702,10 +705,10 @@ router.patch("/commandes/:id/items/:itemId", requireCommandeCreateAccess, async 
       prix: z.coerce.number().nonnegative().optional(),
       mesures: z.any().optional()
     })
+    .passthrough()
     .refine((data) => Object.keys(data || {}).length > 0, {
       message: "Aucune modification fournie"
-    })
-    .passthrough();
+    });
   const parsed = validateSchema(schema, req.body || {});
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
 
@@ -1423,7 +1426,8 @@ router.post("/commandes/:id/paiements/caisse", async (req, res) => {
       montant: z.coerce.number(),
       idCaisseJour: z.string().min(1),
       utilisateur: z.string().min(1),
-      modePaiement: z.string().optional()
+      modePaiement: z.string().optional(),
+      idItem: z.string().min(1).optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -1439,16 +1443,30 @@ router.post("/commandes/:id/paiements/caisse", async (req, res) => {
     const repo = scopedCommandeRepo(req);
     const before = await repo.getById(req.params.id);
     const policyMeta = await loadCommandePolicy("commandes.paiements.caisse", req);
-    const commande = await enregistrerPaiementViaCaisse({
-      idCommande: req.params.id,
-      montant: body.montant,
-      commandeRepo: repo,
-      caisseRepo: scopedCaisseRepo(req),
-      idCaisseJour: body.idCaisseJour,
-      utilisateur: acteur.utilisateur || body.utilisateur,
-      modePaiement: body.modePaiement || "CASH",
-      policy: { commandes: policyMeta.policy }
-    });
+    const normalizedIdItem = String(body.idItem || "").trim();
+    const commande = normalizedIdItem
+      ? await enregistrerPaiementCommandeItemViaCaisse({
+          idCommande: req.params.id,
+          idItem: normalizedIdItem,
+          montant: body.montant,
+          commandeRepo: repo,
+          commandeItemRepo: scopedCommandeItemRepo(req),
+          caisseRepo: scopedCaisseRepo(req),
+          idCaisseJour: body.idCaisseJour,
+          utilisateur: acteur.utilisateur || body.utilisateur,
+          modePaiement: body.modePaiement || "CASH",
+          policy: { commandes: policyMeta.policy }
+        })
+      : await enregistrerPaiementViaCaisse({
+          idCommande: req.params.id,
+          montant: body.montant,
+          commandeRepo: repo,
+          caisseRepo: scopedCaisseRepo(req),
+          idCaisseJour: body.idCaisseJour,
+          utilisateur: acteur.utilisateur || body.utilisateur,
+          modePaiement: body.modePaiement || "CASH",
+          policy: { commandes: policyMeta.policy }
+        });
     await enregistrerEvenementCommande({
       atelierId: atelierIdFromReq(req),
       idCommande: commande.idCommande,
@@ -1461,6 +1479,7 @@ router.post("/commandes/:id/paiements/caisse", async (req, res) => {
         utilisateurNom: acteur.utilisateurNom,
         role: acteur.role,
         montant: Number(body.montant || 0),
+        idItem: normalizedIdItem || null,
         idCaisseJour: body.idCaisseJour || null,
         modePaiement: body.modePaiement || "CASH"
       }
@@ -1475,6 +1494,7 @@ router.post("/commandes/:id/paiements/caisse", async (req, res) => {
       payload: {
         utilisateurNom: acteur.utilisateurNom,
         montant: Number(body.montant || 0),
+        idItem: normalizedIdItem || null,
         idCaisseJour: body.idCaisseJour || null
       }
     });

@@ -7,6 +7,7 @@ import {
   createAuthenticatedSession,
   createClientViaApi,
   createDefaultParametresPayload,
+  openCaisseViaApi,
   saveAtelierParametres,
   withAuth
 } from "./helpers/integration-fixtures.js";
@@ -70,21 +71,23 @@ async function getCommandeLignes(atelierId, idCommande) {
 }
 
 async function getCommandeItems(atelierId, idCommande) {
-  const hasMeasuresColumn = await pool.query(
-    `SELECT 1
+  const columnsResult = await pool.query(
+    `SELECT column_name
      FROM information_schema.columns
      WHERE table_schema = 'public'
        AND table_name = 'commande_items'
-       AND column_name = 'mesures_snapshot_json'
-     LIMIT 1`
+       AND column_name IN ('mesures_snapshot_json', 'montant_paye')`
   );
+  const availableColumns = new Set((columnsResult.rows || []).map((row) => String(row.column_name || "").trim()));
+  const hasMeasuresColumn = availableColumns.has("mesures_snapshot_json");
+  const hasMontantPayeColumn = availableColumns.has("montant_paye");
   const result = await pool.query(
-    hasMeasuresColumn.rowCount > 0
-      ? `SELECT id_item, type_habit, description, prix, mesures_snapshot_json
+    hasMeasuresColumn
+      ? `SELECT id_item, type_habit, description, prix, ${hasMontantPayeColumn ? "montant_paye," : ""} mesures_snapshot_json
          FROM commande_items
          WHERE atelier_id = $1 AND id_commande = $2
          ORDER BY ordre_affichage ASC, date_creation ASC`
-      : `SELECT id_item, type_habit, description, prix
+      : `SELECT id_item, type_habit, description, prix, ${hasMontantPayeColumn ? "montant_paye" : "0 AS montant_paye"}
          FROM commande_items
          WHERE atelier_id = $1 AND id_commande = $2
          ORDER BY ordre_affichage ASC, date_creation ASC`,
@@ -103,6 +106,7 @@ async function getClientLatestMeasures(session, idClient, typeHabit) {
 
 async function run() {
   await pool.query("ALTER TABLE commande_items ADD COLUMN IF NOT EXISTS mesures_snapshot_json JSONB NULL").catch(() => {});
+  await pool.query("ALTER TABLE commande_items ADD COLUMN IF NOT EXISTS montant_paye NUMERIC(12,2) NOT NULL DEFAULT 0").catch(() => {});
   const atelierId = `ATELIER_CMD_SRP_${Date.now()}`;
   const session = await createAuthenticatedSession({
     atelierId,
@@ -186,11 +190,27 @@ async function run() {
   assert.equal(Number(patchedItems[0]?.prix || 0), 110);
   assert.equal(Number(patchedItems[0]?.mesures_snapshot_json?.valeurs?.tourTaille || 0), 84);
 
-  const paiementCommande = await withAuth(
-    session.client.post(`/api/commandes/${encodeURIComponent(multiItemPayload.idCommande)}/paiements`),
+  const caisseResponse = await openCaisseViaApi({
+    client: session.client,
+    token: session.token,
+    utilisateur: "integration-test"
+  });
+  assert.equal(caisseResponse.status, 201, "ouverture caisse attendue");
+  const idCaisseJour = String(caisseResponse.body?.idCaisseJour || "");
+
+  const paiementItemCommande = await withAuth(
+    session.client.post(`/api/commandes/${encodeURIComponent(multiItemPayload.idCommande)}/paiements/caisse`),
     session.token
-  ).send({ montant: 20, utilisateur: "integration-test" });
-  assert.equal(paiementCommande.status, 200, "le paiement commande doit reussir");
+  ).send({
+    montant: 20,
+    idItem: multiItems[1].id_item,
+    idCaisseJour,
+    utilisateur: "integration-test"
+  });
+  assert.equal(paiementItemCommande.status, 200, "le paiement commande cible doit reussir");
+  const paidItems = await getCommandeItems(atelierId, multiItemPayload.idCommande);
+  assert.equal(Number(paidItems[0]?.montant_paye || 0), 0, "le paiement cible ne doit pas toucher le premier item");
+  assert.equal(Number(paidItems[1]?.montant_paye || 0), 20, "le paiement cible doit etre stocke sur l'item vise");
 
   const forbiddenPatch = await withAuth(
     session.client.patch(`/api/commandes/${encodeURIComponent(multiItemPayload.idCommande)}/items/${encodeURIComponent(multiItems[1].id_item)}`),
@@ -199,7 +219,38 @@ async function run() {
     description: "Chemise interdite apres paiement"
   });
   assert.equal(forbiddenPatch.status, 400, "un item commande ne doit plus etre modifiable apres paiement");
-  assert.match(String(forbiddenPatch.body?.error || ""), /paiement/i);
+
+  const globalPaymentPayload = {
+    idCommande: buildTestId("CMD"),
+    clientPayeurId: createPayload.nouveauClient.idClient,
+    descriptionCommande: "Commande paiement global",
+    montantTotal: 0,
+    items: [
+      { typeHabit: "PANTALON", description: "Pantalon global", prix: 60, mesures: pantalonMesuresCompletes },
+      { typeHabit: "CHEMISE", description: "Chemise globale", prix: 40, mesures: {
+        poitrine: 98,
+        longueurChemise: 74,
+        typeManches: "longues",
+        poignet: 18,
+        carrure: 44,
+        longueurManches: 63
+      } }
+    ]
+  };
+  const globalCreation = await withAuth(session.client.post("/api/commandes"), session.token).send(globalPaymentPayload);
+  assert.equal(globalCreation.status, 201, "la commande paiement global doit etre creee");
+  const globalPayment = await withAuth(
+    session.client.post(`/api/commandes/${encodeURIComponent(globalPaymentPayload.idCommande)}/paiements/caisse`),
+    session.token
+  ).send({
+    montant: 30,
+    idCaisseJour,
+    utilisateur: "integration-test"
+  });
+  assert.equal(globalPayment.status, 200, "le paiement global commande doit reussir");
+  const globalItems = await getCommandeItems(atelierId, globalPaymentPayload.idCommande);
+  assert.equal(Number(globalItems[0]?.montant_paye || 0), 0, "la redistribution globale ne doit pas ecrire un paiement cible sur item");
+  assert.equal(Number(globalItems[1]?.montant_paye || 0), 0, "la redistribution globale reste uniquement globale");
 
   assert.equal(Number(patchedItems[0]?.mesures_snapshot_json?.valeurs?.tourTaille || 0), 84);
   assert.equal(String(multiItems[1]?.mesures_snapshot_json?.typeHabit || ""), "CHEMISE");

@@ -4609,11 +4609,15 @@ function updateRetoucheItemStatus(itemId = "") {
 }
 
 function buildItemPaymentBreakdown(items = [], totalPaid = 0) {
-  let remainingPaid = Math.max(0, Number(totalPaid || 0));
-  return (Array.isArray(items) ? items : []).map((item) => {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const explicitPaidTotal = normalizedItems.reduce((sum, item) => sum + Math.max(0, Number(item?.montantPaye || 0)), 0);
+  let remainingPaid = Math.max(0, Number(totalPaid || 0) - explicitPaidTotal);
+  return normalizedItems.map((item) => {
     const montant = Math.max(0, Number(item?.prix || 0));
-    const paye = Math.min(montant, remainingPaid);
-    remainingPaid = Math.max(0, remainingPaid - paye);
+    const explicitPaid = Math.min(montant, Math.max(0, Number(item?.montantPaye || 0)));
+    const implicitPaid = Math.min(Math.max(0, montant - explicitPaid), remainingPaid);
+    const paye = explicitPaid + implicitPaid;
+    remainingPaid = Math.max(0, remainingPaid - implicitPaid);
     return {
       montant,
       paye,
@@ -10334,6 +10338,7 @@ function normalizeCommande(raw) {
         typeHabit: item.typeHabit || item.type_habit || "",
         description: item.description || "",
         prix: Number(item.prix ?? 0),
+        montantPaye: Number(item.montantPaye ?? item.montant_paye ?? 0),
         ordreAffichage: Number(item.ordreAffichage ?? item.ordre_affichage ?? index + 1),
         mesures: item.mesures || item.mesuresSnapshot || item.mesures_snapshot_json || null,
         dateCreation: item.dateCreation || item.date_creation || ""
@@ -10364,6 +10369,7 @@ function normalizeCommande(raw) {
               typeHabit: raw.typeHabit || raw.type_habit || "",
               description: raw.descriptionCommande || raw.description || "",
               prix: Number(raw.montantTotal ?? raw.montant_total ?? 0),
+              montantPaye: Number(raw.montantPaye ?? raw.montant_paye ?? 0),
               ordreAffichage: 1,
               mesures: raw.mesuresHabit || raw.mesures_habit_snapshot || null,
               dateCreation: raw.dateCreation || raw.date_creation || ""
@@ -10447,6 +10453,7 @@ function normalizeRetouche(raw) {
         typeHabit: item.typeHabit || item.type_habit || "",
         description: item.description || "",
         prix: Number(item.prix ?? 0),
+        montantPaye: Number(item.montantPaye ?? item.montant_paye ?? 0),
         ordreAffichage: Number(item.ordreAffichage ?? item.ordre_affichage ?? index + 1),
         mesures: item.mesures || item.mesuresHabit || item.mesures_habit_snapshot || item.mesures_snapshot_json || null,
         dateCreation: item.dateCreation || item.date_creation || ""
@@ -10464,6 +10471,7 @@ function normalizeRetouche(raw) {
               typeHabit: raw.typeHabit || raw.type_habit || "",
               description: raw.descriptionRetouche || raw.description || "",
               prix: Number(raw.montantTotal ?? raw.montant_total ?? 0),
+              montantPaye: Number(raw.montantPaye ?? raw.montant_paye ?? 0),
               ordreAffichage: 1,
               mesures: raw.mesuresHabit || raw.mesures_habit_snapshot || null,
               dateCreation: raw.dateDepot || raw.date_depot || ""
@@ -11679,13 +11687,13 @@ async function onWizardStep2() {
   wizard.submitting = true;
   try {
     if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
+    syncCommandePrimaryTypeFromItems();
     const items = (wizard.commande.items || []).filter((item) => String(item.typeHabit || "").trim());
     const montant = Number(wizard.commande.montantTotal);
     if (!String(wizard.commande.descriptionCommande || "").trim() || Number.isNaN(montant) || montant <= 0) {
       throw new Error("Description et montant valide sont obligatoires.");
     }
     if (items.length === 0) throw new Error("Ajoutez au moins un habit.");
-    if (!String(wizard.commande.typeHabit || "").trim()) throw new Error("Selectionnez le type d'habit principal.");
     wizard.step = 3;
     setWizardCommandeMeasureIndex(0);
   } catch (err) {
@@ -11726,6 +11734,7 @@ async function onWizardStep4() {
   wizard.submitting = true;
   try {
     if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
+    syncCommandePrimaryTypeFromItems();
     const atelierId = currentAtelierId.value;
     if (!atelierId) throw new Error("Atelier offline introuvable.");
 
@@ -11742,7 +11751,6 @@ async function onWizardStep4() {
       throw new Error("Description et montant valide sont obligatoires.");
     }
     if (items.length === 0) throw new Error("Ajoutez au moins un habit.");
-    if (!String(wizard.commande.typeHabit || "").trim()) throw new Error("Selectionnez le type d'habit principal.");
 
     const commandesConfig = wizardCommandesSettings.value || {};
     const mesuresObligatoires = commandesConfig.mesuresObligatoires !== false;
@@ -11907,6 +11915,7 @@ async function onRetoucheWizardStep3() {
   retoucheWizard.submitting = true;
   try {
     if (!canCreateRetouche.value) throw new Error("Creation de retouche non autorisee.");
+    syncRetouchePrimaryTypeFromItems();
     if (!retoucheWizard.retouche.typeHabit) throw new Error("Type d'habit obligatoire.");
     if (!retoucheWizard.retouche.typeRetouche) throw new Error("Type de retouche obligatoire.");
     if (wizardRetoucheDescriptionRequired.value && !String(retoucheWizard.retouche.descriptionRetouche || "").trim()) {
@@ -11942,6 +11951,7 @@ async function onRetoucheWizardStep4() {
   retoucheWizard.submitting = true;
   try {
     if (!canCreateRetouche.value) throw new Error("Creation de retouche non autorisee.");
+    syncRetouchePrimaryTypeFromItems();
     const atelierId = currentAtelierId.value;
     if (!atelierId) throw new Error("Atelier offline introuvable.");
     const items = (retoucheWizard.retouche.items || [])
@@ -12436,6 +12446,47 @@ async function onPaiementDetail() {
   }
 }
 
+async function onPaiementDetailItem(itemCard) {
+  if (!detailCommande.value || !itemCard?.id) return;
+  if (isLocalEntity(detailCommande.value.idCommande)) {
+    notifyEntityRequiresSync("Cette commande");
+    return;
+  }
+  const payload = await openActionModal({
+    title: "Confirmer le paiement",
+    message: `Enregistrer un paiement pour ${itemCard.title || "cet habit"}.`,
+    confirmLabel: "Confirmer le paiement",
+    fields: [{
+      key: "montant",
+      label: "Montant (FC)",
+      type: "number",
+      required: true,
+      min: 1,
+      defaultValue: Math.max(1, Math.min(Number(itemCard.reste || 0), Number(itemCard.prix || 0)))
+    }]
+  });
+  if (!payload) return;
+
+  try {
+    await atelierApi.enregistrerPaiementViaCaisse({
+      idCommande: detailCommande.value.idCommande,
+      idItem: itemCard.id,
+      montant: Number(payload.montant),
+      utilisateur: "frontend"
+    });
+    await loadCommandeDetail(detailCommande.value.idCommande, { preserveExisting: true });
+    await reloadAll();
+    notify(`Paiement enregistre pour ${itemCard.title || "cet habit"}.`);
+  } catch (err) {
+    const message = readableError(err);
+    if (isCaisseClosedMessage(message)) {
+      notify("Impossible d'effectuer ce paiement : la caisse est cloturee.");
+      return;
+    }
+    notify(message);
+  }
+}
+
 async function onLivrerCommande(commande) {
   try {
     await atelierApi.livrerCommande(commande.idCommande);
@@ -12548,6 +12599,47 @@ async function onPaiementRetoucheDetail() {
     await loadRetoucheDetail(detailRetouche.value.idRetouche);
     await reloadAll();
     notify(`Paiement enregistre via la caisse pour ${detailRetouche.value.idRetouche}`);
+  } catch (err) {
+    const message = readableError(err);
+    if (isCaisseClosedMessage(message)) {
+      notify("Impossible d'effectuer ce paiement : la caisse est cloturee.");
+      return;
+    }
+    notify(message);
+  }
+}
+
+async function onPaiementRetoucheDetailItem(itemCard) {
+  if (!detailRetouche.value || !itemCard?.id) return;
+  if (isLocalEntity(detailRetouche.value.idRetouche)) {
+    notifyEntityRequiresSync("Cette retouche");
+    return;
+  }
+  const payload = await openActionModal({
+    title: "Confirmer le paiement",
+    message: `Enregistrer un paiement pour ${itemCard.title || "cette intervention"}.`,
+    confirmLabel: "Confirmer le paiement",
+    fields: [{
+      key: "montant",
+      label: "Montant (FC)",
+      type: "number",
+      required: true,
+      min: 1,
+      defaultValue: Math.max(1, Math.min(Number(itemCard.reste || 0), Number(itemCard.prix || 0)))
+    }]
+  });
+  if (!payload) return;
+
+  try {
+    await atelierApi.enregistrerPaiementRetoucheViaCaisse({
+      idRetouche: detailRetouche.value.idRetouche,
+      idItem: itemCard.id,
+      montant: Number(payload.montant),
+      utilisateur: "frontend"
+    });
+    await loadRetoucheDetail(detailRetouche.value.idRetouche, { preserveExisting: true });
+    await reloadAll();
+    notify(`Paiement enregistre pour ${itemCard.title || "cette intervention"}.`);
   } catch (err) {
     const message = readableError(err);
     if (isCaisseClosedMessage(message)) {
@@ -16272,8 +16364,6 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               />
               <div class="row-actions">
                 <button class="mini-btn" @click="openRoute('commandes')">Retour</button>
-                <button v-show="canEditCommandeDetail" class="mini-btn" @click="focusDetailItemSection('commande')">Modifier</button>
-                <span v-show="!canEditCommandeDetail" class="status-chip warning">Verrouille apres paiement</span>
                 <button
                   v-show="!isMobileViewport && canEmitCommandeDetailFacture"
                   class="action-btn blue"
@@ -16405,7 +16495,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <p v-show="item.mesuresLines.length === 0" class="helper">Aucune mesure renseignee.</p>
                   </div>
                   <div class="row-actions detail-item-actions">
-                    <button v-show="item.canPay" class="mini-btn green" :disabled="detailLoading || detailPaiementsLoading" @click="onPaiementDetail">Payer</button>
+                    <button v-show="item.canPay" class="mini-btn green" :disabled="detailLoading || detailPaiementsLoading" @click="onPaiementDetailItem(item)">Payer</button>
                     <button v-show="item.canEdit" class="mini-btn" :disabled="detailLoading" @click="openCommandeItemEditModal(item)">Modifier</button>
                     <button class="mini-btn blue" v-show="item.canAdvanceStatus" :disabled="detailLoading || !item.canAdvanceStatus" @click="updateCommandeItemStatus(item.id)">
                       {{ item.statusActionLabel }}
@@ -16417,7 +16507,6 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     >
                       Voir photos
                     </button>
-                    <span v-show="!item.canEdit" class="detail-item-lock">Verrouille apres paiement</span>
                   </div>
                 </article>
               </div>
@@ -16616,8 +16705,6 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               />
               <div class="row-actions">
                 <button class="mini-btn" @click="openRoute('retouches')">Retour</button>
-                <button v-show="canEditRetoucheDetail" class="mini-btn" @click="focusDetailItemSection('retouche')">Modifier</button>
-                <span v-show="!canEditRetoucheDetail" class="status-chip warning">Verrouille apres paiement</span>
                 <button
                   v-show="!isMobileViewport && canEmitRetoucheDetailFacture"
                   class="action-btn blue"
@@ -16754,12 +16841,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <p v-show="item.mesuresLines.length === 0" class="helper">Aucune mesure renseignee.</p>
                   </div>
                   <div class="row-actions detail-item-actions">
-                    <button v-show="item.canPay" class="mini-btn green" :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading" @click="onPaiementRetoucheDetail">Payer</button>
+                    <button v-show="item.canPay" class="mini-btn green" :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading" @click="onPaiementRetoucheDetailItem(item)">Payer</button>
                     <button v-show="item.canEdit" class="mini-btn" :disabled="detailRetoucheLoading" @click="openRetoucheItemEditModal(item)">Modifier</button>
                     <button class="mini-btn blue" v-show="item.canAdvanceStatus" :disabled="detailRetoucheLoading || !item.canAdvanceStatus" @click="updateRetoucheItemStatus(item.id)">
                       {{ item.statusActionLabel }}
                     </button>
-                    <span v-show="!item.canEdit" class="detail-item-lock">Verrouille apres paiement</span>
                   </div>
                 </article>
               </div>
