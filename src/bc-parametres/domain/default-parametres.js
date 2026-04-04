@@ -1,3 +1,5 @@
+import { cloneDefaultRetoucheTypes } from "../../bc-retouches/domain/retouche-policy.js";
+
 function deepMerge(base, override) {
   if (Array.isArray(base) || Array.isArray(override)) {
     return override === undefined ? base : override;
@@ -45,20 +47,7 @@ export function buildDefaultAtelierParametresPayload({ nomAtelier = "Atelier", o
       mesuresOptionnelles: true,
       saisiePartielle: true,
       descriptionObligatoire: false,
-      typesRetouche: [
-        {
-          code: "OURLET",
-          libelle: "Ourlet",
-          actif: true,
-          ordreAffichage: 1,
-          necessiteMesures: true,
-          descriptionObligatoire: false,
-          habitsCompatibles: ["PANTALON", "ROBE", "*"],
-          mesures: [
-            { code: "longueur", label: "Longueur", unite: "cm", typeChamp: "number", obligatoire: true, actif: true, ordre: 1 }
-          ]
-        }
-      ]
+      typesRetouche: cloneDefaultRetoucheTypes()
     },
     habits: {
       PANTALON: {

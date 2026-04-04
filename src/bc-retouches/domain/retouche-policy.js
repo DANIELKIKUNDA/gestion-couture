@@ -1,4 +1,4 @@
-const DEFAULT_RETOUCHE_TYPES = [
+export const DEFAULT_RETOUCHE_TYPES = [
   {
     code: "OURLET_PANTALON",
     libelle: "Ourlet pantalon",
@@ -45,6 +45,14 @@ const DEFAULT_RETOUCHE_TYPES = [
     habitsCompatibles: ["*"]
   }
 ];
+
+export function cloneDefaultRetoucheTypes() {
+  return DEFAULT_RETOUCHE_TYPES.map((row) => ({
+    ...row,
+    habitsCompatibles: Array.isArray(row.habitsCompatibles) ? [...row.habitsCompatibles] : ["*"],
+    mesures: Array.isArray(row.mesures) ? row.mesures.map((mesure) => ({ ...mesure })) : []
+  }));
+}
 
 function normalizeMeasureRow(row, fallbackOrder = 1) {
   if (!row || typeof row !== "object") return null;

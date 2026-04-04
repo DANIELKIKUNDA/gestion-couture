@@ -10,6 +10,7 @@ import { hashPassword } from "../../src/bc-auth/infrastructure/security/password
 import { UtilisateurRepoPg } from "../../src/bc-auth/infrastructure/repositories/utilisateur-repo-pg.js";
 import { RolePermissionAtelierRepoPg } from "../../src/bc-auth/infrastructure/repositories/role-permission-atelier-repo-pg.js";
 import { AtelierParametresRepoPg } from "../../src/bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
+import { cloneDefaultRetoucheTypes } from "../../src/bc-retouches/domain/retouche-policy.js";
 
 function slugify(value) {
   return String(value || "")
@@ -464,18 +465,7 @@ export function createDefaultParametresPayload(overrides = {}) {
       mesuresOptionnelles: true,
       saisiePartielle: true,
       descriptionObligatoire: false,
-      typesRetouche: [
-        {
-          code: "OURLET",
-          libelle: "Ourlet",
-          actif: true,
-          ordreAffichage: 1,
-          necessiteMesures: true,
-          descriptionObligatoire: false,
-          habitsCompatibles: ["PANTALON", "ROBE"],
-          mesures: ["longueur"]
-        }
-      ]
+      typesRetouche: cloneDefaultRetoucheTypes()
     },
     habits: {
       PANTALON: {
