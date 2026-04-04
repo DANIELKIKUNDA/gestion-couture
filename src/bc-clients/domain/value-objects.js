@@ -1,9 +1,18 @@
 ﻿// Value objects & enums for Clients & Mesures
 export const TypeVetement = Object.freeze({
-  ROBE: "ROBE",
   PANTALON: "PANTALON",
   CHEMISE: "CHEMISE",
+  CHEMISIER: "CHEMISIER",
+  VESTE: "VESTE",
+  GILET: "GILET",
+  JACKET: "JACKET",
+  BOUBOU: "BOUBOU",
+  ROBE: "ROBE",
   JUPE: "JUPE",
+  VESTE_FEMME: "VESTE_FEMME",
+  LIBAYA: "LIBAYA",
+  ENSEMBLE: "ENSEMBLE",
+  AUTRES: "AUTRES",
   UNIFORME: "UNIFORME",
   AUTRE: "AUTRE"
 });

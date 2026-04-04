@@ -107,6 +107,30 @@ async function getClientLatestMeasures(session, idClient, typeHabit) {
 async function run() {
   await pool.query("ALTER TABLE commande_items ADD COLUMN IF NOT EXISTS mesures_snapshot_json JSONB NULL").catch(() => {});
   await pool.query("ALTER TABLE commande_items ADD COLUMN IF NOT EXISTS montant_paye NUMERIC(12,2) NOT NULL DEFAULT 0").catch(() => {});
+  await pool.query("ALTER TABLE series_mesures DROP CONSTRAINT IF EXISTS series_mesures_type_vetement_check").catch(() => {});
+  await pool.query(
+    `ALTER TABLE series_mesures
+       ADD CONSTRAINT series_mesures_type_vetement_check
+       CHECK (
+         type_vetement IN (
+           'PANTALON',
+           'CHEMISE',
+           'CHEMISIER',
+           'VESTE',
+           'GILET',
+           'JACKET',
+           'BOUBOU',
+           'ROBE',
+           'JUPE',
+           'VESTE_FEMME',
+           'LIBAYA',
+           'ENSEMBLE',
+           'AUTRES',
+           'UNIFORME',
+           'AUTRE'
+         )
+       )`
+  ).catch(() => {});
   const atelierId = `ATELIER_CMD_SRP_${Date.now()}`;
   const session = await createAuthenticatedSession({
     atelierId,
@@ -413,6 +437,28 @@ async function run() {
   const mesurePrefillAutreType = await getClientLatestMeasures(session, createPayload.nouveauClient.idClient, "ROBE");
   assert.equal(mesurePrefillAutreType.status, 200);
   assert.equal(mesurePrefillAutreType.body?.prefill, null, "le pre-remplissage doit rester contextualise par type d'habit");
+
+  const vestePayload = {
+    idCommande: buildTestId("CMD"),
+    clientPayeurId: createPayload.nouveauClient.idClient,
+    descriptionCommande: "Commande veste",
+    montantTotal: 150,
+    typeHabit: "VESTE",
+    mesuresHabit: {
+      poitrine: 96,
+      taille: 82,
+      longueurVeste: 72,
+      longueurManches: 64,
+      carrure: 44,
+      poignet: 19
+    }
+  };
+  const vesteCreation = await withAuth(session.client.post("/api/commandes"), session.token).send(vestePayload);
+  assert.equal(vesteCreation.status, 201, `la commande VESTE doit etre acceptee: ${JSON.stringify(vesteCreation.body || {})}`);
+  assert.equal(String(vesteCreation.body?.typeHabit || vesteCreation.body?.commande?.typeHabit || ""), "VESTE");
+  const mesurePrefillVeste = await getClientLatestMeasures(session, createPayload.nouveauClient.idClient, "VESTE");
+  assert.equal(mesurePrefillVeste.status, 200);
+  assert.equal(Number(mesurePrefillVeste.body?.prefill?.mesuresHabit?.valeurs?.poitrine || 0), 96);
 
   const multiPayload = {
     idCommande: buildTestId("CMD"),
