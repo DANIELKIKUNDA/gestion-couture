@@ -88,6 +88,39 @@ async function getClientLatestMeasures(session, idClient, typeHabit) {
 async function run() {
   await ensureDossierSchema();
   await pool.query("ALTER TABLE retouche_items ADD COLUMN IF NOT EXISTS montant_paye NUMERIC(12,2) NOT NULL DEFAULT 0").catch(() => {});
+  await pool.query("ALTER TABLE series_mesures DROP CONSTRAINT IF EXISTS series_mesures_type_vetement_check").catch(() => {});
+  await pool.query(
+    `ALTER TABLE series_mesures
+       ADD CONSTRAINT series_mesures_type_vetement_check
+       CHECK (type_vetement ~ '^[A-Z0-9_]+$')`
+  ).catch(() => {});
+  await pool.query(
+    `DO $$
+     DECLARE
+       constraint_row RECORD;
+     BEGIN
+       FOR constraint_row IN
+         SELECT conname
+         FROM pg_constraint
+         WHERE conrelid = 'public.retouches'::regclass
+           AND contype = 'c'
+           AND pg_get_constraintdef(oid) ILIKE '%type_retouche%'
+       LOOP
+         EXECUTE format('ALTER TABLE public.retouches DROP CONSTRAINT %I', constraint_row.conname);
+       END LOOP;
+     END $$;`
+  ).catch(() => {});
+  await pool.query(
+    `ALTER TABLE retouches
+       ADD CONSTRAINT retouches_type_retouche_valide
+       CHECK (type_retouche ~ '^[A-Z0-9_]+$')`
+  ).catch(() => {});
+  await pool.query("ALTER TABLE retouches DROP CONSTRAINT IF EXISTS retouches_type_habit_valide").catch(() => {});
+  await pool.query(
+    `ALTER TABLE retouches
+       ADD CONSTRAINT retouches_type_habit_valide
+       CHECK (type_habit IS NULL OR type_habit ~ '^[A-Z0-9_]+$')`
+  ).catch(() => {});
   const atelierId = `ATELIER_RET_WIZ_${Date.now()}`;
   const session = await createAuthenticatedSession({
     atelierId,
@@ -446,6 +479,74 @@ async function run() {
     ]
   });
   assert.equal(customHabitCreation.status, 201, "une retouche doit accepter un type d'habit configure par atelier");
+
+  const atelierCustomFreeRetoucheId = `ATELIER_RET_FREE_${Date.now()}`;
+  const freeRetoucheSession = await createAuthenticatedSession({
+    atelierId: atelierCustomFreeRetoucheId,
+    emailPrefix: "ret-free",
+    nom: "Retouche Free"
+  });
+  await saveAtelierParametres({
+    atelierId: atelierCustomFreeRetoucheId,
+    payload: createDefaultParametresPayload({
+      habits: {
+        SAHARIENNE: {
+          label: "Saharienne",
+          actif: true,
+          ordre: 1,
+          mesures: [
+            { code: "poitrine", label: "Poitrine", obligatoire: true, actif: true, ordre: 1, typeChamp: "number" }
+          ]
+        }
+      },
+      retouches: {
+        mesuresOptionnelles: true,
+        saisiePartielle: true,
+        descriptionObligatoire: false,
+        typesRetouche: [
+          {
+            code: "AJUSTEMENT_SAHARIENNE",
+            libelle: "Ajustement saharienne",
+            actif: true,
+            ordreAffichage: 1,
+            necessiteMesures: true,
+            descriptionObligatoire: false,
+            habitsCompatibles: ["SAHARIENNE"],
+            mesures: [
+              { code: "poitrine", label: "Poitrine", unite: "cm", typeChamp: "number", obligatoire: true, actif: true, ordre: 1 }
+            ]
+          }
+        ]
+      }
+    })
+  });
+  const freeRetoucheClient = await createClientViaApi({
+    client: freeRetoucheSession.client,
+    token: freeRetoucheSession.token,
+    nom: "Maman",
+    prenom: "Libre",
+    telephone: "+243810001780"
+  });
+  assert.equal(freeRetoucheClient.status, 201);
+  const freeRetoucheCreation = await withAuth(freeRetoucheSession.client.post("/api/retouches/wizard"), freeRetoucheSession.token).send({
+    idRetouche: buildTestId("RET"),
+    idClient: freeRetoucheClient.body?.client?.idClient,
+    descriptionRetouche: "Retouche saharienne parametree",
+    typeRetouche: "AJUSTEMENT_SAHARIENNE",
+    montantTotal: 45,
+    typeHabit: "SAHARIENNE",
+    mesuresHabit: {
+      poitrine: 104
+    }
+  });
+  assert.equal(
+    freeRetoucheCreation.status,
+    201,
+    `la retouche parametree doit accepter un type et un habit libres: ${JSON.stringify(freeRetoucheCreation.body || {})}`
+  );
+  const freeRetouchePrefill = await getClientLatestMeasures(freeRetoucheSession, freeRetoucheClient.body?.client?.idClient, "SAHARIENNE");
+  assert.equal(freeRetouchePrefill.status, 200);
+  assert.equal(Number(freeRetouchePrefill.body?.prefill?.mesuresHabit?.valeurs?.poitrine || 0), 104);
 }
 
 run()

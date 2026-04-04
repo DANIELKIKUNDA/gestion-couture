@@ -10,7 +10,7 @@ import {
   TransitionStatutRetoucheInvalide
 } from "./errors.js";
 import {
-  getTypeRetoucheDefinition,
+  getTypeRetoucheDefinitionSafe,
   isRetoucheHabitCompatible,
   resolveMesureTargetsForHabit,
   resolveRetoucheMeasureDefinitions,
@@ -81,12 +81,15 @@ export class Retouche {
         : montantTotal;
     const primaryItem = this.items.find((item) => item?.mesures) || this.items[0] || null;
     const effectiveTypeRetouche = primaryItem?.typeRetouche || typeRetouche;
-    const typeDef = getTypeRetoucheDefinition(typeRetouche, resolvedPolicy);
-    const effectiveTypeDef = primaryItem
-      ? getTypeRetoucheDefinition(effectiveTypeRetouche, resolvedPolicy, { allowInactive: rehydrate })
-      : typeDef;
-    this.typeRetouche = effectiveTypeDef.code;
     const effectiveTypeHabit = primaryItem?.typeHabit || typeHabit;
+    const effectiveMesuresHabit = primaryItem?.mesures || mesuresHabit;
+    const effectiveTypeDef = getTypeRetoucheDefinitionSafe(effectiveTypeRetouche, resolvedPolicy, {
+      allowInactive: rehydrate,
+      rehydrate,
+      fallbackTypeHabit: effectiveTypeHabit,
+      fallbackMeasures: effectiveMesuresHabit
+    });
+    this.typeRetouche = effectiveTypeDef.code;
     if (!isRetoucheHabitCompatible(effectiveTypeDef, effectiveTypeHabit)) {
       throw new Error("Type d'habit incompatible avec ce type de retouche");
     }
@@ -98,7 +101,6 @@ export class Retouche {
     const shouldRequireMeasures = effectiveTypeDef.necessiteMesures === true;
     const mesureTargets = resolveMesureTargetsForHabit({ typeDefinition: effectiveTypeDef, typeHabit: effectiveTypeHabit });
     const mesureDefinitions = resolveRetoucheMeasureDefinitions({ typeDefinition: effectiveTypeDef });
-    const effectiveMesuresHabit = primaryItem?.mesures || mesuresHabit;
 
     if (effectiveTypeHabit || effectiveMesuresHabit) {
       try {

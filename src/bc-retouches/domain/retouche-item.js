@@ -1,5 +1,5 @@
 import {
-  getTypeRetoucheDefinition,
+  getTypeRetoucheDefinitionSafe,
   isRetoucheHabitCompatible,
   resolveRetoucheMeasureDefinitions,
   resolveRetouchePolicy
@@ -48,8 +48,13 @@ export class RetoucheItem {
     }
 
     const resolvedPolicy = resolveRetouchePolicy(policy);
-    const typeDefinition = getTypeRetoucheDefinition(normalizedTypeRetouche, resolvedPolicy, { allowInactive: rehydrate });
     const normalizedTypeHabit = normalizeText(typeHabit || mesures?.typeHabit).toUpperCase() || null;
+    const typeDefinition = getTypeRetoucheDefinitionSafe(normalizedTypeRetouche, resolvedPolicy, {
+      allowInactive: rehydrate,
+      rehydrate,
+      fallbackTypeHabit: normalizedTypeHabit,
+      fallbackMeasures: mesures
+    });
     if (normalizedTypeHabit && !isRetoucheHabitCompatible(typeDefinition, normalizedTypeHabit)) {
       throw new Error("Type d'habit incompatible avec ce type de retouche");
     }

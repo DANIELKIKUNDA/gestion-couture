@@ -103,7 +103,7 @@ export function resolveRetouchePolicy(payload = null) {
   const retouches = payload?.retouches || payload || {};
   const configuredTypesSource = Array.isArray(retouches.typesRetouche) ? retouches.typesRetouche : retouches.typesRetouches;
   const configuredTypes = Array.isArray(configuredTypesSource) ? configuredTypesSource : [];
-  const mergedTypes = [...DEFAULT_RETOUCHE_TYPES, ...configuredTypes];
+  const mergedTypes = configuredTypes.length > 0 ? configuredTypes : DEFAULT_RETOUCHE_TYPES;
   const byCode = new Map();
   let fallbackOrder = 1;
   for (const row of mergedTypes) {
@@ -137,6 +137,61 @@ export function getTypeRetoucheDefinition(typeRetouche, policy, { allowInactive 
   if (!definition) throw new Error("Type de retouche invalide");
   if (!allowInactive && definition.actif === false) throw new Error("Type de retouche inactif");
   return definition;
+}
+
+function buildFallbackMeasureDefinitions(snapshot = null) {
+  if (!snapshot || typeof snapshot !== "object") return [];
+  const existingDefinitions = Array.isArray(snapshot.definitions) ? snapshot.definitions : [];
+  if (existingDefinitions.length > 0) {
+    return existingDefinitions
+      .map((row, index) => normalizeMeasureRow(row, index + 1))
+      .filter(Boolean);
+  }
+  const values = snapshot?.valeurs && typeof snapshot.valeurs === "object" ? snapshot.valeurs : snapshot;
+  if (!values || typeof values !== "object") return [];
+  return Object.keys(values)
+    .filter(Boolean)
+    .map((code, index) =>
+      normalizeMeasureRow(
+        {
+          code,
+          label: code,
+          unite: "cm",
+          typeChamp: "number",
+          obligatoire: false,
+          actif: true,
+          ordre: index + 1
+        },
+        index + 1
+      )
+    )
+    .filter(Boolean);
+}
+
+export function getTypeRetoucheDefinitionSafe(
+  typeRetouche,
+  policy,
+  { allowInactive = false, rehydrate = false, fallbackTypeHabit = null, fallbackMeasures = null } = {}
+) {
+  try {
+    return getTypeRetoucheDefinition(typeRetouche, policy, { allowInactive });
+  } catch (error) {
+    if (!rehydrate) throw error;
+    const code = String(typeRetouche || "").trim().toUpperCase();
+    if (!code) throw error;
+    const normalizedHabit = String(fallbackTypeHabit || "").trim().toUpperCase();
+    const measures = buildFallbackMeasureDefinitions(fallbackMeasures);
+    return {
+      code,
+      libelle: code,
+      actif: true,
+      ordreAffichage: 1,
+      necessiteMesures: measures.length > 0,
+      mesures,
+      descriptionObligatoire: false,
+      habitsCompatibles: normalizedHabit ? [normalizedHabit] : ["*"]
+    };
+  }
 }
 
 export function isRetoucheHabitCompatible(typeDefinition, typeHabit) {

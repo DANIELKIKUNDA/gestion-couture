@@ -8,7 +8,22 @@ import { pool } from "../../shared/infrastructure/db.js";
 import { createApp } from "./app.js";
 
 async function autoRepairLegacyRetouchesConstraint() {
-  await pool.query("ALTER TABLE retouches DROP CONSTRAINT IF EXISTS retouches_type_retouche_check");
+  await pool.query(`
+    DO $$
+    DECLARE
+      constraint_row RECORD;
+    BEGIN
+      FOR constraint_row IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'public.retouches'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) ILIKE '%type_retouche%'
+      LOOP
+        EXECUTE format('ALTER TABLE public.retouches DROP CONSTRAINT %I', constraint_row.conname);
+      END LOOP;
+    END $$;
+  `);
 }
 
 try {

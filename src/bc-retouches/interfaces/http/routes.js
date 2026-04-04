@@ -152,7 +152,8 @@ function buildRetoucheItemsFromPayload(body = {}, policy) {
         description: item.description,
         prix: item.prix,
         ordreAffichage: item.ordreAffichage,
-        mesures: normalizeRetoucheItemMesures({ ...item, typeHabit: fallbackTypeHabit, mesuresBrutes: fallbackMesures }, policy)
+        mesures: normalizeRetoucheItemMesures({ ...item, typeHabit: fallbackTypeHabit, mesuresBrutes: fallbackMesures }, policy),
+        policy
       });
     });
   if (items.length > 0) return items;
@@ -170,7 +171,8 @@ function buildRetoucheItemsFromPayload(body = {}, policy) {
         typeRetouche: fallbackTypeRetouche,
         typeHabit: fallbackTypeHabit,
         mesuresBrutes: body.mesuresHabit ?? null
-      }, policy)
+      }, policy),
+      policy
     })];
 }
 

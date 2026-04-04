@@ -111,25 +111,7 @@ async function run() {
   await pool.query(
     `ALTER TABLE series_mesures
        ADD CONSTRAINT series_mesures_type_vetement_check
-       CHECK (
-         type_vetement IN (
-           'PANTALON',
-           'CHEMISE',
-           'CHEMISIER',
-           'VESTE',
-           'GILET',
-           'JACKET',
-           'BOUBOU',
-           'ROBE',
-           'JUPE',
-           'VESTE_FEMME',
-           'LIBAYA',
-           'ENSEMBLE',
-           'AUTRES',
-           'UNIFORME',
-           'AUTRE'
-         )
-       )`
+       CHECK (type_vetement ~ '^[A-Z0-9_]+$')`
   ).catch(() => {});
   const atelierId = `ATELIER_CMD_SRP_${Date.now()}`;
   const session = await createAuthenticatedSession({
@@ -459,6 +441,55 @@ async function run() {
   const mesurePrefillVeste = await getClientLatestMeasures(session, createPayload.nouveauClient.idClient, "VESTE");
   assert.equal(mesurePrefillVeste.status, 200);
   assert.equal(Number(mesurePrefillVeste.body?.prefill?.mesuresHabit?.valeurs?.poitrine || 0), 96);
+
+  const atelierCustomFreeHabitId = `ATELIER_CMD_FREE_${Date.now()}`;
+  const freeHabitSession = await createAuthenticatedSession({
+    atelierId: atelierCustomFreeHabitId,
+    emailPrefix: "cmd-free-habit",
+    nom: "Commande Free Habit"
+  });
+  await saveAtelierParametres({
+    atelierId: atelierCustomFreeHabitId,
+    payload: createDefaultParametresPayload({
+      habits: {
+        SAHARIENNE: {
+          label: "Saharienne",
+          actif: true,
+          ordre: 1,
+          mesures: [
+            { code: "poitrine", label: "Poitrine", obligatoire: true, actif: true, ordre: 1, typeChamp: "number" },
+            { code: "taille", label: "Taille", obligatoire: true, actif: true, ordre: 2, typeChamp: "number" },
+            { code: "longueur", label: "Longueur", obligatoire: false, actif: true, ordre: 3, typeChamp: "number" }
+          ]
+        }
+      }
+    })
+  });
+  const freeHabitPayer = await createClientViaApi({
+    client: freeHabitSession.client,
+    token: freeHabitSession.token,
+    nom: "Papa",
+    prenom: "Libre",
+    telephone: "+243810001779"
+  });
+  assert.equal(freeHabitPayer.status, 201);
+  const freeHabitPayload = {
+    idCommande: buildTestId("CMD"),
+    clientPayeurId: freeHabitPayer.body?.client?.idClient,
+    descriptionCommande: "Commande saharienne parametree",
+    montantTotal: 175,
+    typeHabit: "SAHARIENNE",
+    mesuresHabit: {
+      poitrine: 102,
+      taille: 88,
+      longueur: 78
+    }
+  };
+  const freeHabitCreation = await withAuth(freeHabitSession.client.post("/api/commandes"), freeHabitSession.token).send(freeHabitPayload);
+  assert.equal(freeHabitCreation.status, 201, `le type d'habit parametre doit etre accepte: ${JSON.stringify(freeHabitCreation.body || {})}`);
+  const freeHabitPrefill = await getClientLatestMeasures(freeHabitSession, freeHabitPayer.body?.client?.idClient, "SAHARIENNE");
+  assert.equal(freeHabitPrefill.status, 200);
+  assert.equal(Number(freeHabitPrefill.body?.prefill?.mesuresHabit?.valeurs?.poitrine || 0), 102);
 
   const multiPayload = {
     idCommande: buildTestId("CMD"),

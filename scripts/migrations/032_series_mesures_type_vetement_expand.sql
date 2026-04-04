@@ -21,24 +21,6 @@ BEGIN
   ) THEN
     ALTER TABLE public.series_mesures
       ADD CONSTRAINT series_mesures_type_vetement_check
-      CHECK (
-        type_vetement IN (
-          'PANTALON',
-          'CHEMISE',
-          'CHEMISIER',
-          'VESTE',
-          'GILET',
-          'JACKET',
-          'BOUBOU',
-          'ROBE',
-          'JUPE',
-          'VESTE_FEMME',
-          'LIBAYA',
-          'ENSEMBLE',
-          'AUTRES',
-          'UNIFORME',
-          'AUTRE'
-        )
-      );
+      CHECK (type_vetement ~ '^[A-Z0-9_]+$');
   END IF;
 END $$;
