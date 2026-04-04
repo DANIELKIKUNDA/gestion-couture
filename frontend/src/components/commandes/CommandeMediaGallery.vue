@@ -53,6 +53,7 @@ const galleryButtonLabel = computed(() => (prefersMobileCapture.value ? "Choisir
 const galleryHelperText = computed(() =>
   prefersMobileCapture.value ? "Importe une image deja enregistree sur le telephone. Le choix final depend du navigateur Android." : ""
 );
+const primaryPhoto = computed(() => props.items.find((item) => item?.isPrimary) || props.items[0] || null);
 const canUseDedicatedCamera = computed(
   () =>
     prefersMobileCapture.value &&
@@ -269,9 +270,12 @@ onUnmounted(() => {
     <div class="panel-header commande-media-header">
       <div>
         <h4>References modele</h4>
-        <p class="helper">Jusqu'a 3 photos par commande. Compression et miniature automatiques.</p>
+        <p class="helper">Ajoute jusqu'a 3 photos de reference et retrouve-les rapidement par habit.</p>
       </div>
-      <span class="helper">{{ items.length }} / 3 photo(s)</span>
+      <div class="commande-media-header-summary">
+        <span class="helper">{{ items.length }} / 3 photo(s)</span>
+        <span v-if="primaryPhoto" class="status-pill" data-tone="ok">Photo principale</span>
+      </div>
     </div>
 
     <div class="commande-media-upload">
@@ -281,7 +285,7 @@ onUnmounted(() => {
       </label>
       <div class="row-actions">
         <button
-          class="mini-btn"
+          class="mini-btn blue"
           :disabled="!canAddMore || uploading"
           type="button"
           aria-label="Choisir une image depuis la galerie"
@@ -292,7 +296,7 @@ onUnmounted(() => {
         <button v-if="prefersMobileCapture" class="mini-btn" :disabled="!canAddMore || uploading" type="button" @click="triggerCameraUpload">
           Prendre une photo
         </button>
-        <span class="helper" v-if="uploading">Upload en cours...</span>
+        <span class="helper" v-if="uploading">Ajout de la photo en cours...</span>
       </div>
       <p v-if="galleryHelperText" class="helper commande-media-picker-helper">{{ galleryHelperText }}</p>
       <input
@@ -321,15 +325,19 @@ onUnmounted(() => {
     </div>
 
     <div v-else class="commande-media-grid">
-      <article v-for="item in items" :key="item.idMedia" class="commande-media-card">
+      <article v-for="item in items" :key="item.idMedia" class="commande-media-card" :class="{ 'is-primary': item.isPrimary }">
         <button class="commande-media-thumb" :disabled="!item.thumbnailBlobUrl" @click="emit('open', item)">
           <img v-if="item.thumbnailBlobUrl" :src="item.thumbnailBlobUrl" :alt="item.nomFichierOriginal || 'Reference commande'" />
           <span v-else class="helper">Miniature indisponible</span>
         </button>
 
         <div class="commande-media-meta">
-          <div class="commande-media-line">
-            <strong>Photo {{ item.position }}</strong>
+          <div class="commande-media-line commande-media-line-top">
+            <div class="commande-media-copy">
+              <span v-if="item.isPrimary" class="commande-media-kicker">Photo de reference</span>
+              <strong>Photo {{ item.position }}</strong>
+              <span class="helper">{{ item.nomFichierOriginal || "Reference atelier" }}</span>
+            </div>
             <span class="status-pill" v-if="item.isPrimary" data-tone="ok">Principale</span>
           </div>
           <div class="commande-media-line helper">
@@ -347,15 +355,25 @@ onUnmounted(() => {
               @blur="finishNoteEditing(item)"
             />
           </label>
-          <div class="row-actions commande-media-actions">
-            <button class="mini-btn" @click="emit('open', item)">Ouvrir</button>
+          <div class="row-actions commande-media-actions commande-media-actions-primary">
+            <button class="mini-btn gray" @click="emit('open', item)">Voir</button>
             <button
               v-if="!prefersMobileCapture"
-              class="mini-btn"
+              class="mini-btn green"
               :disabled="item.isPrimary || actionId === item.idMedia"
               @click="emit('set-primary', item)"
             >
               Principale
+            </button>
+          </div>
+          <div class="row-actions commande-media-actions commande-media-actions-secondary">
+            <button
+              v-if="!prefersMobileCapture"
+              class="mini-btn"
+              :disabled="!hasNoteChange(item) || actionId === item.idMedia"
+              @click="saveNote(item)"
+            >
+              Enregistrer note
             </button>
             <button
               v-if="!prefersMobileCapture"
@@ -373,15 +391,7 @@ onUnmounted(() => {
             >
               Descendre
             </button>
-            <button
-              v-if="!prefersMobileCapture || isEditingNote(item) || hasNoteChange(item)"
-              class="mini-btn"
-              :disabled="!hasNoteChange(item) || actionId === item.idMedia"
-              @click="saveNote(item)"
-            >
-              Enregistrer note
-            </button>
-            <button class="mini-btn" :disabled="actionId === item.idMedia" @click="emit('remove', item)">Supprimer</button>
+            <button class="mini-btn red" :disabled="actionId === item.idMedia" @click="emit('remove', item)">Supprimer</button>
           </div>
         </div>
       </article>
@@ -441,8 +451,58 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.commande-media-header-summary {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.commande-media-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #237246;
+}
+
 .commande-media-picker-helper {
   margin: 0;
+}
+
+.commande-media-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.commande-media-copy strong,
+.commande-media-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commande-media-line-top {
+  align-items: start;
+}
+
+.commande-media-actions-primary,
+.commande-media-actions-secondary {
+  justify-content: flex-start;
+}
+
+.commande-media-actions-secondary {
+  padding-top: 2px;
+}
+
+.commande-media-card.is-primary {
+  border-color: rgba(35, 114, 70, 0.28);
+  box-shadow: 0 14px 30px rgba(35, 114, 70, 0.12);
+}
+
+.commande-media-card.is-primary .commande-media-thumb {
+  border-color: rgba(35, 114, 70, 0.28);
+  box-shadow: 0 0 0 3px rgba(35, 114, 70, 0.08);
 }
 
 .commande-camera-backdrop {

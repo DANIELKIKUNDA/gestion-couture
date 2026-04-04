@@ -2902,13 +2902,17 @@ textarea:focus-visible {
   align-items: flex-start;
 }
 
+.commande-media-header .helper {
+  line-height: 1.45;
+}
+
 .commande-media-upload {
   display: grid;
   gap: 10px;
-  padding: 12px;
-  border: 1px dashed var(--stroke);
-  border-radius: 10px;
-  background: #fbfdff;
+  padding: 14px;
+  border: 1px dashed #c8d9ee;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfdff 0%, #f2f7fd 100%);
 }
 
 .commande-media-input-hidden {
@@ -2918,9 +2922,9 @@ textarea:focus-visible {
 .commande-media-empty {
   display: grid;
   gap: 6px;
-  padding: 14px;
-  border: 1px solid var(--stroke);
-  border-radius: 10px;
+  padding: 16px;
+  border: 1px solid #d8e4f1;
+  border-radius: 16px;
   background: #fff;
 }
 
@@ -2932,16 +2936,17 @@ textarea:focus-visible {
 
 .commande-media-card {
   display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--stroke);
-  border-radius: 12px;
-  background: #fff;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d8e4f1;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 10px 26px rgba(31, 79, 135, 0.08);
 }
 
 .commande-media-thumb {
-  border: 1px solid var(--stroke);
-  border-radius: 10px;
+  border: 1px solid #d8e4f1;
+  border-radius: 16px;
   background: #f6f9ff;
   aspect-ratio: 1 / 1;
   display: grid;
@@ -2958,7 +2963,7 @@ textarea:focus-visible {
 
 .commande-media-meta {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .commande-media-line {
@@ -2971,6 +2976,10 @@ textarea:focus-visible {
 
 .commande-media-actions {
   gap: 8px;
+}
+
+.commande-media-loading-inline {
+  padding-inline: 4px;
 }
 
 .commande-media-error {
@@ -4003,5 +4012,9 @@ textarea:focus-visible {
   .dossier-action-btn {
     width: 100%;
     justify-content: center;
+  }
+
+  .commande-media-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -207,6 +207,7 @@ let dossierDetailLoadPromise = null;
 let dossierDetailLoadTargetId = "";
 let dossierDetailLoadRequestId = 0;
 let commandeMediaRenderSequence = 0;
+let commandeMediaViewerRequestId = 0;
 let contentScrollElement = null;
 let globalErrorClearTimer = null;
 
@@ -881,6 +882,15 @@ const commandeMediaViewerSubtitle = computed(() => {
 const commandeMediaViewerImageUrl = computed(
   () => commandeMediaViewer.currentBlobUrl || commandeMediaViewerCurrentItem.value?.fileBlobUrl || ""
 );
+const commandeMediaViewerLoading = computed(() => {
+  if (!commandeMediaViewer.open) return false;
+  if (commandeMediaViewerImageUrl.value) return false;
+  return Boolean(
+    commandeMediaViewer.currentMediaId &&
+      detailCommandeMediaActionId.value &&
+      detailCommandeMediaActionId.value === commandeMediaViewer.currentMediaId
+  );
+});
 
 const selectedRetoucheId = ref("");
 const detailRetouche = ref(null);
@@ -12248,12 +12258,72 @@ function closeCommandeMediaViewer() {
   commandeMediaViewer.currentBlobUrl = "";
 }
 
+async function ensureCommandeMediaViewerBlobForItem(item) {
+  const viewerItem = item || commandeMediaViewerCurrentItem.value;
+  const viewerMediaId = viewerItem ? mediaActionKey(viewerItem) : "";
+  if (!commandeMediaViewer.open || !viewerItem || !viewerMediaId) {
+    commandeMediaViewer.currentBlobUrl = "";
+    return;
+  }
+
+  if (viewerItem.fileBlobUrl) {
+    commandeMediaViewer.currentBlobUrl = viewerItem.fileBlobUrl;
+    return;
+  }
+
+  if (!detailCommande.value?.idCommande || !getNetworkState().online || !isRemoteEntityId(detailCommande.value.idCommande)) {
+    commandeMediaViewer.currentBlobUrl = "";
+    return;
+  }
+
+  const mediaServerId = String(viewerItem.serverId || viewerItem.idMedia || "").trim();
+  if (!mediaServerId) {
+    commandeMediaViewer.currentBlobUrl = "";
+    return;
+  }
+
+  const requestId = ++commandeMediaViewerRequestId;
+  detailCommandeMediaActionId.value = viewerMediaId;
+  try {
+    const fileBlob = await atelierApi.getCommandeMediaFileBlob(detailCommande.value.idCommande, mediaServerId);
+    const blobUrl = URL.createObjectURL(fileBlob);
+    const isStillCurrent =
+      requestId === commandeMediaViewerRequestId &&
+      commandeMediaViewer.open &&
+      commandeMediaViewer.currentMediaId === viewerMediaId;
+
+    if (!isStillCurrent) {
+      URL.revokeObjectURL(blobUrl);
+      return;
+    }
+
+    const index = detailCommandeMedia.value.findIndex((row) => mediaActionKey(row) === viewerMediaId);
+    if (index >= 0) {
+      detailCommandeMedia.value[index] = {
+        ...detailCommandeMedia.value[index],
+        fileBlobUrl: blobUrl
+      };
+    }
+    commandeMediaViewer.currentBlobUrl = blobUrl;
+  } catch (err) {
+    if (requestId === commandeMediaViewerRequestId && commandeMediaViewer.currentMediaId === viewerMediaId) {
+      commandeMediaViewer.currentBlobUrl = "";
+      notify(readableError(err));
+    }
+  } finally {
+    if (requestId === commandeMediaViewerRequestId && detailCommandeMediaActionId.value === viewerMediaId) {
+      detailCommandeMediaActionId.value = "";
+    }
+  }
+}
+
 function showPreviousCommandeMediaInViewer() {
   if (!commandeMediaViewerCanPrev.value) return;
   commandeMediaViewer.index -= 1;
   commandeMediaViewer.currentBlobUrl = "";
   const nextItem = commandeMediaViewer.items[commandeMediaViewer.index] || null;
   commandeMediaViewer.currentMediaId = nextItem ? mediaActionKey(nextItem) : "";
+  void ensureCommandeMediaViewerBlobForItem(nextItem);
 }
 
 function showNextCommandeMediaInViewer() {
@@ -12262,6 +12332,7 @@ function showNextCommandeMediaInViewer() {
   commandeMediaViewer.currentBlobUrl = "";
   const nextItem = commandeMediaViewer.items[commandeMediaViewer.index] || null;
   commandeMediaViewer.currentMediaId = nextItem ? mediaActionKey(nextItem) : "";
+  void ensureCommandeMediaViewerBlobForItem(nextItem);
 }
 
 function downloadCommandeMediaFromViewer() {
@@ -12280,6 +12351,9 @@ function openCommandeMediaInViewer(item, blobUrl = "") {
   commandeMediaViewer.currentMediaId = mediaActionKey(item);
   commandeMediaViewer.currentBlobUrl = blobUrl || item?.fileBlobUrl || "";
   commandeMediaViewer.open = true;
+  if (!commandeMediaViewer.currentBlobUrl) {
+    void ensureCommandeMediaViewerBlobForItem(item);
+  }
 }
 
 async function openCommandeMedia(item) {
@@ -13345,7 +13419,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               <div v-if="dossiersPaged.length > 0 && dossiersPaged.length < dossiersFiltered.length" ref="dossierInfiniteSentinel" class="dossier-infinite-sentinel">
                 <span class="helper">Chargement des dossiers suivants...</span>
               </div>
-              <article v-else class="panel empty-state">
+              <article v-else-if="dossiersFiltered.length === 0" class="panel empty-state">
                 <h3>{{ dossierEmptyStateTitle }}</h3>
                 <p>{{ dossierEmptyStateDescription }}</p>
               </article>
@@ -13435,7 +13509,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               <div v-if="dossiersPaged.length > 0 && dossiersPaged.length < dossiersFiltered.length" ref="dossierInfiniteSentinel" class="dossier-infinite-sentinel">
                 <span class="helper">Chargement des dossiers suivants...</span>
               </div>
-              <article v-else class="panel empty-state">
+              <article v-else-if="dossiersFiltered.length === 0" class="panel empty-state">
                 <h3>{{ dossierEmptyStateTitle }}</h3>
                 <p>{{ dossierEmptyStateDescription }}</p>
               </article>
@@ -16373,7 +16447,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   Annuler
                 </button>
                 <button class="action-btn blue" type="button" :disabled="!canUploadAtelierLogo || !settingsLogoSelectedFile || settingsLogoUploading" @click="uploadAtelierLogo">
-                  {{ settingsLogoUploading ? "Upload..." : "Envoyer le logo" }}
+                  {{ settingsLogoUploading ? "Envoi en cours..." : "Envoyer le logo" }}
                 </button>
               </div>
             </div>
@@ -18382,6 +18456,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
       :image-url="commandeMediaViewerImageUrl"
       :title="commandeMediaViewerTitle"
       :subtitle="commandeMediaViewerSubtitle"
+      :loading="commandeMediaViewerLoading"
       :can-prev="commandeMediaViewerCanPrev"
       :can-next="commandeMediaViewerCanNext"
       :can-download="Boolean(commandeMediaViewerImageUrl)"
