@@ -2887,6 +2887,10 @@ textarea:focus-visible {
   z-index: 60;
 }
 
+.modal-backdrop.modal-backdrop-front {
+  z-index: 1300;
+}
+
 .modal-card {
   width: min(680px, 100%);
   background: #fff;

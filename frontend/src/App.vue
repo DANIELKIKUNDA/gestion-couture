@@ -1342,6 +1342,7 @@ const actionModal = reactive({
   confirmLabel: "Confirmer",
   cancelLabel: "Annuler",
   tone: "blue",
+  stacked: false,
   fields: [],
   values: {},
   error: ""
@@ -3191,13 +3192,15 @@ function openActionModal({
   confirmLabel = "Confirmer",
   cancelLabel = "Annuler",
   tone = "blue",
-  fields = []
+  fields = [],
+  stacked = false
 }) {
   actionModal.title = title;
   actionModal.message = message;
   actionModal.confirmLabel = confirmLabel;
   actionModal.cancelLabel = cancelLabel;
   actionModal.tone = tone;
+  actionModal.stacked = stacked === true;
   actionModal.fields = fields;
   actionModal.error = "";
   actionModal.values = fields.reduce((acc, field) => {
@@ -3213,6 +3216,7 @@ function openActionModal({
 
 function closeActionModal(payload) {
   actionModal.open = false;
+  actionModal.stacked = false;
   if (actionModalResolver) {
     actionModalResolver(payload);
     actionModalResolver = null;
@@ -13711,7 +13715,8 @@ async function deleteCommandeMedia(item) {
     message: "Cette photo de reference sera retiree de la commande. Confirmer la suppression ?",
     confirmLabel: "Supprimer",
     cancelLabel: "Annuler",
-    tone: "red"
+    tone: "red",
+    stacked: commandeItemPhotoDialog.open
   });
   if (!confirmed) return;
   detailCommandeMediaActionId.value = mediaActionKey(item);
@@ -20879,7 +20884,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
     </div>
   </div>
 
-  <div v-if="actionModal.open" class="modal-backdrop" @click.self="closeActionModal(null)">
+  <div
+    v-if="actionModal.open"
+    class="modal-backdrop"
+    :class="{ 'modal-backdrop-front': actionModal.stacked }"
+    @click.self="closeActionModal(null)"
+  >
     <div class="modal-card modal-card-sm">
       <header class="modal-header">
         <h3>{{ actionModal.title }}</h3>

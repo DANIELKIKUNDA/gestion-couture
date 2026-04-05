@@ -47,6 +47,7 @@ const cameraError = ref("");
 let mobileCaptureMediaQuery = null;
 let mobileCaptureListener = null;
 let cameraStream = null;
+const SUPPORTED_UPLOAD_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 const canAddMore = computed(() => props.items.length < 3);
 const galleryButtonLabel = computed(() => (prefersMobileCapture.value ? "Choisir dans la galerie" : "Ajouter une photo"));
@@ -81,6 +82,70 @@ watch(
 
 function resetInput(target) {
   if (target?.value) target.value = "";
+}
+
+function buildNormalizedCameraFileName(originalName = "") {
+  const rawName = String(originalName || "").trim();
+  const fallbackBase = `camera-${Date.now()}`;
+  if (!rawName) return `${fallbackBase}.jpg`;
+  const sanitized = rawName.replace(/\.[^/.]+$/, "").trim() || fallbackBase;
+  return `${sanitized}.jpg`;
+}
+
+function blobToImageElement(blob) {
+  return new Promise((resolve, reject) => {
+    if (typeof window === "undefined" || typeof Image === "undefined" || !(blob instanceof Blob)) {
+      reject(new Error("Conversion image indisponible."));
+      return;
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Impossible de preparer l'image de la camera."));
+    };
+    image.src = objectUrl;
+  });
+}
+
+async function normalizeCameraUploadFile(file) {
+  if (!(file instanceof Blob)) {
+    throw new Error("Photo invalide pour l'envoi.");
+  }
+  const mimeType = String(file.type || "").trim().toLowerCase();
+  if (!mimeType || SUPPORTED_UPLOAD_MIME_TYPES.has(mimeType)) {
+    return file;
+  }
+  if (typeof document === "undefined") {
+    throw new Error("Format photo non supporte par cet appareil.");
+  }
+  const image = await blobToImageElement(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = Number(image.naturalWidth || image.width || 0);
+  canvas.height = Number(image.naturalHeight || image.height || 0);
+  const context = canvas.getContext("2d");
+  if (!context || !canvas.width || !canvas.height) {
+    throw new Error("Impossible de convertir la photo de la camera.");
+  }
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const convertedBlob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("La photo n'a pas pu etre convertie."));
+          return;
+        }
+        resolve(blob);
+      },
+      "image/jpeg",
+      0.92
+    );
+  });
+  return new File([convertedBlob], buildNormalizedCameraFileName(file?.name), { type: "image/jpeg" });
 }
 
 function emitUploadPayload(file, sourceType = "UPLOAD") {
@@ -161,11 +226,17 @@ async function fallbackToNativeCamera() {
   cameraInputRef.value?.click();
 }
 
-function onPickFile(event, sourceType = "UPLOAD") {
+async function onPickFile(event, sourceType = "UPLOAD") {
   const file = event?.target?.files?.[0];
   if (!file) return;
-  emitUploadPayload(file, sourceType);
-  resetInput(event?.target);
+  try {
+    const normalizedFile = sourceType === "CAMERA" ? await normalizeCameraUploadFile(file) : file;
+    emitUploadPayload(normalizedFile, sourceType);
+  } catch (err) {
+    cameraError.value = String(err?.message || "Impossible de preparer la photo de la camera.");
+  } finally {
+    resetInput(event?.target);
+  }
 }
 
 function captureCameraFrame() {
@@ -310,7 +381,7 @@ onUnmounted(() => {
         ref="cameraInputRef"
         class="commande-media-input-hidden"
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp"
         capture="environment"
         @change="onPickFile($event, 'CAMERA')"
       />
