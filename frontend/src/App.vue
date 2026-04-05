@@ -1206,6 +1206,9 @@ const selectedClientConsultationId = ref("");
 const clientConsultationQuery = ref("");
 const clientConsultationSection = ref("commandes");
 const clientMobileFiltersOpen = ref(false);
+const wizardMeasureStepRef = ref(null);
+let wizardMeasureScrollRestoreTop = 0;
+let wizardMeasureRestoreToken = 0;
 const CLIENT_CONSULT_SECTION_KEY = "atelier.clients_consult.section.v1";
 const clientConsultation = ref(null);
 const clientConsultationLoading = ref(false);
@@ -4177,6 +4180,50 @@ function goToPreviousCommandeMeasureItem() {
 
 function goToNextCommandeMeasureItem() {
   setWizardCommandeMeasureIndex(wizardCommandeMeasureIndex.value + 1);
+}
+
+function getWizardMeasureScrollContainer() {
+  const section = wizardMeasureStepRef.value;
+  if (!section) return null;
+  return section instanceof HTMLElement ? section : null;
+}
+
+function rememberWizardMeasureScrollPosition() {
+  if (!isMobileViewport.value || wizard.step !== 3) return;
+  const container = getWizardMeasureScrollContainer();
+  if (!container) return;
+  wizardMeasureScrollRestoreTop = Number(container.scrollTop || 0);
+}
+
+function restoreWizardMeasureScrollPosition() {
+  if (!isMobileViewport.value || wizard.step !== 3) return;
+  const container = getWizardMeasureScrollContainer();
+  if (!container) return;
+  const targetTop = Math.max(0, Number(wizardMeasureScrollRestoreTop || 0));
+  if (Math.abs(Number(container.scrollTop || 0) - targetTop) < 2) return;
+  container.scrollTop = targetTop;
+}
+
+function onWizardMeasureFieldFocusIn() {
+  rememberWizardMeasureScrollPosition();
+}
+
+function onWizardMeasureFieldFocusOut() {
+  if (!isMobileViewport.value || wizard.step !== 3) return;
+  const token = ++wizardMeasureRestoreToken;
+  const runRestore = () => {
+    if (token !== wizardMeasureRestoreToken) return;
+    restoreWizardMeasureScrollPosition();
+  };
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => {
+      runRestore();
+      window.requestAnimationFrame(runRestore);
+    });
+    setTimeout(runRestore, 140);
+    return;
+  }
+  setTimeout(runRestore, 0);
 }
 
 function addRetoucheItem() {
@@ -19912,7 +19959,13 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </div>
         </section>
 
-        <section v-else-if="wizard.step === 3" class="modal-body modal-body-wizard stack-form wizard-form-shell">
+        <section
+          v-else-if="wizard.step === 3"
+          ref="wizardMeasureStepRef"
+          class="modal-body modal-body-wizard stack-form wizard-form-shell"
+          @focusin.capture="onWizardMeasureFieldFocusIn"
+          @focusout.capture="onWizardMeasureFieldFocusOut"
+        >
           <div class="wizard-stage-head">
             <div>
               <p class="mobile-overline">Mesures</p>
