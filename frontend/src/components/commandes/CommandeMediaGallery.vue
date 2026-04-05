@@ -116,36 +116,48 @@ async function normalizeCameraUploadFile(file) {
   if (!(file instanceof Blob)) {
     throw new Error("Photo invalide pour l'envoi.");
   }
-  const mimeType = String(file.type || "").trim().toLowerCase();
-  if (!mimeType || SUPPORTED_UPLOAD_MIME_TYPES.has(mimeType)) {
-    return file;
-  }
   if (typeof document === "undefined") {
+    const mimeType = String(file.type || "").trim().toLowerCase();
+    if (!mimeType || SUPPORTED_UPLOAD_MIME_TYPES.has(mimeType)) {
+      return file;
+    }
     throw new Error("Format photo non supporte par cet appareil.");
   }
-  const image = await blobToImageElement(file);
-  const canvas = document.createElement("canvas");
-  canvas.width = Number(image.naturalWidth || image.width || 0);
-  canvas.height = Number(image.naturalHeight || image.height || 0);
-  const context = canvas.getContext("2d");
-  if (!context || !canvas.width || !canvas.height) {
-    throw new Error("Impossible de convertir la photo de la camera.");
+  try {
+    const image = await blobToImageElement(file);
+    const canvas = document.createElement("canvas");
+    const sourceWidth = Number(image.naturalWidth || image.width || 0);
+    const sourceHeight = Number(image.naturalHeight || image.height || 0);
+    const maxDimension = 1600;
+    const scale = sourceWidth > 0 && sourceHeight > 0 ? Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight)) : 1;
+    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context || !canvas.width || !canvas.height) {
+      throw new Error("Impossible de convertir la photo de la camera.");
+    }
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const convertedBlob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error("La photo n'a pas pu etre convertie."));
+            return;
+          }
+          resolve(blob);
+        },
+        "image/jpeg",
+        0.88
+      );
+    });
+    return new File([convertedBlob], buildNormalizedCameraFileName(file?.name), { type: "image/jpeg" });
+  } catch (err) {
+    const mimeType = String(file.type || "").trim().toLowerCase();
+    if (SUPPORTED_UPLOAD_MIME_TYPES.has(mimeType)) {
+      return file;
+    }
+    throw err;
   }
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  const convertedBlob = await new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error("La photo n'a pas pu etre convertie."));
-          return;
-        }
-        resolve(blob);
-      },
-      "image/jpeg",
-      0.92
-    );
-  });
-  return new File([convertedBlob], buildNormalizedCameraFileName(file?.name), { type: "image/jpeg" });
 }
 
 function emitUploadPayload(file, sourceType = "UPLOAD") {
@@ -239,7 +251,7 @@ async function onPickFile(event, sourceType = "UPLOAD") {
   }
 }
 
-function captureCameraFrame() {
+async function captureCameraFrame() {
   const video = cameraVideoRef.value;
   const canvas = cameraCanvasRef.value;
   if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
@@ -257,17 +269,22 @@ function captureCameraFrame() {
 
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
   canvas.toBlob(
-    (blob) => {
+    async (blob) => {
       if (!blob) {
         cameraError.value = "La photo n'a pas pu etre capturee.";
         return;
       }
-      const capturedFile =
-        typeof File === "function"
-          ? new File([blob], `camera-${Date.now()}.jpg`, { type: "image/jpeg" })
-          : blob;
-      emitUploadPayload(capturedFile, "CAMERA");
-      closeCameraCapture();
+      try {
+        const capturedFile =
+          typeof File === "function"
+            ? new File([blob], `camera-${Date.now()}.jpg`, { type: "image/jpeg" })
+            : blob;
+        const normalizedFile = await normalizeCameraUploadFile(capturedFile);
+        emitUploadPayload(normalizedFile, "CAMERA");
+        closeCameraCapture();
+      } catch (err) {
+        cameraError.value = String(err?.message || "Impossible de preparer la photo de la camera.");
+      }
     },
     "image/jpeg",
     0.92

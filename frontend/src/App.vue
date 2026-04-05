@@ -4648,12 +4648,15 @@ const canAnnulerDetail = computed(() => {
 });
 const canEditCommandeDetail = computed(() => {
   if (!detailCommande.value) return false;
+  const locallyEditable =
+    Number(detailCommande.value.montantPaye || 0) === 0 &&
+    detailCommande.value.statutCommande !== "LIVREE" &&
+    detailCommande.value.statutCommande !== "ANNULEE";
+  if (!locallyEditable) return false;
   if (detailCommandeActions.value && typeof detailCommandeActions.value.modifier === "boolean") {
     return detailCommandeActions.value.modifier;
   }
-  return Number(detailCommande.value.montantPaye || 0) === 0 &&
-    detailCommande.value.statutCommande !== "LIVREE" &&
-    detailCommande.value.statutCommande !== "ANNULEE";
+  return locallyEditable;
 });
 const canEmitCommandeDetailFacture = computed(() => Boolean(detailCommande.value && !detailCommandeFacture.value && detailCommande.value.statutCommande !== "ANNULEE"));
 const ITEM_STATUS_SEQUENCE = Object.freeze(["CREEE", "EN_COURS", "TERMINEE", "LIVREE"]);
@@ -4853,12 +4856,15 @@ const canAnnulerRetoucheDetail = computed(() => {
 });
 const canEditRetoucheDetail = computed(() => {
   if (!detailRetouche.value) return false;
+  const locallyEditable =
+    Number(detailRetouche.value.montantPaye || 0) === 0 &&
+    detailRetouche.value.statutRetouche !== "LIVREE" &&
+    detailRetouche.value.statutRetouche !== "ANNULEE";
+  if (!locallyEditable) return false;
   if (detailRetoucheActions.value && typeof detailRetoucheActions.value.modifier === "boolean") {
     return detailRetoucheActions.value.modifier;
   }
-  return Number(detailRetouche.value.montantPaye || 0) === 0 &&
-    detailRetouche.value.statutRetouche !== "LIVREE" &&
-    detailRetouche.value.statutRetouche !== "ANNULEE";
+  return locallyEditable;
 });
 const canEmitRetoucheDetailFacture = computed(() => Boolean(detailRetouche.value && !detailRetoucheFacture.value && detailRetouche.value.statutRetouche !== "ANNULEE"));
 const detailRetoucheItemCards = computed(() => {
@@ -5859,12 +5865,24 @@ async function submitDetailItemEdit() {
   try {
     const payload = buildDetailItemEditPayload();
     if (detailItemEditModal.kind === "commande") {
-      await atelierApi.updateCommandeItem(detailItemEditModal.parentId, detailItemEditModal.itemId, payload);
-      await loadCommandeDetail(detailItemEditModal.parentId, { preserveExisting: true });
+      const updatedCommande = await atelierApi.updateCommandeItem(detailItemEditModal.parentId, detailItemEditModal.itemId, payload);
+      if (updatedCommande && typeof updatedCommande === "object") {
+        detailCommande.value = normalizeCommande(updatedCommande);
+        syncDetailItemStatuses(detailCommandeItemStatuses, detailCommande.value?.items, detailCommande.value?.statutCommande || "");
+        void loadCommandeActionsForId(detailItemEditModal.parentId, { force: true, detail: true });
+      } else {
+        await loadCommandeDetail(detailItemEditModal.parentId, { preserveExisting: true });
+      }
       notify("Habit mis a jour avant paiement.");
     } else if (detailItemEditModal.kind === "retouche") {
-      await atelierApi.updateRetoucheItem(detailItemEditModal.parentId, detailItemEditModal.itemId, payload);
-      await loadRetoucheDetail(detailItemEditModal.parentId, { preserveExisting: true });
+      const updatedRetouche = await atelierApi.updateRetoucheItem(detailItemEditModal.parentId, detailItemEditModal.itemId, payload);
+      if (updatedRetouche && typeof updatedRetouche === "object") {
+        detailRetouche.value = normalizeRetouche(updatedRetouche);
+        syncDetailItemStatuses(detailRetoucheItemStatuses, detailRetouche.value?.items, detailRetouche.value?.statutRetouche || "");
+        void loadRetoucheActionsForId(detailItemEditModal.parentId, { force: true, detail: true });
+      } else {
+        await loadRetoucheDetail(detailItemEditModal.parentId, { preserveExisting: true });
+      }
       notify("Intervention mise a jour avant paiement.");
     }
     resetDetailItemEditModal();
