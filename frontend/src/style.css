@@ -1906,11 +1906,19 @@ body {
 .wizard-measure-alert {
   display: grid;
   gap: 4px;
+  min-height: 58px;
   padding: 12px 14px;
   border: 1px solid #f1c77b;
   border-radius: 14px;
   background: #fff7e8;
   color: #7a4c05;
+  transition: opacity 120ms ease;
+}
+
+.wizard-measure-alert.is-hidden {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .wizard-measure-alert strong {

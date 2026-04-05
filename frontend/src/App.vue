@@ -20013,7 +20013,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <p class="helper">
                     {{ wizardCommandeMeasureIndex === 0 ? "Le pre-remplissage s'applique sur ce premier habit quand un historique existe." : "Renseignez les mesures propres a cet habit." }}
                   </p>
-                  <div v-if="getCommandeItemMeasureProgress(wizardCommandeMeasureActiveItem).missingRequired > 0" class="wizard-measure-alert">
+                  <div
+                    class="wizard-measure-alert"
+                    :class="{ 'is-hidden': getCommandeItemMeasureProgress(wizardCommandeMeasureActiveItem).missingRequired <= 0 }"
+                    :aria-hidden="getCommandeItemMeasureProgress(wizardCommandeMeasureActiveItem).missingRequired <= 0 ? 'true' : 'false'"
+                  >
                     <strong>Mesures obligatoires encore attendues.</strong>
                     <span>Completez les champs marques d'une asterisque avant de continuer.</span>
                   </div>
