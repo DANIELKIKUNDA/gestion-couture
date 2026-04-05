@@ -79,6 +79,10 @@ test("upload une photo et la conserve apres refresh UI", async ({ page }) => {
     mimeType: "image/png",
     buffer: tinyPngBuffer()
   });
+  const uploadNoteModal = page.locator(".commande-media-note-modal").first();
+  await expect(uploadNoteModal).toBeVisible();
+  await uploadNoteModal.getByRole("button", { name: /^Ajouter la photo$/i }).click();
+  await expect(uploadNoteModal).toBeHidden({ timeout: 15_000 });
 
   await expect(mediaPanel.locator(".commande-media-card img")).toHaveCount(1);
   await page.getByRole("button", { name: /^Fermer$/i }).click();
