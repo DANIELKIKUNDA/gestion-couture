@@ -20,7 +20,49 @@ export class CommandeRepoPg {
   async existsByTypeHabit(typeHabit) {
     const normalized = String(typeHabit || "").trim().toUpperCase();
     if (!normalized) return false;
-    const res = await pool.query("SELECT 1 FROM commandes WHERE atelier_id = $1 AND UPPER(type_habit) = $2 LIMIT 1", [this.atelierId, normalized]);
+    const res = await this.db.query(
+      `SELECT 1
+       FROM commandes c
+       WHERE c.atelier_id = $1
+         AND UPPER(COALESCE(c.type_habit, '')) = $2
+       UNION ALL
+       SELECT 1
+       FROM commande_items ci
+       WHERE ci.atelier_id = $1
+         AND UPPER(COALESCE(ci.type_habit, '')) = $2
+       LIMIT 1`,
+      [this.atelierId, normalized]
+    );
+    return res.rowCount > 0;
+  }
+
+  async existsByMeasureCode(measureCode, { typeHabit = null } = {}) {
+    const normalizedCode = String(measureCode || "").trim();
+    const normalizedTypeHabit = String(typeHabit || "").trim().toUpperCase();
+    if (!normalizedCode) return false;
+    const params = [this.atelierId, normalizedCode];
+    let typeFilterSql = "";
+    if (normalizedTypeHabit) {
+      params.push(normalizedTypeHabit);
+      typeFilterSql = " AND UPPER(COALESCE(type_habit, '')) = $3";
+    }
+    const res = await this.db.query(
+      `SELECT 1
+       FROM commandes
+       WHERE atelier_id = $1
+         AND mesures_habit_snapshot IS NOT NULL
+         AND (mesures_habit_snapshot -> 'valeurs') ? $2
+         ${typeFilterSql}
+       UNION ALL
+       SELECT 1
+       FROM commande_items
+       WHERE atelier_id = $1
+         AND mesures_snapshot_json IS NOT NULL
+         AND (mesures_snapshot_json -> 'valeurs') ? $2
+         ${typeFilterSql}
+       LIMIT 1`,
+      params
+    );
     return res.rowCount > 0;
   }
 

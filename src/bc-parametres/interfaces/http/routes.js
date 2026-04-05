@@ -6,6 +6,8 @@ import { uploadLogoAtelier, AtelierLogoForbiddenError, AtelierLogoNotFoundError,
 import { atelierLogoUploadSingle } from "./atelier-logo-upload.js";
 import { AtelierLogoStorageLocal } from "../../infrastructure/storage/atelier-logo-storage-local.js";
 import { CommandeRepoPg } from "../../../bc-commandes/infrastructure/repositories/commande-repo-pg.js";
+import { RetoucheRepoPg } from "../../../bc-retouches/infrastructure/repositories/retouche-repo-pg.js";
+import { SerieMesuresRepoPg } from "../../../bc-clients/infrastructure/repositories/serie-mesures-repo-pg.js";
 import { AtelierRepoPg } from "../../../shared/infrastructure/repositories/atelier-repo-pg.js";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
 import { requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
@@ -13,6 +15,8 @@ import { requirePermission } from "../../../bc-auth/interfaces/http/middlewares/
 const router = express.Router();
 const repo = new AtelierParametresRepoPg();
 const commandeRepo = new CommandeRepoPg();
+const retoucheRepo = new RetoucheRepoPg();
+const serieRepo = new SerieMesuresRepoPg();
 const atelierRepo = new AtelierRepoPg();
 const logoStorage = new AtelierLogoStorageLocal();
 
@@ -26,6 +30,14 @@ function scopedRepo(req) {
 
 function scopedCommandeRepo(req) {
   return commandeRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedRetoucheRepo(req) {
+  return retoucheRepo.forAtelier(atelierIdFromReq(req));
+}
+
+function scopedSerieRepo(req) {
+  return serieRepo.forAtelier(atelierIdFromReq(req));
 }
 
 router.get("/parametres-atelier", requirePermission(PERMISSIONS.MODIFIER_PARAMETRES), async (req, res) => {
@@ -67,7 +79,9 @@ router.put("/parametres-atelier", requirePermission(PERMISSIONS.MODIFIER_PARAMET
       payload,
       updatedBy,
       expectedVersion,
-      commandeRepo: scopedCommandeRepo(req)
+      commandeRepo: scopedCommandeRepo(req),
+      retoucheRepo: scopedRetoucheRepo(req),
+      serieRepo: scopedSerieRepo(req)
     });
     res.json(saved);
   } catch (err) {

@@ -15,6 +15,46 @@ export class SerieMesuresRepoPg {
     return new SerieMesuresRepoPg(this.atelierId, db || pool);
   }
 
+  async existsByTypeVetement(typeVetement) {
+    const normalized = String(typeVetement || "").trim().toUpperCase();
+    if (!normalized) return false;
+    const res = await this.db.query(
+      `SELECT 1
+       FROM series_mesures
+       WHERE atelier_id = $1
+         AND UPPER(COALESCE(type_vetement, '')) = $2
+       LIMIT 1`,
+      [this.atelierId, normalized]
+    );
+    return res.rowCount > 0;
+  }
+
+  async existsByMeasureCode(measureCode, { typeVetement = null } = {}) {
+    const normalizedCode = String(measureCode || "").trim();
+    const normalizedTypeVetement = String(typeVetement || "").trim().toUpperCase();
+    if (!normalizedCode) return false;
+    const params = [this.atelierId, normalizedCode];
+    let typeFilterSql = "";
+    if (normalizedTypeVetement) {
+      params.push(normalizedTypeVetement);
+      typeFilterSql = ` AND UPPER(COALESCE(type_vetement, '')) = $${params.length}`;
+    }
+    const res = await this.db.query(
+      `SELECT 1
+       FROM series_mesures
+       WHERE atelier_id = $1
+         AND EXISTS (
+           SELECT 1
+           FROM jsonb_array_elements(COALESCE(ensemble_mesures, '[]'::jsonb)) AS measure
+           WHERE TRIM(COALESCE(measure ->> 'nomMesure', '')) = $2
+         )
+         ${typeFilterSql}
+       LIMIT 1`,
+      params
+    );
+    return res.rowCount > 0;
+  }
+
   async getById(idSerieMesures) {
     const res = await this.db.query(
       `SELECT id_serie_mesures, id_client, type_vetement, ensemble_mesures, date_prise, prise_par, est_active, observations

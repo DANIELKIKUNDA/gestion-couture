@@ -2270,6 +2270,14 @@ const settingsUsedHabitTypes = computed(() => {
   }
   return used;
 });
+const settingsUsedRetoucheTypes = computed(() => {
+  const used = new Set();
+  for (const row of retouches.value || []) {
+    const typeRetouche = String(row?.typeRetouche || row?.type_retouche || "").trim().toUpperCase();
+    if (typeRetouche) used.add(typeRetouche);
+  }
+  return used;
+});
 const settingsMeasurePages = computed(() =>
   Math.max(1, Math.ceil(filteredHabitConfigEntries.value.length / settingsMeasurePagination.pageSize))
 );
@@ -2522,10 +2530,13 @@ function isHabitTypeUsed(habitKey) {
 
 function onHabitActiveToggle(habitKey, nextValue) {
   if (nextValue !== false) return;
-  if (!isHabitTypeUsed(habitKey)) return;
   const habit = atelierSettings.habits[habitKey];
-  if (habit) habit.actif = true;
-  notify("Archivage bloque: ce type d'habit est deja utilise par des commandes ou des retouches.");
+  if (!habit) return;
+  notify(
+    isHabitTypeUsed(habitKey)
+      ? "Type d'habit archive: il disparaitra des nouveaux choix mais restera visible dans l'historique."
+      : "Type d'habit retire des nouveaux choix."
+  );
 }
 
 async function duplicateHabitType(sourceKey) {
@@ -2861,7 +2872,18 @@ function removeRetoucheType(code) {
   const list = atelierSettings.retouches.typesRetouche;
   const index = list.findIndex((row) => String(row?.code || "").trim().toUpperCase() === String(code || "").trim().toUpperCase());
   if (index === -1) return;
+  const current = list[index];
+  if (current?.actif !== false) {
+    current.actif = false;
+    notify(
+      settingsUsedRetoucheTypes.value.has(String(code || "").trim().toUpperCase())
+        ? "Type de retouche archive: il disparaitra des nouveaux choix mais restera conserve dans l'historique."
+        : "Type de retouche retire des nouveaux choix."
+    );
+    return;
+  }
   list.splice(index, 1);
+  notify("Type de retouche supprime des parametres.");
 }
 
 async function addMesureToRetoucheType(code) {
@@ -2906,7 +2928,14 @@ function removeMesureFromRetoucheType(typeCode, mesureCode) {
   if (!type || !Array.isArray(type.mesures)) return;
   const index = type.mesures.findIndex((mesure) => String(mesure?.code || "") === String(mesureCode || ""));
   if (index === -1) return;
+  const mesure = type.mesures[index];
+  if (mesure?.actif !== false) {
+    mesure.actif = false;
+    notify("Mesure archivee: elle disparaitra des nouveaux choix apres sauvegarde.");
+    return;
+  }
   type.mesures.splice(index, 1);
+  notify("Mesure supprimee de la configuration.");
 }
 
 async function canLeaveSettings() {
@@ -2958,7 +2987,35 @@ function removeMesureFromHabit(habitKey, mesureCode) {
   if (!habit) return;
   const index = habit.mesures.findIndex((mesure) => String(mesure?.code || "") === String(mesureCode || ""));
   if (index === -1) return;
+  const mesure = habit.mesures[index];
+  if (mesure?.actif !== false) {
+    mesure.actif = false;
+    notify("Mesure archivee: elle disparaitra des nouveaux choix apres sauvegarde.");
+    return;
+  }
   habit.mesures.splice(index, 1);
+  notify("Mesure supprimee de la configuration.");
+}
+
+function removeHabitType(habitKey) {
+  if (!settingsCanEdit.value) return;
+  const normalizedKey = String(habitKey || "").trim().toUpperCase();
+  if (!normalizedKey || !atelierSettings.habits[normalizedKey]) return;
+  const habit = atelierSettings.habits[normalizedKey];
+  if (habit?.actif !== false) {
+    habit.actif = false;
+    notify(
+      isHabitTypeUsed(normalizedKey)
+        ? "Type d'habit archive: il disparaitra des nouveaux choix mais restera visible dans l'historique."
+        : "Type d'habit retire des nouveaux choix."
+    );
+    return;
+  }
+  delete atelierSettings.habits[normalizedKey];
+  if (selectedSettingsHabitKey.value === normalizedKey) {
+    selectedSettingsHabitKey.value = filteredHabitConfigEntries.value[0]?.key || habitConfigEntries.value[0]?.key || "";
+  }
+  notify("Type d'habit supprime des parametres.");
 }
 
 async function addHabitType() {
@@ -17999,7 +18056,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <input v-model="selectedHabitConfigEntry.config.label" type="text" :disabled="!settingsCanEdit" />
                   <span class="helper">Code: {{ selectedHabitConfigEntry.key }}</span>
                   <span v-if="isHabitTypeUsed(selectedHabitConfigEntry.key)" class="helper">
-                    Ce type est deja utilise par des commandes ou retouches. Archivage bloque.
+                    Ce type est deja utilise. Il peut etre archive, mais pas supprime definitivement.
                   </span>
                 </div>
                 <div class="row-actions">
@@ -18020,6 +18077,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                   <button class="mini-btn" :disabled="!settingsCanEdit" @click="duplicateHabitType(selectedHabitConfigEntry.key)">
                     Dupliquer
+                  </button>
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeHabitType(selectedHabitConfigEntry.key)">
+                    Retirer
                   </button>
                   <button class="mini-btn" :disabled="!settingsCanEdit" @click="addMesureToHabit(selectedHabitConfigEntry.key)">
                     Ajouter mesure
