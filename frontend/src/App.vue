@@ -2528,14 +2528,19 @@ function isHabitTypeUsed(habitKey) {
   return settingsUsedHabitTypes.value.has(String(habitKey || "").trim().toUpperCase());
 }
 
-function onHabitActiveToggle(habitKey, nextValue) {
-  if (nextValue !== false) return;
-  const habit = atelierSettings.habits[habitKey];
+function toggleHabitTypeActive(habitKey) {
+  if (!settingsCanEdit.value) return;
+  const normalizedKey = String(habitKey || "").trim().toUpperCase();
+  const habit = atelierSettings.habits[normalizedKey];
   if (!habit) return;
+  const nextActif = habit.actif === false;
+  habit.actif = nextActif;
   notify(
-    isHabitTypeUsed(habitKey)
-      ? "Type d'habit archive: il disparaitra des nouveaux choix mais restera visible dans l'historique."
-      : "Type d'habit retire des nouveaux choix."
+    nextActif
+      ? "Type d'habit active: il reapparait dans les nouveaux choix."
+      : isHabitTypeUsed(normalizedKey)
+        ? "Type d'habit desactive: il disparait des nouveaux choix mais reste visible dans l'historique."
+        : "Type d'habit desactive: il disparait des nouveaux choix."
   );
 }
 
@@ -2711,9 +2716,6 @@ function prepareHabitSettingsForSave(habitsRaw) {
     if (!habit || typeof habit !== "object") throw new Error(`Configuration invalide pour le type d'habit ${key}.`);
     const label = String(habit.label || "").trim();
     if (!label) throw new Error(`Le libelle du type d'habit ${key} est obligatoire.`);
-    if (habit.actif === false && isHabitTypeUsed(key)) {
-      throw new Error(`Impossible d'archiver ${label}: ce type d'habit est deja utilise par des commandes ou des retouches.`);
-    }
     const ordre = habitIndex + 1;
     const mesuresRaw = Array.isArray(habit.mesures) ? habit.mesures : [];
     const measureCodes = new Set();
@@ -2869,21 +2871,30 @@ async function addRetoucheType() {
 
 function removeRetoucheType(code) {
   if (!settingsCanEdit.value) return;
+  if (settingsUsedRetoucheTypes.value.has(String(code || "").trim().toUpperCase())) {
+    notify("Ce type de retouche a deja ete utilise. Desactive-le au lieu de le supprimer.");
+    return;
+  }
   const list = atelierSettings.retouches.typesRetouche;
   const index = list.findIndex((row) => String(row?.code || "").trim().toUpperCase() === String(code || "").trim().toUpperCase());
   if (index === -1) return;
-  const current = list[index];
-  if (current?.actif !== false) {
-    current.actif = false;
-    notify(
-      settingsUsedRetoucheTypes.value.has(String(code || "").trim().toUpperCase())
-        ? "Type de retouche archive: il disparaitra des nouveaux choix mais restera conserve dans l'historique."
-        : "Type de retouche retire des nouveaux choix."
-    );
-    return;
-  }
   list.splice(index, 1);
   notify("Type de retouche supprime des parametres.");
+}
+
+function toggleRetoucheTypeActive(code) {
+  if (!settingsCanEdit.value) return;
+  const type = atelierSettings.retouches.typesRetouche.find((row) => String(row?.code || "").trim().toUpperCase() === String(code || "").trim().toUpperCase());
+  if (!type) return;
+  const nextActif = type.actif === false;
+  type.actif = nextActif;
+  notify(
+    nextActif
+      ? "Type de retouche active: il reapparait dans les nouveaux choix."
+      : settingsUsedRetoucheTypes.value.has(String(code || "").trim().toUpperCase())
+        ? "Type de retouche desactive: il disparait des nouveaux choix mais reste conserve dans l'historique."
+        : "Type de retouche desactive: il disparait des nouveaux choix."
+  );
 }
 
 async function addMesureToRetoucheType(code) {
@@ -3001,14 +3012,8 @@ function removeHabitType(habitKey) {
   if (!settingsCanEdit.value) return;
   const normalizedKey = String(habitKey || "").trim().toUpperCase();
   if (!normalizedKey || !atelierSettings.habits[normalizedKey]) return;
-  const habit = atelierSettings.habits[normalizedKey];
-  if (habit?.actif !== false) {
-    habit.actif = false;
-    notify(
-      isHabitTypeUsed(normalizedKey)
-        ? "Type d'habit archive: il disparaitra des nouveaux choix mais restera visible dans l'historique."
-        : "Type d'habit retire des nouveaux choix."
-    );
+  if (isHabitTypeUsed(normalizedKey)) {
+    notify("Ce type d'habit a deja ete utilise. Desactive-le au lieu de le supprimer.");
     return;
   }
   delete atelierSettings.habits[normalizedKey];
@@ -17873,15 +17878,21 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <span class="helper">Code: {{ selectedSettingsRetoucheType.code }}</span>
                 </div>
                 <div class="row-actions">
-                  <label class="helper">
-                    <input v-model="selectedSettingsRetoucheType.actif" type="checkbox" :disabled="!settingsCanEdit" />
-                    Actif
-                  </label>
                   <div class="stack-form measure-order-field">
                     <label>Ordre</label>
                     <input v-model.number="selectedSettingsRetoucheType.ordreAffichage" type="number" min="1" :disabled="!settingsCanEdit" />
                   </div>
-                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeRetoucheType(selectedSettingsRetoucheType.code)">Retirer</button>
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="toggleRetoucheTypeActive(selectedSettingsRetoucheType.code)">
+                    {{ selectedSettingsRetoucheType.actif === false ? "Activer" : "Desactiver" }}
+                  </button>
+                  <button
+                    v-if="!settingsUsedRetoucheTypes.has(String(selectedSettingsRetoucheType.code || '').trim().toUpperCase())"
+                    class="mini-btn danger"
+                    :disabled="!settingsCanEdit"
+                    @click="removeRetoucheType(selectedSettingsRetoucheType.code)"
+                  >
+                    Supprimer
+                  </button>
                 </div>
               </div>
 
@@ -18055,31 +18066,27 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <label>Type d'habit</label>
                   <input v-model="selectedHabitConfigEntry.config.label" type="text" :disabled="!settingsCanEdit" />
                   <span class="helper">Code: {{ selectedHabitConfigEntry.key }}</span>
-                  <span v-if="isHabitTypeUsed(selectedHabitConfigEntry.key)" class="helper">
-                    Ce type est deja utilise. Il peut etre archive, mais pas supprime definitivement.
-                  </span>
                 </div>
                 <div class="row-actions">
                   <div class="measure-inline-fields">
-                    <label class="helper">
-                      <input
-                        v-model="selectedHabitConfigEntry.config.actif"
-                        type="checkbox"
-                        :disabled="!settingsCanEdit"
-                        @change="onHabitActiveToggle(selectedHabitConfigEntry.key, selectedHabitConfigEntry.config.actif)"
-                      />
-                      Actif
-                    </label>
                     <div class="stack-form measure-order-field">
                       <label>Ordre</label>
                       <input v-model.number="selectedHabitConfigEntry.config.ordre" type="number" min="0" :disabled="!settingsCanEdit" />
                     </div>
                   </div>
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="toggleHabitTypeActive(selectedHabitConfigEntry.key)">
+                    {{ selectedHabitConfigEntry.config.actif === false ? "Activer" : "Desactiver" }}
+                  </button>
                   <button class="mini-btn" :disabled="!settingsCanEdit" @click="duplicateHabitType(selectedHabitConfigEntry.key)">
                     Dupliquer
                   </button>
-                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeHabitType(selectedHabitConfigEntry.key)">
-                    Retirer
+                  <button
+                    v-if="!isHabitTypeUsed(selectedHabitConfigEntry.key)"
+                    class="mini-btn danger"
+                    :disabled="!settingsCanEdit"
+                    @click="removeHabitType(selectedHabitConfigEntry.key)"
+                  >
+                    Supprimer
                   </button>
                   <button class="mini-btn" :disabled="!settingsCanEdit" @click="addMesureToHabit(selectedHabitConfigEntry.key)">
                     Ajouter mesure
