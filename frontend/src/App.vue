@@ -2527,27 +2527,24 @@ async function duplicateHabitType(sourceKey) {
   if (!source) return;
   const payload = await openActionModal({
     title: "Dupliquer un type d'habit",
-    message: `Creer une copie du type ${sourceKey}.`,
+    message: "Saisis le nom de la copie. Le code technique sera genere automatiquement par le systeme.",
     confirmLabel: "Dupliquer",
     cancelLabel: "Annuler",
     fields: [
-      { key: "code", label: "Nouveau code", type: "text", required: true, defaultValue: `${sourceKey}_COPIE` },
-      { key: "label", label: "Nouveau libelle", type: "text", required: true, defaultValue: `${source.label || sourceKey} copie` },
+      { key: "label", label: "Nom de la copie", type: "text", required: true, defaultValue: `${source.label || sourceKey} copie` },
       { key: "ordre", label: "Ordre", type: "number", required: true, min: 0, defaultValue: Number(source.ordre || 0) + 1 }
     ]
   });
   if (!payload) return;
-  const newKey = normalizeHabitTypeKeyInput(payload.code);
-  if (!newKey) {
-    notify("Code de type d'habit invalide.");
-    return;
-  }
-  if (atelierSettings.habits[newKey]) {
-    notify(`Le type d'habit ${newKey} existe deja.`);
-    return;
-  }
+  const label = String(payload.label || "").trim();
+  if (!label) return notify("Le nom du type d'habit est obligatoire.");
+  const newKey = resolveUniqueGeneratedCode(
+    normalizeHabitTypeKeyInput(label),
+    (candidate) => Boolean(atelierSettings.habits[String(candidate || "").trim().toUpperCase()])
+  );
+  if (!newKey) return notify("Impossible de generer un code technique valide pour ce type d'habit.");
   atelierSettings.habits[newKey] = {
-    label: String(payload.label || "").trim(),
+    label,
     actif: true,
     ordre: Number(payload.ordre),
     mesures: habitMesuresForEditor(source).map((mesure) => ({
@@ -2583,6 +2580,17 @@ function normalizeMeasureCodeInput(value) {
     .replace(/[^a-z0-9_]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+function resolveUniqueGeneratedCode(baseCode, hasConflict) {
+  const normalizedBase = String(baseCode || "").trim();
+  if (!normalizedBase) return "";
+  if (!hasConflict(normalizedBase)) return normalizedBase;
+  let index = 2;
+  while (hasConflict(`${normalizedBase}_${index}`)) {
+    index += 1;
+  }
+  return `${normalizedBase}_${index}`;
 }
 
 function normalizeRetoucheTypeDefinition(raw) {
@@ -2799,12 +2807,11 @@ async function addRetoucheType() {
   if (!settingsCanEdit.value) return;
   const payload = await openActionModal({
     title: "Nouveau type de retouche",
-    message: "Creer un nouveau type de retouche parametrable.",
+    message: "Saisis le nom du type. Le code technique sera genere automatiquement par le systeme.",
     confirmLabel: "Creer",
     cancelLabel: "Annuler",
     fields: [
-      { key: "code", label: "Code", type: "text", required: true, defaultValue: "" },
-      { key: "libelle", label: "Libelle", type: "text", required: true, defaultValue: "" },
+      { key: "libelle", label: "Nom du type", type: "text", required: true, defaultValue: "" },
       {
         key: "ordreAffichage",
         label: "Ordre",
@@ -2816,17 +2823,19 @@ async function addRetoucheType() {
     ]
   });
   if (!payload) return;
-  const code = normalizeHabitTypeKeyInput(payload.code);
-  if (!code) return notify("Code de type de retouche invalide.");
+  const libelle = String(payload.libelle || "").trim();
+  if (!libelle) return notify("Le nom du type de retouche est obligatoire.");
   const list = atelierSettings.retouches.typesRetouche;
-  if (list.some((row) => String(row?.code || "").trim().toUpperCase() === code)) {
-    return notify(`Le type de retouche ${code} existe deja.`);
-  }
+  const code = resolveUniqueGeneratedCode(
+    normalizeHabitTypeKeyInput(libelle),
+    (candidate) => list.some((row) => String(row?.code || "").trim().toUpperCase() === String(candidate || "").trim().toUpperCase())
+  );
+  if (!code) return notify("Impossible de generer un code technique valide pour ce type de retouche.");
   list.push(
     ensureRetoucheTypeDraft(
       {
         code,
-        libelle: String(payload.libelle || "").trim(),
+        libelle,
         actif: true,
         ordreAffichage: Number(payload.ordreAffichage),
         necessiteMesures: false,
@@ -2855,12 +2864,11 @@ async function addMesureToRetoucheType(code) {
   if (!Array.isArray(type.mesures)) type.mesures = [];
   const payload = await openActionModal({
     title: "Nouvelle mesure de retouche",
-    message: "Saisis le nom de la mesure. Le code technique doit refleter ce nom.",
+    message: "Saisis le nom de la mesure. Le code technique sera genere automatiquement par le systeme.",
     confirmLabel: "Ajouter",
     cancelLabel: "Annuler",
     fields: [
       { key: "label", label: "Nom de la mesure", type: "text", required: true, defaultValue: "" },
-      { key: "code", label: "Code technique", type: "text", required: false, defaultValue: "" },
       { key: "typeChamp", label: "Type de champ", type: "select", required: true, defaultValue: "number", options: mesureTypeOptions },
       { key: "unite", label: "Unite", type: "text", required: false, defaultValue: "cm" },
       { key: "obligatoire", label: "Obligatoire", type: "select", required: true, defaultValue: "true", options: [{ value: "true", label: "Oui" }, { value: "false", label: "Non" }] }
@@ -2868,12 +2876,12 @@ async function addMesureToRetoucheType(code) {
   });
   if (!payload) return;
   const mesureLabel = String(payload.label || "").trim();
-  const mesureCode = normalizeMeasureCodeInput(payload.code || payload.label);
   if (!mesureLabel) return notify("Le nom de la mesure est obligatoire.");
-  if (!mesureCode) return notify("Le code technique de la mesure est invalide.");
-  if (type.mesures.some((mesure) => String(mesure?.code || "") === mesureCode)) {
-    return notify(`Le code de mesure ${mesureCode} existe deja pour cette retouche.`);
-  }
+  const mesureCode = resolveUniqueGeneratedCode(
+    normalizeMeasureCodeInput(mesureLabel),
+    (candidate) => type.mesures.some((mesure) => String(mesure?.code || "") === String(candidate || ""))
+  );
+  if (!mesureCode) return notify("Impossible de generer un code technique valide pour cette mesure.");
   type.mesures.push({
     code: mesureCode,
     label: mesureLabel,
@@ -2910,24 +2918,23 @@ async function addMesureToHabit(habitKey) {
   if (!habit) return;
   const payload = await openActionModal({
     title: "Nouvelle mesure",
-    message: "Saisis le nom de la mesure. Le code technique doit refleter ce nom.",
+    message: "Saisis le nom de la mesure. Le code technique sera genere automatiquement par le systeme.",
     confirmLabel: "Ajouter",
     cancelLabel: "Annuler",
     fields: [
       { key: "label", label: "Nom de la mesure", type: "text", required: true, defaultValue: "" },
-      { key: "code", label: "Code technique", type: "text", required: false, defaultValue: "" },
       { key: "typeChamp", label: "Type de champ", type: "select", required: true, defaultValue: "number", options: mesureTypeOptions },
       { key: "obligatoire", label: "Obligatoire", type: "select", required: true, defaultValue: "false", options: [{ value: "true", label: "Oui" }, { value: "false", label: "Non" }] }
     ]
   });
   if (!payload) return;
-  const code = normalizeMeasureCodeInput(payload.code || payload.label);
   const label = String(payload.label || "").trim();
   if (!label) return notify("Le nom de la mesure est obligatoire.");
-  if (!code) return notify("Le code technique de la mesure est invalide.");
-  if (habit.mesures.some((mesure) => String(mesure?.code || "") === code)) {
-    return notify(`Le code de mesure ${code} existe deja pour cet habit.`);
-  }
+  const code = resolveUniqueGeneratedCode(
+    normalizeMeasureCodeInput(label),
+    (candidate) => habit.mesures.some((mesure) => String(mesure?.code || "") === String(candidate || ""))
+  );
+  if (!code) return notify("Impossible de generer un code technique valide pour cette mesure.");
   habit.mesures.push({
     code,
     label,
@@ -2951,12 +2958,11 @@ async function addHabitType() {
   if (!settingsCanEdit.value) return;
   const payload = await openActionModal({
     title: "Nouveau type d'habit",
-    message: "Creer un nouveau type d'habit pour la saisie des mesures.",
+    message: "Saisis le nom du type. Le code technique sera genere automatiquement par le systeme.",
     confirmLabel: "Creer",
     cancelLabel: "Annuler",
     fields: [
-      { key: "code", label: "Code", type: "text", required: true, defaultValue: "" },
-      { key: "label", label: "Libelle", type: "text", required: true, defaultValue: "" },
+      { key: "label", label: "Nom du type", type: "text", required: true, defaultValue: "" },
       {
         key: "ordre",
         label: "Ordre",
@@ -2968,22 +2974,20 @@ async function addHabitType() {
     ]
   });
   if (!payload) return;
-  const key = normalizeHabitTypeKeyInput(payload.code);
-  if (!key) {
-    notify("Code de type d'habit invalide.");
-    return;
-  }
-  if (atelierSettings.habits[key]) {
-    notify(`Le type d'habit ${key} existe deja.`);
-    return;
-  }
+  const label = String(payload.label || "").trim();
+  if (!label) return notify("Le nom du type d'habit est obligatoire.");
+  const key = resolveUniqueGeneratedCode(
+    normalizeHabitTypeKeyInput(label),
+    (candidate) => Boolean(atelierSettings.habits[String(candidate || "").trim().toUpperCase()])
+  );
+  if (!key) return notify("Impossible de generer un code technique valide pour ce type d'habit.");
   const order = Number(payload.ordre);
   if (!Number.isFinite(order) || order < 0) {
     notify("Ordre invalide pour le type d'habit.");
     return;
   }
   atelierSettings.habits[key] = {
-    label: String(payload.label || "").trim(),
+    label,
     actif: true,
     ordre: order,
     mesures: []
