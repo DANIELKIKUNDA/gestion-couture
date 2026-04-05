@@ -1207,8 +1207,11 @@ const clientConsultationQuery = ref("");
 const clientConsultationSection = ref("commandes");
 const clientMobileFiltersOpen = ref(false);
 const wizardMeasureStepRef = ref(null);
+const retoucheMeasureStepRef = ref(null);
 let wizardMeasureScrollRestoreTop = 0;
 let wizardMeasureRestoreToken = 0;
+let activeMeasureScrollContext = "";
+let measureViewportResizeHandler = null;
 const CLIENT_CONSULT_SECTION_KEY = "atelier.clients_consult.section.v1";
 const clientConsultation = ref(null);
 const clientConsultationLoading = ref(false);
@@ -4182,22 +4185,33 @@ function goToNextCommandeMeasureItem() {
   setWizardCommandeMeasureIndex(wizardCommandeMeasureIndex.value + 1);
 }
 
-function getWizardMeasureScrollContainer() {
-  const section = wizardMeasureStepRef.value;
+function getMeasureScrollContainer(context = "") {
+  const normalizedContext = String(context || "");
+  const section =
+    normalizedContext === "retouche"
+      ? retoucheMeasureStepRef.value
+      : wizardMeasureStepRef.value;
   if (!section) return null;
   return section instanceof HTMLElement ? section : null;
 }
 
-function rememberWizardMeasureScrollPosition() {
-  if (!isMobileViewport.value || wizard.step !== 3) return;
-  const container = getWizardMeasureScrollContainer();
+function isMeasureScrollContextActive(context = "") {
+  const normalizedContext = String(context || "");
+  if (!isMobileViewport.value) return false;
+  if (normalizedContext === "retouche") return retoucheWizard.step === 3;
+  return wizard.step === 3;
+}
+
+function rememberWizardMeasureScrollPosition(context = "") {
+  if (!isMeasureScrollContextActive(context)) return;
+  const container = getMeasureScrollContainer(context);
   if (!container) return;
   wizardMeasureScrollRestoreTop = Number(container.scrollTop || 0);
 }
 
-function restoreWizardMeasureScrollPosition() {
-  if (!isMobileViewport.value || wizard.step !== 3) return;
-  const container = getWizardMeasureScrollContainer();
+function restoreWizardMeasureScrollPosition(context = "") {
+  if (!isMeasureScrollContextActive(context)) return;
+  const container = getMeasureScrollContainer(context);
   if (!container) return;
   const targetTop = Math.max(0, Number(wizardMeasureScrollRestoreTop || 0));
   if (Math.abs(Number(container.scrollTop || 0) - targetTop) < 2) return;
@@ -4205,15 +4219,16 @@ function restoreWizardMeasureScrollPosition() {
 }
 
 function onWizardMeasureFieldFocusIn() {
-  rememberWizardMeasureScrollPosition();
+  activeMeasureScrollContext = "commande";
+  rememberWizardMeasureScrollPosition("commande");
 }
 
 function onWizardMeasureFieldFocusOut() {
-  if (!isMobileViewport.value || wizard.step !== 3) return;
+  if (!isMeasureScrollContextActive("commande")) return;
   const token = ++wizardMeasureRestoreToken;
   const runRestore = () => {
     if (token !== wizardMeasureRestoreToken) return;
-    restoreWizardMeasureScrollPosition();
+    restoreWizardMeasureScrollPosition("commande");
   };
   if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
     window.requestAnimationFrame(() => {
@@ -4221,6 +4236,48 @@ function onWizardMeasureFieldFocusOut() {
       window.requestAnimationFrame(runRestore);
     });
     setTimeout(runRestore, 140);
+    return;
+  }
+  setTimeout(runRestore, 0);
+}
+
+function onRetoucheMeasureFieldFocusIn() {
+  activeMeasureScrollContext = "retouche";
+  rememberWizardMeasureScrollPosition("retouche");
+}
+
+function onRetoucheMeasureFieldFocusOut() {
+  if (!isMeasureScrollContextActive("retouche")) return;
+  const token = ++wizardMeasureRestoreToken;
+  const runRestore = () => {
+    if (token !== wizardMeasureRestoreToken) return;
+    restoreWizardMeasureScrollPosition("retouche");
+  };
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => {
+      runRestore();
+      window.requestAnimationFrame(runRestore);
+    });
+    setTimeout(runRestore, 140);
+    return;
+  }
+  setTimeout(runRestore, 0);
+}
+
+function handleMeasureViewportResize() {
+  if (!activeMeasureScrollContext) return;
+  const context = activeMeasureScrollContext;
+  if (!isMeasureScrollContextActive(context)) return;
+  const token = ++wizardMeasureRestoreToken;
+  const runRestore = () => {
+    if (token !== wizardMeasureRestoreToken) return;
+    restoreWizardMeasureScrollPosition(context);
+  };
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => {
+      runRestore();
+      window.requestAnimationFrame(runRestore);
+    });
     return;
   }
   setTimeout(runRestore, 0);
@@ -6972,6 +7029,11 @@ onMounted(async () => {
   window.addEventListener("beforeunload", onBeforeUnload);
   window.addEventListener("resize", updateViewportState);
   window.addEventListener("focus", handleCrossDeviceFocus);
+  measureViewportResizeHandler = handleMeasureViewportResize;
+  if (window.visualViewport?.addEventListener) {
+    window.visualViewport.addEventListener("resize", measureViewportResizeHandler);
+    window.visualViewport.addEventListener("scroll", measureViewportResizeHandler);
+  }
   document.addEventListener("visibilitychange", handleCrossDeviceVisibilityChange);
   await nextTick();
   bindContentScrollListener();
@@ -7004,6 +7066,11 @@ onUnmounted(() => {
   window.removeEventListener("beforeunload", onBeforeUnload);
   window.removeEventListener("resize", updateViewportState);
   window.removeEventListener("focus", handleCrossDeviceFocus);
+  if (measureViewportResizeHandler && window.visualViewport?.removeEventListener) {
+    window.visualViewport.removeEventListener("resize", measureViewportResizeHandler);
+    window.visualViewport.removeEventListener("scroll", measureViewportResizeHandler);
+  }
+  measureViewportResizeHandler = null;
   document.removeEventListener("visibilitychange", handleCrossDeviceVisibilityChange);
   if (contentScrollElement) {
     contentScrollElement.removeEventListener("scroll", handleContentScroll);
@@ -19962,7 +20029,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         <section
           v-else-if="wizard.step === 3"
           ref="wizardMeasureStepRef"
-          class="modal-body modal-body-wizard stack-form wizard-form-shell"
+          class="modal-body modal-body-wizard stack-form wizard-form-shell measure-scroll-shell"
           @focusin.capture="onWizardMeasureFieldFocusIn"
           @focusout.capture="onWizardMeasureFieldFocusOut"
         >
@@ -20511,7 +20578,13 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </div>
       </section>
 
-      <section v-else-if="retoucheWizard.step === 3" class="modal-body modal-body-wizard stack-form wizard-form-shell">
+      <section
+        v-else-if="retoucheWizard.step === 3"
+        ref="retoucheMeasureStepRef"
+        class="modal-body modal-body-wizard stack-form wizard-form-shell measure-scroll-shell"
+        @focusin.capture="onRetoucheMeasureFieldFocusIn"
+        @focusout.capture="onRetoucheMeasureFieldFocusOut"
+      >
         <div class="wizard-stage-head">
           <div>
             <p class="mobile-overline">Configuration</p>
@@ -20572,7 +20645,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <strong>{{ retoucheValidationStats.missingMeasures > 0 ? `${retoucheValidationStats.missingMeasures} mesure(s)` : "Complet" }}</strong>
               </article>
             </div>
-            <div v-if="retoucheMeasuresRequired && retoucheSummary.mesuresRenseignees === 0" class="wizard-measure-alert">
+            <div
+              v-show="retoucheMeasuresRequired"
+              class="wizard-measure-alert"
+              :class="{ 'is-hidden': retoucheSummary.mesuresRenseignees > 0 }"
+              :aria-hidden="retoucheSummary.mesuresRenseignees > 0 ? 'true' : 'false'"
+            >
               <strong>Mesures encore attendues.</strong>
               <span>Renseignez au moins une mesure cible avant de continuer.</span>
             </div>

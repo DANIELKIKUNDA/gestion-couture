@@ -1929,6 +1929,12 @@ body {
   font-size: 12px;
 }
 
+.measure-scroll-shell {
+  overflow-anchor: none;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 .wizard-item-card-active {
   border-color: #cfe0f0;
   box-shadow: 0 12px 28px rgba(21, 49, 79, 0.08);
