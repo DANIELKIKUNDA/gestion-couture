@@ -33,27 +33,34 @@ const emit = defineEmits([
   "save-note"
 ]);
 
-const uploadNote = ref("");
 const galleryInputRef = ref(null);
 const cameraInputRef = ref(null);
 const cameraVideoRef = ref(null);
 const cameraCanvasRef = ref(null);
-const noteDrafts = reactive({});
-const activeNoteMediaId = ref("");
 const prefersMobileCapture = ref(false);
 const cameraModalOpen = ref(false);
 const cameraLoading = ref(false);
 const cameraError = ref("");
+const activeMenuMediaId = ref("");
+const noteModal = reactive({
+  open: false,
+  mode: "upload",
+  title: "",
+  submitLabel: "",
+  sourceType: "UPLOAD",
+  file: null,
+  media: null,
+  note: ""
+});
+
 let mobileCaptureMediaQuery = null;
 let mobileCaptureListener = null;
 let cameraStream = null;
+
 const SUPPORTED_UPLOAD_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 const canAddMore = computed(() => props.items.length < 3);
-const galleryButtonLabel = computed(() => (prefersMobileCapture.value ? "Choisir dans la galerie" : "Ajouter une photo"));
-const galleryHelperText = computed(() =>
-  prefersMobileCapture.value ? "Importe une image deja enregistree sur le telephone. Le choix final depend du navigateur Android." : ""
-);
+const photoCountLabel = computed(() => `${props.items.length} / 3`);
 const primaryPhoto = computed(() => props.items.find((item) => item?.isPrimary) || props.items[0] || null);
 const canUseDedicatedCamera = computed(
   () =>
@@ -70,18 +77,73 @@ function detectMobileCapturePreference() {
   return coarsePointer || narrowViewport;
 }
 
-watch(
-  () => props.items,
-  (rows) => {
-    for (const row of rows || []) {
-      noteDrafts[row.idMedia] = row.note || "";
-    }
-  },
-  { immediate: true, deep: true }
-);
-
 function resetInput(target) {
   if (target?.value) target.value = "";
+}
+
+function closeMenu() {
+  activeMenuMediaId.value = "";
+}
+
+function toggleMenu(item) {
+  const nextId = String(item?.idMedia || "");
+  activeMenuMediaId.value = activeMenuMediaId.value === nextId ? "" : nextId;
+}
+
+function truncateNote(value = "") {
+  return String(value || "").trim();
+}
+
+function openNoteModalForUpload(file, sourceType = "UPLOAD") {
+  noteModal.open = true;
+  noteModal.mode = "upload";
+  noteModal.title = "Ajouter une note";
+  noteModal.submitLabel = "Ajouter la photo";
+  noteModal.sourceType = sourceType;
+  noteModal.file = file;
+  noteModal.media = null;
+  noteModal.note = "";
+  closeMenu();
+}
+
+function openNoteModalForEdition(item) {
+  noteModal.open = true;
+  noteModal.mode = "edit";
+  noteModal.title = "Modifier la note";
+  noteModal.submitLabel = "Enregistrer";
+  noteModal.sourceType = "UPLOAD";
+  noteModal.file = null;
+  noteModal.media = item;
+  noteModal.note = String(item?.note || "");
+  closeMenu();
+}
+
+function resetNoteModal() {
+  noteModal.open = false;
+  noteModal.mode = "upload";
+  noteModal.title = "";
+  noteModal.submitLabel = "";
+  noteModal.sourceType = "UPLOAD";
+  noteModal.file = null;
+  noteModal.media = null;
+  noteModal.note = "";
+}
+
+function submitNoteModal() {
+  const note = String(noteModal.note || "");
+  if (noteModal.mode === "upload" && noteModal.file) {
+    emit("upload", {
+      file: noteModal.file,
+      note,
+      sourceType: noteModal.sourceType || "UPLOAD"
+    });
+  } else if (noteModal.mode === "edit" && noteModal.media) {
+    emit("save-note", {
+      media: noteModal.media,
+      note
+    });
+  }
+  resetNoteModal();
 }
 
 function buildNormalizedCameraFileName(originalName = "") {
@@ -118,9 +180,7 @@ async function normalizeCameraUploadFile(file) {
   }
   if (typeof document === "undefined") {
     const mimeType = String(file.type || "").trim().toLowerCase();
-    if (!mimeType || SUPPORTED_UPLOAD_MIME_TYPES.has(mimeType)) {
-      return file;
-    }
+    if (!mimeType || SUPPORTED_UPLOAD_MIME_TYPES.has(mimeType)) return file;
     throw new Error("Format photo non supporte par cet appareil.");
   }
   try {
@@ -153,37 +213,22 @@ async function normalizeCameraUploadFile(file) {
     return new File([convertedBlob], buildNormalizedCameraFileName(file?.name), { type: "image/jpeg" });
   } catch (err) {
     const mimeType = String(file.type || "").trim().toLowerCase();
-    if (SUPPORTED_UPLOAD_MIME_TYPES.has(mimeType)) {
-      return file;
-    }
+    if (SUPPORTED_UPLOAD_MIME_TYPES.has(mimeType)) return file;
     throw err;
   }
 }
 
-function emitUploadPayload(file, sourceType = "UPLOAD") {
-  if (!file) return;
-  emit("upload", {
-    file,
-    note: uploadNote.value,
-    sourceType
-  });
-  uploadNote.value = "";
-}
-
 function triggerGalleryUpload() {
+  if (!canAddMore.value) return;
   galleryInputRef.value?.click();
 }
 
 function stopCameraStream() {
   if (cameraStream) {
-    for (const track of cameraStream.getTracks()) {
-      track.stop();
-    }
+    for (const track of cameraStream.getTracks()) track.stop();
   }
   cameraStream = null;
-  if (cameraVideoRef.value) {
-    cameraVideoRef.value.srcObject = null;
-  }
+  if (cameraVideoRef.value) cameraVideoRef.value.srcObject = null;
 }
 
 function closeCameraCapture() {
@@ -194,6 +239,7 @@ function closeCameraCapture() {
 }
 
 async function startDedicatedCamera() {
+  if (!canAddMore.value) return;
   if (!canUseDedicatedCamera.value) {
     cameraInputRef.value?.click();
     return;
@@ -243,7 +289,7 @@ async function onPickFile(event, sourceType = "UPLOAD") {
   if (!file) return;
   try {
     const normalizedFile = sourceType === "CAMERA" ? await normalizeCameraUploadFile(file) : file;
-    emitUploadPayload(normalizedFile, sourceType);
+    openNoteModalForUpload(normalizedFile, sourceType);
   } catch (err) {
     cameraError.value = String(err?.message || "Impossible de preparer la photo de la camera.");
   } finally {
@@ -280,8 +326,8 @@ async function captureCameraFrame() {
             ? new File([blob], `camera-${Date.now()}.jpg`, { type: "image/jpeg" })
             : blob;
         const normalizedFile = await normalizeCameraUploadFile(capturedFile);
-        emitUploadPayload(normalizedFile, "CAMERA");
         closeCameraCapture();
+        openNoteModalForUpload(normalizedFile, "CAMERA");
       } catch (err) {
         cameraError.value = String(err?.message || "Impossible de preparer la photo de la camera.");
       }
@@ -291,34 +337,27 @@ async function captureCameraFrame() {
   );
 }
 
-function hasNoteChange(item) {
-  return String(noteDrafts[item.idMedia] || "") !== String(item.note || "");
+function onSetPrimary(item) {
+  closeMenu();
+  emit("set-primary", item);
 }
 
-function isEditingNote(item) {
-  return activeNoteMediaId.value === item?.idMedia;
+function onRemove(item) {
+  closeMenu();
+  emit("remove", item);
 }
 
-function startNoteEditing(item) {
-  activeNoteMediaId.value = item?.idMedia || "";
+function onOpen(item) {
+  closeMenu();
+  emit("open", item);
 }
 
-function finishNoteEditing(item) {
-  window.setTimeout(() => {
-    if (activeNoteMediaId.value !== (item?.idMedia || "")) return;
-    if (hasNoteChange(item)) return;
-    activeNoteMediaId.value = "";
-  }, 120);
-}
-
-function saveNote(item) {
-  emit("save-note", {
-    media: item,
-    note: String(noteDrafts[item.idMedia] || "")
-  });
-  if (activeNoteMediaId.value === item?.idMedia) {
-    activeNoteMediaId.value = "";
-  }
+function handleGlobalPointer(event) {
+  if (!activeMenuMediaId.value) return;
+  const target = event?.target;
+  if (!(target instanceof Element)) return;
+  if (target.closest(".commande-media-menu")) return;
+  closeMenu();
 }
 
 onMounted(() => {
@@ -334,6 +373,7 @@ onMounted(() => {
     mobileCaptureMediaQuery.addListener(mobileCaptureListener);
   }
   window.addEventListener("resize", mobileCaptureListener);
+  document.addEventListener("pointerdown", handleGlobalPointer);
 });
 
 onUnmounted(() => {
@@ -348,144 +388,182 @@ onUnmounted(() => {
       mobileCaptureMediaQuery.removeListener(mobileCaptureListener);
     }
   }
+  document.removeEventListener("pointerdown", handleGlobalPointer);
   mobileCaptureMediaQuery = null;
   mobileCaptureListener = null;
 });
+
+watch(
+  () => props.items,
+  () => {
+    if (props.items.length < 3) return;
+    if (activeMenuMediaId.value && !props.items.some((item) => String(item?.idMedia || "") === activeMenuMediaId.value)) {
+      closeMenu();
+    }
+  },
+  { deep: true }
+);
 </script>
 
 <template>
   <article class="panel commande-media-panel">
-    <div class="panel-header commande-media-header">
-      <div>
-        <h4>References modele</h4>
-        <p class="helper">Ajoute jusqu'a 3 photos de reference et retrouve-les rapidement par habit.</p>
+    <header class="commande-media-topbar">
+      <div class="commande-media-heading">
+        <h4>Photos de reference</h4>
+        <p class="helper">Associe jusqu'a 3 visuels a cet habit.</p>
       </div>
-      <div class="commande-media-header-summary">
-        <span class="helper">{{ items.length }} / 3 photo(s)</span>
-        <span v-if="primaryPhoto" class="status-pill" data-tone="ok">Photo principale</span>
-      </div>
-    </div>
+      <span class="commande-media-counter">{{ photoCountLabel }}</span>
+    </header>
 
-    <div class="commande-media-upload">
-      <label class="form-row">
-        <span>Note pour la prochaine photo</span>
-        <input v-model="uploadNote" type="text" maxlength="500" placeholder="Ex: refaire le col, manches plus longues" />
-      </label>
-      <div class="row-actions">
-        <button
-          class="mini-btn blue"
-          :disabled="!canAddMore || uploading"
-          type="button"
-          aria-label="Choisir une image depuis la galerie"
-          @click="triggerGalleryUpload"
-        >
-          {{ galleryButtonLabel }}
-        </button>
-        <button v-if="prefersMobileCapture" class="mini-btn" :disabled="!canAddMore || uploading" type="button" @click="triggerCameraUpload">
-          Prendre une photo
-        </button>
-        <span class="helper" v-if="uploading">Ajout de la photo en cours...</span>
-      </div>
-      <p v-if="galleryHelperText" class="helper commande-media-picker-helper">{{ galleryHelperText }}</p>
-      <input
-        ref="galleryInputRef"
-        class="commande-media-input-hidden"
-        type="file"
-        accept="image/*"
-        @change="onPickFile($event, 'UPLOAD')"
-      />
-      <input
-        ref="cameraInputRef"
-        class="commande-media-input-hidden"
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        capture="environment"
-        @change="onPickFile($event, 'CAMERA')"
-      />
-    </div>
+    <section class="commande-media-toolbar">
+      <button
+        class="commande-media-add-btn blue"
+        type="button"
+        :disabled="!canAddMore || uploading"
+        @click="triggerCameraUpload"
+      >
+        <span class="commande-media-add-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h2l1.1-1.5A2 2 0 0 1 11.2 4h1.6a2 2 0 0 1 1.6.5L15.5 6h2A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z" />
+            <circle cx="12" cy="12.5" r="3.2" />
+          </svg>
+        </span>
+        <span>Camera</span>
+      </button>
+      <button
+        class="commande-media-add-btn gray"
+        type="button"
+        :disabled="!canAddMore || uploading"
+        @click="triggerGalleryUpload"
+      >
+        <span class="commande-media-add-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+            <path d="M7.5 14l2.6-2.6a1 1 0 0 1 1.4 0L16.5 16" />
+            <path d="M13.5 13l1.1-1.1a1 1 0 0 1 1.4 0l2.5 2.5" />
+            <circle cx="9" cy="9" r="1.2" />
+          </svg>
+        </span>
+        <span>Galerie</span>
+      </button>
+    </section>
 
-    <div v-if="error" class="helper commande-media-error">{{ error }}</div>
-    <div v-if="loading && items.length === 0" class="helper">Chargement des references...</div>
+    <p v-if="uploading" class="helper commande-media-status">Ajout de la photo en cours...</p>
+    <p v-else-if="!canAddMore" class="helper commande-media-status">Limite atteinte (3 photos maximum).</p>
+    <p v-if="error" class="helper commande-media-error">{{ error }}</p>
+
+    <input
+      ref="galleryInputRef"
+      class="commande-media-input-hidden"
+      type="file"
+      accept="image/*"
+      @change="onPickFile($event, 'UPLOAD')"
+    />
+    <input
+      ref="cameraInputRef"
+      class="commande-media-input-hidden"
+      type="file"
+      accept="image/jpeg,image/png,image/webp"
+      capture="environment"
+      @change="onPickFile($event, 'CAMERA')"
+    />
+
+    <div v-if="loading && items.length === 0" class="commande-media-empty">
+      <strong>Chargement des photos...</strong>
+      <p class="helper">Preparation des references visuelles de cet habit.</p>
+    </div>
 
     <div v-else-if="items.length === 0" class="commande-media-empty">
-      <strong>Aucune photo pour cette commande.</strong>
-      <p class="helper">Tu peux joindre jusqu'a 3 references de modele sans modifier la commande elle-meme.</p>
+      <strong>Aucune photo pour cet habit.</strong>
+      <p class="helper">Ajoute une photo depuis la camera ou la galerie pour memoriser le modele.</p>
     </div>
 
     <div v-else class="commande-media-grid">
-      <article v-for="item in items" :key="item.idMedia" class="commande-media-card" :class="{ 'is-primary': item.isPrimary }">
-        <button class="commande-media-thumb" :disabled="!item.thumbnailBlobUrl" @click="emit('open', item)">
-          <img v-if="item.thumbnailBlobUrl" :src="item.thumbnailBlobUrl" :alt="item.nomFichierOriginal || 'Reference commande'" />
-          <span v-else class="helper">Miniature indisponible</span>
-        </button>
+      <article
+        v-for="item in items"
+        :key="item.idMedia"
+        class="commande-media-card"
+        :class="{ 'is-primary': item.isPrimary }"
+      >
+        <div class="commande-media-thumb-wrap">
+          <button class="commande-media-thumb" :disabled="!item.thumbnailBlobUrl" type="button" @click="onOpen(item)">
+            <img v-if="item.thumbnailBlobUrl" :src="item.thumbnailBlobUrl" :alt="item.nomFichierOriginal || 'Reference commande'" />
+            <span v-else class="helper">Miniature indisponible</span>
+          </button>
+          <span v-if="item.isPrimary" class="commande-media-badge">Principale</span>
+        </div>
 
-        <div class="commande-media-meta">
-          <div class="commande-media-line commande-media-line-top">
-            <div class="commande-media-copy">
-              <span v-if="item.isPrimary" class="commande-media-kicker">Photo de reference</span>
-              <strong>Photo {{ item.position }}</strong>
-              <span class="helper">{{ item.nomFichierOriginal || "Reference atelier" }}</span>
+        <p class="commande-media-note" :class="{ 'is-empty': !truncateNote(item.note) }">
+          {{ truncateNote(item.note) || "Aucune note" }}
+        </p>
+
+        <div class="commande-media-actions">
+          <button class="mini-btn gray" type="button" @click="onOpen(item)">Voir</button>
+          <div class="commande-media-menu-wrap">
+            <button
+              class="mini-btn commande-media-menu-trigger"
+              type="button"
+              :aria-expanded="activeMenuMediaId === item.idMedia ? 'true' : 'false'"
+              @click.stop="toggleMenu(item)"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="12" cy="5" r="1.8" />
+                <circle cx="12" cy="12" r="1.8" />
+                <circle cx="12" cy="19" r="1.8" />
+              </svg>
+            </button>
+            <div v-if="activeMenuMediaId === item.idMedia" class="commande-media-menu">
+              <button class="commande-media-menu-item" type="button" @click="openNoteModalForEdition(item)">Modifier note</button>
+              <button
+                class="commande-media-menu-item"
+                type="button"
+                :disabled="item.isPrimary || actionId === item.idMedia"
+                @click="onSetPrimary(item)"
+              >
+                Definir principale
+              </button>
+              <button
+                class="commande-media-menu-item is-danger"
+                type="button"
+                :disabled="actionId === item.idMedia"
+                @click="onRemove(item)"
+              >
+                Supprimer
+              </button>
             </div>
-            <span class="status-pill" v-if="item.isPrimary" data-tone="ok">Principale</span>
-          </div>
-          <div class="commande-media-line helper">
-            <span>{{ item.largeur || "-" }} x {{ item.hauteur || "-" }}</span>
-            <span>{{ Math.max(1, Math.round((item.tailleOriginaleBytes || 0) / 1024)) }} KB</span>
-          </div>
-          <label class="form-row">
-            <span>Note</span>
-            <input
-              v-model="noteDrafts[item.idMedia]"
-              type="text"
-              maxlength="500"
-              placeholder="Reference, detail, consigne..."
-              @focus="startNoteEditing(item)"
-              @blur="finishNoteEditing(item)"
-            />
-          </label>
-          <div class="row-actions commande-media-actions commande-media-actions-primary">
-            <button class="mini-btn gray" @click="emit('open', item)">Voir</button>
-            <button
-              v-if="!prefersMobileCapture"
-              class="mini-btn green"
-              :disabled="item.isPrimary || actionId === item.idMedia"
-              @click="emit('set-primary', item)"
-            >
-              Principale
-            </button>
-          </div>
-          <div class="row-actions commande-media-actions commande-media-actions-secondary">
-            <button
-              v-if="!prefersMobileCapture"
-              class="mini-btn"
-              :disabled="!hasNoteChange(item) || actionId === item.idMedia"
-              @click="saveNote(item)"
-            >
-              Enregistrer note
-            </button>
-            <button
-              v-if="!prefersMobileCapture"
-              class="mini-btn"
-              :disabled="item.position <= 1 || actionId === item.idMedia"
-              @click="emit('move', { media: item, direction: -1 })"
-            >
-              Monter
-            </button>
-            <button
-              v-if="!prefersMobileCapture"
-              class="mini-btn"
-              :disabled="item.position >= items.length || actionId === item.idMedia"
-              @click="emit('move', { media: item, direction: 1 })"
-            >
-              Descendre
-            </button>
-            <button class="mini-btn red" :disabled="actionId === item.idMedia" @click="emit('remove', item)">Supprimer</button>
           </div>
         </div>
       </article>
     </div>
-    <div v-if="loading && items.length > 0" class="helper commande-media-loading-inline">Mise a jour des references...</div>
   </article>
+
+  <div v-if="noteModal.open" class="modal-backdrop commande-media-note-backdrop" @click.self="resetNoteModal">
+    <div class="modal-card commande-media-note-modal">
+      <header class="modal-header">
+        <div>
+          <h3>{{ noteModal.title }}</h3>
+          <p class="helper">La note est optionnelle mais utile pour memoriser les details du modele.</p>
+        </div>
+      </header>
+      <section class="modal-body commande-media-note-body">
+        <label class="form-row">
+          <span>Note</span>
+          <textarea
+            v-model="noteModal.note"
+            rows="4"
+            maxlength="500"
+            placeholder="Ex: col plus ferme, manche a reprendre, tissu a reproduire..."
+          ></textarea>
+        </label>
+        <div class="modal-actions commande-media-note-actions">
+          <button class="mini-btn" type="button" @click="resetNoteModal">Annuler</button>
+          <button class="action-btn blue" type="button" :disabled="uploading" @click="submitNoteModal">
+            {{ noteModal.submitLabel }}
+          </button>
+        </div>
+      </section>
+    </div>
+  </div>
 
   <div v-if="cameraModalOpen" class="modal-backdrop commande-camera-backdrop" @click.self="closeCameraCapture">
     <div class="modal-card commande-camera-modal">
@@ -539,75 +617,248 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.commande-media-header-summary {
+.commande-media-panel {
   display: grid;
-  justify-items: end;
+  gap: 12px;
+  padding: 14px;
+}
+
+.commande-media-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.commande-media-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.commande-media-heading h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.commande-media-heading .helper {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.commande-media-counter {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #edf3fb;
+  color: #33506f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.commande-media-toolbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.commande-media-add-btn {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
 }
 
-.commande-media-kicker {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #237246;
+.commande-media-add-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
 }
 
-.commande-media-picker-helper {
+.commande-media-add-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.commande-media-status,
+.commande-media-error {
   margin: 0;
 }
 
-.commande-media-copy {
+.commande-media-error {
+  color: #8d2f25;
+}
+
+.commande-media-input-hidden {
+  display: none;
+}
+
+.commande-media-empty {
   display: grid;
-  gap: 3px;
-  min-width: 0;
+  gap: 6px;
+  padding: 14px;
+  border: 1px dashed #d5e1ee;
+  border-radius: 16px;
+  background: #fbfdff;
 }
 
-.commande-media-copy strong,
-.commande-media-copy span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.commande-media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.commande-media-line-top {
-  align-items: start;
-}
-
-.commande-media-actions-primary,
-.commande-media-actions-secondary {
-  justify-content: flex-start;
-}
-
-.commande-media-actions-secondary {
-  padding-top: 2px;
+.commande-media-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dbe6f2;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(27, 66, 110, 0.08);
 }
 
 .commande-media-card.is-primary {
-  border-color: rgba(35, 114, 70, 0.28);
-  box-shadow: 0 14px 30px rgba(35, 114, 70, 0.12);
+  border-color: rgba(35, 114, 70, 0.3);
+  box-shadow: 0 10px 24px rgba(35, 114, 70, 0.12);
 }
 
-.commande-media-card.is-primary .commande-media-thumb {
-  border-color: rgba(35, 114, 70, 0.28);
-  box-shadow: 0 0 0 3px rgba(35, 114, 70, 0.08);
+.commande-media-thumb-wrap {
+  position: relative;
 }
 
+.commande-media-thumb {
+  width: 100%;
+  border: 1px solid #dbe6f2;
+  border-radius: 14px;
+  background: #f5f9ff;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.commande-media-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.commande-media-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(35, 114, 70, 0.92);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.commande-media-note {
+  min-height: 34px;
+  margin: 0;
+  color: #243649;
+  font-size: 13px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.commande-media-note.is-empty {
+  color: #7e90a4;
+}
+
+.commande-media-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.commande-media-menu-wrap {
+  position: relative;
+}
+
+.commande-media-menu-trigger {
+  min-width: 38px;
+  width: 38px;
+  padding-inline: 0;
+}
+
+.commande-media-menu-trigger svg {
+  width: 18px;
+  height: 18px;
+}
+
+.commande-media-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 4;
+  display: grid;
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid #dbe6f2;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 18px 34px rgba(16, 24, 40, 0.18);
+}
+
+.commande-media-menu-item {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: #233649;
+  font: inherit;
+}
+
+.commande-media-menu-item:hover,
+.commande-media-menu-item:focus-visible {
+  background: #f4f8fd;
+}
+
+.commande-media-menu-item:disabled {
+  opacity: 0.45;
+}
+
+.commande-media-menu-item.is-danger {
+  color: #aa3125;
+}
+
+.commande-media-note-backdrop,
 .commande-camera-backdrop {
   padding: 0;
   align-items: end;
 }
 
+.commande-media-note-modal,
 .commande-camera-modal {
   width: 100%;
   max-width: none;
-  max-height: 100vh;
-  min-height: 100vh;
   border-radius: 18px 18px 0 0;
 }
 
+.commande-media-note-body,
 .commande-camera-body {
   gap: 14px;
+}
+
+.commande-media-note-actions,
+.commande-camera-actions {
+  justify-content: space-between;
 }
 
 .commande-camera-preview {
@@ -624,17 +875,14 @@ onUnmounted(() => {
   width: 100%;
   height: min(70vh, 520px);
   object-fit: cover;
-  display: block;
-  background: #09111d;
 }
 
 .commande-camera-state {
   display: grid;
   gap: 8px;
-  justify-items: center;
   text-align: center;
-  padding: 24px;
-  color: #eef5ff;
+  padding: 22px;
+  color: #fff;
 }
 
 .commande-camera-state strong {
@@ -645,26 +893,45 @@ onUnmounted(() => {
   display: none;
 }
 
-.commande-camera-actions {
-  margin-top: 0;
+@media (min-width: 960px) {
+  .commande-media-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .commande-media-note-modal,
+  .commande-camera-modal {
+    max-width: 520px;
+    margin-inline: auto;
+    border-radius: 20px;
+  }
+
+  .commande-media-note-backdrop,
+  .commande-camera-backdrop {
+    align-items: center;
+    padding: 24px;
+  }
 }
 
-@media (min-width: 768px) {
-  .commande-camera-backdrop {
-    padding: 16px;
-    align-items: center;
+@media (max-width: 480px) {
+  .commande-media-panel {
+    padding: 12px;
   }
 
-  .commande-camera-modal {
-    width: min(760px, 100%);
-    max-width: 760px;
-    min-height: auto;
-    max-height: calc(100vh - 32px);
-    border-radius: 18px;
+  .commande-media-toolbar {
+    gap: 8px;
   }
 
-  .commande-camera-video {
-    height: min(62vh, 520px);
+  .commande-media-add-btn {
+    min-height: 40px;
+    font-size: 13px;
+  }
+
+  .commande-media-card {
+    padding: 9px;
+  }
+
+  .commande-media-menu {
+    min-width: 164px;
   }
 }
 </style>
