@@ -3492,9 +3492,9 @@ textarea:focus-visible {
     max-height: 100vh;
     min-height: 100vh;
     height: 100vh;
-    max-height: 100dvh;
-    min-height: 100dvh;
-    height: 100dvh;
+    max-height: 100svh;
+    min-height: 100svh;
+    height: 100svh;
   }
 
   .modal-body-wizard {
@@ -3504,6 +3504,8 @@ textarea:focus-visible {
     overflow-x: hidden;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    scroll-padding-top: 18px;
+    scroll-padding-bottom: calc(140px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset));
     padding-bottom: calc(18px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset));
   }
 
@@ -3525,6 +3527,10 @@ textarea:focus-visible {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.94) 24%, #ffffff 54%);
     backdrop-filter: blur(10px);
     z-index: 1;
+  }
+
+  .wizard-item-measures-block {
+    overflow-anchor: none;
   }
 
   .dossier-modal-footer {
