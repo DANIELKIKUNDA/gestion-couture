@@ -2001,6 +2001,23 @@ async function loadAtelierRuntimeSettings() {
   }
 }
 
+async function refreshRetoucheTypeDefinitions() {
+  try {
+    const rows = await atelierApi.listRetoucheTypes();
+    retoucheTypeDefinitions.value = (rows || [])
+      .map(normalizeRetoucheTypeDefinition)
+      .filter(Boolean)
+      .sort((left, right) => {
+        if (left.ordreAffichage !== right.ordreAffichage) return left.ordreAffichage - right.ordreAffichage;
+        return String(left.libelle || left.code).localeCompare(String(right.libelle || right.code), "fr", {
+          sensitivity: "base"
+        });
+      });
+  } catch (err) {
+    console.warn("Failed to refresh retouche types", err);
+  }
+}
+
 function clearSelectedAtelierLogo({ resetInput = true } = {}) {
   settingsLogoSelectedFile.value = null;
   revokeSettingsLogoPreviewUrl();
@@ -2294,48 +2311,17 @@ const selectedHabitConfigEntry = computed(() => {
 const availableRetoucheTypeDefinitions = computed(() => {
   const configured = Array.isArray(retoucheTypeDefinitions.value) ? retoucheTypeDefinitions.value : [];
   if (configured.length > 0) return configured;
-  return [
-    {
-      code: "OURLET_PANTALON",
-      libelle: "Ourlet pantalon",
-      actif: true,
-      ordreAffichage: 1,
-      necessiteMesures: true,
-      mesuresCibles: ["longueur", "largeurBas"],
-      descriptionObligatoire: false,
-      habitsCompatibles: ["PANTALON"]
-    },
-    {
-      code: "REPARATION_DECHIRURE",
-      libelle: "Reparation dechirure",
-      actif: true,
-      ordreAffichage: 2,
-      necessiteMesures: false,
-      mesuresCibles: [],
-      descriptionObligatoire: true,
-      habitsCompatibles: ["*"]
-    },
-    {
-      code: "REPARATION",
-      libelle: "Reparation",
-      actif: true,
-      ordreAffichage: 3,
-      necessiteMesures: false,
-      mesuresCibles: [],
-      descriptionObligatoire: false,
-      habitsCompatibles: ["*"]
-    },
-    {
-      code: "OURLET",
-      libelle: "Ourlet",
-      actif: true,
-      ordreAffichage: 4,
-      necessiteMesures: true,
-      mesuresCibles: [],
-      descriptionObligatoire: false,
-      habitsCompatibles: ["*"]
-    }
-  ];
+  const runtimeSource = wizardRetouchesSettings.value?.typesRetouche || wizardRetouchesSettings.value?.typesRetouches || [];
+  if (!Array.isArray(runtimeSource)) return [];
+  return runtimeSource
+    .map(normalizeRetoucheTypeDefinition)
+    .filter(Boolean)
+    .sort((left, right) => {
+      if (left.ordreAffichage !== right.ordreAffichage) return left.ordreAffichage - right.ordreAffichage;
+      return String(left.libelle || left.code).localeCompare(String(right.libelle || right.code), "fr", {
+        sensitivity: "base"
+      });
+    });
 });
 const retoucheTypeOptions = computed(() => {
   return availableRetoucheTypeDefinitions.value
@@ -3100,6 +3086,7 @@ async function saveAtelierSettings() {
       atelierSettings.meta.version = Number(saved.version || atelierSettings.meta.version || 1);
     }
     await loadAtelierRuntimeSettings();
+    await refreshRetoucheTypeDefinitions();
     persistAtelierSettings();
     captureSettingsSnapshot();
     settingsConfirmSave.value = false;
