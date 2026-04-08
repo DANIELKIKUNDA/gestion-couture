@@ -14428,7 +14428,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :contacts="systemNotificationsContacts"
           :format-date-time="formatDateTime"
           :build-phone-href="buildPhoneDialHref"
-          :build-whatsapp-href="(telephone) => buildPreferredWhatsAppHref(telephone, 'Bonjour, ici l administration systeme AtelierPro.')"
+          :build-whatsapp-href="(telephone) => buildWhatsAppAppHref(telephone, 'Bonjour, ici l administration systeme AtelierPro.')"
           @refresh="loadSystemNotifications"
           @submit-notification="submitSystemNotification"
         />
@@ -14458,7 +14458,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :recovery-action-error="systemRecoveryActionError"
           :format-date-time="formatDateTime"
           :build-phone-href="buildPhoneDialHref"
-          :build-whatsapp-href="(telephone) => buildPreferredWhatsAppHref(telephone, 'Bonjour, ici l administration systeme AtelierPro.')"
+          :build-whatsapp-href="(telephone) => buildWhatsAppAppHref(telephone, 'Bonjour, ici l administration systeme AtelierPro.')"
           @back="returnToSystemAteliers"
           @refresh="refreshSystemAtelierDetail"
           @toggle-activation="toggleSystemAtelierActivation"

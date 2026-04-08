@@ -77,21 +77,12 @@ function buildWhatsAppFallbackHref(value) {
   }
 }
 
-function openPhoneLink(value) {
-  const href = String(safeBuildPhoneHref(value) || "").trim();
-  if (!href) return;
-  window.location.href = href;
-}
-
-function openWhatsAppLink(value) {
+function openWhatsAppLink(event, value) {
   const href = String(safeBuildWhatsAppHref(value) || "").trim();
   if (!href) return;
   const fallbackHref = String(buildWhatsAppFallbackHref(value) || "").trim();
   const isAppHref = href.toLowerCase().startsWith("whatsapp://");
-  if (!isAppHref || !fallbackHref) {
-    window.location.href = href;
-    return;
-  }
+  if (!isAppHref || !fallbackHref) return;
 
   const clearFallback = () => {
     window.clearTimeout(fallbackTimer);
@@ -104,7 +95,6 @@ function openWhatsAppLink(value) {
     }
   }, 900);
   document.addEventListener("visibilitychange", clearFallback);
-  window.location.href = href;
 }
 </script>
 
@@ -217,8 +207,19 @@ function openWhatsAppLink(value) {
             <p class="helper">{{ contact.proprietaire?.telephone || "Telephone non renseigne" }}</p>
           </div>
           <div class="row-actions">
-            <button class="mini-btn blue" type="button" :disabled="!safeBuildPhoneHref(contact.proprietaire?.telephone)" @click="openPhoneLink(contact.proprietaire?.telephone)">Appeler</button>
-            <button class="mini-btn whatsapp" type="button" :disabled="!safeBuildWhatsAppHref(contact.proprietaire?.telephone)" @click="openWhatsAppLink(contact.proprietaire?.telephone)">WhatsApp</button>
+            <a v-if="safeBuildPhoneHref(contact.proprietaire?.telephone)" class="mini-btn blue" :href="safeBuildPhoneHref(contact.proprietaire?.telephone)">Appeler</a>
+            <button v-else class="mini-btn blue" type="button" disabled>Appeler</button>
+            <a
+              v-if="safeBuildWhatsAppHref(contact.proprietaire?.telephone)"
+              class="mini-btn whatsapp"
+              :href="safeBuildWhatsAppHref(contact.proprietaire?.telephone)"
+              target="_self"
+              rel="noopener noreferrer"
+              @click="openWhatsAppLink($event, contact.proprietaire?.telephone)"
+            >
+              WhatsApp
+            </a>
+            <button v-else class="mini-btn whatsapp" type="button" disabled>WhatsApp</button>
           </div>
         </article>
       </div>

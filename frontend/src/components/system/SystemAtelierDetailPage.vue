@@ -121,21 +121,12 @@ function buildWhatsAppFallbackHref(value) {
   }
 }
 
-function openPhoneLink(value) {
-  const href = String(safeBuildPhoneHref(value) || "").trim();
-  if (!href) return;
-  window.location.href = href;
-}
-
-function openWhatsAppLink(value) {
+function openWhatsAppLink(event, value) {
   const href = String(safeBuildWhatsAppHref(value) || "").trim();
   if (!href) return;
   const fallbackHref = String(buildWhatsAppFallbackHref(value) || "").trim();
   const isAppHref = href.toLowerCase().startsWith("whatsapp://");
-  if (!isAppHref || !fallbackHref) {
-    window.location.href = href;
-    return;
-  }
+  if (!isAppHref || !fallbackHref) return;
 
   const clearFallback = () => {
     window.clearTimeout(fallbackTimer);
@@ -148,7 +139,6 @@ function openWhatsAppLink(value) {
     }
   }, 900);
   document.addEventListener("visibilitychange", clearFallback);
-  window.location.href = href;
 }
 
 watch(
@@ -308,8 +298,19 @@ watch(
             <button class="mini-btn" :disabled="ownerActionKey === 'contact'" @click="emit('update-owner-contact')">
               {{ ownerActionKey === "contact" ? "Traitement..." : "Modifier le telephone" }}
             </button>
-            <button class="mini-btn blue" type="button" :disabled="!safeBuildPhoneHref(detail.proprietaire.telephone)" @click="openPhoneLink(detail.proprietaire.telephone)">Appeler</button>
-            <button class="mini-btn whatsapp" type="button" :disabled="!safeBuildWhatsAppHref(detail.proprietaire.telephone)" @click="openWhatsAppLink(detail.proprietaire.telephone)">WhatsApp</button>
+            <a v-if="safeBuildPhoneHref(detail.proprietaire.telephone)" class="mini-btn blue" :href="safeBuildPhoneHref(detail.proprietaire.telephone)">Appeler</a>
+            <button v-else class="mini-btn blue" type="button" disabled>Appeler</button>
+            <a
+              v-if="safeBuildWhatsAppHref(detail.proprietaire.telephone)"
+              class="mini-btn whatsapp"
+              :href="safeBuildWhatsAppHref(detail.proprietaire.telephone)"
+              target="_self"
+              rel="noopener noreferrer"
+              @click="openWhatsAppLink($event, detail.proprietaire.telephone)"
+            >
+              WhatsApp
+            </a>
+            <button v-else class="mini-btn whatsapp" type="button" disabled>WhatsApp</button>
             <button class="mini-btn" :disabled="ownerActionKey === 'activation'" @click="emit('toggle-owner-activation')">
               {{
                 ownerActionKey === "activation"
