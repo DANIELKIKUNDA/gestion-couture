@@ -256,8 +256,8 @@ watch(
             <button class="mini-btn" :disabled="ownerActionKey === 'contact'" @click="emit('update-owner-contact')">
               {{ ownerActionKey === "contact" ? "Traitement..." : "Modifier le telephone" }}
             </button>
-            <a class="mini-btn blue" :href="buildPhoneHref(detail.proprietaire.telephone)">Appeler</a>
-            <a class="mini-btn whatsapp" :href="buildWhatsAppHref(detail.proprietaire.telephone)">WhatsApp</a>
+            <a class="mini-btn blue" :href="props.buildPhoneHref(detail.proprietaire.telephone)">Appeler</a>
+            <a class="mini-btn whatsapp" :href="props.buildWhatsAppHref(detail.proprietaire.telephone)">WhatsApp</a>
             <button class="mini-btn" :disabled="ownerActionKey === 'activation'" @click="emit('toggle-owner-activation')">
               {{
                 ownerActionKey === "activation"

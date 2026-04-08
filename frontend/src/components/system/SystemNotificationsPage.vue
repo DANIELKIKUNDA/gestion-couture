@@ -165,8 +165,8 @@ const emptyNotificationsMessage = computed(() =>
             <p class="helper">{{ contact.proprietaire?.telephone || "Telephone non renseigne" }}</p>
           </div>
           <div class="row-actions">
-            <a class="mini-btn blue" :href="buildPhoneHref(contact.proprietaire?.telephone)">Appeler</a>
-            <a class="mini-btn whatsapp" :href="buildWhatsAppHref(contact.proprietaire?.telephone)">WhatsApp</a>
+            <a class="mini-btn blue" :href="props.buildPhoneHref(contact.proprietaire?.telephone)">Appeler</a>
+            <a class="mini-btn whatsapp" :href="props.buildWhatsAppHref(contact.proprietaire?.telephone)">WhatsApp</a>
           </div>
         </article>
       </div>
