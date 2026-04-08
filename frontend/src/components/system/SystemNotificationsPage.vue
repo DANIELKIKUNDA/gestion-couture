@@ -54,6 +54,14 @@ const emptyContactsMessage = computed(() =>
 const emptyNotificationsMessage = computed(() =>
   props.loading ? "Chargement des notifications..." : "Aucune notification envoyee pour le moment."
 );
+
+function safeBuildPhoneHref(value) {
+  return typeof props.buildPhoneHref === "function" ? props.buildPhoneHref(value) : "";
+}
+
+function safeBuildWhatsAppHref(value) {
+  return typeof props.buildWhatsAppHref === "function" ? props.buildWhatsAppHref(value) : "";
+}
 </script>
 
 <template>
@@ -165,8 +173,8 @@ const emptyNotificationsMessage = computed(() =>
             <p class="helper">{{ contact.proprietaire?.telephone || "Telephone non renseigne" }}</p>
           </div>
           <div class="row-actions">
-            <a class="mini-btn blue" :href="props.buildPhoneHref(contact.proprietaire?.telephone)">Appeler</a>
-            <a class="mini-btn whatsapp" :href="props.buildWhatsAppHref(contact.proprietaire?.telephone)">WhatsApp</a>
+            <a class="mini-btn blue" :href="safeBuildPhoneHref(contact.proprietaire?.telephone)">Appeler</a>
+            <a class="mini-btn whatsapp" :href="safeBuildWhatsAppHref(contact.proprietaire?.telephone)">WhatsApp</a>
           </div>
         </article>
       </div>

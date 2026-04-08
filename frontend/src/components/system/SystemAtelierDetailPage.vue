@@ -99,6 +99,14 @@ const recentActivity = computed(() => (Array.isArray(props.detail?.recentActivit
 const hiddenRecentActivityCount = computed(() => Math.max(0, recentActivity.value.length - 5));
 const visibleRecentActivity = computed(() => (activityExpanded.value ? recentActivity.value : recentActivity.value.slice(0, 5)));
 
+function safeBuildPhoneHref(value) {
+  return typeof props.buildPhoneHref === "function" ? props.buildPhoneHref(value) : "";
+}
+
+function safeBuildWhatsAppHref(value) {
+  return typeof props.buildWhatsAppHref === "function" ? props.buildWhatsAppHref(value) : "";
+}
+
 watch(
   () => props.detail?.idAtelier,
   () => {
@@ -256,8 +264,8 @@ watch(
             <button class="mini-btn" :disabled="ownerActionKey === 'contact'" @click="emit('update-owner-contact')">
               {{ ownerActionKey === "contact" ? "Traitement..." : "Modifier le telephone" }}
             </button>
-            <a class="mini-btn blue" :href="props.buildPhoneHref(detail.proprietaire.telephone)">Appeler</a>
-            <a class="mini-btn whatsapp" :href="props.buildWhatsAppHref(detail.proprietaire.telephone)">WhatsApp</a>
+            <a class="mini-btn blue" :href="safeBuildPhoneHref(detail.proprietaire.telephone)">Appeler</a>
+            <a class="mini-btn whatsapp" :href="safeBuildWhatsAppHref(detail.proprietaire.telephone)">WhatsApp</a>
             <button class="mini-btn" :disabled="ownerActionKey === 'activation'" @click="emit('toggle-owner-activation')">
               {{
                 ownerActionKey === "activation"
