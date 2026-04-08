@@ -107,6 +107,50 @@ function safeBuildWhatsAppHref(value) {
   return typeof props.buildWhatsAppHref === "function" ? props.buildWhatsAppHref(value) : "";
 }
 
+function buildWhatsAppFallbackHref(value) {
+  const href = String(safeBuildWhatsAppHref(value) || "").trim();
+  if (!href.toLowerCase().startsWith("whatsapp://")) return href;
+  try {
+    const url = new URL(href);
+    const phone = String(url.searchParams.get("phone") || "").trim();
+    const text = String(url.searchParams.get("text") || "").trim();
+    if (!phone) return "";
+    return text ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : `https://wa.me/${phone}`;
+  } catch {
+    return "";
+  }
+}
+
+function openPhoneLink(value) {
+  const href = String(safeBuildPhoneHref(value) || "").trim();
+  if (!href) return;
+  window.location.href = href;
+}
+
+function openWhatsAppLink(value) {
+  const href = String(safeBuildWhatsAppHref(value) || "").trim();
+  if (!href) return;
+  const fallbackHref = String(buildWhatsAppFallbackHref(value) || "").trim();
+  const isAppHref = href.toLowerCase().startsWith("whatsapp://");
+  if (!isAppHref || !fallbackHref) {
+    window.location.href = href;
+    return;
+  }
+
+  const clearFallback = () => {
+    window.clearTimeout(fallbackTimer);
+    document.removeEventListener("visibilitychange", clearFallback);
+  };
+  const fallbackTimer = window.setTimeout(() => {
+    document.removeEventListener("visibilitychange", clearFallback);
+    if (document.visibilityState !== "hidden") {
+      window.location.href = fallbackHref;
+    }
+  }, 900);
+  document.addEventListener("visibilitychange", clearFallback);
+  window.location.href = href;
+}
+
 watch(
   () => props.detail?.idAtelier,
   () => {
@@ -264,8 +308,8 @@ watch(
             <button class="mini-btn" :disabled="ownerActionKey === 'contact'" @click="emit('update-owner-contact')">
               {{ ownerActionKey === "contact" ? "Traitement..." : "Modifier le telephone" }}
             </button>
-            <a class="mini-btn blue" :href="safeBuildPhoneHref(detail.proprietaire.telephone)">Appeler</a>
-            <a class="mini-btn whatsapp" :href="safeBuildWhatsAppHref(detail.proprietaire.telephone)">WhatsApp</a>
+            <button class="mini-btn blue" type="button" :disabled="!safeBuildPhoneHref(detail.proprietaire.telephone)" @click="openPhoneLink(detail.proprietaire.telephone)">Appeler</button>
+            <button class="mini-btn whatsapp" type="button" :disabled="!safeBuildWhatsAppHref(detail.proprietaire.telephone)" @click="openWhatsAppLink(detail.proprietaire.telephone)">WhatsApp</button>
             <button class="mini-btn" :disabled="ownerActionKey === 'activation'" @click="emit('toggle-owner-activation')">
               {{
                 ownerActionKey === "activation"
