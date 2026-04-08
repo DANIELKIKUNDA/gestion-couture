@@ -8103,10 +8103,12 @@ async function loadSystemNotifications({ syncGlobalError = false } = {}) {
   systemNotificationsLoading.value = true;
   systemNotificationsError.value = "";
   try {
-    const [notificationsPayload, contactsPayload] = await Promise.all([
+    const [notificationsResult, contactsResult] = await Promise.allSettled([
       atelierApi.listSystemNotifications(),
       atelierApi.listSystemAtelierContacts({ includeInactive: true })
     ]);
+    const notificationsPayload = notificationsResult.status === "fulfilled" ? notificationsResult.value : [];
+    const contactsPayload = contactsResult.status === "fulfilled" ? contactsResult.value : [];
     const contacts = normalizeSystemAtelierContacts(contactsPayload);
     const contactsById = new Map(contacts.map((item) => [item.idAtelier, item.nomAtelier]));
     systemNotificationsContacts.value = contacts;
@@ -8114,6 +8116,12 @@ async function loadSystemNotifications({ syncGlobalError = false } = {}) {
       ...item,
       atelierNom: item.atelierNom || contactsById.get(item.atelierId) || ""
     }));
+    if (notificationsResult.status === "rejected") {
+      throw notificationsResult.reason;
+    }
+    if (contactsResult.status === "rejected" && !(contactsResult.reason instanceof ApiError && contactsResult.reason.status === 404)) {
+      systemNotificationsError.value = readableError(contactsResult.reason);
+    }
   } catch (err) {
     systemNotifications.value = [];
     systemNotificationsContacts.value = [];
