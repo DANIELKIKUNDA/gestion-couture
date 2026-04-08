@@ -157,7 +157,7 @@ async function loadCommandePolicy(context = "unknown", req = null) {
 function actionRulesForCommande(commande, policy) {
   const soldeRestant = Math.max(0, Number(commande.montantTotal || 0) - Number(commande.montantPaye || 0));
   const statut = commande.statutCommande;
-  const allowAnnulation = statut !== "LIVREE" && (policy.autoriserAnnulationApresPaiement || Number(commande.montantPaye || 0) === 0);
+  const allowAnnulation = statut === "CREEE" || statut === "EN_COURS";
   const actions = {
     voir: true,
     payer: false,

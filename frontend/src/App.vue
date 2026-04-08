@@ -49,7 +49,6 @@ import ClientCommandeHistoryMobileList from "./components/clients/ClientCommande
 import ClientConsultationOverviewCards from "./components/clients/ClientConsultationOverviewCards.vue";
 import ClientMesureHistoryMobileList from "./components/clients/ClientMesureHistoryMobileList.vue";
 import ClientRetoucheHistoryMobileList from "./components/clients/ClientRetoucheHistoryMobileList.vue";
-import ContactClientPanel from "./components/contacts/ContactClientPanel.vue";
 import DashboardActivityMobileList from "./components/dashboard/DashboardActivityMobileList.vue";
 import DashboardMetricCardGrid from "./components/dashboard/DashboardMetricCardGrid.vue";
 import DashboardRecentWorkMobileList from "./components/dashboard/DashboardRecentWorkMobileList.vue";
@@ -15509,35 +15508,6 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </ResponsiveDataContainer>
 
         <template v-else-if="clientConsultationClient">
-          <ContactClientPanel
-            title="Contacter le client"
-            subtitle="Appelez, ouvrez WhatsApp ou copiez un message depuis la fiche client."
-            :telephone="clientConsultationContactProfile?.telephone || ''"
-            :call-href="buildPhoneDialHref(clientConsultationContactProfile?.telephone)"
-            :whatsapp-href="buildPreferredWhatsAppHref(clientConsultationContactProfile?.telephone, clientConsultationContactMessagePreview)"
-            :whatsapp-fallback-href="buildWhatsAppWebHref(clientConsultationContactProfile?.telephone, clientConsultationContactMessagePreview)"
-            :whatsapp-target="isMobileViewport ? '_self' : '_blank'"
-            :templates="clientConsultationContactTemplates"
-            :selected-template-key="clientConsultationContactSelectedTemplateKey"
-            :message-preview="clientConsultationContactMessagePreview"
-            :disabled="clientConsultationLoading"
-            :last-contact-summary="buildLastContactSummary(clientConsultationContactFollowUp.lastContact)"
-            :last-contact-note="clientConsultationContactFollowUp.lastContact?.note || ''"
-            :follow-up-status="clientConsultationContactFollowUp.status"
-            :follow-up-note="clientConsultationContactFollowUp.note"
-            :status-options="contactFollowUpStatusOptions"
-            :tracking-loading="clientConsultationContactFollowUp.loading"
-            :tracking-saving="clientConsultationContactFollowUp.saving"
-            @update:selected-template-key="clientConsultationContactTemplateKey = $event"
-            @update:follow-up-status="clientConsultationContactFollowUp.status = $event"
-            @update:follow-up-note="clientConsultationContactFollowUp.note = $event"
-            @call="handleContactCall({ profile: clientConsultationContactProfile, state: clientConsultationContactFollowUp, origineType: 'CLIENT', origineId: clientConsultationContactProfile?.originId, modeleKey: clientConsultationContactSelectedTemplateKey })"
-            @whatsapp="handleContactWhatsApp({ profile: clientConsultationContactProfile, message: clientConsultationContactMessagePreview, state: clientConsultationContactFollowUp, origineType: 'CLIENT', origineId: clientConsultationContactProfile?.originId, modeleKey: clientConsultationContactSelectedTemplateKey })"
-            @copy-number="copyTextToClipboard(clientConsultationContactProfile?.telephone, 'Numero copie.')"
-            @copy-message="copyTextToClipboard(clientConsultationContactMessagePreview, 'Message copie.')"
-            @save-follow-up="handleSaveContactFollowUp({ profile: clientConsultationContactProfile, state: clientConsultationContactFollowUp, origineType: 'CLIENT', origineId: clientConsultationContactProfile?.originId, modeleKey: clientConsultationContactSelectedTemplateKey })"
-          />
-
           <ResponsiveDataContainer :mobile="isMobileViewport">
             <template #mobile>
               <ClientConsultationOverviewCards

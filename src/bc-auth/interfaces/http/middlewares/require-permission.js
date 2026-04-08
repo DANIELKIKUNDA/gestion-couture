@@ -67,19 +67,6 @@ function withPermissionGuard({ req, res, permissions = [], mode = "all" }) {
     return false;
   }
 
-  res.on("finish", () => {
-    if (res.statusCode >= 400) return;
-    logSecurityAudit({
-      utilisateurId: req.auth.utilisateurId,
-      role: req.auth.roleId || req.auth.role,
-      atelierId: req.auth.atelierId || null,
-      action: "PERMISSION_AUTORISEE",
-      entite: req.path,
-      succes: true,
-      raison: permissions.join("|")
-    });
-  });
-
   return true;
 }
 

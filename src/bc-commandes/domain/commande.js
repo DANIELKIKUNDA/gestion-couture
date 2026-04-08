@@ -184,14 +184,9 @@ export class Commande {
     this.assertNotAnnulee();
     if (
       this.statutCommande !== StatutCommande.CREEE &&
-      this.statutCommande !== StatutCommande.EN_COURS &&
-      this.statutCommande !== StatutCommande.TERMINEE
+      this.statutCommande !== StatutCommande.EN_COURS
     ) {
       throw new TransitionStatutCommandeInvalide("Transition invalide: annulation impossible pour ce statut");
-    }
-    const resolvedPolicy = resolveCommandePolicy(policy || this.commandePolicy);
-    if (!resolvedPolicy.autoriserAnnulationApresPaiement && this.montantPaye > 0) {
-      throw new TransitionStatutCommandeInvalide("Annulation interdite: la commande a deja recu un paiement");
     }
     this.statutCommande = StatutCommande.ANNULEE;
   }
