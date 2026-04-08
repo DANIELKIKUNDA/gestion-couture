@@ -228,7 +228,7 @@ async function resolveSystemAtelierOwner(atelierId) {
             owner.etat_compte AS proprietaire_etat_compte
      FROM ateliers a
      LEFT JOIN LATERAL (
-       SELECT u.id_utilisateur, u.nom, u.email, u.actif, u.etat_compte, u.role_id
+       SELECT u.id_utilisateur, u.nom, u.email, u.telephone, u.actif, u.etat_compte, u.role_id
        FROM utilisateurs u
        WHERE u.atelier_id = a.id_atelier
          AND UPPER(u.role_id) = 'PROPRIETAIRE'
