@@ -1126,6 +1126,7 @@ router.get("/system/ateliers/:id", requireSystemManager, async (req, res) => {
               owner.id_utilisateur AS proprietaire_id,
               owner.nom AS proprietaire_nom,
               owner.email AS proprietaire_email,
+              owner.telephone AS proprietaire_telephone,
               owner.actif AS proprietaire_actif,
               owner.etat_compte AS proprietaire_etat_compte,
               COALESCE(stats.total_utilisateurs, 0)::int AS total_utilisateurs,
@@ -1133,7 +1134,7 @@ router.get("/system/ateliers/:id", requireSystemManager, async (req, res) => {
               COALESCE(stats.utilisateurs_inactifs, 0)::int AS utilisateurs_inactifs
        FROM ateliers a
        LEFT JOIN LATERAL (
-         SELECT u.id_utilisateur, u.nom, u.email, u.actif, u.etat_compte
+         SELECT u.id_utilisateur, u.nom, u.email, u.telephone, u.actif, u.etat_compte
          FROM utilisateurs u
          WHERE u.atelier_id = a.id_atelier
            AND UPPER(u.role_id) = 'PROPRIETAIRE'

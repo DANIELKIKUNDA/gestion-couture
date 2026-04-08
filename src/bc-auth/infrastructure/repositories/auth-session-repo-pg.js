@@ -13,6 +13,7 @@ async function ensureSchema() {
       date_creation TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE auth_session ADD COLUMN IF NOT EXISTS date_creation TIMESTAMP NOT NULL DEFAULT NOW()`);
   schemaReady = true;
 }
 
