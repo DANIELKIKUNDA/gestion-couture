@@ -232,6 +232,7 @@ const systemAtelierDetail = ref(null);
 const systemAtelierDetailLoading = ref(false);
 const systemAtelierDetailError = ref("");
 const systemAtelierDetailRequestId = ref(0);
+const systemAtelierDetailSeed = ref(null);
 const systemOwnerActionKey = ref("");
 const systemOwnerActionError = ref("");
 const systemRecoveryActionKey = ref("");
@@ -8274,6 +8275,7 @@ function closeSystemAtelierDetail() {
   systemAtelierDetailRequestId.value += 1;
   systemAtelierDetailId.value = "";
   systemAtelierDetail.value = null;
+  systemAtelierDetailSeed.value = null;
   systemAtelierDetailError.value = "";
   systemAtelierDetailLoading.value = false;
   systemOwnerActionKey.value = "";
@@ -8303,7 +8305,12 @@ async function loadSystemAtelierDetail(idAtelier, { syncGlobalError = false } = 
     if (systemAtelierDetailRequestId.value !== requestId) return;
     const errStatus = Number(err?.status || err?.payload?.status || 0);
     if ((err instanceof ApiError && err.status === 404) || errStatus === 404) {
-      const fallbackAtelier = findSystemAtelierListEntry(targetId);
+      const fallbackAtelier =
+        findSystemAtelierListEntry(targetId) ||
+        (systemAtelierDetailSeed.value &&
+        [systemAtelierDetailSeed.value.idAtelier, systemAtelierDetailSeed.value.slug].includes(targetId)
+          ? systemAtelierDetailSeed.value
+          : null);
       if (fallbackAtelier) {
         systemAtelierDetail.value = buildSystemAtelierDetailFallback(fallbackAtelier);
         systemAtelierDetailError.value = "";
@@ -8332,8 +8339,17 @@ function refreshSystemAtelierDetail() {
 }
 
 function openSystemAtelierDetail(atelier) {
-  const targetId = String(atelier?.idAtelier || atelier || "").trim();
+  const normalizedAtelier = atelier && typeof atelier === "object" ? normalizeSystemAtelier(atelier) : null;
+  const targetId = String(
+    normalizedAtelier?.idAtelier ||
+      normalizedAtelier?.slug ||
+      atelier?.id_atelier ||
+      atelier?.slug ||
+      atelier ||
+      ""
+  ).trim();
   if (!targetId) return;
+  systemAtelierDetailSeed.value = normalizedAtelier;
   currentRoute.value = "systemAtelierDetail";
   scrollMainContentToTop();
   if (systemAtelierDetailId.value === targetId && (systemAtelierDetail.value || systemAtelierDetailLoading.value)) return;
