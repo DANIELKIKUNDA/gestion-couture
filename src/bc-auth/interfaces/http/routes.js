@@ -1155,6 +1155,7 @@ router.get("/system/ateliers/:id", requireSystemManager, async (req, res) => {
          WHERE u.atelier_id = a.id_atelier
        ) stats ON true
        WHERE a.id_atelier = $1
+          OR a.slug = $1
        LIMIT 1`,
       [atelierId]
     );

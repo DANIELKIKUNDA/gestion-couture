@@ -8301,8 +8301,9 @@ async function loadSystemAtelierDetail(idAtelier, { syncGlobalError = false } = 
     systemAtelierDetail.value = normalizeSystemAtelierDetail(payload);
   } catch (err) {
     if (systemAtelierDetailRequestId.value !== requestId) return;
-    if (err instanceof ApiError && err.status === 404) {
-      const fallbackAtelier = systemAteliers.value.find((atelier) => String(atelier?.idAtelier || "").trim() === targetId);
+    const errStatus = Number(err?.status || err?.payload?.status || 0);
+    if ((err instanceof ApiError && err.status === 404) || errStatus === 404) {
+      const fallbackAtelier = findSystemAtelierListEntry(targetId);
       if (fallbackAtelier) {
         systemAtelierDetail.value = buildSystemAtelierDetailFallback(fallbackAtelier);
         systemAtelierDetailError.value = "";
@@ -10335,6 +10336,18 @@ function buildSystemAtelierDetailFallback(raw) {
     },
     recentActivity: []
   };
+}
+
+function findSystemAtelierListEntry(targetId = "") {
+  const resolvedTargetId = String(targetId || "").trim();
+  if (!resolvedTargetId) return null;
+  return (
+    systemAteliers.value.find((atelier) => {
+      const atelierId = String(atelier?.idAtelier || "").trim();
+      const atelierSlug = String(atelier?.slug || "").trim();
+      return atelierId === resolvedTargetId || atelierSlug === resolvedTargetId;
+    }) || null
+  );
 }
 
 function buildSystemDashboardFallback(rows, summary = null) {
