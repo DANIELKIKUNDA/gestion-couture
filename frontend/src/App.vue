@@ -245,6 +245,7 @@ const systemNotificationsContacts = ref([]);
 const systemNotificationsLoading = ref(false);
 const systemNotificationsSubmitting = ref(false);
 const systemNotificationsError = ref("");
+const systemNotificationsContactsRouteUnavailable = ref(false);
 const atelierNotifications = ref([]);
 const atelierNotificationsLoading = ref(false);
 const atelierNotificationsError = ref("");
@@ -8105,11 +8106,16 @@ async function loadSystemNotifications({ syncGlobalError = false } = {}) {
   try {
     const [notificationsResult, contactsResult] = await Promise.allSettled([
       atelierApi.listSystemNotifications(),
-      atelierApi.listSystemAtelierContacts({ includeInactive: true })
+      systemNotificationsContactsRouteUnavailable.value
+        ? Promise.resolve(buildSystemAtelierContactsFallbackFromList(systemAteliers.value))
+        : atelierApi.listSystemAtelierContacts({ includeInactive: true })
     ]);
     const notificationsPayload = notificationsResult.status === "fulfilled" ? notificationsResult.value : [];
     const contactsPayload = contactsResult.status === "fulfilled" ? contactsResult.value : [];
-    const contacts = normalizeSystemAtelierContacts(contactsPayload);
+    const contacts =
+      contactsResult.status === "fulfilled"
+        ? normalizeSystemAtelierContacts(contactsPayload)
+        : buildSystemAtelierContactsFallbackFromList(systemAteliers.value);
     const contactsById = new Map(contacts.map((item) => [item.idAtelier, item.nomAtelier]));
     systemNotificationsContacts.value = contacts;
     systemNotifications.value = normalizeSystemNotifications(notificationsPayload).map((item) => ({
@@ -8119,7 +8125,13 @@ async function loadSystemNotifications({ syncGlobalError = false } = {}) {
     if (notificationsResult.status === "rejected") {
       throw notificationsResult.reason;
     }
-    if (contactsResult.status === "rejected" && !(contactsResult.reason instanceof ApiError && contactsResult.reason.status === 404)) {
+    if (contactsResult.status === "rejected" && contactsResult.reason instanceof ApiError && contactsResult.reason.status === 404) {
+      systemNotificationsContactsRouteUnavailable.value = true;
+    }
+    if (
+      contactsResult.status === "rejected" &&
+      !(contactsResult.reason instanceof ApiError && contactsResult.reason.status === 404)
+    ) {
       systemNotificationsError.value = readableError(contactsResult.reason);
     }
   } catch (err) {
@@ -10268,6 +10280,29 @@ function normalizeSystemAtelierContact(raw) {
 function normalizeSystemAtelierContacts(payload) {
   const rows = Array.isArray(payload) ? payload : payload?.items;
   return Array.isArray(rows) ? rows.map(normalizeSystemAtelierContact) : [];
+}
+
+function buildSystemAtelierContactsFallbackFromList(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((atelier) => {
+      const normalized = normalizeSystemAtelier(atelier);
+      if (!normalized?.idAtelier) return null;
+      return {
+        idAtelier: normalized.idAtelier,
+        nomAtelier: normalized.nom || normalized.idAtelier,
+        slug: normalized.slug || "",
+        actif: normalized.actif !== false,
+        proprietaire: normalized.proprietaire
+          ? {
+              id: normalized.proprietaire.id || "",
+              nom: normalized.proprietaire.nom || "",
+              email: normalized.proprietaire.email || "",
+              telephone: ""
+            }
+          : null
+      };
+    })
+    .filter(Boolean);
 }
 
 function matchesSystemAtelierSearch(atelier, rawSearch = "") {
