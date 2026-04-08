@@ -11097,6 +11097,54 @@ function isCaisseClosedMessage(message) {
   return lower.includes("caisse is closed") || lower.includes("caisse cloturee");
 }
 
+function isCaisseRefundUnavailableMessage(message) {
+  const lower = String(message || "").toLowerCase();
+  return (
+    isCaisseClosedMessage(message) ||
+    lower.includes("idcaissejour requis pour remboursement") ||
+    lower.includes("caisse du jour est fermee")
+  );
+}
+
+function isCaisseInsufficientMessage(message) {
+  const lower = String(message || "").toLowerCase();
+  return lower.includes("solde insuffisant") || lower.includes("solde journalier insuffisant");
+}
+
+function buildCancellationConfirmationMessage(entityLabel, entityId, montantPaye = 0) {
+  const label = String(entityLabel || "element").trim();
+  const id = String(entityId || "").trim();
+  const paid = Number(montantPaye || 0);
+  if (paid > 0) {
+    return `Cette action va annuler ${label} ${id} et enregistrer un remboursement via la caisse. Voulez-vous continuer ?`;
+  }
+  return `Cette action va annuler ${label} ${id}. Voulez-vous continuer ?`;
+}
+
+function getCancellationPayload(entity) {
+  const montantPaye = Number(entity?.montantPaye || 0);
+  if (montantPaye <= 0) return {};
+  const idCaisseJour = String(caisseJour.value?.idCaisseJour || "").trim();
+  if (!caisseOuverte.value || !idCaisseJour) {
+    notify("Impossible d'annuler pour le moment : la caisse du jour est fermee ou indisponible pour enregistrer le remboursement.");
+    return null;
+  }
+  return { idCaisseJour };
+}
+
+function notifyCancellationError(err) {
+  const message = readableError(err);
+  if (isCaisseRefundUnavailableMessage(message)) {
+    notify("Impossible d'annuler pour le moment : la caisse du jour est fermee ou indisponible pour enregistrer le remboursement.");
+    return;
+  }
+  if (isCaisseInsufficientMessage(message)) {
+    notify("Impossible d'annuler pour le moment : le solde de caisse est insuffisant pour rembourser ce paiement.");
+    return;
+  }
+  notify(message);
+}
+
 function formatCaisseOuvertePar(caisse) {
   const value = String(caisse?.ouvertePar || "").trim();
   if (!value) return "-";
@@ -11386,19 +11434,21 @@ function canAnnulerRetouche(retouche) {
 }
 
 async function onAnnulerCommande(commande) {
+  const payload = getCancellationPayload(commande);
+  if (payload === null) return;
   const confirmed = await openActionModal({
     title: "Annuler la commande",
-    message: `Cette action annule la commande ${commande.idCommande}.`,
+    message: buildCancellationConfirmationMessage("la commande", commande.idCommande, commande.montantPaye),
     confirmLabel: "Confirmer l'annulation",
     tone: "red"
   });
   if (!confirmed) return;
   try {
-    await atelierApi.annulerCommande(commande.idCommande);
+    await atelierApi.annulerCommande(commande.idCommande, payload);
     await reloadAll();
     notify(`Commande annulee: ${commande.idCommande}`);
   } catch (err) {
-    notify(readableError(err));
+    notifyCancellationError(err);
   }
 }
 
@@ -12827,20 +12877,22 @@ async function onTerminerDetail() {
 
 async function onAnnulerDetail() {
   if (!detailCommande.value) return;
+  const payload = getCancellationPayload(detailCommande.value);
+  if (payload === null) return;
   const confirmed = await openActionModal({
     title: "Annuler la commande",
-    message: `Cette action annule la commande ${detailCommande.value.idCommande}.`,
+    message: buildCancellationConfirmationMessage("la commande", detailCommande.value.idCommande, detailCommande.value.montantPaye),
     confirmLabel: "Confirmer l'annulation",
     tone: "red"
   });
   if (!confirmed) return;
   try {
-    await atelierApi.annulerCommande(detailCommande.value.idCommande);
+    await atelierApi.annulerCommande(detailCommande.value.idCommande, payload);
     await loadCommandeDetail(detailCommande.value.idCommande);
     await reloadAll();
     notify(`Commande annulee: ${detailCommande.value.idCommande}`);
   } catch (err) {
-    notify(readableError(err));
+    notifyCancellationError(err);
   }
 }
 
@@ -12989,38 +13041,42 @@ async function onTerminerRetoucheDetail() {
 }
 
 async function onAnnulerRetouche(retouche) {
+  const payload = getCancellationPayload(retouche);
+  if (payload === null) return;
   const confirmed = await openActionModal({
     title: "Annuler la retouche",
-    message: `Cette action annule la retouche ${retouche.idRetouche}.`,
+    message: buildCancellationConfirmationMessage("la retouche", retouche.idRetouche, retouche.montantPaye),
     confirmLabel: "Confirmer l'annulation",
     tone: "red"
   });
   if (!confirmed) return;
   try {
-    await atelierApi.annulerRetouche(retouche.idRetouche);
+    await atelierApi.annulerRetouche(retouche.idRetouche, payload);
     await reloadAll();
     notify(`Retouche annulee: ${retouche.idRetouche}`);
   } catch (err) {
-    notify(readableError(err));
+    notifyCancellationError(err);
   }
 }
 
 async function onAnnulerRetoucheDetail() {
   if (!detailRetouche.value) return;
+  const payload = getCancellationPayload(detailRetouche.value);
+  if (payload === null) return;
   const confirmed = await openActionModal({
     title: "Annuler la retouche",
-    message: `Cette action annule la retouche ${detailRetouche.value.idRetouche}.`,
+    message: buildCancellationConfirmationMessage("la retouche", detailRetouche.value.idRetouche, detailRetouche.value.montantPaye),
     confirmLabel: "Confirmer l'annulation",
     tone: "red"
   });
   if (!confirmed) return;
   try {
-    await atelierApi.annulerRetouche(detailRetouche.value.idRetouche);
+    await atelierApi.annulerRetouche(detailRetouche.value.idRetouche, payload);
     await loadRetoucheDetail(detailRetouche.value.idRetouche);
     await reloadAll();
     notify(`Retouche annulee: ${detailRetouche.value.idRetouche}`);
   } catch (err) {
-    notify(readableError(err));
+    notifyCancellationError(err);
   }
 }
 
@@ -18674,7 +18730,6 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               {{ caisseStatus }}
             </span>
             <button class="action-btn green" v-if="!isMobileViewport && !caisseOuverte && canOpenCaisse" @click="onOuvrirCaisseDuJour">Ouvrir la caisse</button>
-            <button class="mini-btn" v-if="!caisseOuverte && canOpenCaisse" @click="onOuvrirCaisseAnticipee">Ouverture anticipee (manager)</button>
             <button class="action-btn amber" v-if="!isMobileViewport && caisseOuverte && canRecordCaisseExpense" @click="onDepenseCaisse">Enregistrer depense</button>
             <button class="action-btn red" v-if="!isMobileViewport && caisseOuverte && canCloseCaisse" @click="onCloturerCaisse">Cloturer la caisse</button>
             <button class="mini-btn" v-if="isMobileViewport && caisseOuverte && canCloseCaisse" @click="onCloturerCaisse">Cloturer</button>

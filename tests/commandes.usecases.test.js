@@ -372,7 +372,7 @@ function run() {
     })
   );
 
-  // Annulation apres paiement interdite si policy desactivee
+  // Annulation apres paiement autorisee tant que le statut reste annulable
   const cNoCancelAfterPay = creerCommande(
     {
       idCommande: "CMD-NOCANCEL",
@@ -390,16 +390,15 @@ function run() {
     { policy: basePolicy }
   );
   cNoCancelAfterPay.appliquerPaiement(10, { policy: basePolicy });
-  shouldFail(() =>
-    cNoCancelAfterPay.annulerCommande({
-      policy: {
-        commandes: {
-          ...basePolicy.commandes,
-          autoriserAnnulationApresPaiement: false
-        }
+  cNoCancelAfterPay.annulerCommande({
+    policy: {
+      commandes: {
+        ...basePolicy.commandes,
+        autoriserAnnulationApresPaiement: false
       }
-    })
-  );
+    }
+  });
+  assert.equal(cNoCancelAfterPay.statutCommande, StatutCommande.ANNULEE);
 
   // Annulation interdite en TERMINEE
   const cTerminee = creerCommande(
