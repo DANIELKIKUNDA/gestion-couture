@@ -401,7 +401,7 @@ function run() {
     })
   );
 
-  // Annulation autorisee en TERMINEE (si non livree)
+  // Annulation interdite en TERMINEE
   const cTerminee = creerCommande(
     {
       idCommande: "CMD-TERM-CANCEL",
@@ -420,8 +420,7 @@ function run() {
   );
   cTerminee.appliquerPaiement(20, { policy: basePolicy });
   cTerminee.terminerTravail();
-  cTerminee.annulerCommande({ policy: basePolicy });
-  assert.equal(cTerminee.statutCommande, StatutCommande.ANNULEE);
+  shouldFail(() => cTerminee.annulerCommande({ policy: basePolicy }));
 }
 
 run();
