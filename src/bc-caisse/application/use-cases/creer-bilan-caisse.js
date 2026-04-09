@@ -142,7 +142,8 @@ export async function creerBilanHebdoSiFinSemaine({
   const parts = caisseCloturee?.date
     ? parseDateJour(caisseCloturee.date)
     : getKinshasaParts(now, timeZone);
-  const target = getLatestCompletedWeekEndParts(parts, endWeekday);
+  if (parts.weekday !== endWeekday) return null;
+  const target = parts;
   const dateFin = buildDateJour(target);
   const dateDebut = startOfWeek(target, endWeekday);
   const exists = await bilanRepo.getByPeriod(TypeBilan.HEBDO, dateDebut, dateFin);
@@ -235,7 +236,8 @@ export async function creerBilanAnnuelSiFinAnnee({
   const parts = caisseCloturee?.date
     ? parseDateJour(caisseCloturee.date)
     : getKinshasaParts(now, timeZone);
-  const target = isEndOfYear(parts) ? parts : getPreviousYearParts(parts);
+  if (!isEndOfYear(parts)) return null;
+  const target = parts;
   const dateDebut = startOfYear(target);
   const dateFin = endOfYear(target);
   const exists = await bilanRepo.getByPeriod(TypeBilan.ANNUEL, dateDebut, dateFin);
