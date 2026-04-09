@@ -68,6 +68,9 @@ services:
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
+      ROOT_DOMAIN: ${ROOT_DOMAIN}
+      WWW_DOMAIN: ${WWW_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
     depends_on:
       backend:
         condition: service_healthy
