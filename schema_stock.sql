@@ -74,6 +74,69 @@ CREATE TABLE IF NOT EXISTS vente_lignes (
   benefice_total NUMERIC(12,2) NOT NULL DEFAULT 0
 );
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'articles'
+  ) THEN
+    ALTER TABLE articles ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+    UPDATE articles SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+    ALTER TABLE articles ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE articles ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'mouvements_stock'
+  ) THEN
+    ALTER TABLE mouvements_stock ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+    UPDATE mouvements_stock SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+    ALTER TABLE mouvements_stock ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE mouvements_stock ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'fournisseurs'
+  ) THEN
+    ALTER TABLE fournisseurs ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+    UPDATE fournisseurs SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+    ALTER TABLE fournisseurs ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE fournisseurs ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'stock_prix_historique'
+  ) THEN
+    ALTER TABLE stock_prix_historique ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+    UPDATE stock_prix_historique SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+    ALTER TABLE stock_prix_historique ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE stock_prix_historique ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'ventes'
+  ) THEN
+    ALTER TABLE ventes ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+    UPDATE ventes SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+    ALTER TABLE ventes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE ventes ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'vente_lignes'
+  ) THEN
+    ALTER TABLE vente_lignes ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+    UPDATE vente_lignes SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+    ALTER TABLE vente_lignes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE vente_lignes ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_articles_atelier_id ON articles (atelier_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_atelier_id_article_unique ON articles (atelier_id, id_article);
 CREATE INDEX IF NOT EXISTS idx_articles_categorie ON articles (categorie_article);

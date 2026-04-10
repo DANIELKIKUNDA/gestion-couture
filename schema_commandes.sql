@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS commandes (
 
 ALTER TABLE commandes ADD COLUMN IF NOT EXISTS type_habit TEXT NULL;
 ALTER TABLE commandes ADD COLUMN IF NOT EXISTS mesures_habit_snapshot JSONB NULL;
+ALTER TABLE commandes ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE commandes SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE commandes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE commandes ALTER COLUMN atelier_id SET NOT NULL;
 
 DO $$
 BEGIN
@@ -166,6 +170,11 @@ CREATE TABLE IF NOT EXISTS commande_events (
   date_event TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE commande_events ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE commande_events SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE commande_events ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE commande_events ALTER COLUMN atelier_id SET NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_commande_events_atelier_id ON commande_events (atelier_id);
 CREATE INDEX IF NOT EXISTS idx_commande_events_commande ON commande_events (id_commande);
 CREATE INDEX IF NOT EXISTS idx_commande_events_atelier_commande ON commande_events (atelier_id, id_commande);
@@ -208,6 +217,11 @@ CREATE TABLE IF NOT EXISTS commande_lignes (
   date_creation TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE commande_lignes ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE commande_lignes SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE commande_lignes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE commande_lignes ALTER COLUMN atelier_id SET NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_commande_lignes_atelier_commande
 ON commande_lignes (atelier_id, id_commande, ordre_affichage);
 
@@ -235,6 +249,11 @@ CREATE TABLE IF NOT EXISTS commande_items (
   ordre_affichage INTEGER NOT NULL DEFAULT 1 CHECK (ordre_affichage > 0),
   date_creation TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE commande_items ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE commande_items SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE commande_items ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE commande_items ALTER COLUMN atelier_id SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_commande_items_atelier_commande
 ON commande_items (atelier_id, id_commande, ordre_affichage);
@@ -308,6 +327,11 @@ CREATE TABLE IF NOT EXISTS commande_media (
   cree_par TEXT NULL,
   date_creation TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE commande_media ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE commande_media SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE commande_media ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE commande_media ALTER COLUMN atelier_id SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_commande_media_atelier_commande
 ON commande_media (atelier_id, id_commande, position);
