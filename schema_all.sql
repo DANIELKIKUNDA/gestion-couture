@@ -1,10 +1,10 @@
 -- Full schema (concatenation of all BC schemas)
 -- Order matters because several BCs define cross-table foreign keys.
-\i schema_parametres.sql
-\i schema_clients.sql
-\i schema_dossiers.sql
-\i schema_commandes.sql
-\i schema_retouches.sql
-\i schema_caisse.sql
-\i schema_stock.sql
-\i schema_facturation.sql
+\ir schema_parametres.sql
+\ir schema_clients.sql
+\ir schema_dossiers.sql
+\ir schema_commandes.sql
+\ir schema_retouches.sql
+\ir schema_caisse.sql
+\ir schema_stock.sql
+\ir schema_facturation.sql

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-APP_DIR="/app"
+APP_DIR="${APP_DIR:-/app}"
 
 : "${PGHOST:?PGHOST requis}"
 : "${PGPORT:?PGPORT requis}"
@@ -15,6 +15,8 @@ until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" >/dev/n
 done
 
 export PGPASSWORD="$PGPASSWORD"
+
+cd "$APP_DIR"
 
 for file in "$APP_DIR"/scripts/migrations/*.sql; do
   [ -f "$file" ] || continue
