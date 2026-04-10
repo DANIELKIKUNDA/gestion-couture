@@ -12,6 +12,10 @@ import { UtilisateurRepoPg } from "../src/bc-auth/infrastructure/repositories/ut
 import { RolePermissionAtelierRepoPg } from "../src/bc-auth/infrastructure/repositories/role-permission-atelier-repo-pg.js";
 import { ensureAtelier, withAuth } from "./helpers/integration-fixtures.js";
 
+function errorMessage(response) {
+  return response.body?.error || response.body?.message;
+}
+
 async function run() {
   const app = createApp();
   const client = request(app);
@@ -233,7 +237,7 @@ async function run() {
 
   const deactivateSystemAtelier = await withAuth(client.patch("/api/system/ateliers/SYSTEME/activation"), managerToken).send({ actif: false });
   assert.equal(deactivateSystemAtelier.status, 400, "atelier systeme reserve ne doit pas etre desactivable");
-  assert.equal(deactivateSystemAtelier.body?.error, "Atelier reserve");
+  assert.equal(errorMessage(deactivateSystemAtelier), "Atelier reserve");
 
   const deactivate = await withAuth(client.patch(`/api/system/ateliers/${encodeURIComponent(atelierId)}/activation`), managerToken).send({ actif: false });
   assert.equal(deactivate.status, 200, "desactivation atelier doit repondre 200");
@@ -262,7 +266,7 @@ async function run() {
 
   const meAfterDeactivate = await client.get("/api/auth/me").set("Authorization", `Bearer ${ownerToken}`);
   assert.equal(meAfterDeactivate.status, 401, "session owner atelier inactif doit etre refusee");
-  assert.equal(meAfterDeactivate.body?.error, "Atelier inactif");
+  assert.equal(errorMessage(meAfterDeactivate), "Atelier inactif");
 
   const reactivate = await withAuth(client.patch(`/api/system/ateliers/${encodeURIComponent(atelierId)}/activation`), managerToken).send({ actif: true });
   assert.equal(reactivate.status, 200, "reactivation atelier doit repondre 200");

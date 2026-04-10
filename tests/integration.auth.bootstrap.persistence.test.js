@@ -11,6 +11,10 @@ import { hashPassword } from "../src/bc-auth/infrastructure/security/password-ha
 import { UtilisateurRepoPg } from "../src/bc-auth/infrastructure/repositories/utilisateur-repo-pg.js";
 import { changerStatutUtilisateur } from "../src/bc-auth/application/use-cases/changer-statut-utilisateur.js";
 
+function errorMessage(response) {
+  return response.body?.error || response.body?.message;
+}
+
 async function run() {
   const firstApp = createApp();
   const firstClient = request(firstApp);
@@ -22,7 +26,7 @@ async function run() {
   let bootstrapPassword = null;
   if (firstStatus.body?.initialized !== true) {
     bootstrapEmail = `owner.bootstrap.${Date.now()}@atelier.local`;
-    bootstrapPassword = "Passw0rdBootstrap";
+    bootstrapPassword = "Passw0rdBootstrap!";
     const boot = await firstClient.post("/api/auth/bootstrap-owner").send({
       nom: "Owner Bootstrap Test",
       email: bootstrapEmail,
@@ -57,7 +61,7 @@ async function run() {
 
   const utilisateurRepo = new UtilisateurRepoPg();
   const loginEmail = `disabled.login.${Date.now()}@atelier.local`;
-  const loginPassword = "Passw0rdDisabled";
+  const loginPassword = "Passw0rdDisabled!";
   const loginUser = new Utilisateur({
     id: randomUUID(),
     nom: "User Disabled Test",
@@ -83,11 +87,11 @@ async function run() {
 
   const loginAfterDisable = await secondClient.post("/api/auth/login").send({ email: loginEmail, motDePasse: loginPassword });
   assert.equal(loginAfterDisable.status, 401, "login utilisateur desactive doit etre refuse");
-  assert.equal(loginAfterDisable.body?.error, "Compte inactif: connexion refusee");
+  assert.equal(errorMessage(loginAfterDisable), "Compte inactif: connexion refusee");
 
   const meAfterDisable = await secondClient.get("/api/auth/me").set("Authorization", `Bearer ${tokenBeforeDisable}`);
   assert.equal(meAfterDisable.status, 401, "/auth/me utilisateur desactive doit etre refuse");
-  assert.equal(meAfterDisable.body?.error, "Compte inactif: connexion refusee");
+  assert.equal(errorMessage(meAfterDisable), "Compte inactif: connexion refusee");
 }
 
 run()

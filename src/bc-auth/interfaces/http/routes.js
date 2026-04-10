@@ -556,10 +556,53 @@ async function createAtelierWithOwner({ nomAtelier, slug, ownerNom, ownerEmail, 
 
     const ownerId = randomUUID();
     const ownerHash = hashPassword(proprietairePassword);
+    const userColumns = await dbClient.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'utilisateurs'`
+    );
+    const availableUserColumns = new Set(userColumns.rows.map((row) => row.column_name));
+    const insertColumns = [
+      "id_utilisateur",
+      "nom",
+      "email",
+      "telephone",
+      "role_id",
+      "atelier_id",
+      "actif",
+      "etat_compte",
+      "token_version",
+      "mot_de_passe_hash",
+      "date_mise_a_jour"
+    ];
+    const insertValues = [
+      ownerId,
+      proprietaireNom,
+      proprietaireEmail,
+      proprietaireTelephone,
+      ROLES.PROPRIETAIRE,
+      atelier.idAtelier,
+      true,
+      ACCOUNT_STATES.ACTIVE,
+      1,
+      ownerHash,
+      new Date()
+    ];
+    if (availableUserColumns.has("nom_complet")) {
+      insertColumns.splice(2, 0, "nom_complet");
+      insertValues.splice(2, 0, proprietaireNom);
+    }
+    if (availableUserColumns.has("role")) {
+      const roleInsertIndex = availableUserColumns.has("nom_complet") ? 6 : 5;
+      insertColumns.splice(roleInsertIndex, 0, "role");
+      insertValues.splice(roleInsertIndex, 0, ROLES.PROPRIETAIRE);
+    }
+    const placeholders = insertValues.map((_, index) => `$${index + 1}`).join(", ");
     await dbClient.query(
-      `INSERT INTO utilisateurs (id_utilisateur, nom, email, telephone, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash, date_mise_a_jour)
-       VALUES ($1, $2, $3, $4, $5, $6, true, $7, 1, $8, NOW())`,
-      [ownerId, proprietaireNom, proprietaireEmail, proprietaireTelephone, ROLES.PROPRIETAIRE, atelier.idAtelier, ACCOUNT_STATES.ACTIVE, ownerHash]
+      `INSERT INTO utilisateurs (${insertColumns.join(", ")})
+       VALUES (${placeholders})`,
+      insertValues
     );
 
     await insertDefaultRolePermissionsForAtelier(dbClient, atelier.idAtelier, createdBy || ownerId);

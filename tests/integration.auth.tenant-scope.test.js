@@ -10,12 +10,16 @@ import { PERMISSIONS } from "../src/bc-auth/domain/permissions.js";
 import { hashPassword } from "../src/bc-auth/infrastructure/security/password-hasher.js";
 import { UtilisateurRepoPg } from "../src/bc-auth/infrastructure/repositories/utilisateur-repo-pg.js";
 import { RolePermissionAtelierRepoPg } from "../src/bc-auth/infrastructure/repositories/role-permission-atelier-repo-pg.js";
+import { ensureAtelier } from "./helpers/integration-fixtures.js";
 
 async function run() {
   const app = createApp();
   const client = request(app);
   const utilisateurRepo = new UtilisateurRepoPg();
   const rolePermissionRepo = new RolePermissionAtelierRepoPg();
+
+  await ensureAtelier("ATELIER_A", "atelier-a", "Atelier A");
+  await ensureAtelier("ATELIER_B", "atelier-b", "Atelier B");
 
   await rolePermissionRepo.save({
     atelierId: "ATELIER_A",

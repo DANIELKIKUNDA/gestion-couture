@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-APP_DIR="/app"
+APP_DIR="${APP_DIR:-$(pwd)}"
 
 : "${PGHOST:?PGHOST requis}"
 : "${PGPORT:?PGPORT requis}"

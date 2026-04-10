@@ -358,7 +358,8 @@ function hydrateCommandeItems(items = [], commandeRow = null) {
       prix: Number(commandeRow.montant_total || 0),
       ordreAffichage: 1,
       mesures: commandeRow.mesures_habit_snapshot || null,
-      dateCreation: commandeRow.date_creation
+      dateCreation: commandeRow.date_creation,
+      rehydrate: true
     })
   ];
 }
