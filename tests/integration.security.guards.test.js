@@ -11,6 +11,10 @@ import { hashPassword } from "../src/bc-auth/infrastructure/security/password-ha
 import { UtilisateurRepoPg } from "../src/bc-auth/infrastructure/repositories/utilisateur-repo-pg.js";
 import { RolePermissionAtelierRepoPg } from "../src/bc-auth/infrastructure/repositories/role-permission-atelier-repo-pg.js";
 
+function errorMessage(response) {
+  return response.body?.error || response.body?.message;
+}
+
 async function run() {
   const app = createApp();
   const client = request(app);
@@ -51,7 +55,7 @@ async function run() {
     .set("Authorization", `Bearer ${token}`)
     .send({ actif: false });
   assert.equal(selfDisable.status, 400, "auto-desactivation du proprietaire doit etre refusee");
-  assert.equal(selfDisable.body?.error, "Vous ne pouvez pas desactiver votre propre compte");
+  assert.equal(errorMessage(selfDisable), "Vous ne pouvez pas desactiver votre propre compte");
 
   const removeOwnerManagePermission = await client
     .put(`/api/auth/role-permissions/${encodeURIComponent(ROLES.PROPRIETAIRE)}`)
@@ -59,7 +63,7 @@ async function run() {
     .send({ permissions: [PERMISSIONS.MODIFIER_PARAMETRES] });
   assert.equal(removeOwnerManagePermission.status, 400, "suppression permission critique du proprietaire doit etre refusee");
   assert.equal(
-    removeOwnerManagePermission.body?.error,
+    errorMessage(removeOwnerManagePermission),
     "Le role proprietaire doit conserver les permissions critiques: GERER_UTILISATEURS"
   );
 
@@ -69,7 +73,7 @@ async function run() {
     .send({ permissions: [PERMISSIONS.GERER_UTILISATEURS] });
   assert.equal(removeOwnerSettingsPermission.status, 400, "retrait permission parametres du proprietaire doit etre refuse");
   assert.equal(
-    removeOwnerSettingsPermission.body?.error,
+    errorMessage(removeOwnerSettingsPermission),
     "Le role proprietaire doit conserver les permissions critiques: MODIFIER_PARAMETRES"
   );
 

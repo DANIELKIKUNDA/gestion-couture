@@ -12,6 +12,10 @@ import { UtilisateurRepoPg } from "../src/bc-auth/infrastructure/repositories/ut
 import { RolePermissionAtelierRepoPg } from "../src/bc-auth/infrastructure/repositories/role-permission-atelier-repo-pg.js";
 import { ensureAtelier, withAuth } from "./helpers/integration-fixtures.js";
 
+function errorMessage(response) {
+  return response.body?.error || response.body?.message;
+}
+
 async function run() {
   const app = createApp();
   const client = request(app);
@@ -101,7 +105,7 @@ async function run() {
     managerToken
   ).send({ roleId: ROLES.CAISSIER });
   assert.equal(demoteLastOwner.status, 400, "retrogradation du dernier proprietaire actif doit etre refusee");
-  assert.equal(demoteLastOwner.body?.error, "Operation refusee: dernier proprietaire actif");
+  assert.equal(errorMessage(demoteLastOwner), "Operation refusee: dernier proprietaire actif");
 
   const createOwner = await withAuth(client.post(`/api/system/ateliers/${encodeURIComponent(atelierId)}/proprietaires`), managerToken).send({
     nom: "Owner Recovery Created",

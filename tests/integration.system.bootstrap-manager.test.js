@@ -4,6 +4,10 @@ import request from "supertest";
 import { createApp } from "../src/interfaces/http/app.js";
 import { ROLES } from "../src/bc-auth/domain/roles.js";
 
+function errorMessage(response) {
+  return response.body?.error || response.body?.message;
+}
+
 async function run() {
   const app = createApp();
   const client = request(app);
@@ -24,7 +28,7 @@ async function run() {
 
   if (status.body?.initialized === true) {
     assert.equal(bootstrap.status, 409, "bootstrap manager systeme doit etre refuse si deja initialise");
-    assert.equal(bootstrap.body?.error, "Manager systeme deja initialise");
+    assert.equal(errorMessage(bootstrap), "Manager systeme deja initialise");
     return;
   }
 

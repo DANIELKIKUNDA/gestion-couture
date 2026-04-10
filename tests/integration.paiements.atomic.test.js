@@ -8,6 +8,10 @@ import {
   withAuth
 } from "./helpers/integration-fixtures.js";
 
+function errorMessage(response) {
+  return response.body?.error || response.body?.message;
+}
+
 async function run() {
   const session = await createAuthenticatedSession({
     atelierId: `ATELIER_PAYMENTS_${Date.now()}`,
@@ -52,7 +56,7 @@ async function run() {
     utilisateur: "Payments Owner"
   });
   assert.equal(invalidCommandePayment.status, 400, "paiement commande sur caisse absente doit etre refuse");
-  assert.equal(invalidCommandePayment.body?.error, "Caisse introuvable");
+  assert.equal(errorMessage(invalidCommandePayment), "Caisse introuvable");
 
   const commande = await withAuth(session.client.get(`/api/commandes/${encodeURIComponent(idCommande)}`), session.token);
   assert.equal(commande.status, 200, "detail commande doit rester accessible");
@@ -72,7 +76,7 @@ async function run() {
     utilisateur: "Payments Owner"
   });
   assert.equal(invalidRetouchePayment.status, 400, "paiement retouche sur caisse absente doit etre refuse");
-  assert.equal(invalidRetouchePayment.body?.error, "Caisse introuvable");
+  assert.equal(errorMessage(invalidRetouchePayment), "Caisse introuvable");
 
   const retouche = await withAuth(session.client.get(`/api/retouches/${encodeURIComponent(idRetouche)}`), session.token);
   assert.equal(retouche.status, 200, "detail retouche doit rester accessible");
