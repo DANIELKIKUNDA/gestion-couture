@@ -15,6 +15,20 @@ CREATE TABLE IF NOT EXISTS dossiers (
   CONSTRAINT dossiers_type_check CHECK (type_dossier IN ('INDIVIDUEL', 'FAMILLE', 'GROUPE'))
 );
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'dossiers'
+  ) THEN
+    ALTER TABLE dossiers ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+    UPDATE dossiers SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+    ALTER TABLE dossiers ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE dossiers ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+END
+$$ LANGUAGE plpgsql;
+
 CREATE INDEX IF NOT EXISTS idx_dossiers_atelier_activite ON dossiers (atelier_id, date_derniere_activite DESC, date_creation DESC);
 CREATE INDEX IF NOT EXISTS idx_dossiers_atelier_responsable ON dossiers (atelier_id, id_responsable_client);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dossiers_atelier_id_unique ON dossiers (atelier_id, id_dossier);

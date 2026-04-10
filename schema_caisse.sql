@@ -37,6 +37,15 @@ CREATE TABLE IF NOT EXISTS caisse_operation (
   impact_global BOOLEAN NULL
 );
 
+ALTER TABLE caisse_jour ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE caisse_jour SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE caisse_jour ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE caisse_jour ALTER COLUMN atelier_id SET NOT NULL;
+ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE caisse_operation SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE caisse_operation ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE caisse_operation ALTER COLUMN atelier_id SET NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_caisse_jour_atelier_id ON caisse_jour (atelier_id);
 CREATE INDEX IF NOT EXISTS idx_caisse_jour_date ON caisse_jour (date_jour);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_caisse_jour_atelier_date_unique ON caisse_jour (atelier_id, date_jour);
@@ -130,6 +139,11 @@ CREATE TABLE IF NOT EXISTS caisse_bilan (
   cree_par TEXT NULL,
   date_creation TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE caisse_bilan ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE caisse_bilan SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE caisse_bilan ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE caisse_bilan ALTER COLUMN atelier_id SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_caisse_bilan_atelier_id ON caisse_bilan (atelier_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_caisse_bilan_atelier_unique ON caisse_bilan (atelier_id, type_bilan, date_debut, date_fin);

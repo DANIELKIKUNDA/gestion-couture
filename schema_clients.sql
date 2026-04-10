@@ -24,6 +24,29 @@ CREATE TABLE IF NOT EXISTS series_mesures (
   observations TEXT NULL
 );
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'clients'
+  ) THEN
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+    UPDATE clients SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+    ALTER TABLE clients ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE clients ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'series_mesures'
+  ) THEN
+    ALTER TABLE series_mesures ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+    UPDATE series_mesures SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+    ALTER TABLE series_mesures ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+    ALTER TABLE series_mesures ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_clients_atelier_id ON clients (atelier_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_atelier_id_client_unique ON clients (atelier_id, id_client);
 CREATE INDEX IF NOT EXISTS idx_clients_telephone ON clients (telephone);

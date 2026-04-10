@@ -6,16 +6,7 @@ CREATE TABLE IF NOT EXISTS retouches (
   id_client TEXT NOT NULL,
   id_dossier TEXT NULL,
   description TEXT NOT NULL,
-  type_retouche TEXT NOT NULL CHECK (
-    type_retouche IN (
-      'OURLET_PANTALON','DIMINUER_LONGUEUR_PANTALON','RESSERRER_TAILLE_PANTALON','AGRANDIR_TAILLE_PANTALON','AJUSTER_BAS_PANTALON',
-      'RESSERRER_TAILLE_CHEMISE','AGRANDIR_TAILLE_CHEMISE','REDUIRE_MANCHES_CHEMISE',
-      'RESSERRER_ROBE','AGRANDIR_ROBE','AJUSTER_LONGUEUR_ROBE',
-      'REPARATION_DECHIRURE','REMPLACER_FERMETURE','SURFILAGE','POSER_BOUTON','BRODERIE',
-      'ZIGZAG','AUTRES',
-      'OURLET','RESSERRAGE','AGRANDISSEMENT','REPARATION','FERMETURE','AUTRE'
-    )
-  ),
+  type_retouche TEXT NOT NULL CHECK (type_retouche ~ '^[A-Z0-9_]+$'),
   date_depot TIMESTAMP NOT NULL,
   date_prevue TIMESTAMP NULL,
   montant_total NUMERIC(12,2) NOT NULL CHECK (montant_total >= 0),
@@ -30,21 +21,19 @@ CREATE TABLE IF NOT EXISTS retouches (
 
 ALTER TABLE retouches ADD COLUMN IF NOT EXISTS type_habit TEXT NULL;
 ALTER TABLE retouches ADD COLUMN IF NOT EXISTS mesures_habit_snapshot JSONB NULL;
+ALTER TABLE retouches ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE retouches SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE retouches ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE retouches ALTER COLUMN atelier_id SET NOT NULL;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'retouches_type_habit_valide'
-  ) THEN
-    ALTER TABLE retouches
-      ADD CONSTRAINT retouches_type_habit_valide
-      CHECK (
-        type_habit IS NULL OR type_habit IN (
-          'PANTALON','CHEMISE','CHEMISIER','VESTE','GILET','JACKET',
-          'BOUBOU','ROBE','JUPE','VESTE_FEMME','LIBAYA','ENSEMBLE','AUTRES'
-        )
-      );
-  END IF;
+  ALTER TABLE retouches DROP CONSTRAINT IF EXISTS retouches_type_habit_valide;
+  ALTER TABLE retouches
+    ADD CONSTRAINT retouches_type_habit_valide
+    CHECK (
+      type_habit IS NULL OR type_habit ~ '^[A-Z0-9_]+$'
+    ) NOT VALID;
 END $$;
 
 DO $$
@@ -163,6 +152,11 @@ CREATE TABLE IF NOT EXISTS retouche_events (
   date_event TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE retouche_events ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE retouche_events SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE retouche_events ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE retouche_events ALTER COLUMN atelier_id SET NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_retouche_events_atelier_id ON retouche_events (atelier_id);
 CREATE INDEX IF NOT EXISTS idx_retouche_events_retouche ON retouche_events (id_retouche);
 CREATE INDEX IF NOT EXISTS idx_retouche_events_atelier_retouche ON retouche_events (atelier_id, id_retouche);
@@ -188,6 +182,11 @@ CREATE TABLE IF NOT EXISTS retouche_items (
   ordre_affichage INTEGER NOT NULL DEFAULT 1 CHECK (ordre_affichage > 0),
   date_creation TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE retouche_items ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+UPDATE retouche_items SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+ALTER TABLE retouche_items ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
+ALTER TABLE retouche_items ALTER COLUMN atelier_id SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_retouche_items_atelier_retouche
 ON retouche_items (atelier_id, id_retouche, ordre_affichage);
