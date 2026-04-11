@@ -118,7 +118,6 @@ async function refreshAccessToken() {
         credentials: "include"
       });
     } catch (err) {
-      setAccessToken("");
       throw new ApiError(
         "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
         0,
