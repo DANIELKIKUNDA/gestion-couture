@@ -6,7 +6,7 @@ const { isOffline } = useNetwork();
 
 <template>
   <div v-if="isOffline" class="offline-banner" role="status" aria-live="polite">
-    ⚠️ Mode hors ligne — certaines données peuvent être limitées.
+    Mode hors ligne actif - vos actions pourront etre synchronisees au retour d'internet.
   </div>
 </template>
 

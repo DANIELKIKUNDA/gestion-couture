@@ -309,6 +309,19 @@ export const metaStore = {
   async listByAtelier(atelierId) {
     const scopedAtelierId = ensureAtelierId(atelierId);
     return offlineDb.table(TABLE_NAMES.META).where("atelierId").equals(scopedAtelierId).toArray();
+  },
+
+  async deleteByAtelierAndKey(atelierId, key) {
+    const scopedAtelierId = ensureAtelierId(atelierId);
+    const normalizedKey = normalizeString(key);
+    if (!normalizedKey) return;
+    await offlineDb.table(TABLE_NAMES.META).delete(`${scopedAtelierId}${META_SCOPE_SEPARATOR}${normalizedKey}`);
+  },
+
+  async deleteAllByKey(key) {
+    const normalizedKey = normalizeString(key);
+    if (!normalizedKey) return;
+    await offlineDb.table(TABLE_NAMES.META).where("key").equals(normalizedKey).delete();
   }
 };
 

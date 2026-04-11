@@ -17,6 +17,12 @@ import {
 } from "./services/media-local-store.js";
 import { createOfflineCommande, createOfflineRetouche } from "./services/offline-write-service.js";
 import { getNetworkState, subscribeToNetworkState, useNetwork } from "./services/network-service.js";
+import {
+  OFFLINE_SESSION_MESSAGES,
+  clearOfflineSessionSnapshot,
+  restoreOfflineSessionSnapshot,
+  saveOfflineSessionSnapshot
+} from "./services/offline-session-service.js";
 import { createServerClientId, createServerCommandeId, createServerRetoucheId } from "./services/server-id.js";
 import {
   applyPwaUpdate,
@@ -176,6 +182,7 @@ const authReady = ref(false);
 const authenticating = ref(false);
 const authError = ref("");
 const authMode = ref("checking");
+const sessionSource = ref("");
 const authPortal = ref(typeof window !== "undefined" && window.localStorage.getItem(AUTH_PORTAL_STORAGE_KEY) === "system" ? "system" : "atelier");
 const authAtelierSlug = ref(typeof window !== "undefined" ? window.localStorage.getItem(AUTH_ATELIER_SLUG_STORAGE_KEY) || "" : "");
 const authAtelierContext = ref(null);
@@ -187,6 +194,7 @@ const loginForm = reactive({
 const showPassword = ref(false);
 const authUser = ref(null);
 const authPermissions = ref([]);
+let hydrateAuthSessionPromise = null;
 const bootstrapInitializing = ref(false);
 let authModeDetectionTimer = null;
 let systemAteliersSearchTimer = null;
@@ -1919,6 +1927,11 @@ async function loadAtelierSettings() {
     settingsError.value = "";
     return;
   }
+  if (!getNetworkState().online) {
+    settingsLoading.value = false;
+    settingsError.value = "";
+    return;
+  }
   try {
     settingsLoading.value = true;
     settingsError.value = "";
@@ -1974,6 +1987,14 @@ async function loadAtelierRuntimeSettings() {
   }
 
   loadRuntimeSettingsLocal();
+  if (!getNetworkState().online) {
+    if (!atelierRuntimeSettingsReady.value) {
+      applyRuntimeSettingsSubset(atelierSettings);
+      persistAtelierRuntimeSettings();
+    }
+    atelierRuntimeSettingsReady.value = true;
+    return;
+  }
 
   try {
     const response = await atelierApi.getRuntimeParametresAtelier();
@@ -3360,6 +3381,8 @@ async function saveRolePermissions(roleId) {
       const me = await atelierApi.me();
       const session = normalizeSessionPayload(me);
       applyAuthSession(session);
+      sessionSource.value = "online";
+      await persistVerifiedOfflineSession(session);
     }
   } catch (err) {
     securityError.value = readableError(err);
@@ -6957,6 +6980,7 @@ function applyAuthSession(session) {
   if (!session) {
     authUser.value = null;
     authPermissions.value = [];
+    sessionSource.value = "";
     settingsUser.nom = "";
     settingsUser.role = "COUTURIER";
     resetRuntimeSettings();
@@ -6974,28 +6998,157 @@ function applyAuthSession(session) {
   settingsUser.role = authUser.value.roleId || "COUTURIER";
 }
 
-async function hydrateAuthSession() {
+function traceAuth(message) {
+  if (!import.meta.env.DEV) return;
+  console.info(message);
+}
+
+function buildOfflineSessionContext() {
+  return {
+    atelierSlug: authAtelierSlug.value,
+    atelierNom:
+      String(authAtelierContext.value?.nom || "").trim() ||
+      String(atelierSettings.identite?.nomAtelier || "").trim() ||
+      String(authAtelierSlug.value || "").trim()
+  };
+}
+
+async function persistVerifiedOfflineSession(session) {
+  await saveOfflineSessionSnapshot(session, buildOfflineSessionContext());
+}
+
+async function persistCurrentVerifiedOfflineSession() {
+  if (!authUser.value || !getNetworkState().online) return;
+  await persistVerifiedOfflineSession({
+    ...authUser.value,
+    roleId: currentRole.value,
+    roles: currentRole.value ? [currentRole.value] : [],
+    permissions: authPermissions.value
+  });
+}
+
+function applyOfflineSessionContext(session) {
+  const offlineSession = session?.offlineSession || {};
+  const atelierSlug = String(offlineSession.atelierSlug || "").trim();
+  const atelierNom = String(offlineSession.atelierNom || "").trim();
+  if (atelierSlug) {
+    authAtelierSlug.value = atelierSlug;
+    persistAuthAtelierSlug();
+  }
+  if (atelierSlug || atelierNom) {
+    authAtelierContext.value = {
+      ...(authAtelierContext.value || {}),
+      slug: atelierSlug,
+      nom: atelierNom,
+      actif: true
+    };
+  }
+}
+
+async function revalidateAuthSessionOnline() {
+  if (!getNetworkState().online || !isAuthenticated.value) return false;
   try {
-    const session = await atelierApi.restoreSession();
+    const session = normalizeSessionPayload(await atelierApi.me());
+    if (!session) {
+      await clearOfflineSessionSnapshot(currentAtelierId.value);
+      applyAuthSession(null);
+      authMode.value = "login";
+      authError.value = "Session expiree. Reconnecte-toi.";
+      return false;
+    }
     applyAuthSession(session);
+    sessionSource.value = "online";
+    await persistVerifiedOfflineSession(session);
+    traceAuth("[AUTH] restored from API");
     authError.value = "";
-    authMode.value = session ? "login" : "checking";
-    return Boolean(session);
+    return true;
   } catch (err) {
-    applyAuthSession(null);
-    const message = readableError(err);
-    const lowered = message.toLowerCase();
     const status = err instanceof ApiError ? Number(err.status || 0) : 0;
-    const isAuthNoise =
-      status === 401 ||
-      status === 403 ||
-      lowered.includes("acces non autorise") ||
-      lowered.includes("connexion requise") ||
-      lowered.includes("action non autorisee") ||
-      lowered.includes("session invalide");
-    authError.value = isAuthNoise ? "" : message;
-    authMode.value = "login";
+    if (status === 401 || status === 403) {
+      await clearOfflineSessionSnapshot(currentAtelierId.value);
+      applyAuthSession(null);
+      authMode.value = "login";
+      authError.value = "Session expiree. Reconnecte-toi.";
+      currentRoute.value = "dashboard";
+      return false;
+    }
     return false;
+  }
+}
+
+async function hydrateAuthSession() {
+  if (hydrateAuthSessionPromise) return hydrateAuthSessionPromise;
+  hydrateAuthSessionPromise = (async () => {
+    if (!getNetworkState().online) {
+      let restored = null;
+      try {
+        restored = await restoreOfflineSessionSnapshot();
+        if (restored.session) {
+          applyAuthSession(restored.session);
+          sessionSource.value = "offline";
+          applyOfflineSessionContext(restored.session);
+          traceAuth("[AUTH] restored from offline snapshot");
+          authError.value = "";
+          authMode.value = "login";
+          return true;
+        }
+      } catch {
+        restored = { reason: "missing_snapshot" };
+      }
+      applyAuthSession(null);
+      if (restored.reason === "expired" || restored.reason === "clock_invalid") {
+        traceAuth("[AUTH] session expired");
+      }
+      authError.value =
+        restored.reason === "expired"
+          ? OFFLINE_SESSION_MESSAGES.EXPIRED
+          : restored.reason === "clock_invalid"
+            ? OFFLINE_SESSION_MESSAGES.CLOCK_INVALID
+            : restored.reason === "system_manager_blocked"
+              ? OFFLINE_SESSION_MESSAGES.SYSTEM_MANAGER_BLOCKED
+              : OFFLINE_SESSION_MESSAGES.FIRST_LOGIN_REQUIRED;
+      authMode.value = "login";
+      return false;
+    }
+
+    try {
+      const session = await atelierApi.restoreSession();
+      applyAuthSession(session);
+      if (session) {
+        sessionSource.value = "online";
+        await persistVerifiedOfflineSession(session);
+        traceAuth("[AUTH] restored from API");
+      } else {
+        await clearOfflineSessionSnapshot();
+      }
+      authError.value = "";
+      authMode.value = session ? "login" : "checking";
+      return Boolean(session);
+    } catch (err) {
+      applyAuthSession(null);
+      const message = readableError(err);
+      const lowered = message.toLowerCase();
+      const status = err instanceof ApiError ? Number(err.status || 0) : 0;
+      const isAuthNoise =
+        status === 401 ||
+        status === 403 ||
+        lowered.includes("acces non autorise") ||
+        lowered.includes("connexion requise") ||
+        lowered.includes("action non autorisee") ||
+        lowered.includes("session invalide");
+      if (status === 401 || status === 403) {
+        await clearOfflineSessionSnapshot();
+      }
+      authError.value = isAuthNoise ? "" : message;
+      authMode.value = "login";
+      return false;
+    }
+  })();
+
+  try {
+    return await hydrateAuthSessionPromise;
+  } finally {
+    hydrateAuthSessionPromise = null;
   }
 }
 
@@ -7062,10 +7215,13 @@ async function submitLogin() {
     });
     const session = normalizeSessionPayload(await atelierApi.me());
     applyAuthSession(session);
+    sessionSource.value = "online";
+    await persistVerifiedOfflineSession(session);
     authMode.value = "login";
     loginForm.motDePasse = "";
     await loadAtelierSettings();
     await loadAtelierRuntimeSettings();
+    await persistCurrentVerifiedOfflineSession();
     await reloadAll();
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute(currentRoute.value);
   } catch (err) {
@@ -7179,11 +7335,13 @@ async function bootstrapSystemManager() {
 }
 
 async function submitLogout() {
+  const atelierIdToForget = currentAtelierId.value;
   try {
     await atelierApi.logout();
   } catch {
     // ignore logout transport errors
   }
+  await clearOfflineSessionSnapshot(atelierIdToForget);
   applyAuthSession(null);
   authError.value = "";
   currentRoute.value = "dashboard";
@@ -7221,6 +7379,9 @@ onMounted(async () => {
   setAuthLostHandler((context) => {
     if (!isAuthenticated.value) return;
     const reason = String(context?.reason || "").trim();
+    if (Number(context?.status || 0) === 401 && getNetworkState().online) {
+      void clearOfflineSessionSnapshot(currentAtelierId.value);
+    }
     authError.value = reason || "Session expiree. Reconnecte-toi.";
   });
   syncRouteFromLocation();
@@ -7239,11 +7400,16 @@ onMounted(async () => {
   bindContentScrollListener();
   await hydrateAuthSession();
   if (!isAuthenticated.value) {
-    await detectAuthMode();
+    if (getNetworkState().online) {
+      await detectAuthMode();
+    } else {
+      authMode.value = "login";
+    }
   }
   if (isAuthenticated.value) {
     await loadAtelierSettings();
     await loadAtelierRuntimeSettings();
+    await persistCurrentVerifiedOfflineSession();
     await reloadAll();
     if (currentRoute.value === "audit" && canAccessRoute("audit")) loadAuditPage(auditSubRoute.value);
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute();
@@ -9753,7 +9919,10 @@ async function refreshVisibleDataAfterReconnect() {
   if (!authReady.value || !isAuthenticated.value || isSystemManager.value || !currentAtelierId.value) return null;
 
   reconnectRefreshPromise = (async () => {
+    const revalidated = await revalidateAuthSessionOnline();
+    if (!revalidated || !isAuthenticated.value || isSystemManager.value || !currentAtelierId.value) return false;
     await loadAtelierRuntimeSettings();
+    await persistCurrentVerifiedOfflineSession();
     if (["dossier-detail", "commande-detail", "retouche-detail"].includes(String(currentRoute.value || "").trim())) {
       return true;
     }
