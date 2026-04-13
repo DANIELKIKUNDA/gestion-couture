@@ -7356,6 +7356,21 @@ async function submitLogout() {
   await detectAuthMode();
 }
 
+async function loadInitialAuthenticatedWorkspace() {
+  try {
+    await loadAtelierSettings();
+    await loadAtelierRuntimeSettings();
+    await persistCurrentVerifiedOfflineSession();
+    await reloadAll();
+    if (currentRoute.value === "audit" && canAccessRoute("audit")) loadAuditPage(auditSubRoute.value);
+    if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute();
+  } catch (err) {
+    errorMessage.value = readableError(err);
+  } finally {
+    scheduleCrossDeviceRefresh();
+  }
+}
+
 onMounted(async () => {
   loadAtelierSettingsLocal();
   updateViewportState();
@@ -7406,16 +7421,12 @@ onMounted(async () => {
       authMode.value = "login";
     }
   }
-  if (isAuthenticated.value) {
-    await loadAtelierSettings();
-    await loadAtelierRuntimeSettings();
-    await persistCurrentVerifiedOfflineSession();
-    await reloadAll();
-    if (currentRoute.value === "audit" && canAccessRoute("audit")) loadAuditPage(auditSubRoute.value);
-    if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute();
-  }
   authReady.value = true;
-  scheduleCrossDeviceRefresh();
+  if (isAuthenticated.value) {
+    void loadInitialAuthenticatedWorkspace();
+  } else {
+    scheduleCrossDeviceRefresh();
+  }
 });
 
 onUnmounted(() => {
@@ -18334,6 +18345,50 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </tr>
                   </tbody>
                 </table>
+              </div>
+              <div v-if="selectedSettingsRetoucheType.necessiteMesures" class="measure-cards">
+                <article
+                  v-for="(mesure, index) in retoucheMeasuresForEditor(selectedSettingsRetoucheType)"
+                  :key="`retouche-card-${selectedSettingsRetoucheType.code}-${mesure.code}-${index}`"
+                  class="measure-card"
+                >
+                  <div class="measure-card-head">
+                    <strong>{{ mesure.label }}</strong>
+                    <span class="helper">{{ mesure.code }}</span>
+                  </div>
+                  <div class="stack-form">
+                    <label>Libelle</label>
+                    <input v-model="mesure.label" type="text" :disabled="!settingsCanEdit" />
+                  </div>
+                  <div class="stack-form">
+                    <label>Unite</label>
+                    <input v-model="mesure.unite" type="text" :disabled="!settingsCanEdit" />
+                  </div>
+                  <div class="stack-form">
+                    <label>Type de champ</label>
+                    <select v-model="mesure.typeChamp" :disabled="!settingsCanEdit">
+                      <option v-for="option in mesureTypeOptions" :key="`retouche-card-${selectedSettingsRetoucheType.code}-${mesure.code}-${option.value}`" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </div>
+                  <div class="stack-form">
+                    <label>Ordre</label>
+                    <input v-model.number="mesure.ordre" type="number" min="1" :disabled="!settingsCanEdit" />
+                  </div>
+                  <label class="helper">
+                    <input v-model="mesure.obligatoire" type="checkbox" :disabled="!settingsCanEdit" />
+                    Mesure obligatoire
+                  </label>
+                  <label class="helper">
+                    <input v-model="mesure.actif" type="checkbox" :disabled="!settingsCanEdit" />
+                    Mesure active
+                  </label>
+                  <button class="mini-btn" :disabled="!settingsCanEdit" @click="removeMesureFromRetoucheType(selectedSettingsRetoucheType.code, mesure.code)">
+                    Retirer
+                  </button>
+                </article>
+                <p v-if="retoucheMeasuresForEditor(selectedSettingsRetoucheType).length === 0" class="helper">Aucune mesure configuree.</p>
               </div>
               <p v-else class="helper">Aucune mesure ne sera demandee pour ce type de retouche.</p>
             </article>
