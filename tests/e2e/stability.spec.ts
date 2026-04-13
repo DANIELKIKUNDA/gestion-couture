@@ -121,7 +121,10 @@ async function seedFlaggedDossier() {
 async function openSeededDossier(page: any, { responsableName, expectedLabels = [] }: { responsableName: string; expectedLabels?: string[] }) {
   await gotoDossiers(page);
   const card = page.locator(".dossier-card").filter({ hasText: responsableName }).first();
-  if (await card.count()) {
+  const row = page.locator("tr").filter({ hasText: responsableName }).first();
+  await expect(card.or(row).first()).toBeVisible({ timeout: 15_000 });
+
+  if ((await card.count()) && (await card.isVisible())) {
     await expect(card).toBeVisible();
     const openButton = card.getByRole("button", { name: /^Ouvrir$/i }).first();
     if (await openButton.count()) {
@@ -130,7 +133,6 @@ async function openSeededDossier(page: any, { responsableName, expectedLabels = 
       await card.click();
     }
   } else {
-    const row = page.locator("tr").filter({ hasText: responsableName }).first();
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: /^Ouvrir$/i }).click();
   }

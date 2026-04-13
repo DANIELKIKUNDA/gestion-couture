@@ -80,6 +80,7 @@ function spawnBackgroundProcess(command: string, args: string[], cwd: string, lo
       cwd,
       detached: false,
       stdio: "ignore",
+      shell: process.platform === "win32" && /\.cmd$/i.test(command),
       windowsHide: true
     });
   }
@@ -200,7 +201,10 @@ export async function gotoDossiers(page: Page) {
 
 export async function openDossierFromList(page: Page, responsableName: string) {
   const card = page.locator(".dossier-card").filter({ hasText: responsableName }).first();
-  if (await card.count()) {
+  const row = page.locator("tr").filter({ hasText: responsableName }).first();
+  await expect(card.or(row).first()).toBeVisible({ timeout: 15_000 });
+
+  if ((await card.count()) && (await card.isVisible())) {
     await expect(card).toBeVisible();
     const openButton = card.getByRole("button", { name: /^Ouvrir$/i }).first();
     if (await openButton.count()) {
@@ -209,7 +213,6 @@ export async function openDossierFromList(page: Page, responsableName: string) {
       await card.click();
     }
   } else {
-    const row = page.locator("tr").filter({ hasText: responsableName }).first();
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: /^Ouvrir$/i }).click();
   }
