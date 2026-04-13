@@ -217,6 +217,12 @@ async function run() {
   const paidItems = await getCommandeItems(atelierId, multiItemPayload.idCommande);
   assert.equal(Number(paidItems[0]?.montant_paye || 0), 0, "le paiement cible ne doit pas toucher le premier item");
   assert.equal(Number(paidItems[1]?.montant_paye || 0), 20, "le paiement cible doit etre stocke sur l'item vise");
+  const paiementItemCommandeHistorique = await withAuth(
+    session.client.get(`/api/commandes/${encodeURIComponent(multiItemPayload.idCommande)}/paiements`),
+    session.token
+  );
+  assert.equal(paiementItemCommandeHistorique.status, 200, "historique paiements commande doit repondre");
+  assert.equal(paiementItemCommandeHistorique.body.length, 1, "historique commande doit inclure le paiement item cible");
 
   const forbiddenPatch = await withAuth(
     session.client.patch(`/api/commandes/${encodeURIComponent(multiItemPayload.idCommande)}/items/${encodeURIComponent(multiItems[1].id_item)}`),

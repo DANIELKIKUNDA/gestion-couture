@@ -598,7 +598,7 @@ router.get("/retouches/:id/paiements", requireRetoucheReadAccess, async (req, re
               cj.date_jour
        FROM caisse_operation op
        LEFT JOIN caisse_jour cj ON cj.id_caisse_jour = op.id_caisse_jour AND cj.atelier_id = op.atelier_id
-       WHERE op.reference_metier = $1 AND op.atelier_id = $2
+       WHERE (op.reference_metier = $1 OR op.reference_metier LIKE $1 || ':%') AND op.atelier_id = $2
        ORDER BY op.date_operation DESC`,
       [req.params.id, atelierIdFromReq(req)]
     );

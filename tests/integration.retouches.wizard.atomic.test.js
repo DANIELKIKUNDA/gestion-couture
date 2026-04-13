@@ -207,6 +207,12 @@ async function run() {
   const paidItems = await getRetoucheItems(atelierId, multiItemPayload.idRetouche);
   assert.equal(Number(paidItems[0]?.montant_paye || 0), 0, "le paiement cible ne doit pas toucher le premier item retouche");
   assert.equal(Number(paidItems[1]?.montant_paye || 0), 10, "le paiement cible doit etre stocke sur l'item retouche vise");
+  const paiementItemRetoucheHistorique = await withAuth(
+    session.client.get(`/api/retouches/${encodeURIComponent(multiItemPayload.idRetouche)}/paiements`),
+    session.token
+  );
+  assert.equal(paiementItemRetoucheHistorique.status, 200, "historique paiements retouche doit repondre");
+  assert.equal(paiementItemRetoucheHistorique.body.length, 1, "historique retouche doit inclure le paiement item cible");
 
   const forbiddenPatch = await withAuth(
     session.client.patch(`/api/retouches/${encodeURIComponent(multiItemPayload.idRetouche)}/items/${encodeURIComponent(multiItems[1].id_item)}`),
