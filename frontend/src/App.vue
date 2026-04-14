@@ -170,7 +170,14 @@ const AUTH_INVALID_CREDENTIALS_MESSAGE = "Email ou mot de passe incorrect";
 const AUTH_DISABLED_ATELIER_MESSAGE = "Votre atelier est désactivé. Veuillez contacter l’administrateur.";
 const MOBILE_BREAKPOINT = 768;
 
-const currentRoute = ref("dashboard");
+function getInitialRoute() {
+  if (typeof window !== "undefined" && window.localStorage.getItem(AUTH_PORTAL_STORAGE_KEY) === "system") {
+    return "systemDashboard";
+  }
+  return "dashboard";
+}
+
+const currentRoute = ref(getInitialRoute());
 const contentScrollRef = ref(null);
 const mobileScrollButtonMode = ref("none");
 const isMobileViewport = ref(typeof window !== "undefined" ? window.innerWidth < MOBILE_BREAKPOINT : false);
@@ -1416,6 +1423,7 @@ const securityError = ref("");
 const securityUserQuery = ref("");
 const securityUserRoleFilter = ref("ALL");
 const securityUserStatusFilter = ref("ALL");
+const securityNewUserPasswordVisible = ref(false);
 const securityUsersPagination = reactive({
   page: 1,
   pageSize: 10
@@ -3406,6 +3414,7 @@ async function createSecurityUser() {
     securityNewUser.nom = "";
     securityNewUser.email = "";
     securityNewUser.motDePasse = "";
+    securityNewUserPasswordVisible.value = false;
     securityNewUser.roleId = "COUTURIER";
     securityNewUser.actif = true;
     await loadSecurityModule();
@@ -7423,6 +7432,9 @@ onMounted(async () => {
   }
   authReady.value = true;
   if (isAuthenticated.value) {
+    if (!canAccessRoute(currentRoute.value)) {
+      currentRoute.value = resolveAccessibleRoute();
+    }
     void loadInitialAuthenticatedWorkspace();
   } else {
     scheduleCrossDeviceRefresh();
@@ -18700,7 +18712,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </div>
                 <div class="stack-form">
                   <label>Mot de passe</label>
-                  <input v-model="securityNewUser.motDePasse" type="password" />
+                  <div class="auth-password-field">
+                    <input v-model="securityNewUser.motDePasse" :type="securityNewUserPasswordVisible ? 'text' : 'password'" autocomplete="new-password" />
+                    <button class="auth-password-toggle" type="button" @click="securityNewUserPasswordVisible = !securityNewUserPasswordVisible">
+                      {{ securityNewUserPasswordVisible ? "Masquer" : "Voir" }}
+                    </button>
+                  </div>
                 </div>
                 <div class="stack-form">
                   <label>Role</label>

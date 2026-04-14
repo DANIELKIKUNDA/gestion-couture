@@ -1,7 +1,8 @@
 <script setup>
+import { ref, watch } from "vue";
 import { PASSWORD_POLICY_HINTS } from "../../utils/password-policy.js";
 
-defineProps({
+const props = defineProps({
   open: { type: Boolean, default: false },
   submitting: { type: Boolean, default: false },
   error: { type: String, default: "" },
@@ -23,6 +24,15 @@ const emit = defineEmits([
   "update-proprietaire-telephone",
   "update-proprietaire-mot-de-passe"
 ]);
+
+const showOwnerPassword = ref(false);
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) showOwnerPassword.value = false;
+  }
+);
 
 function emitField(eventName, value) {
   emit(eventName, value);
@@ -87,13 +97,18 @@ function emitField(eventName, value) {
         />
 
         <label for="system-owner-password">Mot de passe initial</label>
-        <input
-          id="system-owner-password"
-          :value="proprietaireMotDePasse"
-          type="password"
-          autocomplete="new-password"
-          @input="emitField('update-proprietaire-mot-de-passe', $event.target.value)"
-        />
+        <div class="auth-password-field">
+          <input
+            id="system-owner-password"
+            :value="proprietaireMotDePasse"
+            :type="showOwnerPassword ? 'text' : 'password'"
+            autocomplete="new-password"
+            @input="emitField('update-proprietaire-mot-de-passe', $event.target.value)"
+          />
+          <button class="auth-password-toggle" type="button" @click="showOwnerPassword = !showOwnerPassword">
+            {{ showOwnerPassword ? "Masquer" : "Voir" }}
+          </button>
+        </div>
         <ul class="password-policy-hints">
           <li v-for="hint in PASSWORD_POLICY_HINTS" :key="hint">{{ hint }}</li>
         </ul>
