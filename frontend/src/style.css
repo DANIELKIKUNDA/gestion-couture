@@ -202,10 +202,14 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .auth-password-field input {
   flex: 1;
+  min-width: 0;
 }
 
 .auth-submit {
@@ -222,6 +226,8 @@ body {
   padding: 11px 12px;
   font-weight: 600;
   cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .auth-link-btn {
@@ -2959,6 +2965,7 @@ textarea:focus-visible {
 .stack-form {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .subtle-panel {
@@ -3455,6 +3462,22 @@ textarea:focus-visible {
     width: 100%;
     display: grid;
     gap: 8px;
+  }
+
+  #settings-securite .nested-panel,
+  #settings-securite .settings-grid,
+  #settings-securite .stack-form {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  #settings-securite .auth-password-field {
+    grid-column: 1 / -1;
+  }
+
+  #settings-securite .auth-password-toggle {
+    padding-inline: 10px;
   }
 
   .quick-inline,
