@@ -313,14 +313,14 @@ export async function createCommandeInCurrentDossierThroughUi(page: Page) {
 
   const form = modal.locator("section.modal-body:visible").first();
   const label = `Commande E2E ${Date.now()}`;
-  await form.getByPlaceholder(/Commande mariage/i).fill(label);
+  await form.getByPlaceholder(/chemises|cérémonie|retrait/i).fill(label);
   await form.locator('input[type="date"]:visible').first().fill(futureDate());
   await chooseFirstNonPlaceholder(form.locator("article select:visible").first());
-  await form.getByPlaceholder(/Pantalon slim|veste noire/i).fill(label);
+  await form.getByPlaceholder(/pantalon slim|robe droite|veste homme/i).fill(label);
   await form.locator('article input[type="number"]:visible').first().fill("150");
   await fillVisibleMeasureFields(form);
 
-  await modal.getByRole("button", { name: /^Enregistrer$/i }).click();
+  await modal.getByRole("button", { name: /^Enregistrer la commande$/i }).click();
   await expect(modal).toBeHidden({ timeout: 20_000 });
   await expect(page.getByRole("heading", { name: /^Detail Commande$/i }).first()).toBeVisible();
 }
@@ -332,11 +332,11 @@ export async function createRetoucheInCurrentDossierThroughUi(page: Page) {
 
   const label = `Retouche E2E ${Date.now()}`;
   const form = modal.locator("section.modal-body:visible").first();
-  await form.getByPlaceholder(/Ajuster robe|changer fermeture/i).fill(label);
-  await form.getByPlaceholder(/Raccourcir manche/i).fill(label);
+  await form.getByPlaceholder(/^Ex: raccourcir manche, changer fermeture, ajuster robe$/i).fill(label);
+  await form.getByPlaceholder(/^Ex: raccourcir manche, reprendre taille, changer fermeture$/i).fill(label);
   await form.locator('article input[type="number"]:visible').first().fill("40");
 
-  const submitButton = modal.getByRole("button", { name: /^Enregistrer$/i }).first();
+  const submitButton = modal.getByRole("button", { name: /^Enregistrer la retouche$/i }).first();
 
   await expect(submitButton).toBeEnabled({ timeout: 10_000 });
   for (let attempt = 0; attempt < 2; attempt += 1) {
