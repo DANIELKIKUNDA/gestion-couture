@@ -4153,6 +4153,7 @@ function createCommandeItemDraft() {
     description: "",
     prix: "",
     mesures: {},
+    freeMeasureOpen: false,
     freeMeasureName: "",
     freeMeasureValue: ""
   };
@@ -4166,6 +4167,7 @@ function createRetoucheItemDraft() {
     description: "",
     prix: "",
     mesures: {},
+    freeMeasureOpen: false,
     freeMeasureName: "",
     freeMeasureValue: ""
   };
@@ -4471,6 +4473,7 @@ function validateRetoucheDirectItem(item, index = 0) {
 
 function addFreeMeasureToItem(item) {
   if (!item || typeof item !== "object") return;
+  item.freeMeasureOpen = true;
   const key = String(item.freeMeasureName || "").trim();
   const value = item.freeMeasureValue;
   if (!key || value === undefined || value === null || String(value).trim() === "") {
@@ -4481,6 +4484,19 @@ function addFreeMeasureToItem(item) {
   item.mesures[key] = value;
   item.freeMeasureName = "";
   item.freeMeasureValue = "";
+  item.freeMeasureOpen = false;
+}
+
+function openFreeMeasureForItem(item) {
+  if (!item || typeof item !== "object") return;
+  item.freeMeasureOpen = true;
+}
+
+function cancelFreeMeasureForItem(item) {
+  if (!item || typeof item !== "object") return;
+  item.freeMeasureName = "";
+  item.freeMeasureValue = "";
+  item.freeMeasureOpen = false;
 }
 
 function removeFreeMeasureFromItem(item, key) {
@@ -20945,8 +20961,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
 
                   <div class="stack-form wizard-item-measures-block">
-                    <label>Mesures optionnelles</label>
-                    <p class="helper">Ajoute seulement les mesures utiles. Tu peux aussi les compléter plus tard.</p>
+                    <label>Mesures de l'habit</label>
+                    <p class="helper">Remplis uniquement les mesures nécessaires. Les champs vides ne seront pas enregistrés.</p>
                     <div class="form-grid" v-if="getCommandeItemMeasureFields(item).length > 0">
                       <div v-for="field in getCommandeItemMeasureFields(item)" :key="`cmd-direct-mes-${item.idItem}-${field.key}`" class="form-row">
                         <label>{{ mesureDisplayLabel(field) }}</label>
@@ -20965,10 +20981,14 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                         />
                       </div>
                     </div>
-                    <div class="wizard-free-measure-row">
-                      <input v-model="item.freeMeasureName" type="text" placeholder="Ex: longueur manche" />
-                      <input v-model="item.freeMeasureValue" type="text" placeholder="Ex: 42 cm" />
-                      <button class="mini-btn" type="button" @click="addFreeMeasureToItem(item)">Ajouter mesure</button>
+                    <div v-if="!item.freeMeasureOpen" class="wizard-free-measure-actions">
+                      <button class="mini-btn blue" type="button" @click="openFreeMeasureForItem(item)">+ Ajouter une mesure personnalisée</button>
+                    </div>
+                    <div v-else class="wizard-free-measure-row">
+                      <input v-model="item.freeMeasureName" type="text" placeholder="Nom de la mesure" />
+                      <input v-model="item.freeMeasureValue" type="text" placeholder="Valeur (ex: 42 cm)" />
+                      <button class="mini-btn blue" type="button" @click="addFreeMeasureToItem(item)">Ajouter</button>
+                      <button class="mini-btn" type="button" @click="cancelFreeMeasureForItem(item)">Annuler</button>
                     </div>
                     <div v-if="Object.keys(item.mesures || {}).length > 0" class="wizard-free-measure-list">
                       <span v-for="(value, key) in item.mesures" :key="`cmd-free-${item.idItem}-${key}`" class="status-chip">
@@ -21593,12 +21613,16 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </div>
 
                 <div class="stack-form wizard-item-measures-block">
-                  <label>Mesures optionnelles</label>
-                  <p class="helper">Ajoute seulement les mesures utiles pour cet habit.</p>
-                  <div class="wizard-free-measure-row">
-                    <input v-model="item.freeMeasureName" type="text" placeholder="Ex: longueur manche" />
-                    <input v-model="item.freeMeasureValue" type="text" placeholder="Ex: 42 cm" />
-                    <button class="mini-btn" type="button" @click="addFreeMeasureToItem(item)">Ajouter mesure</button>
+                  <label>Mesures de l'habit</label>
+                  <p class="helper">Remplis uniquement les mesures nécessaires. Les champs vides ne seront pas enregistrés.</p>
+                  <div v-if="!item.freeMeasureOpen" class="wizard-free-measure-actions">
+                    <button class="mini-btn blue" type="button" @click="openFreeMeasureForItem(item)">+ Ajouter une mesure personnalisée</button>
+                  </div>
+                  <div v-else class="wizard-free-measure-row">
+                    <input v-model="item.freeMeasureName" type="text" placeholder="Nom de la mesure" />
+                    <input v-model="item.freeMeasureValue" type="text" placeholder="Valeur (ex: 42 cm)" />
+                    <button class="mini-btn blue" type="button" @click="addFreeMeasureToItem(item)">Ajouter</button>
+                    <button class="mini-btn" type="button" @click="cancelFreeMeasureForItem(item)">Annuler</button>
                   </div>
                   <div v-if="Object.keys(item.mesures || {}).length > 0" class="wizard-free-measure-list">
                     <span v-for="(value, key) in item.mesures" :key="`ret-free-${item.idItem}-${key}`" class="status-chip">

@@ -1893,9 +1893,14 @@ body {
 
 .wizard-free-measure-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: end;
+}
+
+.wizard-free-measure-actions {
+  display: flex;
+  justify-content: flex-start;
 }
 
 .wizard-free-measure-list {
