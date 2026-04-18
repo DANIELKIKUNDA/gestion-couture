@@ -46,6 +46,18 @@ export const DEFAULT_RETOUCHE_TYPES = [
   }
 ];
 
+export const SYSTEM_RETOUCHE_LIBRE_CODE = "LIBRE";
+export const SYSTEM_RETOUCHE_LIBRE_TYPE = Object.freeze({
+  code: SYSTEM_RETOUCHE_LIBRE_CODE,
+  libelle: "Libre",
+  actif: true,
+  ordreAffichage: 0,
+  necessiteMesures: false,
+  mesures: [],
+  descriptionObligatoire: true,
+  habitsCompatibles: ["*"]
+});
+
 export function cloneDefaultRetoucheTypes() {
   return DEFAULT_RETOUCHE_TYPES.map((row) => ({
     ...row,
@@ -123,6 +135,7 @@ export function resolveRetouchePolicy(payload = null) {
     fallbackOrder += 1;
     byCode.set(normalized.code, normalized);
   }
+  byCode.set(SYSTEM_RETOUCHE_LIBRE_CODE, { ...SYSTEM_RETOUCHE_LIBRE_TYPE });
   const normalizedTypes = Array.from(byCode.values()).sort((a, b) => {
     const left = Number(a.ordreAffichage || 0);
     const right = Number(b.ordreAffichage || 0);

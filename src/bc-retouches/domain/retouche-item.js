@@ -66,16 +66,17 @@ export class RetoucheItem {
 
     if (normalizedMeasuresInput) {
       try {
-        if (!shouldRequireMeasures && Object.keys(normalizedMeasuresInput.valeurs || {}).length > 0) {
-          throw new Error("Mesures non autorisees pour ce type de retouche");
-        }
         normalizedMeasures = shouldRequireMeasures
           ? createRetoucheMesuresSnapshot(normalizedMeasuresInput.valeurs, {
               definitions,
               requireAtLeastOne: true,
               requireComplete: resolvedPolicy.saisiePartielle !== true
             })
-          : null;
+          : createRetoucheMesuresSnapshot(normalizedMeasuresInput.valeurs, {
+              definitions: [],
+              requireAtLeastOne: false,
+              requireComplete: false
+            });
       } catch (error) {
         if (!rehydrate) throw error;
         normalizedMeasures = normalizedMeasuresInput;

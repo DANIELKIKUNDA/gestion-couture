@@ -108,9 +108,6 @@ export class Retouche {
           effectiveMesuresHabit?.valeurs && typeof effectiveMesuresHabit.valeurs === "object"
             ? effectiveMesuresHabit.valeurs
             : effectiveMesuresHabit;
-        if (!shouldRequireMeasures && rawValues && Object.keys(rawValues).length > 0) {
-          throw new Error("Mesures non autorisees pour ce type de retouche");
-        }
         if (shouldRequireMeasures && mesureDefinitions.length === 0) {
           throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche");
         }
@@ -120,7 +117,11 @@ export class Retouche {
               requireAtLeastOne: true,
               requireComplete: resolvedPolicy.saisiePartielle !== true
             })
-          : null;
+          : createRetoucheMesuresSnapshot(rawValues, {
+              definitions: [],
+              requireAtLeastOne: false,
+              requireComplete: false
+            });
         const values = snapshot?.valeurs || {};
         if (shouldRequireMeasures) {
           if (resolvedPolicy.saisiePartielle) {

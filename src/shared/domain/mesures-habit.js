@@ -132,6 +132,15 @@ function assertPositiveCm(value, field, { allowDecimals = true } = {}) {
   return n;
 }
 
+function normalizeCustomMeasureValue(value, field, { allowDecimals = true } = {}) {
+  if (value === undefined || value === null || value === "") return null;
+  const raw = String(value || "").trim();
+  const parsed = Number(raw);
+  if (Number.isFinite(parsed)) return assertPositiveCm(parsed, field, { allowDecimals });
+  if (!raw) return null;
+  return raw;
+}
+
 function normalizeTypeManches(value, required = false) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) {
@@ -186,6 +195,13 @@ function normalizeMesures(typeHabit, mesures, { requireComplete, requireAtLeastO
     } else if (source.longueurManches !== undefined && source.longueurManches !== null && source.longueurManches !== "") {
       out.longueurManches = assertPositiveCm(source.longueurManches, "longueurManches", { allowDecimals });
     }
+  }
+
+  const knownFields = new Set([...definition.required, ...definition.optional]);
+  for (const [field, value] of Object.entries(source)) {
+    if (!field || knownFields.has(field)) continue;
+    const normalized = normalizeCustomMeasureValue(value, field, { allowDecimals });
+    if (normalized !== null) out[field] = normalized;
   }
 
   if (!requireComplete && requireAtLeastOne) {

@@ -328,17 +328,19 @@ function buildCommandeItemsFromPayload(body = {}, policy = null) {
         mesures: normalizeCommandeItemMesures(item.typeHabit, mesuresBrutes || fallbackMesures, policy)
       };
     })
-    .filter((item) => item.typeHabit && Number.isFinite(item.prix) && item.prix >= 0)
+    .filter((item) => item.typeHabit && Number.isFinite(item.prix) && item.prix > 0)
     .map((item) => new CommandeItem({ ...item, policy }));
   if (items.length > 0) return items;
   const fallbackTypeHabit = String(body.typeHabit || "").trim().toUpperCase();
   if (!fallbackTypeHabit) return [];
+  const fallbackPrice = Number(body.montantTotal || 0);
+  if (!Number.isFinite(fallbackPrice) || fallbackPrice <= 0) return [];
   return [
     new CommandeItem({
       idItem: generateCommandeItemId(),
       typeHabit: fallbackTypeHabit,
       description: String(body.descriptionCommande || "").trim(),
-      prix: Number(body.montantTotal || 0),
+      prix: fallbackPrice,
       ordreAffichage: 1,
       mesures: normalizeCommandeItemMesures(fallbackTypeHabit, body.mesuresHabit, policy),
       policy
@@ -367,6 +369,23 @@ function hydrateCommandeItems(items = [], commandeRow = null) {
 function computeCommandeTotalFromItems(items = [], fallbackValue = 0) {
   if (!Array.isArray(items) || items.length === 0) return Number(fallbackValue || 0);
   return items.reduce((sum, item) => sum + Number(item.prix || 0), 0);
+}
+
+function assertCommandeCreationAmounts(body = {}) {
+  const sourceItems = Array.isArray(body.items) ? body.items : [];
+  if (sourceItems.length > 0) {
+    sourceItems.forEach((item, index) => {
+      const prix = Number(item?.prix);
+      if (!Number.isFinite(prix) || prix <= 0) {
+        throw new Error(`Montant obligatoire pour l'habit ${index + 1}.`);
+      }
+    });
+    return;
+  }
+  const montantTotal = Number(body.montantTotal);
+  if (!Number.isFinite(montantTotal) || montantTotal <= 0) {
+    throw new Error("Montant total obligatoire pour la commande.");
+  }
 }
 
 async function loadCommandeLignesMap(db, atelierId, commandeIds = []) {
@@ -1117,6 +1136,11 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   const r2 = requireNumber(body, "montantTotal");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
+  try {
+    assertCommandeCreationAmounts(body);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
 
   const dbClient = await pool.connect();
   try {

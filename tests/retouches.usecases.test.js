@@ -112,6 +112,39 @@ function run() {
     { policy }
   );
   assert.equal(rLegacySansMesures.statutRetouche, StatutRetouche.DEPOSEE);
+
+  // Retouche libre systeme: aucune mesure ni type parametre ne bloque la creation.
+  const rLibre = deposerRetouche(
+    {
+      idRetouche: "RET-LIBRE",
+      idClient: "CL-1",
+      descriptionRetouche: "Changer fermeture",
+      typeRetouche: "LIBRE",
+      datePrevue: new Date().toISOString(),
+      montantTotal: 35,
+      typeHabit: "AUTRES",
+      mesuresHabit: {},
+      items: [
+        {
+          idItem: "RET-LIBRE-ITEM",
+          typeRetouche: "LIBRE",
+          typeHabit: "AUTRES",
+          description: "Changer fermeture",
+          prix: 35,
+          mesures: {
+            longueurZip: 18,
+            observation: "zip metal"
+          }
+        }
+      ]
+    },
+    { policy }
+  );
+  assert.equal(rLibre.statutRetouche, StatutRetouche.DEPOSEE);
+  assert.equal(rLibre.typeRetouche, "LIBRE");
+  assert.equal(rLibre.items[0].typeRetouche, "LIBRE");
+  assert.equal(Number(rLibre.items[0].mesures.valeurs.longueurZip), 18);
+  assert.equal(rLibre.items[0].mesures.valeurs.observation, "zip metal");
 }
 
 run();
