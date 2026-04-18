@@ -418,6 +418,16 @@ const caisseOperationsVisibleCount = ref(caisseOperationsPagination.pageSize);
 const caisseOperationsLoadingMore = ref(false);
 const caisseInfiniteSentinel = ref(null);
 let caisseInfiniteObserver = null;
+const commandeDirectFormEnabled = true;
+const retoucheDirectFormEnabled = true;
+const activeCommandeItemIndex = ref(0);
+const activeRetoucheItemIndex = ref(0);
+const commandeDirectErrors = reactive({ client: "", newClient: "", description: "", items: {} });
+const retoucheDirectErrors = reactive({ client: "", newClient: "", description: "", items: {} });
+const commandeClientDetailsOpen = ref(false);
+const retoucheClientDetailsOpen = ref(false);
+const commandeNewClientEditing = ref(true);
+const retoucheNewClientEditing = ref(true);
 
 const dashboardPeriod = ref("LAST_7");
 const dashboardPeriodOptions = [
@@ -2259,8 +2269,10 @@ const wizardAvailableHabitTypeOptions = computed(() => {
       ordre: normalizeSortOrder(config?.ordre, Number.MAX_SAFE_INTEGER),
       actif: config?.actif !== false
     }))
-    .filter((item) => item.value && item.actif);
-  if (configuredEntries.length === 0) return habitTypeOptions;
+    .filter((item) => item.value && item.actif && String(item.value || "").trim().toUpperCase() !== "AUTRES");
+  if (configuredEntries.length === 0) {
+    return habitTypeOptions.filter((item) => String(item.value || "").trim().toUpperCase() !== "AUTRES");
+  }
   return configuredEntries.sort((left, right) => {
     if (left.ordre !== right.ordre) return left.ordre - right.ordre;
     const leftIndex = habitConfigOrder.indexOf(left.value);
@@ -4140,18 +4152,24 @@ function createCommandeItemDraft() {
     typeHabit: "",
     description: "",
     prix: "",
-    mesures: {}
+    mesures: {},
+    freeMeasureOpen: false,
+    freeMeasureName: "",
+    freeMeasureValue: ""
   };
 }
 
 function createRetoucheItemDraft() {
   return {
     idItem: `ret-item-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-    typeRetouche: "",
-    typeHabit: "",
+    typeRetouche: "LIBRE",
+    typeHabit: "AUTRES",
     description: "",
     prix: "",
-    mesures: {}
+    mesures: {},
+    freeMeasureOpen: false,
+    freeMeasureName: "",
+    freeMeasureValue: ""
   };
 }
 
@@ -4330,13 +4348,178 @@ function recalculateRetoucheTotalFromItems() {
   retoucheWizard.retouche.montantTotal = total > 0 ? String(total) : "";
 }
 
+const commandeSelectedClientLabel = computed(() => {
+  const query = String(wizardClientSearchQuery.value || "").trim();
+  if (query) return query;
+  const responsable = detailDossier.value?.responsable || null;
+  if (responsable?.idClient && responsable.idClient === wizard.existingClientId) {
+    const name = formatClientDisplayName(responsable);
+    const phone = String(responsable.telephone || "").trim();
+    return phone ? `${name} — ${phone}` : name;
+  }
+  return "Client choisi";
+});
+
+const retoucheSelectedClientLabel = computed(() => {
+  const query = String(retoucheClientSearchQueryWizard.value || "").trim();
+  if (query) return query;
+  const responsable = detailDossier.value?.responsable || null;
+  if (responsable?.idClient && responsable.idClient === retoucheWizard.existingClientId) {
+    const name = formatClientDisplayName(responsable);
+    const phone = String(responsable.telephone || "").trim();
+    return phone ? `${name} — ${phone}` : name;
+  }
+  return "Client choisi";
+});
+
+const commandeNewClientReady = computed(() =>
+  Boolean(String(wizard.newClient.nom || "").trim() && String(wizard.newClient.prenom || "").trim())
+);
+
+const retoucheNewClientReady = computed(() =>
+  Boolean(String(retoucheWizard.newClient.nom || "").trim() && String(retoucheWizard.newClient.prenom || "").trim())
+);
+
+const commandeNewClientSummary = computed(() => {
+  const name = `${String(wizard.newClient.prenom || "").trim()} ${String(wizard.newClient.nom || "").trim()}`.trim();
+  const phone = String(wizard.newClient.telephone || "").trim();
+  return phone ? `${name} · ${phone}` : name || "Nouveau client";
+});
+
+const retoucheNewClientSummary = computed(() => {
+  const name = `${String(retoucheWizard.newClient.prenom || "").trim()} ${String(retoucheWizard.newClient.nom || "").trim()}`.trim();
+  const phone = String(retoucheWizard.newClient.telephone || "").trim();
+  return phone ? `${name} · ${phone}` : name || "Nouveau client";
+});
+
+function getCommandeDirectItemSummary(item, index) {
+  const type = humanizeContactLabel(item?.typeHabit) || item?.typeHabit || "type à choisir";
+  const description = String(item?.description || "").trim() || `Habit ${index + 1}`;
+  const price = Number(item?.prix || 0) > 0 ? formatCurrency(Number(item?.prix || 0)) : "prix à ajouter";
+  return `${description} · ${type} · ${price}`;
+}
+
+function getRetoucheDirectItemSummary(item, index) {
+  const description = String(item?.description || "").trim() || `Habit ${index + 1}`;
+  const price = Number(item?.prix || 0) > 0 ? formatCurrency(Number(item?.prix || 0)) : "prix à ajouter";
+  return `${description} · ${price}`;
+}
+
+function isCommandeItemValid(item) {
+  return Boolean(String(item?.typeHabit || "").trim()) && Number(item?.prix || 0) > 0;
+}
+
+function isRetoucheItemValid(item) {
+  return Boolean(String(item?.description || "").trim()) && Number(item?.prix || 0) > 0;
+}
+
+function resetCommandeDirectErrors() {
+  commandeDirectErrors.client = "";
+  commandeDirectErrors.newClient = "";
+  commandeDirectErrors.description = "";
+  commandeDirectErrors.items = {};
+}
+
+function resetRetoucheDirectErrors() {
+  retoucheDirectErrors.client = "";
+  retoucheDirectErrors.newClient = "";
+  retoucheDirectErrors.description = "";
+  retoucheDirectErrors.items = {};
+}
+
+function getDirectItemErrorKey(item, index = 0) {
+  return String(item?.idItem || `item-${index}`);
+}
+
+function getCommandeDirectItemErrors(item, index = 0) {
+  return commandeDirectErrors.items?.[getDirectItemErrorKey(item, index)] || {};
+}
+
+function getRetoucheDirectItemErrors(item, index = 0) {
+  return retoucheDirectErrors.items?.[getDirectItemErrorKey(item, index)] || {};
+}
+
+function validateCommandeDirectItemInline(item, index = 0) {
+  const errors = {};
+  if (!String(item?.typeHabit || "").trim()) errors.typeHabit = `Choisis le type de l'habit ${index + 1}.`;
+  if (Number(item?.prix || 0) <= 0) errors.prix = `Ajoute le prix de l'habit ${index + 1}.`;
+  commandeDirectErrors.items = {
+    ...commandeDirectErrors.items,
+    [getDirectItemErrorKey(item, index)]: errors
+  };
+  return Object.keys(errors).length === 0;
+}
+
+function validateRetoucheDirectItemInline(item, index = 0) {
+  const errors = {};
+  if (!String(item?.description || "").trim()) errors.description = `Décris le travail à faire sur l'habit ${index + 1}.`;
+  if (Number(item?.prix || 0) <= 0) errors.prix = `Ajoute le prix de l'habit ${index + 1}.`;
+  retoucheDirectErrors.items = {
+    ...retoucheDirectErrors.items,
+    [getDirectItemErrorKey(item, index)]: errors
+  };
+  return Object.keys(errors).length === 0;
+}
+
+function validateCommandeDirectItem(item, index = 0) {
+  if (!String(item?.typeHabit || "").trim()) throw new Error(`Choisis le type de l'habit ${index + 1}.`);
+  if (Number(item?.prix || 0) <= 0) throw new Error(`Ajoute le prix de l'habit ${index + 1} pour enregistrer.`);
+}
+
+function validateRetoucheDirectItem(item, index = 0) {
+  if (!String(item?.description || "").trim()) throw new Error(`Décris le travail à faire sur l'habit ${index + 1}.`);
+  if (Number(item?.prix || 0) <= 0) throw new Error(`Ajoute le prix de l'habit ${index + 1} pour enregistrer.`);
+}
+
+function addFreeMeasureToItem(item) {
+  if (!item || typeof item !== "object") return;
+  item.freeMeasureOpen = true;
+  const key = String(item.freeMeasureName || "").trim();
+  const value = item.freeMeasureValue;
+  if (!key || value === undefined || value === null || String(value).trim() === "") {
+    notify("Renseignez le nom et la valeur de la mesure.");
+    return;
+  }
+  if (!item.mesures || typeof item.mesures !== "object") item.mesures = {};
+  item.mesures[key] = value;
+  item.freeMeasureName = "";
+  item.freeMeasureValue = "";
+  item.freeMeasureOpen = false;
+}
+
+function openFreeMeasureForItem(item) {
+  if (!item || typeof item !== "object") return;
+  item.freeMeasureOpen = true;
+}
+
+function cancelFreeMeasureForItem(item) {
+  if (!item || typeof item !== "object") return;
+  item.freeMeasureName = "";
+  item.freeMeasureValue = "";
+  item.freeMeasureOpen = false;
+}
+
+function removeFreeMeasureFromItem(item, key) {
+  if (!item?.mesures || !key) return;
+  delete item.mesures[key];
+}
+
 function addCommandeItem() {
   wizard.commande.items.push(createCommandeItemDraft());
+  activeCommandeItemIndex.value = wizard.commande.items.length - 1;
+}
+
+function addCommandeItemDirect() {
+  const current = wizard.commande.items[activeCommandeItemIndex.value] || null;
+  if (!validateCommandeDirectItemInline(current, activeCommandeItemIndex.value)) return;
+  recalculateCommandeTotalFromItems();
+  addCommandeItem();
 }
 
 function removeCommandeItem(index) {
   if ((wizard.commande.items || []).length <= 1) return;
   wizard.commande.items.splice(index, 1);
+  activeCommandeItemIndex.value = Math.max(0, Math.min(activeCommandeItemIndex.value, wizard.commande.items.length - 1));
   syncCommandePrimaryTypeFromItems();
   recalculateCommandeTotalFromItems();
 }
@@ -4489,11 +4672,20 @@ function handleMeasureViewportResize() {
 
 function addRetoucheItem() {
   retoucheWizard.retouche.items.push(createRetoucheItemDraft());
+  activeRetoucheItemIndex.value = retoucheWizard.retouche.items.length - 1;
+}
+
+function addRetoucheItemDirect() {
+  const current = retoucheWizard.retouche.items[activeRetoucheItemIndex.value] || null;
+  if (!validateRetoucheDirectItemInline(current, activeRetoucheItemIndex.value)) return;
+  recalculateRetoucheTotalFromItems();
+  addRetoucheItem();
 }
 
 function removeRetoucheItem(index) {
   if ((retoucheWizard.retouche.items || []).length <= 1) return;
   retoucheWizard.retouche.items.splice(index, 1);
+  activeRetoucheItemIndex.value = Math.max(0, Math.min(activeRetoucheItemIndex.value, retoucheWizard.retouche.items.length - 1));
   syncRetouchePrimaryTypeFromItems();
   recalculateRetoucheTotalFromItems();
 }
@@ -4918,8 +5110,8 @@ function resolveNextDetailItemStatus(currentStatus = "") {
 function resolveDetailItemStatusLabel(currentStatus = "") {
   const nextStatus = resolveNextDetailItemStatus(currentStatus);
   if (!nextStatus) return "";
-  if (nextStatus === "TERMINEE") return "Terminer";
-  if (nextStatus === "LIVREE") return "Livrer";
+  if (nextStatus === "TERMINEE") return "Marquer comme terminé";
+  if (nextStatus === "LIVREE") return "Marquer comme livré";
   return "Changer statut";
 }
 
@@ -4995,10 +5187,10 @@ const detailCommandeItemCards = computed(() => {
 });
 const detailCommandeStatusAction = computed(() => {
   if (canTerminerDetail.value) {
-    return { label: "Terminer", handler: onTerminerDetail };
+    return { label: "Marquer comme terminé", handler: onTerminerDetail };
   }
   if (canLivrerDetail.value) {
-    return { label: "Livrer", handler: onLivrerDetail };
+    return { label: "Marquer comme livré", handler: onLivrerDetail };
   }
   if (canAnnulerDetail.value) {
     return { label: "Annuler", handler: onAnnulerDetail };
@@ -5016,7 +5208,7 @@ const commandeDetailPrimaryAction = computed(() => {
   }
   if (canLivrerDetail.value) {
     return {
-      label: "Livrer",
+      label: "Marquer comme livré",
       subtitle: "Marquez la commande comme livree depuis le detail.",
       tone: "blue",
       handler: onLivrerDetail
@@ -5024,7 +5216,7 @@ const commandeDetailPrimaryAction = computed(() => {
   }
   if (canTerminerDetail.value) {
     return {
-      label: "Terminer",
+      label: "Marquer comme terminé",
       subtitle: "Finalisez la commande pour preparer la livraison.",
       tone: "blue",
       handler: onTerminerDetail
@@ -5113,10 +5305,10 @@ const detailRetoucheItemCards = computed(() => {
 });
 const detailRetoucheStatusAction = computed(() => {
   if (canTerminerRetoucheDetail.value) {
-    return { label: "Terminer", handler: onTerminerRetoucheDetail };
+    return { label: "Marquer comme terminé", handler: onTerminerRetoucheDetail };
   }
   if (canLivrerRetoucheDetail.value) {
-    return { label: "Livrer", handler: onLivrerRetoucheDetail };
+    return { label: "Marquer comme livré", handler: onLivrerRetoucheDetail };
   }
   if (canAnnulerRetoucheDetail.value) {
     return { label: "Annuler", handler: onAnnulerRetoucheDetail };
@@ -5134,7 +5326,7 @@ const retoucheDetailPrimaryAction = computed(() => {
   }
   if (canLivrerRetoucheDetail.value) {
     return {
-      label: "Livrer",
+      label: "Marquer comme livré",
       subtitle: "Marquez la retouche comme livree depuis le detail.",
       tone: "blue",
       handler: onLivrerRetoucheDetail
@@ -5142,7 +5334,7 @@ const retoucheDetailPrimaryAction = computed(() => {
   }
   if (canTerminerRetoucheDetail.value) {
     return {
-      label: "Terminer",
+      label: "Marquer comme terminé",
       subtitle: "Finalisez la retouche avant la livraison.",
       tone: "blue",
       handler: onTerminerRetoucheDetail
@@ -9372,6 +9564,10 @@ function openCommandeWizardFromDossier() {
     wizard.mode = "existing";
     wizard.existingClientId = detailDossier.value.responsable.idClient;
     wizard.resolvedClientId = detailDossier.value.responsable.idClient;
+    const name = formatClientDisplayName(detailDossier.value.responsable);
+    const phone = String(detailDossier.value.responsable.telephone || "").trim();
+    wizardClientSearchQuery.value = phone ? `${name} — ${phone}` : name;
+    void loadWizardClientInsight(detailDossier.value.responsable.idClient);
   }
   wizard.open = true;
 }
@@ -9384,6 +9580,10 @@ function openRetoucheWizardFromDossier() {
     retoucheWizard.mode = "existing";
     retoucheWizard.existingClientId = detailDossier.value.responsable.idClient;
     retoucheWizard.resolvedClientId = detailDossier.value.responsable.idClient;
+    const name = formatClientDisplayName(detailDossier.value.responsable);
+    const phone = String(detailDossier.value.responsable.telephone || "").trim();
+    retoucheClientSearchQueryWizard.value = phone ? `${name} — ${phone}` : name;
+    void loadRetoucheClientInsight(detailDossier.value.responsable.idClient);
   }
   retoucheWizard.open = true;
 }
@@ -11737,6 +11937,10 @@ function resetWizard() {
   wizard.commande.emettreFacture = true;
   wizard.commande.typeHabit = "";
   wizard.commande.items = [createCommandeItemDraft()];
+  activeCommandeItemIndex.value = 0;
+  commandeClientDetailsOpen.value = false;
+  commandeNewClientEditing.value = true;
+  resetCommandeDirectErrors();
   wizard.commande.mesuresHabit = {};
   wizard.commande.prefillLoading = false;
   wizard.commande.prefill = null;
@@ -11756,6 +11960,36 @@ async function openNouvelleCommande() {
 
 function closeWizard() {
   wizard.open = false;
+}
+
+function isCommandeDirectDirty() {
+  return Boolean(
+    String(wizard.newClient.nom || "").trim() ||
+      String(wizard.newClient.prenom || "").trim() ||
+      String(wizard.newClient.telephone || "").trim() ||
+      String(wizard.commande.descriptionCommande || "").trim() ||
+      (wizard.commande.items || []).some((item) =>
+        String(item?.typeHabit || "").trim() ||
+        String(item?.description || "").trim() ||
+        Number(item?.prix || 0) > 0 ||
+        Object.keys(item?.mesures || {}).length > 0
+      )
+  );
+}
+
+async function requestCloseWizard() {
+  if (!isCommandeDirectDirty()) {
+    closeWizard();
+    return;
+  }
+  const confirmed = await openActionModal({
+    title: "Quitter sans enregistrer ?",
+    message: "Les informations saisies dans cette commande ne seront pas conservées.",
+    confirmLabel: "Quitter",
+    cancelLabel: "Continuer la saisie",
+    tone: "red"
+  });
+  if (confirmed) closeWizard();
 }
 
 function resetRetoucheWizard() {
@@ -11779,6 +12013,10 @@ function resetRetoucheWizard() {
   retoucheWizard.retouche.emettreFacture = true;
   retoucheWizard.retouche.typeHabit = "";
   retoucheWizard.retouche.items = [createRetoucheItemDraft()];
+  activeRetoucheItemIndex.value = 0;
+  retoucheClientDetailsOpen.value = false;
+  retoucheNewClientEditing.value = true;
+  resetRetoucheDirectErrors();
   retoucheWizard.retouche.mesuresHabit = {};
   resetMesuresModel(retoucheWizard.retouche.mesuresHabit);
   wizardRetoucheMeasureIndex.value = 0;
@@ -11797,6 +12035,35 @@ async function openNouvelleRetouche() {
 
 function closeRetoucheWizard() {
   retoucheWizard.open = false;
+}
+
+function isRetoucheDirectDirty() {
+  return Boolean(
+    String(retoucheWizard.newClient.nom || "").trim() ||
+      String(retoucheWizard.newClient.prenom || "").trim() ||
+      String(retoucheWizard.newClient.telephone || "").trim() ||
+      String(retoucheWizard.retouche.descriptionRetouche || "").trim() ||
+      (retoucheWizard.retouche.items || []).some((item) =>
+        String(item?.description || "").trim() ||
+        Number(item?.prix || 0) > 0 ||
+        Object.keys(item?.mesures || {}).length > 0
+      )
+  );
+}
+
+async function requestCloseRetoucheWizard() {
+  if (!isRetoucheDirectDirty()) {
+    closeRetoucheWizard();
+    return;
+  }
+  const confirmed = await openActionModal({
+    title: "Quitter sans enregistrer ?",
+    message: "Les informations saisies dans cette retouche ne seront pas conservées.",
+    confirmLabel: "Quitter",
+    cancelLabel: "Continuer la saisie",
+    tone: "red"
+  });
+  if (confirmed) closeRetoucheWizard();
 }
 
 function selectWizardExistingClient(result) {
@@ -11821,6 +12088,59 @@ function applyWizardExistingClient(client) {
   });
 }
 
+function splitClientSearchName(query = "") {
+  const value = String(query || "").split("—")[0].trim();
+  if (!value) return { nom: "", prenom: "", telephone: "" };
+  const parts = value.split(/\s+/).filter(Boolean);
+  const looksLikePhone = /^[+0-9\s().-]+$/.test(value);
+  if (looksLikePhone) return { nom: "", prenom: "", telephone: value };
+  return {
+    nom: parts[0] || "",
+    prenom: parts.slice(1).join(" "),
+    telephone: ""
+  };
+}
+
+function startWizardInlineClientCreation() {
+  const seed = splitClientSearchName(wizardClientSearchQuery.value);
+  wizard.mode = "new";
+  wizard.existingClientId = "";
+  wizard.resolvedClientId = "";
+  wizardClientSearchOpen.value = false;
+  wizard.newClient.nom = wizard.newClient.nom || seed.nom;
+  wizard.newClient.prenom = wizard.newClient.prenom || seed.prenom;
+  wizard.newClient.telephone = wizard.newClient.telephone || seed.telephone;
+}
+
+function cancelWizardInlineClientCreation() {
+  wizard.mode = "existing";
+  wizard.newClient.nom = "";
+  wizard.newClient.prenom = "";
+  wizard.newClient.telephone = "";
+  commandeNewClientEditing.value = true;
+  clearWizardDuplicateDecision();
+}
+
+function changeWizardClientSelection() {
+  wizard.existingClientId = "";
+  wizard.resolvedClientId = "";
+  wizardClientSearchQuery.value = "";
+  commandeClientDetailsOpen.value = false;
+  resetWizardClientInsight();
+  nextTick(() => {
+    wizardClientSearchOpen.value = true;
+  });
+}
+
+function collapseWizardNewClient() {
+  if (!commandeNewClientReady.value) {
+    commandeDirectErrors.newClient = "Ajoute au minimum le nom et le prénom du client.";
+    return;
+  }
+  commandeDirectErrors.newClient = "";
+  commandeNewClientEditing.value = false;
+}
+
 function selectDossierExistingClient(result) {
   if (!result?.client?.idClient) return;
   dossierDraft.existingClientId = result.client.idClient;
@@ -11838,6 +12158,46 @@ function applyRetoucheExistingClient(client) {
     telephone: String(client.telephone || "").trim()
   });
   retoucheWizard.resolvedClientId = client.idClient;
+}
+
+function startRetoucheInlineClientCreation() {
+  const seed = splitClientSearchName(retoucheClientSearchQueryWizard.value);
+  retoucheWizard.mode = "new";
+  retoucheWizard.existingClientId = "";
+  retoucheWizard.resolvedClientId = "";
+  retoucheClientSearchOpen.value = false;
+  retoucheWizard.newClient.nom = retoucheWizard.newClient.nom || seed.nom;
+  retoucheWizard.newClient.prenom = retoucheWizard.newClient.prenom || seed.prenom;
+  retoucheWizard.newClient.telephone = retoucheWizard.newClient.telephone || seed.telephone;
+  retoucheNewClientEditing.value = true;
+}
+
+function cancelRetoucheInlineClientCreation() {
+  retoucheWizard.mode = "existing";
+  retoucheWizard.newClient.nom = "";
+  retoucheWizard.newClient.prenom = "";
+  retoucheWizard.newClient.telephone = "";
+  retoucheNewClientEditing.value = true;
+}
+
+function changeRetoucheClientSelection() {
+  retoucheWizard.existingClientId = "";
+  retoucheWizard.resolvedClientId = "";
+  retoucheClientSearchQueryWizard.value = "";
+  retoucheClientDetailsOpen.value = false;
+  resetRetoucheClientInsight();
+  nextTick(() => {
+    retoucheClientSearchOpen.value = true;
+  });
+}
+
+function collapseRetoucheNewClient() {
+  if (!retoucheNewClientReady.value) {
+    retoucheDirectErrors.newClient = "Ajoute au minimum le nom et le prénom du client.";
+    return;
+  }
+  retoucheDirectErrors.newClient = "";
+  retoucheNewClientEditing.value = false;
 }
 
 function normalizeWizardDuplicateClient(raw) {
@@ -12299,7 +12659,7 @@ async function onWizardStep2() {
   try {
     if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
     syncCommandePrimaryTypeFromItems();
-    const items = (wizard.commande.items || []).filter((item) => String(item.typeHabit || "").trim());
+    const items = (wizard.commande.items || []).filter((item) => String(item.typeHabit || "").trim() && Number(item.prix || 0) > 0);
     const montant = Number(wizard.commande.montantTotal);
     if (!String(wizard.commande.descriptionCommande || "").trim() || Number.isNaN(montant) || montant <= 0) {
       throw new Error("Description et montant valide sont obligatoires.");
@@ -12321,15 +12681,12 @@ async function onWizardStep3() {
     if (!canCreateCommande.value) throw new Error("Creation de commande non autorisee.");
     const items = (wizard.commande.items || []).filter((item) => String(item.typeHabit || "").trim());
     if (items.length === 0) throw new Error("Ajoutez au moins un habit.");
-    const commandesConfig = wizardCommandesSettings.value || {};
-    const mesuresObligatoires = commandesConfig.mesuresObligatoires !== false;
-    const interdictionSansMesures = commandesConfig.interdictionSansMesures !== false;
     for (const item of items) {
       collectMesuresSnapshot({
         typeHabit: item.typeHabit,
         mesuresModel: item.mesures || {},
-        requireComplete: mesuresObligatoires && interdictionSansMesures,
-        requireAtLeastOne: mesuresObligatoires
+        requireComplete: false,
+        requireAtLeastOne: false
       });
     }
     wizard.step = 4;
@@ -12356,16 +12713,13 @@ async function onWizardStep4() {
         description: String(item.description || "").trim(),
         prix: Number(item.prix || 0)
       }))
-      .filter((item) => item.typeHabit && Number.isFinite(item.prix) && item.prix >= 0);
+      .filter((item) => item.typeHabit && Number.isFinite(item.prix) && item.prix > 0);
     const montant = Number(wizard.commande.montantTotal);
     if (!wizard.commande.descriptionCommande || Number.isNaN(montant) || montant <= 0) {
       throw new Error("Description et montant valide sont obligatoires.");
     }
     if (items.length === 0) throw new Error("Ajoutez au moins un habit.");
 
-    const commandesConfig = wizardCommandesSettings.value || {};
-    const mesuresObligatoires = commandesConfig.mesuresObligatoires !== false;
-    const interdictionSansMesures = commandesConfig.interdictionSansMesures !== false;
     const itemsWithMeasures = items.map((item) => {
       const sourceItem = (wizard.commande.items || []).find((row) => row.idItem === item.idItem) || null;
       return {
@@ -12373,8 +12727,8 @@ async function onWizardStep4() {
         mesures: collectMesuresSnapshot({
           typeHabit: item.typeHabit,
           mesuresModel: sourceItem?.mesures || {},
-          requireComplete: mesuresObligatoires && interdictionSansMesures,
-          requireAtLeastOne: mesuresObligatoires
+          requireComplete: false,
+          requireAtLeastOne: false
         })
       };
     });
@@ -12472,6 +12826,44 @@ async function onWizardStep4() {
   }
 }
 
+async function submitCommandeDirect() {
+  if (wizard.submitting) return;
+  try {
+    resetCommandeDirectErrors();
+    if (wizard.mode === "existing") {
+      if (!wizard.existingClientId) {
+        commandeDirectErrors.client = "Choisis un client ou crée-le directement ici.";
+        throw new Error(commandeDirectErrors.client);
+      }
+      wizard.resolvedClientId = wizard.existingClientId;
+    } else {
+      if (!canCreateWizardClient.value) throw new Error("Tu n'as pas l'autorisation de créer un client.");
+      const nom = String(wizard.newClient.nom || "").trim();
+      const prenom = String(wizard.newClient.prenom || "").trim();
+      if (!nom || !prenom) {
+        commandeDirectErrors.newClient = "Ajoute au minimum le nom et le prénom du client.";
+        throw new Error(commandeDirectErrors.newClient);
+      }
+      wizard.resolvedClientId = "";
+    }
+    if (!String(wizard.commande.descriptionCommande || "").trim()) {
+      commandeDirectErrors.description = "Décris brièvement ce que le client demande.";
+      throw new Error(commandeDirectErrors.description);
+    }
+    const items = (wizard.commande.items || []).filter((item) => String(item?.typeHabit || "").trim() || Number(item?.prix || 0) > 0);
+    if (items.length === 0) throw new Error("Ajoute au moins un habit.");
+    const invalidIndex = items.findIndex((item, index) => !validateCommandeDirectItemInline(item, index));
+    if (invalidIndex >= 0) {
+      activeCommandeItemIndex.value = invalidIndex;
+      throw new Error("Complète l'habit indiqué pour enregistrer la commande.");
+    }
+    recalculateCommandeTotalFromItems();
+    await onWizardStep4();
+  } catch (err) {
+    notify(readableError(err));
+  }
+}
+
 async function onRetoucheWizardStep1() {
   if (retoucheWizard.submitting) return;
   retoucheWizard.submitting = true;
@@ -12505,11 +12897,11 @@ async function onRetoucheWizardStep2() {
     const items = (retoucheWizard.retouche.items || [])
       .map((item) => ({
         idItem: item.idItem,
-        typeRetouche: String(item.typeRetouche || "").trim().toUpperCase(),
+        typeRetouche: String(item.typeRetouche || "LIBRE").trim().toUpperCase(),
         description: String(item.description || "").trim(),
         prix: Number(item.prix || 0)
       }))
-      .filter((item) => item.typeRetouche && Number.isFinite(item.prix) && item.prix >= 0);
+      .filter((item) => item.typeRetouche && Number.isFinite(item.prix) && item.prix > 0);
     const montant = Number(retoucheWizard.retouche.montantTotal);
     if (Number.isNaN(montant) || montant <= 0) throw new Error("Montant total invalide.");
     if (items.length === 0) throw new Error("Ajoutez au moins une retouche.");
@@ -12527,22 +12919,21 @@ async function onRetoucheWizardStep3() {
   try {
     if (!canCreateRetouche.value) throw new Error("Creation de retouche non autorisee.");
     syncRetouchePrimaryTypeFromItems();
-    const items = (retoucheWizard.retouche.items || []).filter((item) => String(item?.typeRetouche || "").trim());
+    const items = (retoucheWizard.retouche.items || []).filter((item) => Number(item?.prix || 0) > 0);
     if (items.length === 0) throw new Error("Ajoutez au moins une retouche.");
     for (const item of items) {
-      if (!String(item.typeHabit || "").trim()) {
-        throw new Error(`Type d'habit obligatoire pour ${humanizeContactLabel(item.typeRetouche) || item.typeRetouche || "la retouche"}.`);
-      }
+      item.typeRetouche = String(item.typeRetouche || "LIBRE").trim().toUpperCase();
+      item.typeHabit = String(item.typeHabit || "AUTRES").trim().toUpperCase();
       const progress = getRetoucheItemMeasureProgress(item);
       if (progress.total > 0) {
         const snapshot = collectRetoucheMesuresSnapshot({
           mesuresModel: item.mesures || {},
           fields: getRetoucheItemMeasureFields(item),
           requireComplete: wizardRetouchesSettings.value?.saisiePartielle !== true,
-          requireAtLeastOne: true
+          requireAtLeastOne: false
         });
         const hasMeasures = Object.keys(snapshot?.valeurs || snapshot || {}).length > 0;
-        if (!hasMeasures) {
+        if (progress.requiresMeasures && !hasMeasures) {
           throw new Error(`Mesures requises pour ${humanizeContactLabel(item.typeRetouche) || item.typeRetouche || "cette retouche"}.`);
         }
       }
@@ -12569,8 +12960,8 @@ async function onRetoucheWizardStep4() {
     const items = (retoucheWizard.retouche.items || [])
       .map((item) => ({
         idItem: item.idItem,
-        typeRetouche: String(item.typeRetouche || "").trim().toUpperCase(),
-        typeHabit: String(item.typeHabit || "").trim().toUpperCase(),
+        typeRetouche: String(item.typeRetouche || "LIBRE").trim().toUpperCase(),
+        typeHabit: String(item.typeHabit || "AUTRES").trim().toUpperCase(),
         description: String(item.description || "").trim(),
         prix: Number(item.prix || 0),
         mesures:
@@ -12579,15 +12970,14 @@ async function onRetoucheWizardStep4() {
                 mesuresModel: item.mesures || {},
                 fields: getRetoucheItemMeasureFields(item),
                 requireComplete: wizardRetouchesSettings.value?.saisiePartielle !== true,
-                requireAtLeastOne: true
+                requireAtLeastOne: false
               })
-            : {}
+            : item.mesures || {}
       }))
-      .filter((item) => item.typeRetouche && Number.isFinite(item.prix) && item.prix >= 0);
+      .filter((item) => item.typeRetouche && Number.isFinite(item.prix) && item.prix > 0);
     const montant = Number(retoucheWizard.retouche.montantTotal);
     if (Number.isNaN(montant) || montant <= 0) throw new Error("Montant total invalide.");
     if (items.length === 0) throw new Error("Ajoutez au moins une retouche.");
-    if (items.some((item) => !item.typeHabit)) throw new Error("Chaque retouche doit avoir un type d'habit.");
     if (wizardRetoucheDescriptionRequired.value && !String(retoucheWizard.retouche.descriptionRetouche || "").trim()) {
       throw new Error("Description retouche obligatoire.");
     }
@@ -12676,6 +13066,48 @@ async function onRetoucheWizardStep4() {
     notify(readableError(err));
   } finally {
     retoucheWizard.submitting = false;
+  }
+}
+
+async function submitRetoucheDirect() {
+  if (retoucheWizard.submitting) return;
+  try {
+    resetRetoucheDirectErrors();
+    if (retoucheWizard.mode === "existing") {
+      if (!retoucheWizard.existingClientId) {
+        retoucheDirectErrors.client = "Choisis un client ou crée-le directement ici.";
+        throw new Error(retoucheDirectErrors.client);
+      }
+      retoucheWizard.resolvedClientId = retoucheWizard.existingClientId;
+    } else {
+      if (!canCreateWizardClient.value) throw new Error("Tu n'as pas l'autorisation de créer un client.");
+      const nom = String(retoucheWizard.newClient.nom || "").trim();
+      const prenom = String(retoucheWizard.newClient.prenom || "").trim();
+      if (!nom || !prenom) {
+        retoucheDirectErrors.newClient = "Ajoute au minimum le nom et le prénom du client.";
+        throw new Error(retoucheDirectErrors.newClient);
+      }
+      retoucheWizard.resolvedClientId = "";
+    }
+    if (!String(retoucheWizard.retouche.descriptionRetouche || "").trim()) {
+      retoucheDirectErrors.description = "Décris brièvement ce que le client demande.";
+      throw new Error(retoucheDirectErrors.description);
+    }
+    const items = (retoucheWizard.retouche.items || []).filter((item) => String(item?.description || "").trim() || Number(item?.prix || 0) > 0);
+    if (items.length === 0) throw new Error("Ajoute au moins un habit à retoucher.");
+    const invalidIndex = items.findIndex((item, index) => {
+      item.typeRetouche = "LIBRE";
+      item.typeHabit = "AUTRES";
+      return !validateRetoucheDirectItemInline(item, index);
+    });
+    if (invalidIndex >= 0) {
+      activeRetoucheItemIndex.value = invalidIndex;
+      throw new Error("Complète l'habit indiqué pour enregistrer la retouche.");
+    }
+    recalculateRetoucheTotalFromItems();
+    await onRetoucheWizardStep4();
+  } catch (err) {
+    notify(readableError(err));
   }
 }
 
@@ -15423,10 +15855,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                             <path v-for="(path, i) in iconPaths.check" :key="`liv-${commande.idCommande}-${i}`" :d="path" />
                           </svg>
-                          Livrer
+                          Marquer comme livré
                         </button>
                         <button class="mini-btn blue" v-if="canTerminer(commande)" @click="onTerminerCommande(commande)">
-                          Terminer
+                          Marquer comme terminé
                         </button>
                         <button class="mini-btn red" v-if="canAnnuler(commande)" @click="onAnnulerCommande(commande)">
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -15720,10 +16152,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                             <path v-for="(path, i) in iconPaths.check" :key="`liv-ret-${retouche.idRetouche}-${i}`" :d="path" />
                           </svg>
-                          Livrer
+                          Marquer comme livré
                         </button>
                         <button class="mini-btn blue" v-if="canTerminerRetouche(retouche)" @click="onTerminerRetouche(retouche)">
-                          Terminer
+                          Marquer comme terminé
                         </button>
                         <button class="mini-btn red" v-if="canAnnulerRetouche(retouche)" @click="onAnnulerRetouche(retouche)">
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -16967,10 +17399,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   Payer
                 </button>
                 <button v-show="!isMobileViewport && canLivrerDetail" class="action-btn blue" @click="onLivrerDetail" :disabled="detailLoading">
-                  Livrer
+                  Marquer comme livré
                 </button>
                 <button v-show="!isMobileViewport && canTerminerDetail" class="action-btn blue" @click="onTerminerDetail" :disabled="detailLoading">
-                  Terminer
+                  Marquer comme terminé
                 </button>
                 <button
                   :class="isMobileViewport ? 'mini-btn' : 'action-btn red'"
@@ -17313,10 +17745,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   Payer
                 </button>
                 <button v-show="!isMobileViewport && canLivrerRetoucheDetail" class="action-btn blue" @click="onLivrerRetoucheDetail" :disabled="detailRetoucheLoading">
-                  Livrer
+                  Marquer comme livré
                 </button>
                 <button v-show="!isMobileViewport && canTerminerRetoucheDetail" class="action-btn blue" @click="onTerminerRetoucheDetail" :disabled="detailRetoucheLoading">
-                  Terminer
+                  Marquer comme terminé
                 </button>
                 <button
                   :class="isMobileViewport ? 'mini-btn' : 'action-btn red'"
@@ -20308,36 +20740,31 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
     </div>
   </div>
 
-  <div v-if="wizard.open" class="modal-backdrop" @click.self="closeWizard">
+  <div v-if="wizard.open" class="modal-backdrop" @click.self="requestCloseWizard">
       <div class="modal-card modal-card-wizard">
         <header class="modal-header">
           <h3>Nouvelle commande</h3>
-          <p>Etape {{ wizard.step }} / 4</p>
+          <p>Client, habits et prix en une seule vue.</p>
         </header>
 
-        <section v-if="wizard.step === 1" class="modal-body modal-body-wizard">
+        <section v-if="commandeDirectFormEnabled" class="modal-body modal-body-wizard stack-form wizard-form-shell">
           <div class="wizard-stage-head">
             <div>
               <p class="mobile-overline">Client</p>
-              <h4>Choisir la personne concernee</h4>
-              <p class="helper">Recherchez rapidement un client existant ou creez une fiche minimale. L'enregistrement final se fait uniquement a la creation de la commande.</p>
+              <h4>Créer une commande</h4>
+              <p class="helper">Ajoute le client, les habits et les prix sans changer d'écran.</p>
             </div>
           </div>
 
-          <div class="segmented">
-            <button class="mini-btn" :class="{ active: wizard.mode === 'existing' }" @click="wizard.mode = 'existing'">Client existant</button>
-            <button v-if="canCreateWizardClient" class="mini-btn" :class="{ active: wizard.mode === 'new' }" @click="wizard.mode = 'new'">Nouveau client</button>
-          </div>
-
-          <div v-if="wizard.mode === 'existing'" class="stack-form">
-            <label>🔍 Rechercher un client (nom ou telephone)</label>
-            <div class="client-search">
+          <div v-if="wizard.mode === 'existing'" class="stack-form client-smart-card">
+            <label v-if="!wizard.existingClientId">Client <span>*</span></label>
+            <div v-if="!wizard.existingClientId" class="client-search">
               <input
                 :value="wizardClientSearchQuery"
                 type="text"
-                placeholder="Rechercher un client (nom ou telephone)"
+                placeholder="Nom, téléphone ou nouveau client"
                 autocomplete="off"
-                @input="onWizardClientSearchInput"
+                @input="commandeDirectErrors.client = ''; onWizardClientSearchInput($event)"
                 @focus="wizardClientSearchOpen = true"
                 @blur="onWizardClientSearchBlur"
                 @keydown="onWizardClientSearchKeydown"
@@ -20353,15 +20780,32 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     {{ row.nomComplet }} — {{ row.telephone }}
                   </button>
                 </li>
-                <li v-if="wizardClientSearchResults.length === 0" class="client-search-empty">Aucun client trouvé</li>
+                <li v-if="wizardClientSearchResults.length === 0" class="client-search-empty">Aucun client trouvé. Tu peux le créer ici.</li>
               </ul>
             </div>
-            <button v-if="canCreateWizardClient" class="mini-btn" @click="wizard.mode = 'new'">+ Nouveau client</button>
+            <p v-if="!wizard.existingClientId && commandeDirectErrors.client" class="field-error">{{ commandeDirectErrors.client }}</p>
+            <button v-if="!wizard.existingClientId && canCreateWizardClient" class="mini-btn blue" type="button" @click="startWizardInlineClientCreation">
+              + Créer ce client ici
+            </button>
 
-            <div v-if="wizard.existingClientId" class="client-insight-card">
-              <p class="client-insight-title">Client selectionne</p>
-              <p class="client-insight-selected">{{ wizardClientSearchQuery }}</p>
-              <p v-if="wizardClientInsightLoading" class="helper">Chargement de l'historique client...</p>
+            <div v-if="wizard.existingClientId" class="client-compact-card">
+              <div>
+                <p class="client-insight-title">Client choisi</p>
+                <strong>{{ commandeSelectedClientLabel }}</strong>
+                <span v-if="wizardClientInsight">
+                  {{ wizardClientInsight.totalCommandes }} commande(s) · {{ wizardClientInsight.totalRetouches }} retouche(s)
+                </span>
+              </div>
+              <div class="client-compact-actions">
+                <button class="mini-btn" type="button" @click="commandeClientDetailsOpen = !commandeClientDetailsOpen">
+                  {{ commandeClientDetailsOpen ? "Masquer" : "Voir détails" }}
+                </button>
+                <button class="mini-btn blue" type="button" @click="changeWizardClientSelection">Changer</button>
+              </div>
+            </div>
+
+            <div v-if="wizard.existingClientId && commandeClientDetailsOpen" class="client-insight-card">
+              <p v-if="wizardClientInsightLoading" class="helper">On retrouve ses anciennes visites...</p>
               <p v-else-if="wizardClientInsightError" class="helper">{{ wizardClientInsightError }}</p>
               <template v-else-if="wizardClientInsight">
                 <h4>Historique client</h4>
@@ -20383,19 +20827,38 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <ul v-if="wizardClientInsight.mesuresTypes.length > 0" class="client-insight-list">
                     <li v-for="item in wizardClientInsight.mesuresTypes" :key="`cmd-mes-${item}`">{{ item }}</li>
                   </ul>
-                  <p v-else>Aucune mesure enregistree pour ce client</p>
+                  <p v-else>Aucune mesure enregistrée pour ce client.</p>
                 </div>
               </template>
             </div>
           </div>
 
-          <div v-else class="stack-form">
-            <label>Nom</label>
-            <input v-model="wizard.newClient.nom" type="text" />
-            <label>Prenom</label>
-            <input v-model="wizard.newClient.prenom" type="text" />
-            <label>Telephone <span class="helper">(optionnel)</span></label>
-            <input v-model="wizard.newClient.telephone" type="text" placeholder="Ex: +243..." />
+          <div v-else class="stack-form client-smart-card">
+            <div class="wizard-section-head">
+              <div>
+                <p class="mobile-overline">Nouveau client</p>
+                <h5>Créer sans quitter la commande</h5>
+              </div>
+              <button class="mini-btn" type="button" @click="cancelWizardInlineClientCreation">Rechercher plutôt</button>
+            </div>
+            <div v-if="commandeNewClientReady && !commandeNewClientEditing" class="client-compact-card">
+              <div>
+                <p class="client-insight-title">Nouveau client</p>
+                <strong>{{ commandeNewClientSummary }}</strong>
+                <span>Créé avec cette commande</span>
+              </div>
+              <button class="mini-btn blue" type="button" @click="commandeNewClientEditing = true">Modifier</button>
+            </div>
+            <template v-else>
+              <label>Nom</label>
+              <input v-model="wizard.newClient.nom" type="text" placeholder="Ex: Kabasele" @input="commandeDirectErrors.newClient = ''" />
+              <label>Prénom</label>
+              <input v-model="wizard.newClient.prenom" type="text" placeholder="Ex: Daniel" @input="commandeDirectErrors.newClient = ''" />
+              <label>Telephone <span class="helper">(optionnel)</span></label>
+              <input v-model="wizard.newClient.telephone" type="text" placeholder="Ex: +243 812 345 678" />
+              <p v-if="commandeDirectErrors.newClient" class="field-error">{{ commandeDirectErrors.newClient }}</p>
+              <button class="mini-btn green" type="button" @click="collapseWizardNewClient">Utiliser ce client</button>
+            </template>
 
             <div v-if="wizardExactPhoneDuplicateClient || wizardProbableDuplicateClients.length > 0" class="client-insight-card">
               <p class="client-insight-title">Verification doublon</p>
@@ -20413,9 +20876,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </div>
               </template>
               <template v-else>
-                <p>
-                  Un client similaire a ete trouve. Vous pouvez reutiliser la fiche existante, mettre a jour son numero ou creer quand meme un nouveau client.
-                </p>
+                <p>On a trouvé un client qui ressemble à celui-ci. Choisis sa fiche si c'est la même personne.</p>
                 <ul class="client-insight-list">
                   <li v-for="client in wizardProbableDuplicateClients" :key="`cmd-dup-${client.idClient}`">
                     {{ formatClientDisplayName(client) }} - {{ client.telephone || "Sans numero" }}
@@ -20430,9 +20891,136 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             </div>
           </div>
 
+          <section class="wizard-form-section">
+            <div class="wizard-section-head">
+              <div>
+                <p class="mobile-overline">Commande</p>
+                <h5>Informations générales</h5>
+              </div>
+              <span class="status-chip">{{ wizard.commande.items.length }} habit(s)</span>
+            </div>
+            <label>Description commande <span>*</span></label>
+            <input v-model="wizard.commande.descriptionCommande" type="text" placeholder="Ex: 2 chemises pour cérémonie, retrait vendredi" @input="commandeDirectErrors.description = ''" />
+            <p v-if="commandeDirectErrors.description" class="field-error">{{ commandeDirectErrors.description }}</p>
+            <label>Date de retrait</label>
+            <input v-model="wizard.commande.datePrevue" type="date" />
+            <label class="helper helper-inline-checkbox">
+              <input v-model="wizard.commande.emettreFacture" type="checkbox" />
+              Emettre facture apres creation
+            </label>
+          </section>
+
+          <section class="wizard-form-section">
+            <div class="wizard-section-head">
+              <div>
+                <p class="mobile-overline">Habits</p>
+                <h5>Habit par habit</h5>
+                <p class="helper">Chaque habit a son prix, sa description et ses mesures si besoin.</p>
+              </div>
+              <button class="mini-btn blue" type="button" @click="addCommandeItemDirect">+ Ajouter un habit</button>
+            </div>
+            <div class="wizard-items-stack">
+              <article
+                v-for="(item, index) in wizard.commande.items"
+                :key="item.idItem"
+                class="panel subtle-panel wizard-item-card"
+                :class="{ 'wizard-item-card-active': activeCommandeItemIndex === index }"
+              >
+                <button class="wizard-item-card-head wizard-item-toggle" type="button" @click="activeCommandeItemIndex = index">
+                  <div>
+                    <p class="mobile-overline">Habit {{ index + 1 }}</p>
+                    <h6>{{ getCommandeDirectItemSummary(item, index) }}</h6>
+                  </div>
+                  <span class="status-chip" :class="{ warning: !isCommandeItemValid(item) }">
+                    {{ isCommandeItemValid(item) ? "Prêt" : "À compléter" }}
+                  </span>
+                </button>
+
+                <div v-if="activeCommandeItemIndex === index" class="wizard-item-direct-body">
+                  <div class="wizard-item-grid">
+                    <div class="stack-form">
+                      <label>Type d'habit <span>*</span></label>
+                      <select v-model="item.typeHabit" :class="{ invalid: getCommandeDirectItemErrors(item, index).typeHabit }" @change="commandeDirectErrors.items = { ...commandeDirectErrors.items, [getDirectItemErrorKey(item, index)]: { ...getCommandeDirectItemErrors(item, index), typeHabit: '' } }; onCommandeItemTypeChange(item)">
+                        <option value="">Choisir un type d'habit</option>
+                        <option v-for="option in wizardAvailableHabitTypeOptions" :key="`cmd-direct-habit-${item.idItem}-${option.value}`" :value="option.value">
+                          {{ option.label }}
+                        </option>
+                        <option value="AUTRES">Autre</option>
+                      </select>
+                      <p v-if="getCommandeDirectItemErrors(item, index).typeHabit" class="field-error">{{ getCommandeDirectItemErrors(item, index).typeHabit }}</p>
+                    </div>
+                    <div class="stack-form">
+                      <label>Description habit</label>
+                      <input v-model="item.description" type="text" placeholder="Ex: pantalon slim noir, robe droite, veste homme" />
+                    </div>
+                    <div class="stack-form">
+                      <label>Montant <span>*</span></label>
+                      <input v-model="item.prix" type="number" min="0" step="0.01" placeholder="Ex: 15000" :class="{ invalid: getCommandeDirectItemErrors(item, index).prix }" @input="commandeDirectErrors.items = { ...commandeDirectErrors.items, [getDirectItemErrorKey(item, index)]: { ...getCommandeDirectItemErrors(item, index), prix: '' } }; recalculateCommandeTotalFromItems()" />
+                      <p v-if="getCommandeDirectItemErrors(item, index).prix" class="field-error">{{ getCommandeDirectItemErrors(item, index).prix }}</p>
+                    </div>
+                  </div>
+
+                  <div class="stack-form wizard-item-measures-block">
+                    <label>Mesures de l'habit</label>
+                    <p class="helper">Remplis uniquement les mesures nécessaires. Les champs vides ne seront pas enregistrés.</p>
+                    <div class="form-grid" v-if="getCommandeItemMeasureFields(item).length > 0">
+                      <div v-for="field in getCommandeItemMeasureFields(item)" :key="`cmd-direct-mes-${item.idItem}-${field.key}`" class="form-row">
+                        <label>{{ mesureDisplayLabel(field) }}</label>
+                        <select v-if="mesureInputType(field) === 'select'" v-model="item.mesures[field.key]">
+                          <option value="">Choisir</option>
+                          <option value="courtes">courtes</option>
+                          <option value="longues">longues</option>
+                        </select>
+                        <input
+                          v-else
+                          v-model="item.mesures[field.key]"
+                          :type="mesureInputType(field) === 'number' ? 'number' : 'text'"
+                          min="0"
+                          :step="mesureInputType(field) === 'number' ? '0.1' : undefined"
+                          :placeholder="mesurePlaceholder(field)"
+                        />
+                      </div>
+                    </div>
+                    <div v-if="!item.freeMeasureOpen" class="wizard-free-measure-actions">
+                      <button class="mini-btn blue" type="button" @click="openFreeMeasureForItem(item)">+ Ajouter une mesure personnalisée</button>
+                    </div>
+                    <div v-else class="wizard-free-measure-row">
+                      <input v-model="item.freeMeasureName" type="text" placeholder="Nom de la mesure" />
+                      <input v-model="item.freeMeasureValue" type="text" placeholder="Valeur (ex: 42 cm)" />
+                      <button class="mini-btn blue" type="button" @click="addFreeMeasureToItem(item)">Ajouter</button>
+                      <button class="mini-btn" type="button" @click="cancelFreeMeasureForItem(item)">Annuler</button>
+                    </div>
+                    <div v-if="Object.keys(item.mesures || {}).length > 0" class="wizard-free-measure-list">
+                      <span v-for="(value, key) in item.mesures" :key="`cmd-free-${item.idItem}-${key}`" class="status-chip">
+                        {{ key }}: {{ value }}
+                        <button type="button" class="chip-remove" @click="removeFreeMeasureFromItem(item, key)">×</button>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="inline-actions">
+                    <button class="mini-btn red" type="button" @click="removeCommandeItem(index)" :disabled="wizard.commande.items.length <= 1">
+                      Supprimer
+                    </button>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <div class="wizard-total-bar">
+            <div class="wizard-total-meta">
+              <p class="mobile-overline">Total</p>
+              <strong>{{ formatCurrency(Number(wizard.commande.montantTotal || 0)) }}</strong>
+              <p class="helper">{{ wizard.commande.items.filter((item) => isCommandeItemValid(item)).length }} prêt(s) · {{ wizard.commande.items.length }} habit(s)</p>
+            </div>
+          </div>
+
           <div class="modal-actions wizard-modal-actions">
-            <button class="mini-btn" @click="closeWizard">Annuler</button>
-            <button class="action-btn blue" @click="onWizardStep1" :disabled="wizard.submitting">Continuer</button>
+            <button class="mini-btn" @click="requestCloseWizard">Annuler</button>
+            <button class="action-btn green" @click="submitCommandeDirect" :disabled="wizard.submitting">
+              {{ wizard.submitting ? "Enregistrement..." : "Enregistrer la commande" }}
+            </button>
           </div>
         </section>
 
@@ -20825,36 +21413,31 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
     </div>
   </div>
 
-  <div v-if="retoucheWizard.open" class="modal-backdrop" @click.self="closeRetoucheWizard">
+  <div v-if="retoucheWizard.open" class="modal-backdrop" @click.self="requestCloseRetoucheWizard">
     <div class="modal-card modal-card-wizard">
       <header class="modal-header">
         <h3>Nouvelle retouche</h3>
-        <p>Etape {{ retoucheWizard.step }} / 4</p>
+        <p>Décris le travail à faire, habit par habit.</p>
       </header>
 
-      <section v-if="retoucheWizard.step === 1" class="modal-body modal-body-wizard">
+      <section v-if="retoucheDirectFormEnabled" class="modal-body modal-body-wizard stack-form wizard-form-shell">
         <div class="wizard-stage-head">
           <div>
             <p class="mobile-overline">Client</p>
-            <h4>Choisir la personne concernee</h4>
-            <p class="helper">Selectionnez un client existant ou creez une fiche simple. La retouche reste liee a une seule personne.</p>
+            <h4>Créer une retouche</h4>
+            <p class="helper">Choisis le client, décris l'habit à retoucher et ajoute le prix.</p>
           </div>
         </div>
 
-        <div class="segmented">
-          <button class="mini-btn" :class="{ active: retoucheWizard.mode === 'existing' }" @click="retoucheWizard.mode = 'existing'">Client existant</button>
-          <button v-if="canCreateWizardClient" class="mini-btn" :class="{ active: retoucheWizard.mode === 'new' }" @click="retoucheWizard.mode = 'new'">Nouveau client</button>
-        </div>
-
-        <div v-if="retoucheWizard.mode === 'existing'" class="stack-form">
-          <label>🔍 Rechercher un client (nom ou telephone)</label>
-          <div class="client-search">
+        <div v-if="retoucheWizard.mode === 'existing'" class="stack-form client-smart-card">
+          <label v-if="!retoucheWizard.existingClientId">Client <span>*</span></label>
+          <div v-if="!retoucheWizard.existingClientId" class="client-search">
             <input
               :value="retoucheClientSearchQueryWizard"
               type="text"
-              placeholder="Rechercher un client (nom ou telephone)"
+              placeholder="Nom, téléphone ou nouveau client"
               autocomplete="off"
-              @input="onRetoucheClientSearchInput"
+              @input="retoucheDirectErrors.client = ''; onRetoucheClientSearchInput($event)"
               @focus="retoucheClientSearchOpen = true"
               @blur="onRetoucheClientSearchBlur"
               @keydown="onRetoucheClientSearchKeydown"
@@ -20870,15 +21453,32 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   {{ row.nomComplet }} — {{ row.telephone }}
                 </button>
               </li>
-              <li v-if="retoucheClientSearchResultsWizard.length === 0" class="client-search-empty">Aucun client trouvé</li>
+              <li v-if="retoucheClientSearchResultsWizard.length === 0" class="client-search-empty">Aucun client trouvé. Tu peux le créer ici.</li>
             </ul>
           </div>
-          <button v-if="canCreateWizardClient" class="mini-btn" @click="retoucheWizard.mode = 'new'">+ Nouveau client</button>
+          <p v-if="!retoucheWizard.existingClientId && retoucheDirectErrors.client" class="field-error">{{ retoucheDirectErrors.client }}</p>
+          <button v-if="!retoucheWizard.existingClientId && canCreateWizardClient" class="mini-btn blue" type="button" @click="startRetoucheInlineClientCreation">
+            + Créer ce client ici
+          </button>
 
-          <div v-if="retoucheWizard.existingClientId" class="client-insight-card">
-            <p class="client-insight-title">Client selectionne</p>
-            <p class="client-insight-selected">{{ retoucheClientSearchQueryWizard }}</p>
-            <p v-if="retoucheClientInsightLoading" class="helper">Chargement de l'historique client...</p>
+          <div v-if="retoucheWizard.existingClientId" class="client-compact-card">
+            <div>
+              <p class="client-insight-title">Client choisi</p>
+              <strong>{{ retoucheSelectedClientLabel }}</strong>
+              <span v-if="retoucheClientInsight">
+                {{ retoucheClientInsight.totalCommandes }} commande(s) · {{ retoucheClientInsight.totalRetouches }} retouche(s)
+              </span>
+            </div>
+            <div class="client-compact-actions">
+              <button class="mini-btn" type="button" @click="retoucheClientDetailsOpen = !retoucheClientDetailsOpen">
+                {{ retoucheClientDetailsOpen ? "Masquer" : "Voir détails" }}
+              </button>
+              <button class="mini-btn blue" type="button" @click="changeRetoucheClientSelection">Changer</button>
+            </div>
+          </div>
+
+          <div v-if="retoucheWizard.existingClientId && retoucheClientDetailsOpen" class="client-insight-card">
+            <p v-if="retoucheClientInsightLoading" class="helper">On retrouve ses anciennes visites...</p>
             <p v-else-if="retoucheClientInsightError" class="helper">{{ retoucheClientInsightError }}</p>
             <template v-else-if="retoucheClientInsight">
               <h4>Historique client</h4>
@@ -20900,19 +21500,38 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <ul v-if="retoucheClientInsight.mesuresTypes.length > 0" class="client-insight-list">
                   <li v-for="item in retoucheClientInsight.mesuresTypes" :key="`ret-mes-${item}`">{{ item }}</li>
                 </ul>
-                <p v-else>Aucune mesure enregistree pour ce client</p>
+                <p v-else>Aucune mesure enregistrée pour ce client.</p>
               </div>
             </template>
           </div>
         </div>
 
-        <div v-else class="stack-form">
-          <label>Nom</label>
-          <input v-model="retoucheWizard.newClient.nom" type="text" />
-          <label>Prenom</label>
-          <input v-model="retoucheWizard.newClient.prenom" type="text" />
-          <label>Telephone</label>
-          <input v-model="retoucheWizard.newClient.telephone" type="text" />
+        <div v-else class="stack-form client-smart-card">
+          <div class="wizard-section-head">
+            <div>
+              <p class="mobile-overline">Nouveau client</p>
+              <h5>Créer sans quitter la retouche</h5>
+            </div>
+            <button class="mini-btn" type="button" @click="cancelRetoucheInlineClientCreation">Rechercher plutôt</button>
+          </div>
+          <div v-if="retoucheNewClientReady && !retoucheNewClientEditing" class="client-compact-card">
+            <div>
+              <p class="client-insight-title">Nouveau client</p>
+              <strong>{{ retoucheNewClientSummary }}</strong>
+              <span>Créé avec cette retouche</span>
+            </div>
+            <button class="mini-btn blue" type="button" @click="retoucheNewClientEditing = true">Modifier</button>
+          </div>
+          <template v-else>
+            <label>Nom</label>
+            <input v-model="retoucheWizard.newClient.nom" type="text" placeholder="Ex: Kabasele" @input="retoucheDirectErrors.newClient = ''" />
+            <label>Prénom</label>
+            <input v-model="retoucheWizard.newClient.prenom" type="text" placeholder="Ex: Daniel" @input="retoucheDirectErrors.newClient = ''" />
+            <label>Téléphone <span class="helper">(optionnel)</span></label>
+            <input v-model="retoucheWizard.newClient.telephone" type="text" placeholder="Ex: +243 812 345 678" />
+            <p v-if="retoucheDirectErrors.newClient" class="field-error">{{ retoucheDirectErrors.newClient }}</p>
+            <button class="mini-btn green" type="button" @click="collapseRetoucheNewClient">Utiliser ce client</button>
+          </template>
 
           <div v-if="retoucheWizardExactPhoneDuplicateClient || retoucheWizardProbableDuplicateClients.length > 0" class="client-insight-card">
             <p class="client-insight-title">Verification doublon</p>
@@ -20925,9 +21544,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               </button>
             </template>
             <template v-else>
-              <p>
-                Des clients au meme nom existent deja. Au clic final, vous pourrez reutiliser le client, mettre a jour son numero ou confirmer un nouveau client.
-              </p>
+              <p>On a trouvé des clients avec un nom proche. Choisis la bonne fiche si elle existe déjà.</p>
               <ul class="client-insight-list">
                 <li v-for="client in retoucheWizardProbableDuplicateClients" :key="`ret-dup-${client.idClient}`">
                   {{ formatClientDisplayName(client) }} - {{ client.telephone || "Sans numero" }}
@@ -20938,9 +21555,106 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </div>
         </div>
 
+        <section class="wizard-form-section">
+          <div class="wizard-section-head">
+            <div>
+              <p class="mobile-overline">Retouche</p>
+              <h5>Demande du client</h5>
+            </div>
+            <span class="status-chip">Simple</span>
+          </div>
+          <label>Description retouche <span>*</span></label>
+          <input v-model="retoucheWizard.retouche.descriptionRetouche" type="text" placeholder="Ex: raccourcir manche, changer fermeture, ajuster robe" @input="retoucheDirectErrors.description = ''" />
+          <p v-if="retoucheDirectErrors.description" class="field-error">{{ retoucheDirectErrors.description }}</p>
+          <label class="helper helper-inline-checkbox">
+            <input v-model="retoucheWizard.retouche.emettreFacture" type="checkbox" />
+            Emettre facture apres creation
+          </label>
+        </section>
+
+        <section class="wizard-form-section">
+          <div class="wizard-section-head">
+            <div>
+              <p class="mobile-overline">Habits</p>
+              <h5>Habit par habit</h5>
+              <p class="helper">Un habit peut avoir son prix, ses notes et ses mesures utiles.</p>
+            </div>
+            <button class="mini-btn blue" type="button" @click="addRetoucheItemDirect">+ Ajouter un habit</button>
+          </div>
+          <div class="wizard-items-stack">
+            <article
+              v-for="(item, index) in retoucheWizard.retouche.items"
+              :key="item.idItem"
+              class="panel subtle-panel wizard-item-card"
+              :class="{ 'wizard-item-card-active': activeRetoucheItemIndex === index }"
+            >
+              <button class="wizard-item-card-head wizard-item-toggle" type="button" @click="activeRetoucheItemIndex = index">
+                <div>
+                  <p class="mobile-overline">Habit {{ index + 1 }}</p>
+                  <h6>{{ getRetoucheDirectItemSummary(item, index) }}</h6>
+                </div>
+                <span class="status-chip" :class="{ warning: !isRetoucheItemValid(item) }">
+                  {{ isRetoucheItemValid(item) ? "Prêt" : "À compléter" }}
+                </span>
+              </button>
+
+              <div v-if="activeRetoucheItemIndex === index" class="wizard-item-direct-body">
+                <div class="wizard-item-grid">
+                  <div class="stack-form">
+                    <label>Travail à faire <span>*</span></label>
+                    <input v-model="item.description" type="text" placeholder="Ex: raccourcir manche, reprendre taille, changer fermeture" :class="{ invalid: getRetoucheDirectItemErrors(item, index).description }" @input="retoucheDirectErrors.items = { ...retoucheDirectErrors.items, [getDirectItemErrorKey(item, index)]: { ...getRetoucheDirectItemErrors(item, index), description: '' } }" />
+                    <p v-if="getRetoucheDirectItemErrors(item, index).description" class="field-error">{{ getRetoucheDirectItemErrors(item, index).description }}</p>
+                  </div>
+                  <div class="stack-form">
+                    <label>Montant <span>*</span></label>
+                    <input v-model="item.prix" type="number" min="0" step="0.01" placeholder="Ex: 8000" :class="{ invalid: getRetoucheDirectItemErrors(item, index).prix }" @input="retoucheDirectErrors.items = { ...retoucheDirectErrors.items, [getDirectItemErrorKey(item, index)]: { ...getRetoucheDirectItemErrors(item, index), prix: '' } }; recalculateRetoucheTotalFromItems()" />
+                    <p v-if="getRetoucheDirectItemErrors(item, index).prix" class="field-error">{{ getRetoucheDirectItemErrors(item, index).prix }}</p>
+                  </div>
+                </div>
+
+                <div class="stack-form wizard-item-measures-block">
+                  <label>Mesures de l'habit</label>
+                  <p class="helper">Remplis uniquement les mesures nécessaires. Les champs vides ne seront pas enregistrés.</p>
+                  <div v-if="!item.freeMeasureOpen" class="wizard-free-measure-actions">
+                    <button class="mini-btn blue" type="button" @click="openFreeMeasureForItem(item)">+ Ajouter une mesure personnalisée</button>
+                  </div>
+                  <div v-else class="wizard-free-measure-row">
+                    <input v-model="item.freeMeasureName" type="text" placeholder="Nom de la mesure" />
+                    <input v-model="item.freeMeasureValue" type="text" placeholder="Valeur (ex: 42 cm)" />
+                    <button class="mini-btn blue" type="button" @click="addFreeMeasureToItem(item)">Ajouter</button>
+                    <button class="mini-btn" type="button" @click="cancelFreeMeasureForItem(item)">Annuler</button>
+                  </div>
+                  <div v-if="Object.keys(item.mesures || {}).length > 0" class="wizard-free-measure-list">
+                    <span v-for="(value, key) in item.mesures" :key="`ret-free-${item.idItem}-${key}`" class="status-chip">
+                      {{ key }}: {{ value }}
+                      <button type="button" class="chip-remove" @click="removeFreeMeasureFromItem(item, key)">×</button>
+                    </span>
+                  </div>
+                </div>
+
+                <div class="inline-actions">
+                  <button class="mini-btn red" type="button" @click="removeRetoucheItem(index)" :disabled="retoucheWizard.retouche.items.length <= 1">
+                    Supprimer
+                  </button>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <div class="wizard-total-bar">
+          <div class="wizard-total-meta">
+            <p class="mobile-overline">Total</p>
+            <strong>{{ formatCurrency(Number(retoucheWizard.retouche.montantTotal || 0)) }}</strong>
+            <p class="helper">{{ retoucheWizard.retouche.items.filter((item) => isRetoucheItemValid(item)).length }} prêt(s) · {{ retoucheWizard.retouche.items.length }} habit(s)</p>
+          </div>
+        </div>
+
         <div class="modal-actions wizard-modal-actions">
-          <button class="mini-btn" @click="closeRetoucheWizard">Annuler</button>
-          <button class="action-btn blue" @click="onRetoucheWizardStep1" :disabled="retoucheWizard.submitting">Continuer</button>
+          <button class="mini-btn" @click="requestCloseRetoucheWizard">Annuler</button>
+          <button class="action-btn green" @click="submitRetoucheDirect" :disabled="retoucheWizard.submitting">
+            {{ retoucheWizard.submitting ? "Enregistrement..." : "Enregistrer la retouche" }}
+          </button>
         </div>
       </section>
 

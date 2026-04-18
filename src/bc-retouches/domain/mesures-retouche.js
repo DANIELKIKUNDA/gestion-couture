@@ -28,6 +28,26 @@ function normalizeMeasureDefinitions(definitions = []) {
     .sort((left, right) => Number(left.ordre || 0) - Number(right.ordre || 0));
 }
 
+function buildFreeMeasureDefinitions(source = {}) {
+  if (!source || typeof source !== "object") return [];
+  return Object.entries(source)
+    .map(([code, value], index) => {
+      const normalizedCode = String(code || "").trim();
+      if (!normalizedCode || value === undefined || value === null || value === "") return null;
+      const parsed = Number(value);
+      return {
+        code: normalizedCode,
+        label: normalizedCode,
+        unite: Number.isFinite(parsed) ? "cm" : "",
+        typeChamp: Number.isFinite(parsed) ? "number" : "text",
+        obligatoire: false,
+        actif: true,
+        ordre: index + 1
+      };
+    })
+    .filter(Boolean);
+}
+
 function parseNumberMeasure(raw, label) {
   const value = Number(raw);
   if (Number.isNaN(value) || value <= 0) throw new Error(`Mesure invalide: ${label}`);
@@ -42,8 +62,9 @@ function parseTextMeasure(raw, label) {
 }
 
 export function createRetoucheMesuresSnapshot(mesures, { definitions = [], requireAtLeastOne = true, requireComplete = false } = {}) {
-  const normalizedDefinitions = normalizeMeasureDefinitions(definitions).filter((row) => row.actif !== false);
   const source = mesures && typeof mesures === "object" ? mesures : {};
+  const configuredDefinitions = normalizeMeasureDefinitions(definitions).filter((row) => row.actif !== false);
+  const normalizedDefinitions = configuredDefinitions.length > 0 ? configuredDefinitions : buildFreeMeasureDefinitions(source);
   const valeurs = {};
 
   for (const definition of normalizedDefinitions) {

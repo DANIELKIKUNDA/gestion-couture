@@ -1637,11 +1637,50 @@ body {
 .client-insight-card {
   margin-top: 8px;
   border: 1px solid var(--stroke);
-  border-radius: 8px;
-  padding: 10px;
-  background: #f8fbff;
+  border-radius: 16px;
+  padding: 12px 14px;
+  background:
+    radial-gradient(circle at top right, rgba(34, 96, 151, 0.08), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
   display: grid;
   gap: 6px;
+  box-shadow: 0 10px 22px rgba(23, 57, 95, 0.05);
+}
+
+.client-compact-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(47, 109, 180, 0.18);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(47, 109, 180, 0.08), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f5f9ff 100%);
+  box-shadow: 0 12px 26px rgba(23, 57, 95, 0.07);
+}
+
+.client-compact-card strong {
+  display: block;
+  margin-top: 2px;
+  color: #15314f;
+  font-size: 15px;
+}
+
+.client-compact-card span {
+  display: block;
+  margin-top: 3px;
+  color: #5f7590;
+  font-size: 12px;
+}
+
+.client-compact-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .dossier-modal-preview-grid {
@@ -1770,6 +1809,16 @@ body {
   padding: 14px;
 }
 
+.client-smart-card {
+  border: 1px solid #d8e4f1;
+  border-radius: 18px;
+  padding: 16px;
+  background:
+    radial-gradient(circle at top left, rgba(47, 109, 180, 0.06), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 12px 30px rgba(23, 57, 95, 0.06);
+}
+
 .wizard-items-stack {
   display: grid;
   gap: 12px;
@@ -1792,10 +1841,32 @@ body {
   box-shadow: 0 16px 36px rgba(23, 57, 95, 0.1);
 }
 
+.wizard-item-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .wizard-item-card-head h6 {
   margin: 4px 0 0;
   font-size: 16px;
   color: #15314f;
+}
+
+.wizard-item-toggle {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wizard-item-direct-body {
+  display: grid;
+  gap: 14px;
 }
 
 .wizard-item-grid {
@@ -1818,6 +1889,34 @@ body {
 .wizard-item-meta strong {
   color: #15314f;
   font-size: 15px;
+}
+
+.wizard-free-measure-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.wizard-free-measure-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.wizard-free-measure-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip-remove {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0 0 0 6px;
 }
 
 .wizard-measure-progress {
@@ -1942,8 +2041,43 @@ body {
 }
 
 .wizard-item-card-active {
-  border-color: #cfe0f0;
-  box-shadow: 0 12px 28px rgba(21, 49, 79, 0.08);
+  border-color: #87aed4;
+  box-shadow: 0 18px 40px rgba(21, 49, 79, 0.12);
+}
+
+.wizard-form-shell input:focus,
+.wizard-form-shell select:focus,
+.wizard-form-shell textarea:focus {
+  border-color: #2f6db4;
+  box-shadow: 0 0 0 3px rgba(47, 109, 180, 0.12);
+  outline: none;
+}
+
+.wizard-form-shell input.invalid,
+.wizard-form-shell select.invalid,
+.wizard-form-shell textarea.invalid {
+  border-color: #d92d20;
+  background: #fffafa;
+}
+
+.field-error {
+  margin: -4px 0 0;
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  animation: field-error-in 140ms ease-out;
+}
+
+@keyframes field-error-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .wizard-measure-nav {
@@ -3585,9 +3719,23 @@ textarea:focus-visible {
   .order-line-card-head,
   .wizard-section-head,
   .wizard-item-card-head,
+  .client-compact-card,
   .wizard-total-bar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .client-compact-actions {
+    justify-content: stretch;
+  }
+
+  .client-compact-actions .mini-btn {
+    justify-content: center;
+    flex: 1 1 130px;
+  }
+
+  .wizard-free-measure-row {
+    grid-template-columns: 1fr;
   }
 
   .wizard-stage-actions {

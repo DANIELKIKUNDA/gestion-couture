@@ -30,13 +30,15 @@ import {
   isRetoucheHabitCompatible,
   resolveMesureTargetsForHabit,
   resolveRetoucheMeasureDefinitions,
-  resolveRetouchePolicy
+  resolveRetouchePolicy,
+  SYSTEM_RETOUCHE_LIBRE_CODE
 } from "../../domain/retouche-policy.js";
 import { createRetoucheMesuresSnapshot } from "../../domain/mesures-retouche.js";
 import { RetoucheItem } from "../../domain/retouche-item.js";
 import { generateRetoucheItemId } from "../../../shared/domain/id-generator.js";
 
 const router = express.Router();
+const RETOUCHE_LIBRE_TYPE_HABIT = "AUTRES";
 const retoucheRepo = new RetoucheRepoPg();
 const clientRepo = new ClientRepoPg();
 const serieRepo = new SerieMesuresRepoPg();
@@ -101,8 +103,8 @@ function normalizeRetoucheItemInput(rawItem, index = 0) {
   const item = rawItem && typeof rawItem === "object" ? rawItem : {};
   return {
     idItem: String(item.idItem || item.id_item || "").trim() || generateRetoucheItemId(),
-    typeRetouche: String(item.typeRetouche || item.type_retouche || "").trim().toUpperCase(),
-    typeHabit: String(item.typeHabit || item.type_habit || "").trim().toUpperCase(),
+    typeRetouche: String(item.typeRetouche || item.type_retouche || SYSTEM_RETOUCHE_LIBRE_CODE).trim().toUpperCase(),
+    typeHabit: String(item.typeHabit || item.type_habit || RETOUCHE_LIBRE_TYPE_HABIT).trim().toUpperCase(),
     description: String(item.description || "").trim(),
     prix: Number(item.prix ?? 0),
     ordreAffichage: Number(item.ordreAffichage ?? item.ordre_affichage ?? index + 1) || index + 1,
@@ -116,15 +118,27 @@ function normalizeRetoucheItemMesures(item, policy) {
   if (typeHabit && !isRetoucheHabitCompatible(typeDefinition, typeHabit)) {
     throw new Error("Type d'habit incompatible avec ce type de retouche");
   }
-  if (typeDefinition.necessiteMesures !== true) return null;
-  const definitions = resolveRetoucheMeasureDefinitions({ typeDefinition });
-  if (definitions.length === 0) {
-    throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche.");
-  }
   const rawValues =
     item.mesuresBrutes?.valeurs && typeof item.mesuresBrutes.valeurs === "object"
       ? item.mesuresBrutes.valeurs
       : item.mesuresBrutes;
+  if (typeDefinition.necessiteMesures !== true) {
+    if (!rawValues || typeof rawValues !== "object" || Object.keys(rawValues).length === 0) return null;
+    const snapshot = createRetoucheMesuresSnapshot(rawValues, {
+      definitions: [],
+      requireAtLeastOne: false,
+      requireComplete: false
+    });
+    return {
+      ...snapshot,
+      typeHabit: typeHabit || null,
+      typeRetouche: item.typeRetouche
+    };
+  }
+  const definitions = resolveRetoucheMeasureDefinitions({ typeDefinition });
+  if (definitions.length === 0) {
+    throw new Error("Configuration invalide: aucune mesure definie pour ce type de retouche.");
+  }
   const snapshot = createRetoucheMesuresSnapshot(rawValues, {
     definitions,
     requireAtLeastOne: true,
@@ -141,7 +155,7 @@ function buildRetoucheItemsFromPayload(body = {}, policy) {
   const sourceItems = Array.isArray(body.items) ? body.items : [];
   const items = sourceItems
     .map((row, index) => normalizeRetoucheItemInput(row, index))
-    .filter((item) => item.typeRetouche && Number.isFinite(item.prix) && item.prix >= 0)
+    .filter((item) => item.typeRetouche && Number.isFinite(item.prix) && item.prix > 0)
     .map((item, index) => {
       const fallbackTypeHabit = item.typeHabit || String(body.typeHabit || "").trim().toUpperCase() || null;
       const fallbackMesures = item.mesuresBrutes ?? (index === 0 ? body.mesuresHabit ?? null : null);
@@ -157,15 +171,17 @@ function buildRetoucheItemsFromPayload(body = {}, policy) {
       });
     });
   if (items.length > 0) return items;
-  const fallbackTypeRetouche = String(body.typeRetouche || "").trim().toUpperCase();
+  const fallbackTypeRetouche = String(body.typeRetouche || SYSTEM_RETOUCHE_LIBRE_CODE).trim().toUpperCase();
   if (!fallbackTypeRetouche) return [];
-  const fallbackTypeHabit = String(body.typeHabit || "").trim().toUpperCase() || null;
+  const fallbackTypeHabit = String(body.typeHabit || RETOUCHE_LIBRE_TYPE_HABIT).trim().toUpperCase() || null;
+  const fallbackPrice = Number(body.montantTotal || 0);
+  if (!Number.isFinite(fallbackPrice) || fallbackPrice <= 0) return [];
   return [new RetoucheItem({
       idItem: generateRetoucheItemId(),
       typeRetouche: fallbackTypeRetouche,
       typeHabit: fallbackTypeHabit,
       description: String(body.descriptionRetouche || "").trim(),
-      prix: Number(body.montantTotal || 0),
+      prix: fallbackPrice,
       ordreAffichage: 1,
       mesures: normalizeRetoucheItemMesures({
         typeRetouche: fallbackTypeRetouche,
@@ -196,6 +212,23 @@ function hydrateRetoucheItems(items = [], retoucheRow = null) {
 function computeRetoucheTotalFromItems(items = [], fallbackValue = 0) {
   if (!Array.isArray(items) || items.length === 0) return Number(fallbackValue || 0);
   return items.reduce((sum, item) => sum + Number(item.prix || 0), 0);
+}
+
+function assertRetoucheCreationAmounts(body = {}) {
+  const sourceItems = Array.isArray(body.items) ? body.items : [];
+  if (sourceItems.length > 0) {
+    sourceItems.forEach((item, index) => {
+      const prix = Number(item?.prix);
+      if (!Number.isFinite(prix) || prix <= 0) {
+        throw new Error(`Montant obligatoire pour la retouche ${index + 1}.`);
+      }
+    });
+    return;
+  }
+  const montantTotal = Number(body.montantTotal);
+  if (!Number.isFinite(montantTotal) || montantTotal <= 0) {
+    throw new Error("Montant total obligatoire pour la retouche.");
+  }
 }
 
 function getPrimaryRetoucheItem(items = []) {
@@ -637,7 +670,7 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
         .array(
           z.object({
             idItem: z.string().min(1).optional(),
-            typeRetouche: z.string().min(1),
+            typeRetouche: z.string().min(1).optional(),
             description: z.string().optional(),
             prix: z.coerce.number().nonnegative()
           }).passthrough()
@@ -651,11 +684,12 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
   const hasItems = Array.isArray(body.items) && body.items.length > 0;
-  const r1 = requireFields(body, hasItems ? ["idClient"] : ["idClient", "typeRetouche", "montantTotal", "typeHabit"]);
+  const r1 = requireFields(body, hasItems ? ["idClient"] : ["idClient", "montantTotal"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
-  if (!hasItems) {
-    const r2 = requireNumber(body, "montantTotal");
-    if (!r2.ok) return res.status(400).json({ error: r2.error });
+  try {
+    assertRetoucheCreationAmounts(body);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
 
   const dbClient = await pool.connect();
@@ -793,7 +827,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
         .array(
           z.object({
             idItem: z.string().min(1).optional(),
-            typeRetouche: z.string().min(1),
+            typeRetouche: z.string().min(1).optional(),
             description: z.string().optional(),
             prix: z.coerce.number().nonnegative()
           }).passthrough()
@@ -813,11 +847,12 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
   if (hasExistingClient === hasNewClient) {
     return res.status(400).json({ error: "Fournissez soit idClient, soit nouveauClient." });
   }
-  const r1 = requireFields(body, hasItems ? [] : ["typeRetouche", "montantTotal", "typeHabit"]);
+  const r1 = requireFields(body, hasItems ? [] : ["montantTotal"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
-  if (!hasItems) {
-    const r2 = requireNumber(body, "montantTotal");
-    if (!r2.ok) return res.status(400).json({ error: r2.error });
+  try {
+    assertRetoucheCreationAmounts(body);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
 
   const dbClient = await pool.connect();

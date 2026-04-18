@@ -226,6 +226,24 @@ function run() {
   assert.equal(cItems.items[1].typeHabit, "PANTALON");
   assert.equal(Number(cItems.items[1].mesures.valeurs.longueur), 106);
 
+  const cMesuresLibres = creerCommande(
+    {
+      idCommande: "CMD-MESURES-LIBRES",
+      idClient: "CL-1",
+      descriptionCommande: "Commande avec mesures libres",
+      montantTotal: 45,
+      typeHabit: "AUTRES",
+      mesuresHabit: {
+        longueurSpeciale: 72,
+        repere: "epaule gauche"
+      }
+    },
+    { policy: basePolicy }
+  );
+  assert.equal(cMesuresLibres.typeHabit, "AUTRES");
+  assert.equal(Number(cMesuresLibres.mesuresHabit.valeurs.longueurSpeciale), 72);
+  assert.equal(cMesuresLibres.mesuresHabit.valeurs.repere, "epaule gauche");
+
   // Valeurs decimales interdites
   shouldFail(() =>
     creerCommande(
