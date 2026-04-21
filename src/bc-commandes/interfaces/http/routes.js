@@ -861,8 +861,12 @@ router.post("/commandes/:id/media", requireCommandeCreateAccess, async (req, res
 
     try {
       const normalizedIdItem = String(parsed.data.idItem || "").trim();
+      const commandeItems = await scopedCommandeItemRepo(req).listByCommande(req.params.id);
+      if (commandeItems.length > 1 && !normalizedIdItem) {
+        await cleanupCommandeMediaUpload(req);
+        return res.status(400).json({ error: "Choisissez l'habit a associer a cette photo" });
+      }
       if (normalizedIdItem) {
-        const commandeItems = await scopedCommandeItemRepo(req).listByCommande(req.params.id);
         if (!commandeItems.some((item) => String(item?.idItem || "").trim() === normalizedIdItem)) {
           await cleanupCommandeMediaUpload(req);
           return res.status(400).json({ error: "Item commande introuvable pour cette photo" });
@@ -893,6 +897,7 @@ router.post("/commandes/:id/media", requireCommandeCreateAccess, async (req, res
           utilisateurNom: acteur.utilisateurNom,
           role: acteur.role,
           idMedia: created.idMedia,
+          idItem: created.idItem || null,
           position: created.position,
           isPrimary: created.isPrimary
         }
@@ -906,6 +911,7 @@ router.post("/commandes/:id/media", requireCommandeCreateAccess, async (req, res
         entiteId: created.idMedia,
         payload: {
           idCommande: req.params.id,
+          idItem: created.idItem || null,
           position: created.position,
           isPrimary: created.isPrimary
         }

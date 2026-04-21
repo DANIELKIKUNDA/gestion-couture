@@ -25,6 +25,11 @@ function mapCommandeMediaRow(row) {
   };
 }
 
+function normalizeItemScope(idItem) {
+  const normalized = String(idItem || "").trim();
+  return normalized || null;
+}
+
 export class CommandeMediaRepoPg {
   constructor(atelierId = "ATELIER") {
     this.atelierId = String(atelierId || "ATELIER");
@@ -46,8 +51,29 @@ export class CommandeMediaRepoPg {
     return result.rowCount > 0;
   }
 
-  async listByCommande(idCommande, db = pool) {
+  buildItemScopeClause(includeItem, idItem, startIndex = 3) {
+    if (!includeItem) {
+      return {
+        clause: "",
+        params: []
+      };
+    }
+    const normalizedIdItem = normalizeItemScope(idItem);
+    if (normalizedIdItem) {
+      return {
+        clause: ` AND COALESCE(id_item, '') = $${startIndex}`,
+        params: [normalizedIdItem]
+      };
+    }
+    return {
+      clause: " AND COALESCE(id_item, '') = ''",
+      params: []
+    };
+  }
+
+  async listByCommande(idCommande, db = pool, options = {}) {
     const includeItem = await this.hasItemColumn(db);
+    const itemScope = this.buildItemScopeClause(includeItem, options.idItem, 3);
     const result = await db.query(
       includeItem
         ? `SELECT id_media,
@@ -70,8 +96,8 @@ export class CommandeMediaRepoPg {
               cree_par,
               date_creation
        FROM commande_media
-       WHERE atelier_id = $1 AND id_commande = $2
-       ORDER BY position ASC, date_creation ASC`
+       WHERE atelier_id = $1 AND id_commande = $2${itemScope.clause}
+       ORDER BY COALESCE(id_item, '') ASC, position ASC, date_creation ASC`
         : `SELECT id_media,
               atelier_id,
               id_commande,
@@ -94,15 +120,19 @@ export class CommandeMediaRepoPg {
        FROM commande_media
        WHERE atelier_id = $1 AND id_commande = $2
        ORDER BY position ASC, date_creation ASC`,
-      [this.atelierId, idCommande]
+      [this.atelierId, idCommande, ...itemScope.params]
     );
     return result.rows.map(mapCommandeMediaRow).filter(Boolean);
   }
 
-  async countByCommande(idCommande, db = pool) {
+  async countByCommande(idCommande, db = pool, options = {}) {
+    const includeItem = await this.hasItemColumn(db);
+    const itemScope = this.buildItemScopeClause(includeItem, options.idItem, 3);
     const result = await db.query(
-      "SELECT COUNT(*)::int AS total FROM commande_media WHERE atelier_id = $1 AND id_commande = $2",
-      [this.atelierId, idCommande]
+      `SELECT COUNT(*)::int AS total
+       FROM commande_media
+       WHERE atelier_id = $1 AND id_commande = $2${itemScope.clause}`,
+      [this.atelierId, idCommande, ...itemScope.params]
     );
     return Number(result.rows?.[0]?.total || 0);
   }
@@ -343,15 +373,21 @@ export class CommandeMediaRepoPg {
     return mapCommandeMediaRow(result.rows[0]);
   }
 
-  async clearPrimaryForCommande(idCommande, db = pool) {
+  async clearPrimaryForCommande(idCommande, db = pool, options = {}) {
+    const includeItem = await this.hasItemColumn(db);
+    const itemScope = this.buildItemScopeClause(includeItem, options.idItem, 3);
     await db.query(
-      "UPDATE commande_media SET is_primary = false WHERE atelier_id = $1 AND id_commande = $2 AND is_primary = true",
-      [this.atelierId, idCommande]
+      `UPDATE commande_media
+       SET is_primary = false
+       WHERE atelier_id = $1
+         AND id_commande = $2
+         AND is_primary = true${itemScope.clause}`,
+      [this.atelierId, idCommande, ...itemScope.params]
     );
   }
 
-  async setPrimary(idCommande, idMedia, db = pool) {
-    await this.clearPrimaryForCommande(idCommande, db);
+  async setPrimary(idCommande, idMedia, db = pool, options = {}) {
+    await this.clearPrimaryForCommande(idCommande, db, options);
     const includeItem = await this.hasItemColumn(db);
     const result = await db.query(
       includeItem
@@ -488,14 +524,15 @@ export class CommandeMediaRepoPg {
     );
   }
 
-  async assignPrimaryToFirstRemaining(idCommande, db = pool) {
+  async assignPrimaryToFirstRemaining(idCommande, db = pool, options = {}) {
     const includeItem = await this.hasItemColumn(db);
+    const itemScope = this.buildItemScopeClause(includeItem, options.idItem, 3);
     const result = await db.query(
       includeItem
         ? `WITH first_media AS (
          SELECT id_media
          FROM commande_media
-         WHERE atelier_id = $1 AND id_commande = $2
+         WHERE atelier_id = $1 AND id_commande = $2${itemScope.clause}
          ORDER BY position ASC, date_creation ASC
          LIMIT 1
        )
@@ -554,7 +591,7 @@ export class CommandeMediaRepoPg {
                  is_primary,
                  cree_par,
                  date_creation`,
-      [this.atelierId, idCommande]
+      [this.atelierId, idCommande, ...itemScope.params]
     );
     if (result.rowCount === 0) return null;
     return mapCommandeMediaRow(result.rows[0]);

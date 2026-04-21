@@ -14390,7 +14390,11 @@ function downloadCommandeMediaFromViewer() {
 }
 
 function openCommandeMediaInViewer(item, blobUrl = "") {
-  const rows = Array.isArray(detailCommandeMedia.value) ? detailCommandeMedia.value : [];
+  const rows = commandeItemPhotoDialog.open
+    ? commandeItemPhotoDialogItems.value
+    : Array.isArray(detailCommandeMedia.value)
+      ? detailCommandeMedia.value
+      : [];
   const nextIndex = rows.findIndex((row) => mediaActionKey(row) === mediaActionKey(item));
   commandeMediaViewer.items = rows;
   commandeMediaViewer.index = nextIndex >= 0 ? nextIndex : 0;
@@ -14450,6 +14454,7 @@ async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD", idI
   detailCommandeMediaError.value = "";
   try {
     const useOfflinePath = !getNetworkState().online || !isRemoteEntityId(detailCommande.value.idCommande);
+    const scopedMediaCount = idItem ? getCommandeMediaRowsForItem(idItem).length : detailCommandeMedia.value.length;
     if (useOfflinePath) {
       const atelierId = currentAtelierId.value;
       if (!atelierId) {
@@ -14462,7 +14467,7 @@ async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD", idI
         note,
         sourceType,
         idItem,
-        existingCount: detailCommandeMedia.value.length
+        existingCount: scopedMediaCount
       });
       const refreshed = await loadCommandeMediaLocalFirst({
         atelierId,
