@@ -86,7 +86,7 @@ export async function mettreAJourCommandeMedia({
     }
 
     const includeItemScope = await mediaRepo.hasItemColumn(client);
-    const mediaScope = includeItemScope ? { idItem: current.idItem } : {};
+    const mediaScope = includeItemScope ? { scope: true, idItem: current.idItem } : {};
     let ordered = await mediaRepo.listByCommande(idCommande, client, mediaScope);
     if (patch.position !== undefined && patch.position !== null) {
       const targetPosition = Math.min(Math.max(1, Number(patch.position || 1)), ordered.length);

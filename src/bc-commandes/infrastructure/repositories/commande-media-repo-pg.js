@@ -51,14 +51,20 @@ export class CommandeMediaRepoPg {
     return result.rowCount > 0;
   }
 
-  buildItemScopeClause(includeItem, idItem, startIndex = 3) {
+  buildItemScopeClause(includeItem, options = {}, startIndex = 3) {
     if (!includeItem) {
       return {
         clause: "",
         params: []
       };
     }
-    const normalizedIdItem = normalizeItemScope(idItem);
+    if (options.scope !== true) {
+      return {
+        clause: "",
+        params: []
+      };
+    }
+    const normalizedIdItem = normalizeItemScope(options.idItem);
     if (normalizedIdItem) {
       return {
         clause: ` AND COALESCE(id_item, '') = $${startIndex}`,
@@ -73,7 +79,7 @@ export class CommandeMediaRepoPg {
 
   async listByCommande(idCommande, db = pool, options = {}) {
     const includeItem = await this.hasItemColumn(db);
-    const itemScope = this.buildItemScopeClause(includeItem, options.idItem, 3);
+    const itemScope = this.buildItemScopeClause(includeItem, options, 3);
     const result = await db.query(
       includeItem
         ? `SELECT id_media,
@@ -127,7 +133,7 @@ export class CommandeMediaRepoPg {
 
   async countByCommande(idCommande, db = pool, options = {}) {
     const includeItem = await this.hasItemColumn(db);
-    const itemScope = this.buildItemScopeClause(includeItem, options.idItem, 3);
+    const itemScope = this.buildItemScopeClause(includeItem, options, 3);
     const result = await db.query(
       `SELECT COUNT(*)::int AS total
        FROM commande_media
@@ -375,7 +381,7 @@ export class CommandeMediaRepoPg {
 
   async clearPrimaryForCommande(idCommande, db = pool, options = {}) {
     const includeItem = await this.hasItemColumn(db);
-    const itemScope = this.buildItemScopeClause(includeItem, options.idItem, 3);
+    const itemScope = this.buildItemScopeClause(includeItem, options, 3);
     await db.query(
       `UPDATE commande_media
        SET is_primary = false
@@ -526,7 +532,7 @@ export class CommandeMediaRepoPg {
 
   async assignPrimaryToFirstRemaining(idCommande, db = pool, options = {}) {
     const includeItem = await this.hasItemColumn(db);
-    const itemScope = this.buildItemScopeClause(includeItem, options.idItem, 3);
+    const itemScope = this.buildItemScopeClause(includeItem, options, 3);
     const result = await db.query(
       includeItem
         ? `WITH first_media AS (
