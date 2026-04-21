@@ -285,6 +285,17 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'commande_items_atelier_item_unique'
+  ) THEN
+    ALTER TABLE commande_items
+      ADD CONSTRAINT commande_items_atelier_item_unique
+      UNIQUE (atelier_id, id_item);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'commande_lignes_commande_atelier_fk'
   ) THEN
     ALTER TABLE commande_lignes
@@ -311,6 +322,7 @@ CREATE TABLE IF NOT EXISTS commande_media (
   id_media TEXT PRIMARY KEY,
   atelier_id TEXT NOT NULL DEFAULT 'ATELIER',
   id_commande TEXT NOT NULL,
+  id_item TEXT NULL,
   type_media TEXT NOT NULL DEFAULT 'IMAGE',
   source_type TEXT NOT NULL DEFAULT 'UPLOAD',
   chemin_original TEXT NOT NULL,
@@ -329,6 +341,7 @@ CREATE TABLE IF NOT EXISTS commande_media (
 );
 
 ALTER TABLE commande_media ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+ALTER TABLE commande_media ADD COLUMN IF NOT EXISTS id_item TEXT;
 UPDATE commande_media SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
 ALTER TABLE commande_media ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
 ALTER TABLE commande_media ALTER COLUMN atelier_id SET NOT NULL;
@@ -339,11 +352,16 @@ ON commande_media (atelier_id, id_commande, position);
 CREATE INDEX IF NOT EXISTS idx_commande_media_commande
 ON commande_media (id_commande);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_commande_media_atelier_commande_position
-ON commande_media (atelier_id, id_commande, position);
+CREATE INDEX IF NOT EXISTS idx_commande_media_atelier_commande_item
+ON commande_media (atelier_id, id_commande, id_item, position);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_commande_media_primary_unique
-ON commande_media (atelier_id, id_commande)
+DROP INDEX IF EXISTS idx_commande_media_atelier_commande_position;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_commande_media_atelier_commande_item_position
+ON commande_media (atelier_id, id_commande, COALESCE(id_item, ''), position);
+
+DROP INDEX IF EXISTS idx_commande_media_primary_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_commande_media_primary_item_unique
+ON commande_media (atelier_id, id_commande, COALESCE(id_item, ''))
 WHERE is_primary = true;
 
 DO $$
@@ -354,6 +372,19 @@ BEGIN
     ALTER TABLE commande_media
       ADD CONSTRAINT commande_media_atelier_fk
       FOREIGN KEY (atelier_id) REFERENCES ateliers(id_atelier);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'commande_media_item_atelier_fk'
+  ) THEN
+    ALTER TABLE commande_media
+      ADD CONSTRAINT commande_media_item_atelier_fk
+      FOREIGN KEY (atelier_id, id_item)
+      REFERENCES commande_items(atelier_id, id_item)
+      ON DELETE SET NULL;
   END IF;
 END $$;
 

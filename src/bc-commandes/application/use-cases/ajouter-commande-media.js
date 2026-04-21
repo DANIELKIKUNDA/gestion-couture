@@ -50,9 +50,10 @@ export async function ajouterCommandeMedia({
       throw new Error("Commande introuvable");
     }
 
-    const existing = await mediaRepo.listByCommande(idCommande, client);
+    const mediaScope = { scope: true, idItem };
+    const existing = await mediaRepo.listByCommande(idCommande, client, mediaScope);
     if (existing.length >= MAX_MEDIA_PER_COMMANDE) {
-      throw new Error(`Maximum ${MAX_MEDIA_PER_COMMANDE} photo(s) autorise(es) par commande`);
+      throw new Error(`Maximum ${MAX_MEDIA_PER_COMMANDE} photo(s) autorise(es) par habit`);
     }
 
     const idMedia = randomUUID();
@@ -66,7 +67,7 @@ export async function ajouterCommandeMedia({
 
     const isPrimary = existing.length === 0;
     if (isPrimary) {
-      await mediaRepo.clearPrimaryForCommande(idCommande, client);
+      await mediaRepo.clearPrimaryForCommande(idCommande, client, mediaScope);
     }
 
     const created = await mediaRepo.insert(

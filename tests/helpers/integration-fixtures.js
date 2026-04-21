@@ -397,14 +397,16 @@ export async function createCommandeViaApi({
     tourHanche: 96,
     largeurBas: 20,
     hauteurFourche: 28
-  }
+  },
+  ...extraPayload
 }) {
   const response = await withAuth(client.post("/api/commandes"), token).send({
     idClient,
     descriptionCommande,
     montantTotal,
     typeHabit,
-    mesuresHabit
+    mesuresHabit,
+    ...extraPayload
   });
   return response;
 }

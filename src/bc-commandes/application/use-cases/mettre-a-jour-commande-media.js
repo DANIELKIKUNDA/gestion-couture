@@ -5,7 +5,28 @@ function normalizeNote(value) {
   return note ? note.slice(0, 500) : "";
 }
 
-async function moveMediaToPosition({ atelierId, idCommande, idMedia, currentPosition, targetPosition, client }) {
+function buildItemScopeClause(idItem, startIndex = 6, includeItemScope = true) {
+  if (!includeItemScope) {
+    return {
+      clause: "",
+      params: []
+    };
+  }
+  const normalizedIdItem = String(idItem || "").trim();
+  if (normalizedIdItem) {
+    return {
+      clause: ` AND COALESCE(id_item, '') = $${startIndex}`,
+      params: [normalizedIdItem]
+    };
+  }
+  return {
+    clause: " AND COALESCE(id_item, '') = ''",
+    params: []
+  };
+}
+
+async function moveMediaToPosition({ atelierId, idCommande, idMedia, idItem, currentPosition, targetPosition, client, includeItemScope }) {
+  const itemScope = buildItemScopeClause(idItem, 6, includeItemScope);
   if (targetPosition === currentPosition) return;
   await client.query(
     "UPDATE commande_media SET position = 0 WHERE atelier_id = $1 AND id_commande = $2 AND id_media = $3",
@@ -19,8 +40,8 @@ async function moveMediaToPosition({ atelierId, idCommande, idMedia, currentPosi
          AND id_commande = $2
          AND id_media <> $3
          AND position >= $4
-         AND position < $5`,
-      [atelierId, idCommande, idMedia, targetPosition, currentPosition]
+         AND position < $5${itemScope.clause}`,
+      [atelierId, idCommande, idMedia, targetPosition, currentPosition, ...itemScope.params]
     );
   } else {
     await client.query(
@@ -30,8 +51,8 @@ async function moveMediaToPosition({ atelierId, idCommande, idMedia, currentPosi
          AND id_commande = $2
          AND id_media <> $3
          AND position <= $4
-         AND position > $5`,
-      [atelierId, idCommande, idMedia, targetPosition, currentPosition]
+         AND position > $5${itemScope.clause}`,
+      [atelierId, idCommande, idMedia, targetPosition, currentPosition, ...itemScope.params]
     );
   }
   await client.query(
@@ -64,18 +85,22 @@ export async function mettreAJourCommandeMedia({
       throw new Error("Media commande introuvable");
     }
 
-    let ordered = await mediaRepo.listByCommande(idCommande, client);
+    const includeItemScope = await mediaRepo.hasItemColumn(client);
+    const mediaScope = includeItemScope ? { scope: true, idItem: current.idItem } : {};
+    let ordered = await mediaRepo.listByCommande(idCommande, client, mediaScope);
     if (patch.position !== undefined && patch.position !== null) {
       const targetPosition = Math.min(Math.max(1, Number(patch.position || 1)), ordered.length);
       await moveMediaToPosition({
         atelierId,
         idCommande,
         idMedia,
+        idItem: current.idItem,
         currentPosition: Number(current.position || 1),
         targetPosition,
-        client
+        client,
+        includeItemScope
       });
-      ordered = await mediaRepo.listByCommande(idCommande, client);
+      ordered = await mediaRepo.listByCommande(idCommande, client, mediaScope);
       const refreshed = ordered.find((item) => item.idMedia === idMedia);
       if (refreshed) {
         current.position = refreshed.position;
@@ -83,7 +108,7 @@ export async function mettreAJourCommandeMedia({
     }
 
     if (patch.isPrimary === true) {
-      await mediaRepo.setPrimary(idCommande, idMedia, client);
+      await mediaRepo.setPrimary(idCommande, idMedia, client, mediaScope);
     }
 
     const hasMetaPatch =

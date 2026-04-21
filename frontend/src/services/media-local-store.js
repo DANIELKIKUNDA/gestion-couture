@@ -110,6 +110,15 @@ function extractPhotoServerId(payload) {
   return normalizeString(payload?.idMedia || payload?.id_media || payload?.id);
 }
 
+function normalizePhotoItemScope(idItem) {
+  return normalizeString(idItem);
+}
+
+function filterRowsByItemScope(rows = [], idItem = "") {
+  const scopeId = normalizePhotoItemScope(idItem);
+  return (rows || []).filter((row) => normalizePhotoItemScope(row?.idItem) === scopeId);
+}
+
 function buildQueueMetaPayload(record, commandeReference) {
   return {
     commandeLocalId: normalizeString(record?.idCommandeLocalId || commandeReference?.commandeLocalId),
@@ -458,16 +467,17 @@ export async function addCommandePhotoOffline({
   const timestamp = nowIso();
   await runOfflineTransaction("rw", [TABLE_NAMES.COMMANDE_PHOTOS, TABLE_NAMES.SYNC_QUEUE], async () => {
     const existingRows = await listCommandePhotoRecordsInternal(scopedAtelierId, reference);
+    const scopedRows = filterRowsByItemScope(existingRows, idItem);
     const knownCount =
       Number.isFinite(Number(existingCount)) && Number(existingCount) >= 0
         ? Number(existingCount)
-        : existingRows.length;
+        : scopedRows.length;
     if (knownCount >= MAX_COMMANDE_PHOTOS) {
-      throw new Error("Limite atteinte: 3 photos maximum par commande.");
+      throw new Error("Limite atteinte: 3 photos maximum par habit.");
     }
 
-    const currentMaxPosition = existingRows.reduce((maxValue, row) => Math.max(maxValue, normalizeInteger(row?.position, 1)), 0);
-    const hasPrimary = existingRows.some((row) => row?.isPrimary === true);
+    const currentMaxPosition = scopedRows.reduce((maxValue, row) => Math.max(maxValue, normalizeInteger(row?.position, 1)), 0);
+    const hasPrimary = scopedRows.some((row) => row?.isPrimary === true);
     const localId = createLocalImageId();
     createdRow = buildPhotoRecord({
       atelierId: scopedAtelierId,
@@ -562,7 +572,7 @@ export async function setCommandePhotoPrimaryOffline({ atelierId, commande, medi
   }
 
   const timestamp = nowIso();
-  const visibleRows = rows.filter(isVisibleMediaRow);
+  const visibleRows = filterRowsByItemScope(rows.filter(isVisibleMediaRow), target?.idItem);
   const previousVisibleMap = new Map(visibleRows.map((row) => [row.localId, row]));
   const updatedVisibleRows = visibleRows.map((row) => ({
     ...row,
@@ -581,7 +591,7 @@ export async function moveCommandePhotoOffline({ atelierId, commande, media, dir
   const scopedAtelierId = ensureAtelierId(atelierId);
   const reference = extractCommandeReference(commande);
   const rows = await listCommandePhotoRecordsInternal(scopedAtelierId, reference);
-  const visibleRows = rows.filter(isVisibleMediaRow);
+  const visibleRows = filterRowsByItemScope(rows.filter(isVisibleMediaRow), media?.idItem);
   const targetLocalId = normalizeString(media?.localId || media?.idMedia);
   const currentIndex = visibleRows.findIndex(
     (row) => row.localId === targetLocalId || normalizeString(row.serverId) === normalizeString(media?.serverId)
@@ -625,8 +635,9 @@ export async function deleteCommandePhotoOffline({ atelierId, commande, media } 
   const timestamp = nowIso();
   await runOfflineTransaction("rw", [TABLE_NAMES.COMMANDE_PHOTOS, TABLE_NAMES.SYNC_QUEUE], async () => {
     const allRows = await listCommandePhotoRecordsInternal(scopedAtelierId, reference, { includeHidden: true });
-    const visibleRows = allRows.filter(isVisibleMediaRow).filter((row) => row.localId !== existing.localId);
-    const previousVisibleMap = new Map(allRows.filter(isVisibleMediaRow).map((row) => [row.localId, row]));
+    const scopedVisibleRows = filterRowsByItemScope(allRows.filter(isVisibleMediaRow), existing.idItem);
+    const visibleRows = scopedVisibleRows.filter((row) => row.localId !== existing.localId);
+    const previousVisibleMap = new Map(scopedVisibleRows.map((row) => [row.localId, row]));
 
     if (!normalizeString(existing.serverId)) {
       await removeQueueEntriesByEntityLocalIdInTransaction(scopedAtelierId, existing.localId);

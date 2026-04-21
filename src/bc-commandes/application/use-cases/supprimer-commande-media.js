@@ -26,14 +26,15 @@ export async function supprimerCommandeMedia({
     }
 
     await mediaRepo.delete(idCommande, idMedia, client);
-    const remaining = await mediaRepo.listByCommande(idCommande, client);
+    const mediaScope = { scope: true, idItem: deleted.idItem };
+    const remaining = await mediaRepo.listByCommande(idCommande, client, mediaScope);
     await mediaRepo.reorder(
       idCommande,
       remaining.map((item) => item.idMedia),
       client
     );
     if (deleted.isPrimary) {
-      await mediaRepo.assignPrimaryToFirstRemaining(idCommande, client);
+      await mediaRepo.assignPrimaryToFirstRemaining(idCommande, client, mediaScope);
     }
     await client.query("COMMIT");
   } catch (err) {
