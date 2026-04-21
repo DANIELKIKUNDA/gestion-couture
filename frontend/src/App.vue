@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { atelierApi, ApiError, resolveMediaUrl, setAuthLostHandler } from "./services/api.js";
 import {
   OFFLINE_READ_MESSAGES,
@@ -35,34 +35,7 @@ import {
 import { requestSync, setSyncEngineAtelierContext, subscribeToSyncEvents } from "./services/sync-engine.js";
 import { pendingActions, syncInProgress } from "./services/sync-status-service.js";
 import { showToast, toastState } from "./services/toast-service.js";
-import CommandeDetailEventMobileList from "./components/commandes/CommandeDetailEventMobileList.vue";
-import CommandeDetailPaymentMobileList from "./components/commandes/CommandeDetailPaymentMobileList.vue";
-import CommandeMobileList from "./components/commandes/CommandeMobileList.vue";
-import CommandeMediaGallery from "./components/commandes/CommandeMediaGallery.vue";
 import BottomNav from "./components/BottomNav.vue";
-import AuditAnnualMobileList from "./components/audit/AuditAnnualMobileList.vue";
-import AuditCaisseDailyMobileList from "./components/audit/AuditCaisseDailyMobileList.vue";
-import AuditCommandeMobileList from "./components/audit/AuditCommandeMobileList.vue";
-import AuditCaissePeriodMobileList from "./components/audit/AuditCaissePeriodMobileList.vue";
-import AuditFactureMobileList from "./components/audit/AuditFactureMobileList.vue";
-import AuditOperationMobileList from "./components/audit/AuditOperationMobileList.vue";
-import AuditRetoucheMobileList from "./components/audit/AuditRetoucheMobileList.vue";
-import AuditStockVenteMobileList from "./components/audit/AuditStockVenteMobileList.vue";
-import AuditUtilisateurMobileList from "./components/audit/AuditUtilisateurMobileList.vue";
-import CaisseOperationMobileList from "./components/caisse/CaisseOperationMobileList.vue";
-import CaisseOverviewCards from "./components/caisse/CaisseOverviewCards.vue";
-import ClientCommandeHistoryMobileList from "./components/clients/ClientCommandeHistoryMobileList.vue";
-import ClientConsultationOverviewCards from "./components/clients/ClientConsultationOverviewCards.vue";
-import ClientMesureHistoryMobileList from "./components/clients/ClientMesureHistoryMobileList.vue";
-import ClientRetoucheHistoryMobileList from "./components/clients/ClientRetoucheHistoryMobileList.vue";
-import DashboardActivityMobileList from "./components/dashboard/DashboardActivityMobileList.vue";
-import DashboardMetricCardGrid from "./components/dashboard/DashboardMetricCardGrid.vue";
-import DashboardRecentWorkMobileList from "./components/dashboard/DashboardRecentWorkMobileList.vue";
-import VenteDetailLinesMobileList from "./components/stock/VenteDetailLinesMobileList.vue";
-import VenteDetailOverviewCards from "./components/stock/VenteDetailOverviewCards.vue";
-import FactureDetailLinesMobileList from "./components/facturation/FactureDetailLinesMobileList.vue";
-import FactureDetailOverviewCards from "./components/facturation/FactureDetailOverviewCards.vue";
-import FactureMobileList from "./components/facturation/FactureMobileList.vue";
 import GlobalToastHost from "./components/GlobalToastHost.vue";
 import MobileHeader from "./components/MobileHeader.vue";
 import MobileFilterBlock from "./components/mobile/MobileFilterBlock.vue";
@@ -77,20 +50,48 @@ import MobileStateLoading from "./components/mobile/MobileStateLoading.vue";
 import ResponsiveDataContainer from "./components/mobile/ResponsiveDataContainer.vue";
 import ScrollTopButton from "./components/mobile/ScrollTopButton.vue";
 import OfflineBanner from "./components/OfflineBanner.vue";
-import RetoucheDetailEventMobileList from "./components/retouches/RetoucheDetailEventMobileList.vue";
-import RetoucheDetailPaymentMobileList from "./components/retouches/RetoucheDetailPaymentMobileList.vue";
-import RetoucheMobileList from "./components/retouches/RetoucheMobileList.vue";
 import Sidebar from "./components/Sidebar.vue";
-import StockArticleMobileList from "./components/stock/StockArticleMobileList.vue";
-import VenteDraftMobileList from "./components/stock/VenteDraftMobileList.vue";
-import VenteMobileList from "./components/stock/VenteMobileList.vue";
-import AtelierNotificationsPage from "./components/notifications/AtelierNotificationsPage.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
-import SystemAtelierDetailPage from "./components/system/SystemAtelierDetailPage.vue";
-import SystemDashboardPage from "./components/system/SystemDashboardPage.vue";
-import SystemAteliersPage from "./components/system/SystemAteliersPage.vue";
-import SystemNotificationsPage from "./components/system/SystemNotificationsPage.vue";
 import { getPasswordPolicyError } from "./utils/password-policy.js";
+
+const CommandeDetailEventMobileList = defineAsyncComponent(() => import("./components/commandes/CommandeDetailEventMobileList.vue"));
+const CommandeDetailPaymentMobileList = defineAsyncComponent(() => import("./components/commandes/CommandeDetailPaymentMobileList.vue"));
+const CommandeMobileList = defineAsyncComponent(() => import("./components/commandes/CommandeMobileList.vue"));
+const CommandeMediaGallery = defineAsyncComponent(() => import("./components/commandes/CommandeMediaGallery.vue"));
+const AuditAnnualMobileList = defineAsyncComponent(() => import("./components/audit/AuditAnnualMobileList.vue"));
+const AuditCaisseDailyMobileList = defineAsyncComponent(() => import("./components/audit/AuditCaisseDailyMobileList.vue"));
+const AuditCommandeMobileList = defineAsyncComponent(() => import("./components/audit/AuditCommandeMobileList.vue"));
+const AuditCaissePeriodMobileList = defineAsyncComponent(() => import("./components/audit/AuditCaissePeriodMobileList.vue"));
+const AuditFactureMobileList = defineAsyncComponent(() => import("./components/audit/AuditFactureMobileList.vue"));
+const AuditOperationMobileList = defineAsyncComponent(() => import("./components/audit/AuditOperationMobileList.vue"));
+const AuditRetoucheMobileList = defineAsyncComponent(() => import("./components/audit/AuditRetoucheMobileList.vue"));
+const AuditStockVenteMobileList = defineAsyncComponent(() => import("./components/audit/AuditStockVenteMobileList.vue"));
+const AuditUtilisateurMobileList = defineAsyncComponent(() => import("./components/audit/AuditUtilisateurMobileList.vue"));
+const CaisseOperationMobileList = defineAsyncComponent(() => import("./components/caisse/CaisseOperationMobileList.vue"));
+const CaisseOverviewCards = defineAsyncComponent(() => import("./components/caisse/CaisseOverviewCards.vue"));
+const ClientCommandeHistoryMobileList = defineAsyncComponent(() => import("./components/clients/ClientCommandeHistoryMobileList.vue"));
+const ClientConsultationOverviewCards = defineAsyncComponent(() => import("./components/clients/ClientConsultationOverviewCards.vue"));
+const ClientMesureHistoryMobileList = defineAsyncComponent(() => import("./components/clients/ClientMesureHistoryMobileList.vue"));
+const ClientRetoucheHistoryMobileList = defineAsyncComponent(() => import("./components/clients/ClientRetoucheHistoryMobileList.vue"));
+const DashboardActivityMobileList = defineAsyncComponent(() => import("./components/dashboard/DashboardActivityMobileList.vue"));
+const DashboardMetricCardGrid = defineAsyncComponent(() => import("./components/dashboard/DashboardMetricCardGrid.vue"));
+const DashboardRecentWorkMobileList = defineAsyncComponent(() => import("./components/dashboard/DashboardRecentWorkMobileList.vue"));
+const VenteDetailLinesMobileList = defineAsyncComponent(() => import("./components/stock/VenteDetailLinesMobileList.vue"));
+const VenteDetailOverviewCards = defineAsyncComponent(() => import("./components/stock/VenteDetailOverviewCards.vue"));
+const FactureDetailLinesMobileList = defineAsyncComponent(() => import("./components/facturation/FactureDetailLinesMobileList.vue"));
+const FactureDetailOverviewCards = defineAsyncComponent(() => import("./components/facturation/FactureDetailOverviewCards.vue"));
+const FactureMobileList = defineAsyncComponent(() => import("./components/facturation/FactureMobileList.vue"));
+const RetoucheDetailEventMobileList = defineAsyncComponent(() => import("./components/retouches/RetoucheDetailEventMobileList.vue"));
+const RetoucheDetailPaymentMobileList = defineAsyncComponent(() => import("./components/retouches/RetoucheDetailPaymentMobileList.vue"));
+const RetoucheMobileList = defineAsyncComponent(() => import("./components/retouches/RetoucheMobileList.vue"));
+const StockArticleMobileList = defineAsyncComponent(() => import("./components/stock/StockArticleMobileList.vue"));
+const VenteDraftMobileList = defineAsyncComponent(() => import("./components/stock/VenteDraftMobileList.vue"));
+const VenteMobileList = defineAsyncComponent(() => import("./components/stock/VenteMobileList.vue"));
+const AtelierNotificationsPage = defineAsyncComponent(() => import("./components/notifications/AtelierNotificationsPage.vue"));
+const SystemAtelierDetailPage = defineAsyncComponent(() => import("./components/system/SystemAtelierDetailPage.vue"));
+const SystemDashboardPage = defineAsyncComponent(() => import("./components/system/SystemDashboardPage.vue"));
+const SystemAteliersPage = defineAsyncComponent(() => import("./components/system/SystemAteliersPage.vue"));
+const SystemNotificationsPage = defineAsyncComponent(() => import("./components/system/SystemNotificationsPage.vue"));
 
 function createPagination(pageSize = 10) {
   return reactive({
@@ -6750,6 +6751,165 @@ const dashboardClientsToFollowUpMobileItems = computed(() =>
   }))
 );
 
+const isCashierDashboard = computed(() => currentRole.value === "CAISSIER");
+const isTailorDashboard = computed(() => currentRole.value === "COUTURIER");
+
+function formatDashboardWorkDueDate(dateValue = "") {
+  if (!dateValue) return "Date non definie";
+  return formatDateShort(`${dateValue}T00:00:00.000Z`);
+}
+
+function buildDashboardPaymentDescription(item, typeLabel) {
+  const parts = [];
+  if (item?.clientNom) parts.push(item.clientNom);
+  if (Number(item?.soldeRestant || 0) > 0) parts.push(`Solde ${formatCurrency(item.soldeRestant)}`);
+  if (item?.datePrevue) parts.push(`Prevue ${formatDashboardWorkDueDate(item.datePrevue)}`);
+  return `${typeLabel} • ${parts.join(" • ")}`;
+}
+
+function buildDashboardProductionDescription(item, typeLabel) {
+  const parts = [`Statut ${formatStatusLabel(item?.statut || "-")}`];
+  if (item?.clientNom) parts.push(item.clientNom);
+  if (item?.datePrevue) parts.push(`Prevue ${formatDashboardWorkDueDate(item.datePrevue)}`);
+  return `${typeLabel} • ${parts.join(" • ")}`;
+}
+
+const cashierDashboardCards = computed(() => [
+  { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse), tone: "blue" },
+  { label: "Encaissements", value: formatCurrency(financeMetrics.value.totalEncaissement), tone: "green" },
+  { label: "Depenses", value: formatCurrency(financeMetrics.value.depensesJour), tone: "amber" },
+  { label: "Acomptes encaisses", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" },
+  { label: "Commandes a solder", value: dashboardCommandesCards.value[3]?.value || 0, tone: "amber" },
+  { label: "Retouches a solder", value: dashboardRetouchesCards.value[3]?.value || 0, tone: "amber" }
+]);
+
+const cashierCollections = computed(() => {
+  const commandes = commandesView.value
+    .filter((item) => Number(item.soldeRestant || 0) > 0 && item.statutCommande !== "ANNULEE")
+    .sort((a, b) => String(a.datePrevue || "9999-12-31").localeCompare(String(b.datePrevue || "9999-12-31")));
+  const retouchesRows = retouches.value
+    .filter((item) => Number(item.soldeRestant || 0) > 0 && item.statutRetouche !== "ANNULEE")
+    .sort((a, b) => String(a.datePrevue || "9999-12-31").localeCompare(String(b.datePrevue || "9999-12-31")));
+  const readyToCash = [
+    ...commandes
+      .filter((item) => item.statutCommande === "TERMINEE")
+      .map((item) => ({
+        id: `commande-${item.idCommande}`,
+        libelle: item.idCommande,
+        description: buildDashboardPaymentDescription(item, "Commande")
+      })),
+    ...retouchesRows
+      .filter((item) => item.statutRetouche === "TERMINEE")
+      .map((item) => ({
+        id: `retouche-${item.idRetouche}`,
+        libelle: item.idRetouche,
+        description: buildDashboardPaymentDescription(item, "Retouche")
+      }))
+  ].slice(0, 6);
+
+  return {
+    commandes: commandes.slice(0, 6).map((item) => ({
+      id: item.idCommande,
+      libelle: item.idCommande,
+      description: buildDashboardPaymentDescription(item, "Commande")
+    })),
+    retouches: retouchesRows.slice(0, 6).map((item) => ({
+      id: item.idRetouche,
+      libelle: item.idRetouche,
+      description: buildDashboardPaymentDescription(item, "Retouche")
+    })),
+    readyToCash
+  };
+});
+
+const cashierAlerts = computed(() => {
+  const items = [];
+  if (!caisseOuverte.value) items.push({ id: "cash-closed", libelle: "Caisse cloturee", description: "Ouvrez ou verifiez la caisse avant d'encaisser." });
+  if ((dashboardCommandesCards.value[3]?.value || 0) > 0) {
+    items.push({ id: "commandes-due", libelle: "Commandes avec solde", description: `${dashboardCommandesCards.value[3].value} commande(s) attendent un encaissement.` });
+  }
+  if ((dashboardRetouchesCards.value[3]?.value || 0) > 0) {
+    items.push({ id: "retouches-due", libelle: "Retouches avec solde", description: `${dashboardRetouchesCards.value[3].value} retouche(s) attendent un encaissement.` });
+  }
+  return items;
+});
+
+const tailorDashboardCards = computed(() => {
+  const today = todayIso();
+  const productionRows = [
+    ...commandesView.value
+      .filter((item) => item.statutCommande !== "LIVREE" && item.statutCommande !== "ANNULEE")
+      .map((item) => ({ type: "Commande", statut: item.statutCommande, datePrevue: item.datePrevue })),
+    ...retouches.value
+      .filter((item) => item.statutRetouche !== "LIVREE" && item.statutRetouche !== "ANNULEE")
+      .map((item) => ({ type: "Retouche", statut: item.statutRetouche, datePrevue: item.datePrevue }))
+  ];
+  const dueToday = productionRows.filter((item) => item.datePrevue === today).length;
+  const overdue = productionRows.filter((item) => item.datePrevue && item.datePrevue < today).length;
+
+  return [
+    { label: "Commandes en cours", value: dashboardCommandesCards.value[1]?.value || 0, tone: "blue" },
+    { label: "Retouches en cours", value: dashboardRetouchesCards.value[1]?.value || 0, tone: "teal" },
+    { label: "Commandes pretes", value: dashboardCommandesCards.value[2]?.value || 0, tone: "green" },
+    { label: "Retouches pretes", value: dashboardRetouchesCards.value[2]?.value || 0, tone: "green" },
+    { label: "A livrer aujourd'hui", value: dueToday, tone: "amber" },
+    { label: "Travaux en retard", value: overdue, tone: "amber" }
+  ];
+});
+
+const tailorCollections = computed(() => {
+  const today = todayIso();
+  const workRows = [
+    ...commandesView.value
+      .filter((item) => item.statutCommande !== "LIVREE" && item.statutCommande !== "ANNULEE")
+      .map((item) => ({
+        id: `commande-${item.idCommande}`,
+        ref: item.idCommande,
+        type: "Commande",
+        clientNom: item.clientNom,
+        statut: item.statutCommande,
+        datePrevue: item.datePrevue
+      })),
+    ...retouches.value
+      .filter((item) => item.statutRetouche !== "LIVREE" && item.statutRetouche !== "ANNULEE")
+      .map((item) => ({
+        id: `retouche-${item.idRetouche}`,
+        ref: item.idRetouche,
+        type: "Retouche",
+        clientNom: item.clientNom || clientMap.value.get(item.idClient) || item.idClient,
+        statut: item.statutRetouche,
+        datePrevue: item.datePrevue
+      }))
+  ].sort((a, b) => String(a.datePrevue || "9999-12-31").localeCompare(String(b.datePrevue || "9999-12-31")));
+
+  return {
+    dueToday: workRows
+      .filter((item) => item.datePrevue === today)
+      .slice(0, 6)
+      .map((item) => ({
+        id: item.id,
+        libelle: item.ref,
+        description: buildDashboardProductionDescription(item, item.type)
+      })),
+    overdue: workRows
+      .filter((item) => item.datePrevue && item.datePrevue < today)
+      .slice(0, 6)
+      .map((item) => ({
+        id: item.id,
+        libelle: item.ref,
+        description: buildDashboardProductionDescription(item, item.type)
+      })),
+    ready: workRows
+      .filter((item) => item.statut === "TERMINEE")
+      .slice(0, 6)
+      .map((item) => ({
+        id: item.id,
+        libelle: item.ref,
+        description: buildDashboardProductionDescription(item, item.type)
+      }))
+  };
+});
+
 const dashboardCommandesToNotifyMobileItems = computed(() =>
   dashboardContactBoard.value.commandesPretesNonSignalees.items.map((item) => ({
     id: item.idCommande,
@@ -6818,6 +6978,60 @@ const recentWorkRows = computed(() => {
   return filtered
     .sort((a, b) => String(b.dateRef).localeCompare(String(a.dateRef)))
     .slice(0, 5);
+});
+
+const dashboardProductionRecentRows = computed(() => recentWorkRows.value.filter((item) => item.type !== "Vente"));
+
+const dashboardRoleTone = computed(() => {
+  if (isCashierDashboard.value) return "cashier";
+  if (isTailorDashboard.value) return "tailor";
+  return "owner";
+});
+
+const dashboardHeroEyebrow = computed(() => {
+  if (isCashierDashboard.value) return "Operations caisse";
+  if (isTailorDashboard.value) return "Pilotage production";
+  return "Vue globale";
+});
+
+const dashboardHeroTitle = computed(() => {
+  if (isCashierDashboard.value) return "Cockpit caissier";
+  if (isTailorDashboard.value) return "Cockpit couturier";
+  return "Dashboard atelier";
+});
+
+const dashboardHeroSubtitle = computed(() => {
+  if (isCashierDashboard.value) return "Encaissements, soldes et livraisons prêtes dans un flux simple, rapide et sans distraction.";
+  if (isTailorDashboard.value) return "Travaux du jour, retards et pièces prêtes réunis dans une vue de production claire.";
+  return "Suivez rapidement l'activite, la caisse et les alertes.";
+});
+
+const dashboardHeroHighlights = computed(() => {
+  if (isCashierDashboard.value) {
+    return [
+      { label: "A encaisser maintenant", value: cashierCollections.value.readyToCash.length },
+      { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse) },
+      { label: "Documents a solder", value: (dashboardCommandesCards.value[3]?.value || 0) + (dashboardRetouchesCards.value[3]?.value || 0) }
+    ];
+  }
+  if (isTailorDashboard.value) {
+    return [
+      { label: "Travaux du jour", value: tailorCollections.value.dueToday.length },
+      { label: "En retard", value: tailorCollections.value.overdue.length },
+      { label: "Prets", value: tailorCollections.value.ready.length }
+    ];
+  }
+  return [
+    { label: "Clients actifs", value: dashboardClientsActifs.value?.value || 0 },
+    { label: "Commandes en cours", value: dashboardCommandesCards.value[1]?.value || 0 },
+    { label: "Retouches en cours", value: dashboardRetouchesCards.value[1]?.value || 0 }
+  ];
+});
+
+const dashboardHeroTags = computed(() => {
+  if (isCashierDashboard.value) return ["Caisse", "Encaissement", "Soldes", "Livraison"];
+  if (isTailorDashboard.value) return ["Production", "Echeances", "Priorites", "Habits"];
+  return ["Atelier", "Vue globale", "Suivi", "Performance"];
 });
 
 const recentCaisseActivity = computed(() => {
@@ -15101,26 +15315,184 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           @demote-owner="demoteSystemAtelierOwner"
         />
 
-        <section v-if="currentRoute === 'dashboard'" class="dashboard classic-dashboard">
-        <MobilePageLayout :has-action="isMobileViewport && (canCreateCommande || canCreateRetouche)">
-        <article class="panel dashboard-filter">
-          <MobileSectionHeader
-            eyebrow="Vue globale"
-            title="Dashboard atelier"
-            subtitle="Suivez rapidement l'activite, la caisse et les alertes."
-          />
-          <div class="row-actions">
-            <p v-if="dashboardClientsActifs" class="helper"><strong>Clients actifs:</strong> {{ dashboardClientsActifs.value }}</p>
-            <select v-model="dashboardPeriod">
-              <option v-for="option in dashboardPeriodOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
+        <section v-if="currentRoute === 'dashboard'" class="dashboard classic-dashboard" :class="`dashboard-role-${dashboardRoleTone}`">
+        <MobilePageLayout :has-action="isMobileViewport && (isCashierDashboard || isTailorDashboard || canCreateCommande || canCreateRetouche)">
+        <article class="panel dashboard-filter dashboard-hero">
+          <div class="dashboard-hero-copy">
+            <p class="mobile-overline dashboard-hero-eyebrow">{{ dashboardHeroEyebrow }}</p>
+            <h3>{{ dashboardHeroTitle }}</h3>
+            <p class="helper dashboard-hero-subtitle">{{ dashboardHeroSubtitle }}</p>
+            <div class="dashboard-hero-tags">
+              <span v-for="tag in dashboardHeroTags" :key="tag" class="dashboard-hero-tag">{{ tag }}</span>
+            </div>
+          </div>
+          <div class="dashboard-hero-side">
+            <div class="dashboard-hero-highlights">
+              <article v-for="item in dashboardHeroHighlights" :key="item.label" class="dashboard-highlight-card">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </article>
+            </div>
+            <div class="row-actions dashboard-hero-controls">
+              <p v-if="dashboardClientsActifs && !isCashierDashboard && !isTailorDashboard" class="helper"><strong>Clients actifs:</strong> {{ dashboardClientsActifs.value }}</p>
+              <select v-model="dashboardPeriod">
+                <option v-for="option in dashboardPeriodOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
           </div>
         </article>
 
         <ResponsiveDataContainer :mobile="isMobileViewport">
           <template #mobile>
+            <template v-if="isCashierDashboard">
+              <article class="panel dashboard-focus-panel">
+                <MobileSectionHeader
+                  title="Vue caisse"
+                  subtitle="Les encaissements et soldes a traiter en priorite."
+                />
+                <DashboardMetricCardGrid :items="cashierDashboardCards" />
+              </article>
+
+              <article class="panel dashboard-focus-panel">
+                <MobileSectionHeader
+                  title="Prets a encaisser"
+                  subtitle="Documents termines avec solde restant."
+                />
+                <DashboardActivityMobileList
+                  :items="cashierCollections.readyToCash"
+                  title="Pret a encaisser"
+                  empty-label="Aucun document pret a encaisser"
+                  tone="warning"
+                  badge-label="Solde"
+                />
+              </article>
+
+              <article class="panel dashboard-focus-panel">
+                <MobileSectionHeader
+                  title="Commandes avec solde"
+                  subtitle="Les commandes qui attendent encore un paiement."
+                />
+                <DashboardActivityMobileList
+                  :items="cashierCollections.commandes"
+                  title="Commande"
+                  empty-label="Aucune commande avec solde"
+                  tone="info"
+                />
+              </article>
+
+              <article class="panel dashboard-focus-panel">
+                <MobileSectionHeader
+                  title="Retouches avec solde"
+                  subtitle="Les retouches a solder ou finaliser."
+                />
+                <DashboardActivityMobileList
+                  :items="cashierCollections.retouches"
+                  title="Retouche"
+                  empty-label="Aucune retouche avec solde"
+                  tone="info"
+                />
+              </article>
+
+              <article class="panel dashboard-focus-panel">
+                <MobileSectionHeader
+                  title="Activite caisse recente"
+                  subtitle="Les dernieres operations de caisse enregistrees."
+                />
+                <DashboardActivityMobileList
+                  :items="recentCaisseActivity"
+                  title="Activite caisse"
+                  empty-label="Aucune operation recente"
+                  tone="info"
+                  :value-formatter="formatCurrency"
+                />
+              </article>
+
+              <article class="panel alerts dashboard-focus-panel dashboard-focus-panel--warn">
+                <MobileSectionHeader
+                  title="Points d'attention"
+                  subtitle="Ce qui peut bloquer l'encaissement ou la livraison."
+                />
+                <DashboardActivityMobileList
+                  :items="cashierAlerts"
+                  title="Alerte caisse"
+                  empty-label="Aucune alerte de caisse"
+                  tone="warning"
+                  badge-label="Alerte"
+                />
+              </article>
+            </template>
+
+            <template v-else-if="isTailorDashboard">
+              <article class="panel dashboard-focus-panel">
+                <MobileSectionHeader
+                  title="Vue production"
+                  subtitle="Les travaux en cours et les echeances les plus proches."
+                />
+                <DashboardMetricCardGrid :items="tailorDashboardCards" />
+              </article>
+
+              <article class="panel dashboard-focus-panel">
+                <MobileSectionHeader
+                  title="A traiter aujourd'hui"
+                  subtitle="Travaux prevus sur la journee."
+                />
+                <DashboardActivityMobileList
+                  :items="tailorCollections.dueToday"
+                  title="Travail du jour"
+                  empty-label="Aucun travail prevu aujourd'hui"
+                  tone="info"
+                />
+              </article>
+
+              <article class="panel alerts dashboard-focus-panel dashboard-focus-panel--warn">
+                <MobileSectionHeader
+                  title="Travaux en retard"
+                  subtitle="Dossiers de production qui demandent une attention immediate."
+                />
+                <DashboardActivityMobileList
+                  :items="tailorCollections.overdue"
+                  title="Travail en retard"
+                  empty-label="Aucun travail en retard"
+                  tone="warning"
+                  badge-label="Urgent"
+                />
+              </article>
+
+              <article class="panel dashboard-focus-panel">
+                <MobileSectionHeader
+                  title="Prets a remettre"
+                  subtitle="Travaux termines a pousser vers la livraison."
+                />
+                <DashboardActivityMobileList
+                  :items="tailorCollections.ready"
+                  title="Travail pret"
+                  empty-label="Aucun travail pret"
+                  tone="info"
+                  badge-label="Pret"
+                />
+              </article>
+
+              <article class="panel dashboard-focus-panel">
+                <MobileSectionHeader
+                  title="Activite recente"
+                  subtitle="Les derniers mouvements utiles cote production."
+                />
+                <DashboardRecentWorkMobileList
+                  v-if="dashboardProductionRecentRows.length > 0"
+                  :items="dashboardProductionRecentRows"
+                  :format-currency="formatCurrency"
+                />
+                <MobileStateEmpty
+                  v-else
+                  title="Aucune activite recente"
+                  description="Aucune commande ou retouche recente sur la periode choisie."
+                />
+              </article>
+            </template>
+
+            <template v-else>
             <article class="panel">
               <MobileSectionHeader
                 title="Indicateurs cles"
@@ -15241,9 +15613,161 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 badge-label="Retouche"
               />
             </article>
+            </template>
           </template>
 
           <template #desktop>
+            <template v-if="isCashierDashboard">
+              <article class="panel">
+                <h3>Vue caisse</h3>
+                <DashboardMetricCardGrid :items="cashierDashboardCards" :columns="3" compact />
+              </article>
+
+              <div class="split-grid legacy-split">
+                <article class="panel dashboard-focus-panel">
+                  <h3>Documents prets a encaisser</h3>
+                  <ul class="activity-list activity-list--stacked">
+                    <li v-for="item in cashierCollections.readyToCash" :key="item.id">
+                      <div class="activity-copy">
+                        <strong>{{ item.libelle }}</strong>
+                        <small>{{ item.description }}</small>
+                      </div>
+                    </li>
+                    <li v-if="cashierCollections.readyToCash.length === 0">
+                      <span>Aucun document pret a encaisser.</span>
+                    </li>
+                  </ul>
+                  <div class="quick-inline">
+                    <button class="action-btn blue" @click="openRoute('caisse')">Ouvrir la caisse</button>
+                    <button class="action-btn green" @click="openRoute('facturation')">Voir facturation</button>
+                  </div>
+                </article>
+
+                <div class="stack">
+                  <article class="panel dashboard-focus-panel">
+                    <h3>Activite caisse recente</h3>
+                    <ul class="activity-list">
+                      <li v-for="item in recentCaisseActivity" :key="item.id">
+                        <span>{{ item.libelle }}</span>
+                        <strong>{{ formatCurrency(item.montant) }}</strong>
+                      </li>
+                      <li v-if="recentCaisseActivity.length === 0">
+                        <span>Aucune operation recente.</span>
+                      </li>
+                    </ul>
+                  </article>
+
+                  <article class="panel alerts dashboard-focus-panel dashboard-focus-panel--warn">
+                    <h3>Points d'attention</h3>
+                    <ul class="activity-list activity-list--stacked">
+                      <li v-for="item in cashierAlerts" :key="item.id">
+                        <div class="activity-copy">
+                          <strong>{{ item.libelle }}</strong>
+                          <small>{{ item.description }}</small>
+                        </div>
+                      </li>
+                      <li v-if="cashierAlerts.length === 0">
+                        <span>Aucune alerte de caisse.</span>
+                      </li>
+                    </ul>
+                  </article>
+                </div>
+              </div>
+
+              <div class="split-grid legacy-split">
+                <article class="panel dashboard-focus-panel">
+                  <h3>Commandes avec solde</h3>
+                  <ul class="activity-list activity-list--stacked">
+                    <li v-for="item in cashierCollections.commandes" :key="item.id">
+                      <div class="activity-copy">
+                        <strong>{{ item.libelle }}</strong>
+                        <small>{{ item.description }}</small>
+                      </div>
+                    </li>
+                    <li v-if="cashierCollections.commandes.length === 0">
+                      <span>Aucune commande avec solde.</span>
+                    </li>
+                  </ul>
+                </article>
+
+                <article class="panel dashboard-focus-panel">
+                  <h3>Retouches avec solde</h3>
+                  <ul class="activity-list activity-list--stacked">
+                    <li v-for="item in cashierCollections.retouches" :key="item.id">
+                      <div class="activity-copy">
+                        <strong>{{ item.libelle }}</strong>
+                        <small>{{ item.description }}</small>
+                      </div>
+                    </li>
+                    <li v-if="cashierCollections.retouches.length === 0">
+                      <span>Aucune retouche avec solde.</span>
+                    </li>
+                  </ul>
+                </article>
+              </div>
+            </template>
+
+            <template v-else-if="isTailorDashboard">
+              <article class="panel dashboard-focus-panel">
+                <h3>Vue production</h3>
+                <DashboardMetricCardGrid :items="tailorDashboardCards" :columns="3" compact />
+              </article>
+
+              <div class="split-grid legacy-split">
+                <article class="panel dashboard-focus-panel">
+                  <h3>A traiter aujourd'hui</h3>
+                  <ul class="activity-list activity-list--stacked">
+                    <li v-for="item in tailorCollections.dueToday" :key="item.id">
+                      <div class="activity-copy">
+                        <strong>{{ item.libelle }}</strong>
+                        <small>{{ item.description }}</small>
+                      </div>
+                    </li>
+                    <li v-if="tailorCollections.dueToday.length === 0">
+                      <span>Aucun travail prevu aujourd'hui.</span>
+                    </li>
+                  </ul>
+                  <div class="quick-inline">
+                    <button class="action-btn blue" @click="openRoute('commandes')">Voir commandes</button>
+                    <button class="action-btn green" @click="openRoute('retouches')">Voir retouches</button>
+                  </div>
+                </article>
+
+                <div class="stack">
+                  <article class="panel alerts dashboard-focus-panel dashboard-focus-panel--warn">
+                    <h3>Travaux en retard</h3>
+                    <ul class="activity-list activity-list--stacked">
+                      <li v-for="item in tailorCollections.overdue" :key="item.id">
+                        <div class="activity-copy">
+                          <strong>{{ item.libelle }}</strong>
+                          <small>{{ item.description }}</small>
+                        </div>
+                      </li>
+                      <li v-if="tailorCollections.overdue.length === 0">
+                        <span>Aucun travail en retard.</span>
+                      </li>
+                    </ul>
+                  </article>
+
+                  <article class="panel dashboard-focus-panel">
+                    <h3>Prets a remettre</h3>
+                    <ul class="activity-list activity-list--stacked">
+                      <li v-for="item in tailorCollections.ready" :key="item.id">
+                        <div class="activity-copy">
+                          <strong>{{ item.libelle }}</strong>
+                          <small>{{ item.description }}</small>
+                        </div>
+                      </li>
+                      <li v-if="tailorCollections.ready.length === 0">
+                        <span>Aucun travail pret.</span>
+                      </li>
+                    </ul>
+                  </article>
+                </div>
+              </div>
+            </template>
+
+            <template v-else>
             <div class="kpi-grid legacy-kpi-grid">
               <article v-for="card in dashboardCommandesCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
                 <div class="kpi-head"><span>{{ card.label }}</span></div>
@@ -15415,12 +15939,27 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </ul>
               </article>
             </div>
+            </template>
           </template>
         </ResponsiveDataContainer>
 
         <template #action>
           <MobilePrimaryActionBar
-            v-if="isMobileViewport && canCreateCommande"
+            v-if="isMobileViewport && isCashierDashboard"
+            title="Action principale"
+            subtitle="Accedez rapidement a la caisse du jour."
+          >
+            <button class="action-btn blue" @click="openRoute('caisse')">Ouvrir la caisse</button>
+          </MobilePrimaryActionBar>
+          <MobilePrimaryActionBar
+            v-else-if="isMobileViewport && isTailorDashboard && canAccessRoute('commandes')"
+            title="Action principale"
+            subtitle="Consultez rapidement les commandes a traiter."
+          >
+            <button class="action-btn blue" @click="openRoute('commandes')">Voir commandes</button>
+          </MobilePrimaryActionBar>
+          <MobilePrimaryActionBar
+            v-else-if="isMobileViewport && canCreateCommande"
             title="Action principale"
             subtitle="Commencez rapidement une nouvelle commande."
           >

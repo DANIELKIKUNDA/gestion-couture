@@ -12,6 +12,18 @@ export default defineConfig({
   define: {
     APP_VERSION: JSON.stringify(appVersion)
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("vite-plugin-pwa") || id.includes("workbox") || id.includes("virtual:pwa")) return "pwa";
+          if (id.includes("/dexie/")) return "offline-db";
+          return "vendor";
+        }
+      }
+    }
+  },
   plugins: [
     vue(),
     VitePWA({

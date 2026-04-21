@@ -719,6 +719,134 @@ body {
   gap: 12px;
 }
 
+.dashboard-hero {
+  align-items: stretch;
+  gap: 18px;
+  padding: 20px;
+  border-radius: 22px;
+  border-color: rgba(184, 198, 214, 0.82);
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0) 36%),
+    linear-gradient(135deg, #f8fbff 0%, #edf4fb 48%, #f7fbf8 100%);
+  box-shadow: 0 24px 54px rgba(20, 49, 84, 0.1);
+}
+
+.dashboard-role-cashier .dashboard-hero {
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0) 34%),
+    linear-gradient(135deg, #f7fbff 0%, #edf6ff 48%, #eef8f2 100%);
+}
+
+.dashboard-role-tailor .dashboard-hero {
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0) 34%),
+    linear-gradient(135deg, #fbfbff 0%, #f2f6ff 42%, #eef9f5 100%);
+}
+
+.dashboard-hero-copy {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.dashboard-hero-eyebrow {
+  color: #486989;
+  letter-spacing: 0.08em;
+}
+
+.dashboard-hero h3 {
+  margin: 0;
+  font-size: clamp(28px, 3.4vw, 42px);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: #153553;
+}
+
+.dashboard-hero-subtitle {
+  max-width: 720px;
+  margin: 0;
+  color: #58708c;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.dashboard-hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.dashboard-hero-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(199, 213, 228, 0.95);
+  background: rgba(255, 255, 255, 0.74);
+  color: #456683;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.dashboard-hero-side {
+  display: grid;
+  gap: 14px;
+  justify-items: end;
+  min-width: 320px;
+}
+
+.dashboard-hero-highlights {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-highlight-card {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(205, 218, 231, 0.9);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(10px);
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-highlight-card span {
+  color: #58708c;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.dashboard-highlight-card strong {
+  color: #16385a;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.dashboard-focus-panel {
+  border-radius: 20px;
+  border-color: rgba(208, 219, 231, 0.88);
+  box-shadow: 0 18px 34px rgba(20, 49, 84, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 251, 255, 0.92));
+}
+
+.dashboard-focus-panel--warn {
+  box-shadow: 0 18px 34px rgba(164, 59, 48, 0.08);
+}
+
+.dashboard-hero-controls {
+  width: 100%;
+  justify-content: flex-end;
+  align-items: center;
+}
+
 .dashboard-filter select {
   border: 1px solid var(--stroke);
   border-radius: 6px;
@@ -1025,6 +1153,18 @@ body {
   color: #5a7391;
   font-size: 13px;
   line-height: 1.4;
+}
+
+.dashboard-role-cashier .activity-copy strong,
+.dashboard-role-cashier .dashboard-highlight-card strong,
+.dashboard-role-cashier .dashboard-focus-panel h3 {
+  color: #114a72;
+}
+
+.dashboard-role-tailor .activity-copy strong,
+.dashboard-role-tailor .dashboard-highlight-card strong,
+.dashboard-role-tailor .dashboard-focus-panel h3 {
+  color: #1c4a3f;
 }
 
 .alerts {
@@ -3617,6 +3757,25 @@ textarea:focus-visible {
   .quick-inline,
   .quick-actions {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-hero {
+    padding: 18px;
+    border-radius: 18px;
+  }
+
+  .dashboard-hero-side,
+  .dashboard-hero-highlights {
+    min-width: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-hero-tags {
+    gap: 6px;
+  }
+
+  .dashboard-highlight-card strong {
+    font-size: 24px;
   }
 
   .settings-sticky-actions {
