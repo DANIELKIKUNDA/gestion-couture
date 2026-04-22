@@ -12,6 +12,11 @@ export default defineConfig({
   define: {
     APP_VERSION: JSON.stringify(appVersion)
   },
+  resolve: {
+    // Keep subst/junction paths stable on Windows so Vite does not realpath
+    // back to a workspace path containing spaces and break local dev/E2E startup.
+    preserveSymlinks: true
+  },
   build: {
     rollupOptions: {
       output: {

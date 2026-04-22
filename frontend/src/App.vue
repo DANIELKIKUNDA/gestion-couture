@@ -10862,6 +10862,10 @@ function formatWorkflowStatus(value) {
   return status;
 }
 
+function formatStatusLabel(value) {
+  return formatWorkflowStatus(value);
+}
+
 function formatWeekdayFr(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return "-";
