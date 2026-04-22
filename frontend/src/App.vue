@@ -52,10 +52,20 @@ import ScrollTopButton from "./components/mobile/ScrollTopButton.vue";
 import OfflineBanner from "./components/OfflineBanner.vue";
 import Sidebar from "./components/Sidebar.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
+import { useCaisseViewModel } from "./utils/caisse-view-model.js";
+import { useCommandeDetailViewModel } from "./utils/commande-detail-view-model.js";
+import { useCommandesListViewModel } from "./utils/commandes-list-view-model.js";
+import { useDashboardFinanceMetrics } from "./utils/dashboard-finance-metrics.js";
+import { useDashboardOwnerViewModel } from "./utils/dashboard-owner-view-model.js";
+import { useDashboardRoleCollections } from "./utils/dashboard-role-collections.js";
+import { useDashboardPresentation } from "./utils/dashboard-presentation.js";
+import { hasActionEntry, readActionEntry, useEntityActions } from "./utils/list-actions-loader.js";
+import { useRetoucheDetailViewModel } from "./utils/retouche-detail-view-model.js";
+import { useRetouchesListViewModel } from "./utils/retouches-list-view-model.js";
 import { getPasswordPolicyError } from "./utils/password-policy.js";
 
-const CommandeDetailEventMobileList = defineAsyncComponent(() => import("./components/commandes/CommandeDetailEventMobileList.vue"));
-const CommandeDetailPaymentMobileList = defineAsyncComponent(() => import("./components/commandes/CommandeDetailPaymentMobileList.vue"));
+const CommandesPage = defineAsyncComponent(() => import("./components/commandes/CommandesPage.vue"));
+const CommandeDetailPage = defineAsyncComponent(() => import("./components/commandes/CommandeDetailPage.vue"));
 const CommandeMobileList = defineAsyncComponent(() => import("./components/commandes/CommandeMobileList.vue"));
 const CommandeMediaGallery = defineAsyncComponent(() => import("./components/commandes/CommandeMediaGallery.vue"));
 const AuditAnnualMobileList = defineAsyncComponent(() => import("./components/audit/AuditAnnualMobileList.vue"));
@@ -67,23 +77,20 @@ const AuditOperationMobileList = defineAsyncComponent(() => import("./components
 const AuditRetoucheMobileList = defineAsyncComponent(() => import("./components/audit/AuditRetoucheMobileList.vue"));
 const AuditStockVenteMobileList = defineAsyncComponent(() => import("./components/audit/AuditStockVenteMobileList.vue"));
 const AuditUtilisateurMobileList = defineAsyncComponent(() => import("./components/audit/AuditUtilisateurMobileList.vue"));
-const CaisseOperationMobileList = defineAsyncComponent(() => import("./components/caisse/CaisseOperationMobileList.vue"));
-const CaisseOverviewCards = defineAsyncComponent(() => import("./components/caisse/CaisseOverviewCards.vue"));
+const CaissePage = defineAsyncComponent(() => import("./components/caisse/CaissePage.vue"));
 const ClientCommandeHistoryMobileList = defineAsyncComponent(() => import("./components/clients/ClientCommandeHistoryMobileList.vue"));
 const ClientConsultationOverviewCards = defineAsyncComponent(() => import("./components/clients/ClientConsultationOverviewCards.vue"));
 const ClientMesureHistoryMobileList = defineAsyncComponent(() => import("./components/clients/ClientMesureHistoryMobileList.vue"));
 const ClientRetoucheHistoryMobileList = defineAsyncComponent(() => import("./components/clients/ClientRetoucheHistoryMobileList.vue"));
-const DashboardActivityMobileList = defineAsyncComponent(() => import("./components/dashboard/DashboardActivityMobileList.vue"));
-const DashboardMetricCardGrid = defineAsyncComponent(() => import("./components/dashboard/DashboardMetricCardGrid.vue"));
-const DashboardRecentWorkMobileList = defineAsyncComponent(() => import("./components/dashboard/DashboardRecentWorkMobileList.vue"));
-const VenteDetailLinesMobileList = defineAsyncComponent(() => import("./components/stock/VenteDetailLinesMobileList.vue"));
-const VenteDetailOverviewCards = defineAsyncComponent(() => import("./components/stock/VenteDetailOverviewCards.vue"));
+const DashboardPage = defineAsyncComponent(() => import("./components/dashboard/DashboardPage.vue"));
+const DossierDetailPage = defineAsyncComponent(() => import("./components/dossiers/DossierDetailPage.vue"));
+const DossiersPage = defineAsyncComponent(() => import("./components/dossiers/DossiersPage.vue"));
+const FacturationPage = defineAsyncComponent(() => import("./components/facturation/FacturationPage.vue"));
+const VenteDetailPage = defineAsyncComponent(() => import("./components/stock/VenteDetailPage.vue"));
 const FactureDetailLinesMobileList = defineAsyncComponent(() => import("./components/facturation/FactureDetailLinesMobileList.vue"));
 const FactureDetailOverviewCards = defineAsyncComponent(() => import("./components/facturation/FactureDetailOverviewCards.vue"));
-const FactureMobileList = defineAsyncComponent(() => import("./components/facturation/FactureMobileList.vue"));
-const RetoucheDetailEventMobileList = defineAsyncComponent(() => import("./components/retouches/RetoucheDetailEventMobileList.vue"));
-const RetoucheDetailPaymentMobileList = defineAsyncComponent(() => import("./components/retouches/RetoucheDetailPaymentMobileList.vue"));
-const RetoucheMobileList = defineAsyncComponent(() => import("./components/retouches/RetoucheMobileList.vue"));
+const RetoucheDetailPage = defineAsyncComponent(() => import("./components/retouches/RetoucheDetailPage.vue"));
+const RetouchesPage = defineAsyncComponent(() => import("./components/retouches/RetouchesPage.vue"));
 const StockArticleMobileList = defineAsyncComponent(() => import("./components/stock/StockArticleMobileList.vue"));
 const VenteDraftMobileList = defineAsyncComponent(() => import("./components/stock/VenteDraftMobileList.vue"));
 const VenteMobileList = defineAsyncComponent(() => import("./components/stock/VenteMobileList.vue"));
@@ -386,6 +393,9 @@ const retouchesVisibleCount = ref(retouchesPagination.pageSize);
 const retouchesLoadingMore = ref(false);
 const retoucheInfiniteSentinel = ref(null);
 let retoucheInfiniteObserver = null;
+function setRetoucheInfiniteSentinel(element) {
+  retoucheInfiniteSentinel.value = element || null;
+}
 const factureFilters = reactive({
   statut: "ALL",
   source: "ALL",
@@ -1132,6 +1142,30 @@ let detailCommandeEventsInfiniteObserver = null;
 const detailCommandeItemStatuses = reactive({});
 const detailRetoucheItemStatuses = reactive({});
 const commandeItemPhotoDialog = reactive({ open: false, itemId: "", title: "" });
+
+function setDetailPaiementsInfiniteSentinel(element) {
+  detailPaiementsInfiniteSentinel.value = element || null;
+}
+
+function setDetailCommandeEventsInfiniteSentinel(element) {
+  detailCommandeEventsInfiniteSentinel.value = element || null;
+}
+
+function setDetailRetouchePaiementsInfiniteSentinel(element) {
+  detailRetouchePaiementsInfiniteSentinel.value = element || null;
+}
+
+function setDetailRetoucheEventsInfiniteSentinel(element) {
+  detailRetoucheEventsInfiniteSentinel.value = element || null;
+}
+
+function setFactureInfiniteSentinel(element) {
+  factureInfiniteSentinel.value = element || null;
+}
+
+function setDossierInfiniteSentinel(element) {
+  dossierInfiniteSentinel.value = element || null;
+}
 const commandeMediaViewerCurrentItem = computed(() => {
   if (commandeMediaViewer.index >= 0 && commandeMediaViewer.index < commandeMediaViewer.items.length) {
     return commandeMediaViewer.items[commandeMediaViewer.index] || null;
@@ -5026,50 +5060,6 @@ const systemAteliersStats = computed(() => ({
   )
 }));
 
-const detailSoldeRestant = computed(() => soldeRestant(detailCommande.value));
-const canPayerDetail = computed(() => {
-  if (!detailCommande.value) return false;
-  if (detailCommandeActions.value && typeof detailCommandeActions.value.payer === "boolean") {
-    return detailCommandeActions.value.payer;
-  }
-  if (detailCommande.value.statutCommande === "LIVREE" || detailCommande.value.statutCommande === "ANNULEE") return false;
-  return detailSoldeRestant.value > 0;
-});
-const canLivrerDetail = computed(() => {
-  if (!detailCommande.value) return false;
-  if (detailCommandeActions.value && typeof detailCommandeActions.value.livrer === "boolean") {
-    return detailCommandeActions.value.livrer;
-  }
-  return false;
-});
-const canTerminerDetail = computed(() => {
-  if (!detailCommande.value) return false;
-  if (detailCommandeActions.value && typeof detailCommandeActions.value.terminer === "boolean") {
-    return detailCommandeActions.value.terminer;
-  }
-  return false;
-});
-const canAnnulerDetail = computed(() => {
-  if (!detailCommande.value) return false;
-  if (detailCommande.value.statutCommande === "TERMINEE") return false;
-  if (detailCommandeActions.value && typeof detailCommandeActions.value.annuler === "boolean") {
-    return detailCommandeActions.value.annuler;
-  }
-  return false;
-});
-const canEditCommandeDetail = computed(() => {
-  if (!detailCommande.value) return false;
-  const locallyEditable =
-    Number(detailCommande.value.montantPaye || 0) === 0 &&
-    detailCommande.value.statutCommande !== "LIVREE" &&
-    detailCommande.value.statutCommande !== "ANNULEE";
-  if (!locallyEditable) return false;
-  if (detailCommandeActions.value && typeof detailCommandeActions.value.modifier === "boolean") {
-    return detailCommandeActions.value.modifier;
-  }
-  return locallyEditable;
-});
-const canEmitCommandeDetailFacture = computed(() => Boolean(detailCommande.value && !detailCommandeFacture.value && detailCommande.value.statutCommande !== "ANNULEE"));
 const ITEM_STATUS_SEQUENCE = Object.freeze(["CREEE", "EN_COURS", "TERMINEE", "LIVREE"]);
 
 function resetReactiveRecord(target) {
@@ -5161,209 +5151,6 @@ function normalizeUiToken(value = "") {
     .trim();
 }
 
-const detailCommandeItemCards = computed(() => {
-  const items = Array.isArray(detailCommande.value?.items) ? detailCommande.value.items : [];
-  const breakdown = buildItemPaymentBreakdown(items, detailCommande.value?.montantPaye || 0);
-  return items.map((item, index) => {
-    const mesuresLines = formatMesuresLines(item?.mesures || null);
-    const finance = breakdown[index] || { montant: Number(item?.prix || 0), paye: 0, reste: Number(item?.prix || 0) };
-    const statut = resolveDetailItemStatus(detailCommandeItemStatuses, item, detailCommande.value?.statutCommande || "");
-    return {
-      id: item?.idItem || `detail-item-${index + 1}`,
-      index: index + 1,
-      title: item?.description || humanizeContactLabel(item?.typeHabit) || item?.typeHabit || `Habit ${index + 1}`,
-      typeHabit: item?.typeHabit || "",
-      statut,
-      prix: finance.montant,
-      montantPaye: finance.paye,
-      reste: finance.reste,
-      mesuresLines,
-      mesuresCount: mesuresLines.length,
-      canPay: canPayerDetail.value && finance.reste > 0,
-      canEdit: canEditCommandeDetail.value,
-      canAdvanceStatus: Boolean(resolveNextDetailItemStatus(statut)),
-      statusActionLabel: resolveDetailItemStatusLabel(statut)
-    };
-  });
-});
-const detailCommandeStatusAction = computed(() => {
-  if (canTerminerDetail.value) {
-    return { label: "Marquer comme terminé", handler: onTerminerDetail };
-  }
-  if (canLivrerDetail.value) {
-    return { label: "Marquer comme livré", handler: onLivrerDetail };
-  }
-  if (canAnnulerDetail.value) {
-    return { label: "Annuler", handler: onAnnulerDetail };
-  }
-  return null;
-});
-const commandeDetailPrimaryAction = computed(() => {
-  if (canPayerDetail.value) {
-    return {
-      label: "Payer",
-      subtitle: "Enregistrez rapidement un paiement sur cette commande.",
-      tone: "green",
-      handler: onPaiementDetail
-    };
-  }
-  if (canLivrerDetail.value) {
-    return {
-      label: "Marquer comme livré",
-      subtitle: "Marquez la commande comme livree depuis le detail.",
-      tone: "blue",
-      handler: onLivrerDetail
-    };
-  }
-  if (canTerminerDetail.value) {
-    return {
-      label: "Marquer comme terminé",
-      subtitle: "Finalisez la commande pour preparer la livraison.",
-      tone: "blue",
-      handler: onTerminerDetail
-    };
-  }
-  if (canEmitCommandeDetailFacture.value) {
-    return {
-      label: "Emettre facture",
-      subtitle: "Generez la facture associee a cette commande.",
-      tone: "blue",
-      handler: onEmettreFactureCommandeDetail
-    };
-  }
-  return null;
-});
-
-const detailRetoucheSoldeRestant = computed(() => soldeRestant(detailRetouche.value));
-const canPayerRetoucheDetail = computed(() => {
-  if (!detailRetouche.value) return false;
-  if (detailRetoucheActions.value && typeof detailRetoucheActions.value.payer === "boolean") {
-    return detailRetoucheActions.value.payer;
-  }
-  if (detailRetouche.value.statutRetouche === "LIVREE" || detailRetouche.value.statutRetouche === "ANNULEE") return false;
-  return detailRetoucheSoldeRestant.value > 0;
-});
-const canLivrerRetoucheDetail = computed(() => {
-  if (!detailRetouche.value) return false;
-  if (detailRetoucheActions.value && typeof detailRetoucheActions.value.livrer === "boolean") {
-    return detailRetoucheActions.value.livrer;
-  }
-  return false;
-});
-const canTerminerRetoucheDetail = computed(() => {
-  if (!detailRetouche.value) return false;
-  if (detailRetoucheActions.value && typeof detailRetoucheActions.value.terminer === "boolean") {
-    return detailRetoucheActions.value.terminer;
-  }
-  return false;
-});
-const canAnnulerRetoucheDetail = computed(() => {
-  if (!detailRetouche.value) return false;
-  if (detailRetouche.value.statutRetouche === "TERMINEE") return false;
-  if (detailRetoucheActions.value && typeof detailRetoucheActions.value.annuler === "boolean") {
-    return detailRetoucheActions.value.annuler;
-  }
-  return false;
-});
-const canEditRetoucheDetail = computed(() => {
-  if (!detailRetouche.value) return false;
-  const locallyEditable =
-    Number(detailRetouche.value.montantPaye || 0) === 0 &&
-    detailRetouche.value.statutRetouche !== "LIVREE" &&
-    detailRetouche.value.statutRetouche !== "ANNULEE";
-  if (!locallyEditable) return false;
-  if (detailRetoucheActions.value && typeof detailRetoucheActions.value.modifier === "boolean") {
-    return detailRetoucheActions.value.modifier;
-  }
-  return locallyEditable;
-});
-const canEmitRetoucheDetailFacture = computed(() => Boolean(detailRetouche.value && !detailRetoucheFacture.value && detailRetouche.value.statutRetouche !== "ANNULEE"));
-const detailRetoucheItemCards = computed(() => {
-  const items = Array.isArray(detailRetouche.value?.items) ? detailRetouche.value.items : [];
-  const breakdown = buildItemPaymentBreakdown(items, detailRetouche.value?.montantPaye || 0);
-  return items.map((item, index) => {
-    const mesuresLines = formatMesuresLines(item?.mesures);
-    const finance = breakdown[index] || { montant: Number(item?.prix || 0), paye: 0, reste: Number(item?.prix || 0) };
-    const statut = resolveDetailItemStatus(detailRetoucheItemStatuses, item, detailRetouche.value?.statutRetouche || "");
-    return {
-      id: item?.idItem || `retouche-item-${index + 1}`,
-      index: index + 1,
-      title: item?.description || humanizeContactLabel(item?.typeRetouche) || item?.typeRetouche || `Intervention ${index + 1}`,
-      typeRetouche: item?.typeRetouche || "",
-      typeHabit: item?.typeHabit || detailRetouche.value?.typeHabit || "",
-      statut,
-      prix: finance.montant,
-      montantPaye: finance.paye,
-      reste: finance.reste,
-      mesuresLines,
-      mesuresCount: mesuresLines.length,
-      canPay: canPayerRetoucheDetail.value && finance.reste > 0,
-      canEdit: canEditRetoucheDetail.value,
-      canAdvanceStatus: Boolean(resolveNextDetailItemStatus(statut)),
-      statusActionLabel: resolveDetailItemStatusLabel(statut)
-    };
-  });
-});
-const detailRetoucheStatusAction = computed(() => {
-  if (canTerminerRetoucheDetail.value) {
-    return { label: "Marquer comme terminé", handler: onTerminerRetoucheDetail };
-  }
-  if (canLivrerRetoucheDetail.value) {
-    return { label: "Marquer comme livré", handler: onLivrerRetoucheDetail };
-  }
-  if (canAnnulerRetoucheDetail.value) {
-    return { label: "Annuler", handler: onAnnulerRetoucheDetail };
-  }
-  return null;
-});
-const retoucheDetailPrimaryAction = computed(() => {
-  if (canPayerRetoucheDetail.value) {
-    return {
-      label: "Payer",
-      subtitle: "Enregistrez rapidement un paiement sur cette retouche.",
-      tone: "green",
-      handler: onPaiementRetoucheDetail
-    };
-  }
-  if (canLivrerRetoucheDetail.value) {
-    return {
-      label: "Marquer comme livré",
-      subtitle: "Marquez la retouche comme livree depuis le detail.",
-      tone: "blue",
-      handler: onLivrerRetoucheDetail
-    };
-  }
-  if (canTerminerRetoucheDetail.value) {
-    return {
-      label: "Marquer comme terminé",
-      subtitle: "Finalisez la retouche avant la livraison.",
-      tone: "blue",
-      handler: onTerminerRetoucheDetail
-    };
-  }
-  if (canEmitRetoucheDetailFacture.value) {
-    return {
-      label: "Emettre facture",
-      subtitle: "Generez la facture associee a cette retouche.",
-      tone: "blue",
-      handler: onEmettreFactureRetoucheDetail
-    };
-  }
-  return null;
-});
-
-const detailCommandeFacture = computed(() => {
-  const id = detailCommande.value?.idCommande;
-  if (!id) return null;
-  return findFactureByOrigine("COMMANDE", id);
-});
-
-const detailRetoucheFacture = computed(() => {
-  const id = detailRetouche.value?.idRetouche;
-  if (!id) return null;
-  return findFactureByOrigine("RETOUCHE", id);
-});
-
 const factureDetailPrimaryAction = computed(() => {
   if (!detailFacture.value) return null;
   return {
@@ -5381,35 +5168,68 @@ const detailVenteFacture = computed(() => {
   if (!id) return null;
   return findFactureByOrigine("VENTE", id);
 });
-const detailCommandeView = computed(() => ({
-  idCommande: detailCommande.value?.idCommande || "",
-  idClient: detailCommande.value?.idClient || "",
-  clientNom: detailCommande.value?.clientNom || "",
-  descriptionCommande: detailCommande.value?.descriptionCommande || "",
-  statutCommande: detailCommande.value?.statutCommande || "",
-  dateCreation: detailCommande.value?.dateCreation || "",
-  datePrevue: detailCommande.value?.datePrevue || "",
-  typeHabit: detailCommande.value?.typeHabit || "",
-  montantTotal: Number(detailCommande.value?.montantTotal || 0),
-  montantPaye: Number(detailCommande.value?.montantPaye || 0),
-  nombreBeneficiaires: Number(detailCommande.value?.nombreBeneficiaires || 0),
-  nombreLignes: Number(detailCommande.value?.nombreLignes || 0),
-  items: Array.isArray(detailCommande.value?.items) ? detailCommande.value.items : []
-}));
-const detailRetoucheView = computed(() => ({
-  idRetouche: detailRetouche.value?.idRetouche || "",
-  idClient: detailRetouche.value?.idClient || "",
-  clientNom: detailRetouche.value?.clientNom || "",
-  typeRetouche: detailRetouche.value?.typeRetouche || "",
-  descriptionRetouche: detailRetouche.value?.descriptionRetouche || "",
-  statutRetouche: detailRetouche.value?.statutRetouche || "",
-  dateDepot: detailRetouche.value?.dateDepot || "",
-  datePrevue: detailRetouche.value?.datePrevue || "",
-  typeHabit: detailRetouche.value?.typeHabit || "",
-  montantTotal: Number(detailRetouche.value?.montantTotal || 0),
-  montantPaye: Number(detailRetouche.value?.montantPaye || 0),
-  items: Array.isArray(detailRetouche.value?.items) ? detailRetouche.value.items : []
-}));
+const {
+  detailSoldeRestant,
+  canPayerDetail,
+  canLivrerDetail,
+  canTerminerDetail,
+  canAnnulerDetail,
+  canEditCommandeDetail,
+  detailCommandeFacture,
+  canEmitCommandeDetailFacture,
+  detailCommandeItemCards,
+  detailCommandeStatusAction,
+  commandeDetailPrimaryAction,
+  detailCommandeView
+} = useCommandeDetailViewModel({
+  detailCommande,
+  detailCommandeActions,
+  detailCommandeItemStatuses,
+  soldeRestant,
+  formatMesuresLines,
+  humanizeContactLabel,
+  buildItemPaymentBreakdown,
+  resolveDetailItemStatus,
+  resolveNextDetailItemStatus,
+  resolveDetailItemStatusLabel,
+  findFactureByOrigine,
+  onPaiementDetail,
+  onLivrerDetail,
+  onTerminerDetail,
+  onAnnulerDetail,
+  onEmettreFactureCommandeDetail
+});
+const {
+  detailRetoucheSoldeRestant,
+  canPayerRetoucheDetail,
+  canLivrerRetoucheDetail,
+  canTerminerRetoucheDetail,
+  canAnnulerRetoucheDetail,
+  canEditRetoucheDetail,
+  detailRetoucheFacture,
+  canEmitRetoucheDetailFacture,
+  detailRetoucheItemCards,
+  detailRetoucheStatusAction,
+  retoucheDetailPrimaryAction,
+  detailRetoucheView
+} = useRetoucheDetailViewModel({
+  detailRetouche,
+  detailRetoucheActions,
+  detailRetoucheItemStatuses,
+  soldeRestant,
+  formatMesuresLines,
+  humanizeContactLabel,
+  buildItemPaymentBreakdown,
+  resolveDetailItemStatus,
+  resolveNextDetailItemStatus,
+  resolveDetailItemStatusLabel,
+  findFactureByOrigine,
+  onPaiementRetoucheDetail,
+  onLivrerRetoucheDetail,
+  onTerminerRetoucheDetail,
+  onAnnulerRetoucheDetail,
+  onEmettreFactureRetoucheDetail
+});
 const venteDetailPrimaryAction = computed(() => {
   if (!detailVente.value) return null;
   if (detailVente.value.statut === "BROUILLON") {
@@ -6573,495 +6393,105 @@ const lowStockArticles = computed(() =>
   stockArticles.value.filter((a) => Number(a.quantiteDisponible || 0) <= Number(a.seuilAlerte || 0))
 );
 
-const dashboardScopedCommandes = computed(() => {
-  const today = todayIso();
-  const last7 = addDays(today, -7);
-  const last30 = addDays(today, -30);
-  return commandesView.value.filter((commande) => {
-    const dateRef = dateOnly(commande.dateCreation || commande.datePrevue || "");
-    if (!dateRef) return true;
-    if (dashboardPeriod.value === "TODAY") return dateRef === today;
-    if (dashboardPeriod.value === "LAST_7") return dateRef >= last7 && dateRef <= today;
-    if (dashboardPeriod.value === "LAST_30") return dateRef >= last30 && dateRef <= today;
-    return true;
-  });
+const { financeMetrics, dashboardSalesMetrics } = useDashboardFinanceMetrics({
+  dashboardPeriod,
+  caisseJour,
+  commandesView,
+  retouches,
+  ventes,
+  todayIso,
+  addDays
 });
 
-const dashboardScopedRetouches = computed(() => {
-  const today = todayIso();
-  const last7 = addDays(today, -7);
-  const last30 = addDays(today, -30);
-  return retouchesView.value.filter((retouche) => {
-    const dateRef = dateOnly(retouche.dateDepot || retouche.datePrevue || "");
-    if (!dateRef) return true;
-    if (dashboardPeriod.value === "TODAY") return dateRef === today;
-    if (dashboardPeriod.value === "LAST_7") return dateRef >= last7 && dateRef <= today;
-    if (dashboardPeriod.value === "LAST_30") return dateRef >= last30 && dateRef <= today;
-    return true;
-  });
+const {
+  dashboardScopedCommandes,
+  dashboardScopedRetouches,
+  dashboardCards,
+  dashboardCommandesCards,
+  dashboardRetouchesCards,
+  dashboardClientsActifs,
+  dashboardFollowUpCards,
+  dashboardClientsToFollowUpMobileItems,
+  dashboardCommandesToNotifyMobileItems,
+  dashboardRetouchesToNotifyMobileItems,
+  recentWorkRows,
+  dashboardProductionRecentRows,
+  recentCaisseActivity
+} = useDashboardOwnerViewModel({
+  dashboardPeriod,
+  commandesView,
+  retouchesView,
+  retouches,
+  clients,
+  clientMap,
+  ventes,
+  caisseJour,
+  dashboardContactBoard,
+  formatDashboardClientFollowUpDescription,
+  formatDashboardPendingCommandeDescription,
+  formatDashboardPendingRetoucheDescription,
+  todayIso,
+  addDays
 });
-
-const dashboardCards = computed(() => [
-  {
-    label:
-      dashboardPeriod.value === "TODAY"
-        ? "Commandes creees aujourd'hui"
-        : dashboardPeriod.value === "LAST_7"
-          ? "Commandes creees ces 7 derniers jours"
-          : "Commandes creees ces 30 derniers jours",
-    value: dashboardScopedCommandes.value.filter((c) => Boolean(dateOnly(c.dateCreation))).length,
-    tone: "blue"
-  },
-  {
-    label:
-      dashboardPeriod.value === "TODAY"
-        ? "Retouches creees aujourd'hui"
-        : dashboardPeriod.value === "LAST_7"
-          ? "Retouches creees ces 7 derniers jours"
-          : "Retouches creees ces 30 derniers jours",
-    value: dashboardScopedRetouches.value.filter((r) => Boolean(dateOnly(r.dateDepot))).length,
-    tone: "teal"
-  },
-  { label: "Commandes en cours", value: dashboardScopedCommandes.value.filter((c) => c.statutCommande === "EN_COURS").length, tone: "blue" },
-  { label: "Commandes pretes", value: dashboardScopedCommandes.value.filter((c) => c.statutCommande === "TERMINEE").length, tone: "green" },
-  {
-    label: "Commandes a solder",
-    value: dashboardScopedCommandes.value.filter((c) => c.soldeRestant > 0 && c.statutCommande !== "ANNULEE").length,
-    tone: "amber"
-  },
-  { label: "Retouches en cours", value: dashboardScopedRetouches.value.filter((r) => r.statutRetouche === "EN_COURS").length, tone: "teal" },
-  { label: "Retouches pretes", value: dashboardScopedRetouches.value.filter((r) => r.statutRetouche === "TERMINEE").length, tone: "green" },
-  { label: "Retouches a solder", value: dashboardScopedRetouches.value.filter((r) => r.soldeRestant > 0).length, tone: "amber" },
-  { label: "Clients actifs", value: clients.value.filter((c) => c.actif !== false).length, tone: "slate" }
-]);
-
-const dashboardCommandesCards = computed(() => [
-  dashboardCards.value.find((card) => card.label.startsWith("Commandes creees")),
-  dashboardCards.value.find((card) => card.label === "Commandes en cours"),
-  dashboardCards.value.find((card) => card.label === "Commandes pretes"),
-  dashboardCards.value.find((card) => card.label === "Commandes a solder")
-].filter(Boolean));
-
-const dashboardRetouchesCards = computed(() => [
-  dashboardCards.value.find((card) => card.label.startsWith("Retouches creees")),
-  dashboardCards.value.find((card) => card.label === "Retouches en cours"),
-  dashboardCards.value.find((card) => card.label === "Retouches pretes"),
-  dashboardCards.value.find((card) => card.label === "Retouches a solder")
-].filter(Boolean));
-
-const dashboardClientsActifs = computed(() => dashboardCards.value.find((card) => card.label === "Clients actifs") || null);
-
-const financeMetrics = computed(() => {
-  const today = todayIso();
-  const last7 = addDays(today, -7);
-  const last30 = addDays(today, -30);
-  const ops = (caisseJour.value?.operations || []).filter((op) => op.statutOperation !== "ANNULEE");
-  const totalEntrees = ops.filter((op) => op.typeOperation === "ENTREE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
-  const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
-  const isWithinDashboardPeriod = (dateRef) => {
-    if (!dateRef) return true;
-    if (dashboardPeriod.value === "TODAY") return dateRef === today;
-    if (dashboardPeriod.value === "LAST_7") return dateRef >= last7 && dateRef <= today;
-    if (dashboardPeriod.value === "LAST_30") return dateRef >= last30 && dateRef <= today;
-    return true;
-  };
-  const acomptesCommandes = commandesView.value
-    .filter((commande) => isWithinDashboardPeriod(dateOnly(commande.dateCreation || commande.datePrevue || "")))
-    .reduce((sum, commande) => sum + Number(commande.montantPaye || 0), 0);
-  const acomptesRetouches = retouches.value
-    .filter((retouche) => isWithinDashboardPeriod(dateOnly(retouche.dateDepot || retouche.datePrevue || "")))
-    .reduce((sum, retouche) => sum + Number(retouche.montantPaye || 0), 0);
-
-  return {
-    soldeCaisse: Number(caisseJour.value?.soldeCourant || 0),
-    totalEncaissement: totalEntrees,
-    depensesJour: totalSorties,
-    acomptesEncaisses: acomptesCommandes + acomptesRetouches
-  };
-});
-
-const dashboardSalesMetrics = computed(() => {
-  const today = todayIso();
-  const last7 = addDays(today, -7);
-  const last30 = addDays(today, -30);
-  const rows = ventes.value.filter((vente) => {
-    if (vente.statut !== "VALIDEE") return false;
-    const dateRef = dateOnly(vente.date || "");
-    if (!dateRef) return true;
-    if (dashboardPeriod.value === "TODAY") return dateRef === today;
-    if (dashboardPeriod.value === "LAST_7") return dateRef >= last7 && dateRef <= today;
-    if (dashboardPeriod.value === "LAST_30") return dateRef >= last30 && dateRef <= today;
-    return true;
-  });
-
-  const nombreVentes = rows.length;
-  const chiffreAffaires = rows.reduce((sum, vente) => sum + Number(vente.total || 0), 0);
-  const beneficeBrut = rows.reduce((sum, vente) => sum + Number(vente.beneficeTotal || 0), 0);
-  const totalPrixAchat = rows.reduce((sum, vente) => sum + Number(vente.totalPrixAchat || 0), 0);
-
-  return {
-    nombreVentes,
-    chiffreAffaires,
-    beneficeBrut,
-    margeMoyenne: chiffreAffaires > 0 ? (beneficeBrut / chiffreAffaires) * 100 : 0,
-    rentabilite: totalPrixAchat > 0 ? (beneficeBrut / totalPrixAchat) * 100 : 0
-  };
-});
-
-const dashboardPrimaryMobileCards = computed(() => [
-  dashboardCommandesCards.value[0],
-  dashboardCommandesCards.value[1],
-  dashboardRetouchesCards.value[0],
-  dashboardRetouchesCards.value[1]
-].filter(Boolean));
-
-const dashboardFinanceMobileCards = computed(() => [
-  { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse), tone: "blue" },
-  { label: "Encaissement", value: formatCurrency(financeMetrics.value.totalEncaissement), tone: "green" },
-  { label: "Depenses", value: formatCurrency(financeMetrics.value.depensesJour), tone: "amber" },
-  { label: "Acomptes", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" }
-]);
-
-const dashboardSalesMobileCards = computed(() => [
-  { label: "Ventes stock", value: dashboardSalesMetrics.value.nombreVentes, tone: "blue" },
-  { label: "CA ventes", value: formatCurrency(dashboardSalesMetrics.value.chiffreAffaires), tone: "blue" },
-  { label: "Benefice brut", value: formatCurrency(dashboardSalesMetrics.value.beneficeBrut), tone: "green" },
-  { label: "Taux de marge", value: formatPercent(dashboardSalesMetrics.value.margeMoyenne), tone: "teal" }
-]);
-
-const dashboardFollowUpCards = computed(() => [
-  { label: "Clients a relancer", value: dashboardContactBoard.value.clientsARelancer.total, tone: "amber" },
-  { label: "Commandes a signaler", value: dashboardContactBoard.value.commandesPretesNonSignalees.total, tone: "green" },
-  { label: "Retouches a signaler", value: dashboardContactBoard.value.retouchesPretesNonSignalees.total, tone: "teal" },
-  {
-    label: "Total a traiter",
-    value:
-      dashboardContactBoard.value.clientsARelancer.total +
-      dashboardContactBoard.value.commandesPretesNonSignalees.total +
-      dashboardContactBoard.value.retouchesPretesNonSignalees.total,
-    tone: "slate"
-  }
-]);
-
-const dashboardClientsToFollowUpMobileItems = computed(() =>
-  dashboardContactBoard.value.clientsARelancer.items.map((item) => ({
-    id: item.idClient,
-    libelle: item.nomClient || item.telephone || item.idClient,
-    description: formatDashboardClientFollowUpDescription(item)
-  }))
-);
-
-const isCashierDashboard = computed(() => currentRole.value === "CAISSIER");
-const isTailorDashboard = computed(() => currentRole.value === "COUTURIER");
-
-function formatDashboardWorkDueDate(dateValue = "") {
-  if (!dateValue) return "Date non definie";
-  return formatDateShort(`${dateValue}T00:00:00.000Z`);
-}
-
-function buildDashboardPaymentDescription(item, typeLabel) {
-  const parts = [];
-  if (item?.clientNom) parts.push(item.clientNom);
-  if (Number(item?.soldeRestant || 0) > 0) parts.push(`Solde ${formatCurrency(item.soldeRestant)}`);
-  if (item?.datePrevue) parts.push(`Prevue ${formatDashboardWorkDueDate(item.datePrevue)}`);
-  return `${typeLabel} • ${parts.join(" • ")}`;
-}
-
-function buildDashboardProductionDescription(item, typeLabel) {
-  const parts = [`Statut ${formatStatusLabel(item?.statut || "-")}`];
-  if (item?.clientNom) parts.push(item.clientNom);
-  if (item?.datePrevue) parts.push(`Prevue ${formatDashboardWorkDueDate(item.datePrevue)}`);
-  return `${typeLabel} • ${parts.join(" • ")}`;
-}
-
-const cashierDashboardCards = computed(() => [
-  { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse), tone: "blue" },
-  { label: "Encaissements", value: formatCurrency(financeMetrics.value.totalEncaissement), tone: "green" },
-  { label: "Depenses", value: formatCurrency(financeMetrics.value.depensesJour), tone: "amber" },
-  { label: "Acomptes encaisses", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" },
-  { label: "Commandes a solder", value: dashboardCommandesCards.value[3]?.value || 0, tone: "amber" },
-  { label: "Retouches a solder", value: dashboardRetouchesCards.value[3]?.value || 0, tone: "amber" }
-]);
-
-const cashierCollections = computed(() => {
-  const commandes = commandesView.value
-    .filter((item) => Number(item.soldeRestant || 0) > 0 && item.statutCommande !== "ANNULEE")
-    .sort((a, b) => String(a.datePrevue || "9999-12-31").localeCompare(String(b.datePrevue || "9999-12-31")));
-  const retouchesRows = retouches.value
-    .filter((item) => Number(item.soldeRestant || 0) > 0 && item.statutRetouche !== "ANNULEE")
-    .sort((a, b) => String(a.datePrevue || "9999-12-31").localeCompare(String(b.datePrevue || "9999-12-31")));
-  const readyToCash = [
-    ...commandes
-      .filter((item) => item.statutCommande === "TERMINEE")
-      .map((item) => ({
-        id: `commande-${item.idCommande}`,
-        libelle: item.idCommande,
-        description: buildDashboardPaymentDescription(item, "Commande")
-      })),
-    ...retouchesRows
-      .filter((item) => item.statutRetouche === "TERMINEE")
-      .map((item) => ({
-        id: `retouche-${item.idRetouche}`,
-        libelle: item.idRetouche,
-        description: buildDashboardPaymentDescription(item, "Retouche")
-      }))
-  ].slice(0, 6);
-
-  return {
-    commandes: commandes.slice(0, 6).map((item) => ({
-      id: item.idCommande,
-      libelle: item.idCommande,
-      description: buildDashboardPaymentDescription(item, "Commande")
-    })),
-    retouches: retouchesRows.slice(0, 6).map((item) => ({
-      id: item.idRetouche,
-      libelle: item.idRetouche,
-      description: buildDashboardPaymentDescription(item, "Retouche")
-    })),
-    readyToCash
-  };
-});
-
-const cashierAlerts = computed(() => {
-  const items = [];
-  if (!caisseOuverte.value) items.push({ id: "cash-closed", libelle: "Caisse cloturee", description: "Ouvrez ou verifiez la caisse avant d'encaisser." });
-  if ((dashboardCommandesCards.value[3]?.value || 0) > 0) {
-    items.push({ id: "commandes-due", libelle: "Commandes avec solde", description: `${dashboardCommandesCards.value[3].value} commande(s) attendent un encaissement.` });
-  }
-  if ((dashboardRetouchesCards.value[3]?.value || 0) > 0) {
-    items.push({ id: "retouches-due", libelle: "Retouches avec solde", description: `${dashboardRetouchesCards.value[3].value} retouche(s) attendent un encaissement.` });
-  }
-  return items;
-});
-
-const tailorDashboardCards = computed(() => {
-  const today = todayIso();
-  const productionRows = [
-    ...commandesView.value
-      .filter((item) => item.statutCommande !== "LIVREE" && item.statutCommande !== "ANNULEE")
-      .map((item) => ({ type: "Commande", statut: item.statutCommande, datePrevue: item.datePrevue })),
-    ...retouches.value
-      .filter((item) => item.statutRetouche !== "LIVREE" && item.statutRetouche !== "ANNULEE")
-      .map((item) => ({ type: "Retouche", statut: item.statutRetouche, datePrevue: item.datePrevue }))
-  ];
-  const dueToday = productionRows.filter((item) => item.datePrevue === today).length;
-  const overdue = productionRows.filter((item) => item.datePrevue && item.datePrevue < today).length;
-
-  return [
-    { label: "Commandes en cours", value: dashboardCommandesCards.value[1]?.value || 0, tone: "blue" },
-    { label: "Retouches en cours", value: dashboardRetouchesCards.value[1]?.value || 0, tone: "teal" },
-    { label: "Commandes pretes", value: dashboardCommandesCards.value[2]?.value || 0, tone: "green" },
-    { label: "Retouches pretes", value: dashboardRetouchesCards.value[2]?.value || 0, tone: "green" },
-    { label: "A livrer aujourd'hui", value: dueToday, tone: "amber" },
-    { label: "Travaux en retard", value: overdue, tone: "amber" }
-  ];
-});
-
-const tailorCollections = computed(() => {
-  const today = todayIso();
-  const workRows = [
-    ...commandesView.value
-      .filter((item) => item.statutCommande !== "LIVREE" && item.statutCommande !== "ANNULEE")
-      .map((item) => ({
-        id: `commande-${item.idCommande}`,
-        ref: item.idCommande,
-        type: "Commande",
-        clientNom: item.clientNom,
-        statut: item.statutCommande,
-        datePrevue: item.datePrevue
-      })),
-    ...retouches.value
-      .filter((item) => item.statutRetouche !== "LIVREE" && item.statutRetouche !== "ANNULEE")
-      .map((item) => ({
-        id: `retouche-${item.idRetouche}`,
-        ref: item.idRetouche,
-        type: "Retouche",
-        clientNom: item.clientNom || clientMap.value.get(item.idClient) || item.idClient,
-        statut: item.statutRetouche,
-        datePrevue: item.datePrevue
-      }))
-  ].sort((a, b) => String(a.datePrevue || "9999-12-31").localeCompare(String(b.datePrevue || "9999-12-31")));
-
-  return {
-    dueToday: workRows
-      .filter((item) => item.datePrevue === today)
-      .slice(0, 6)
-      .map((item) => ({
-        id: item.id,
-        libelle: item.ref,
-        description: buildDashboardProductionDescription(item, item.type)
-      })),
-    overdue: workRows
-      .filter((item) => item.datePrevue && item.datePrevue < today)
-      .slice(0, 6)
-      .map((item) => ({
-        id: item.id,
-        libelle: item.ref,
-        description: buildDashboardProductionDescription(item, item.type)
-      })),
-    ready: workRows
-      .filter((item) => item.statut === "TERMINEE")
-      .slice(0, 6)
-      .map((item) => ({
-        id: item.id,
-        libelle: item.ref,
-        description: buildDashboardProductionDescription(item, item.type)
-      }))
-  };
-});
-
-const dashboardCommandesToNotifyMobileItems = computed(() =>
-  dashboardContactBoard.value.commandesPretesNonSignalees.items.map((item) => ({
-    id: item.idCommande,
-    libelle: `${item.idCommande} - ${item.clientNom || item.idClient}`,
-    description: formatDashboardPendingCommandeDescription(item)
-  }))
-);
-
-const dashboardRetouchesToNotifyMobileItems = computed(() =>
-  dashboardContactBoard.value.retouchesPretesNonSignalees.items.map((item) => ({
-    id: item.idRetouche,
-    libelle: `${item.idRetouche} - ${item.clientNom || item.idClient}`,
-    description: formatDashboardPendingRetoucheDescription(item)
-  }))
-);
 
 function dateOnly(value) {
   if (!value) return "";
   return String(value).slice(0, 10);
 }
 
-const recentWorkRows = computed(() => {
-  const today = todayIso();
-  const last7 = addDays(today, -7);
-  const last30 = addDays(today, -30);
-
-  const cmdRows = commandesView.value.map((c) => ({
-    id: c.idCommande,
-    clientNom: c.clientNom,
-    type: "Commande",
-    statut: c.statutCommande,
-    montantTotal: c.montantTotal,
-    avancePayee: c.montantPaye,
-    dateRef: dateOnly(c.dateCreation || c.datePrevue || "")
-  }));
-
-  const retRows = retouches.value.map((r) => ({
-    id: r.idRetouche,
-    clientNom: r.clientNom || clientMap.value.get(r.idClient) || r.idClient,
-    type: "Retouche",
-    statut: r.statutRetouche,
-    montantTotal: Number(r.montantTotal || 0),
-    avancePayee: Number(r.montantPaye || 0),
-    dateRef: dateOnly(r.dateDepot || r.datePrevue || "")
-  }));
-
-  const venteRows = ventes.value.map((v) => ({
-    id: v.idVente,
-    clientNom: "Client comptoir",
-    type: "Vente",
-    statut: v.statut,
-    montantTotal: Number(v.total || 0),
-    avancePayee: Number(v.beneficeTotal || 0),
-    dateRef: dateOnly(v.date || "")
-  }));
-
-  const rows = [...cmdRows, ...retRows, ...venteRows];
-  const filtered = rows.filter((row) => {
-    if (!row.dateRef) return true;
-    if (dashboardPeriod.value === "TODAY") return row.dateRef === today;
-    if (dashboardPeriod.value === "LAST_7") return row.dateRef >= last7 && row.dateRef <= today;
-    if (dashboardPeriod.value === "LAST_30") return row.dateRef >= last30 && row.dateRef <= today;
-    return true;
-  });
-
-  return filtered
-    .sort((a, b) => String(b.dateRef).localeCompare(String(a.dateRef)))
-    .slice(0, 5);
+const {
+  caisseStatus,
+  caisseOuverte,
+  caisseOperations,
+  caisseOperationsPaged,
+  caisseOperationsInfiniteEndReached,
+  caisseTotals
+} = useCaisseViewModel({
+  caisseJour,
+  caisseOperationsVisibleCount
 });
-
-const dashboardProductionRecentRows = computed(() => recentWorkRows.value.filter((item) => item.type !== "Vente"));
-
-const dashboardRoleTone = computed(() => {
-  if (isCashierDashboard.value) return "cashier";
-  if (isTailorDashboard.value) return "tailor";
-  return "owner";
+const {
+  cashierDashboardCards,
+  cashierCollections,
+  cashierAlerts,
+  tailorDashboardCards,
+  tailorCollections
+} = useDashboardRoleCollections({
+  commandesView,
+  retouches,
+  clientMap,
+  financeMetrics,
+  dashboardCommandesCards,
+  dashboardRetouchesCards,
+  caisseOuverte,
+  formatCurrency,
+  formatDateShort,
+  formatStatusLabel,
+  todayIso
 });
-
-const dashboardHeroEyebrow = computed(() => {
-  if (isCashierDashboard.value) return "Operations caisse";
-  if (isTailorDashboard.value) return "Pilotage production";
-  return "Vue globale";
-});
-
-const dashboardHeroTitle = computed(() => {
-  if (isCashierDashboard.value) return "Cockpit caissier";
-  if (isTailorDashboard.value) return "Cockpit couturier";
-  return "Dashboard atelier";
-});
-
-const dashboardHeroSubtitle = computed(() => {
-  if (isCashierDashboard.value) return "Encaissements, soldes et livraisons prêtes dans un flux simple, rapide et sans distraction.";
-  if (isTailorDashboard.value) return "Travaux du jour, retards et pièces prêtes réunis dans une vue de production claire.";
-  return "Suivez rapidement l'activite, la caisse et les alertes.";
-});
-
-const dashboardHeroHighlights = computed(() => {
-  if (isCashierDashboard.value) {
-    return [
-      { label: "A encaisser maintenant", value: cashierCollections.value.readyToCash.length },
-      { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse) },
-      { label: "Documents a solder", value: (dashboardCommandesCards.value[3]?.value || 0) + (dashboardRetouchesCards.value[3]?.value || 0) }
-    ];
-  }
-  if (isTailorDashboard.value) {
-    return [
-      { label: "Travaux du jour", value: tailorCollections.value.dueToday.length },
-      { label: "En retard", value: tailorCollections.value.overdue.length },
-      { label: "Prets", value: tailorCollections.value.ready.length }
-    ];
-  }
-  return [
-    { label: "Clients actifs", value: dashboardClientsActifs.value?.value || 0 },
-    { label: "Commandes en cours", value: dashboardCommandesCards.value[1]?.value || 0 },
-    { label: "Retouches en cours", value: dashboardRetouchesCards.value[1]?.value || 0 }
-  ];
-});
-
-const dashboardHeroTags = computed(() => {
-  if (isCashierDashboard.value) return ["Caisse", "Encaissement", "Soldes", "Livraison"];
-  if (isTailorDashboard.value) return ["Production", "Echeances", "Priorites", "Habits"];
-  return ["Atelier", "Vue globale", "Suivi", "Performance"];
-});
-
-const recentCaisseActivity = computed(() => {
-  const ops = [...(caisseJour.value?.operations || [])].sort((a, b) => String(b.dateOperation).localeCompare(String(a.dateOperation)));
-  return ops.slice(0, 4).map((op) => ({
-    id: op.idOperation,
-    libelle: op.motif || op.typeOperation,
-    montant: op.typeOperation === "SORTIE" ? -Number(op.montant || 0) : Number(op.montant || 0)
-  }));
-});
-
-const caisseStatus = computed(() => caisseJour.value?.statutCaisse || "INCONNUE");
-const caisseOuverte = computed(() => caisseStatus.value === "OUVERTE");
-const caisseOperations = computed(() =>
-  [...(caisseJour.value?.operations || [])].sort((a, b) =>
-    String(b.dateOperation || "").localeCompare(String(a.dateOperation || ""))
-  )
-);
-const caisseOperationsPaged = computed(() => caisseOperations.value.slice(0, caisseOperationsVisibleCount.value));
-const caisseOperationsInfiniteEndReached = computed(
-  () => caisseOperations.value.length > 0 && caisseOperationsPaged.value.length >= caisseOperations.value.length
-);
-const caisseTotals = computed(() => {
-  const totalEntrees = Number(caisseJour.value?.totalEntreesJour ?? 0);
-  const totalSortiesQuotidiennes = Number(caisseJour.value?.totalSortiesQuotidiennesJour ?? 0);
-  const resultatJournalier = Number(caisseJour.value?.resultatJournalier ?? (totalEntrees - totalSortiesQuotidiennes));
-  const soldeJournalierRestant = Number(caisseJour.value?.soldeJournalierRestant ?? resultatJournalier);
-  const ops = caisseOperations.value.filter((op) => op.statutOperation !== "ANNULEE");
-  const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
-  return { totalEntrees, totalSorties, totalSortiesQuotidiennes, resultatJournalier, soldeJournalierRestant };
+const {
+  dashboardPrimaryMobileCards,
+  dashboardFinanceMobileCards,
+  dashboardSalesMobileCards,
+  isCashierDashboard,
+  isTailorDashboard,
+  dashboardRoleTone,
+  dashboardHeroEyebrow,
+  dashboardHeroTitle,
+  dashboardHeroSubtitle,
+  dashboardHeroHighlights,
+  dashboardHeroTags
+} = useDashboardPresentation({
+  currentRole,
+  dashboardCommandesCards,
+  dashboardRetouchesCards,
+  financeMetrics,
+  dashboardSalesMetrics,
+  cashierCollections,
+  tailorCollections,
+  dashboardClientsActifs,
+  formatCurrency,
+  formatPercent
 });
 
 const alerts = computed(() => {
@@ -7081,233 +6511,65 @@ const alerts = computed(() => {
   return items;
 });
 
-const statusOptions = computed(() => {
-  const dynamic = Array.from(new Set(commandes.value.map((row) => row.statutCommande).filter(Boolean)));
-  const ordered = ["CREEE", "EN_COURS", "TERMINEE", "LIVREE", "ANNULEE"];
-  const merged = ordered.filter((status) => dynamic.includes(status));
-  const rest = dynamic.filter((status) => !ordered.includes(status));
-  return ["ALL", ...merged, ...rest];
+const {
+  statusOptions,
+  commandesFiltered,
+  commandesSoldeRestantCount,
+  commandesPaged,
+  commandesInfiniteEndReached,
+  commandesKpi,
+  commandeClientOptions,
+  commandeFilterSummary
+} = useCommandesListViewModel({
+  commandes,
+  commandesView,
+  clients,
+  clientDirectory,
+  filters,
+  commandeClientQuery,
+  periodOptions,
+  soldeOptions,
+  commandesVisibleCount,
+  todayIso,
+  addDays
 });
 
-const commandesFiltered = computed(() => {
-  const today = todayIso();
-  const next7 = addDays(today, 7);
-  const clientQuery = commandeClientQuery.value.trim().toLowerCase();
-
-  return commandesView.value.filter((commande) => {
-    if (filters.statut !== "ALL" && commande.statutCommande !== filters.statut) return false;
-    if (filters.client !== "ALL" && commande.idClient !== filters.client) return false;
-
-    if (clientQuery) {
-      const ref = clientDirectory.value.get(commande.idClient) || { nomComplet: commande.clientNom || "", telephone: "" };
-      const haystackClient = `${commande.idClient || ""} ${ref.nomComplet || ""} ${ref.telephone || ""}`.toLowerCase();
-      if (!haystackClient.includes(clientQuery)) return false;
-    }
-
-    if (filters.periode === "TODAY" && commande.datePrevue !== today) return false;
-    if (filters.periode === "OVERDUE" && (!commande.datePrevue || commande.datePrevue >= today)) return false;
-    if (filters.periode === "NEXT_7") {
-      if (!commande.datePrevue) return false;
-      if (commande.datePrevue < today || commande.datePrevue > next7) return false;
-    }
-
-    if (filters.soldeRestant === "DUE" && commande.soldeRestant === 0) return false;
-    if (filters.soldeRestant === "PAID" && commande.soldeRestant > 0) return false;
-
-    const query = filters.recherche.trim().toLowerCase();
-    if (!query) return true;
-
-    const haystack = `${commande.idCommande} ${commande.clientNom} ${commande.statutCommande} ${commande.descriptionCommande}`.toLowerCase();
-    return haystack.includes(query);
-  });
+const {
+  retoucheStatusOptions,
+  retouchesFiltered,
+  retouchesSoldeRestantCount,
+  retouchesPaged,
+  retouchesInfiniteEndReached,
+  retouchesKpi,
+  retoucheClientOptions,
+  retoucheFilterSummary
+} = useRetouchesListViewModel({
+  retouches,
+  retouchesView,
+  clients,
+  clientDirectory,
+  retoucheFilters,
+  retoucheClientQuery,
+  periodOptions,
+  soldeOptions,
+  retouchesVisibleCount,
+  todayIso,
+  addDays
 });
-
-const commandesSoldeRestantCount = computed(() => commandesFiltered.value.filter((commande) => commande.soldeRestant > 0).length);
-const commandesPaged = computed(() => commandesFiltered.value.slice(0, commandesVisibleCount.value));
-const commandesInfiniteEndReached = computed(() => commandesFiltered.value.length > 0 && commandesPaged.value.length >= commandesFiltered.value.length);
-const commandesKpi = computed(() => ({
-  total: commandesFiltered.value.length,
-  enCours: commandesFiltered.value.filter((item) => item.statutCommande === "EN_COURS").length,
-  livrees: commandesFiltered.value.filter((item) => item.statutCommande === "LIVREE").length,
-  avecSolde: commandesSoldeRestantCount.value
-}));
-const commandeClientOptions = computed(() => {
-  const query = commandeClientQuery.value.trim().toLowerCase();
-  if (!query) return clients.value;
-  return clients.value.filter((client) => {
-    const haystack = `${client.idClient || ""} ${client.nom || ""} ${client.prenom || ""} ${client.telephone || ""}`.toLowerCase();
-    return haystack.includes(query);
-  });
+const { actionsById: commandeActionsById, loadActionsForId: loadCommandeActionsForId } = useEntityActions({
+  pagedRows: commandesPaged,
+  idKey: "idCommande",
+  fetchActions: (id) => atelierApi.getCommandeActions(id),
+  isRemoteEntityId,
+  detailState: detailCommandeActions
 });
-const commandeFilterSummary = computed(() => {
-  const summary = [];
-  if (filters.statut !== "ALL") summary.push(`Statut: ${filters.statut}`);
-  if (filters.client !== "ALL") summary.push("Client selectionne");
-  if (filters.periode !== "ALL") summary.push(periodOptions.find((option) => option.value === filters.periode)?.label || "Periode filtree");
-  if (filters.soldeRestant !== "ALL") summary.push(soldeOptions.find((option) => option.value === filters.soldeRestant)?.label || "Solde filtre");
-  if (commandeClientQuery.value.trim()) summary.push("Recherche client active");
-  if (filters.recherche.trim()) summary.push("Recherche texte active");
-  return summary.length > 0 ? summary.join(" · ") : "Aucun filtre applique";
+const { actionsById: retoucheActionsById, loadActionsForId: loadRetoucheActionsForId } = useEntityActions({
+  pagedRows: retouchesPaged,
+  idKey: "idRetouche",
+  fetchActions: (id) => atelierApi.getRetoucheActions(id),
+  isRemoteEntityId,
+  detailState: detailRetoucheActions
 });
-
-const retoucheStatusOptions = computed(() => {
-  const dynamic = Array.from(new Set(retouches.value.map((row) => row.statutRetouche).filter(Boolean)));
-  const ordered = ["DEPOSEE", "EN_COURS", "TERMINEE", "LIVREE", "ANNULEE"];
-  const merged = ordered.filter((status) => dynamic.includes(status));
-  const rest = dynamic.filter((status) => !ordered.includes(status));
-  return ["ALL", ...merged, ...rest];
-});
-
-const retouchesFiltered = computed(() => {
-  const today = todayIso();
-  const next7 = addDays(today, 7);
-  const clientQuery = retoucheClientQuery.value.trim().toLowerCase();
-
-  return retouchesView.value.filter((retouche) => {
-    if (retoucheFilters.statut !== "ALL" && retouche.statutRetouche !== retoucheFilters.statut) return false;
-    if (retoucheFilters.client !== "ALL" && retouche.idClient !== retoucheFilters.client) return false;
-
-    if (clientQuery) {
-      const ref = clientDirectory.value.get(retouche.idClient) || { nomComplet: retouche.clientNom || "", telephone: "" };
-      const haystackClient = `${retouche.idClient || ""} ${ref.nomComplet || ""} ${ref.telephone || ""}`.toLowerCase();
-      if (!haystackClient.includes(clientQuery)) return false;
-    }
-
-    if (retoucheFilters.periode === "TODAY" && retouche.datePrevue !== today) return false;
-    if (retoucheFilters.periode === "OVERDUE" && (!retouche.datePrevue || retouche.datePrevue >= today)) return false;
-    if (retoucheFilters.periode === "NEXT_7") {
-      if (!retouche.datePrevue) return false;
-      if (retouche.datePrevue < today || retouche.datePrevue > next7) return false;
-    }
-
-    if (retoucheFilters.soldeRestant === "DUE" && retouche.soldeRestant === 0) return false;
-    if (retoucheFilters.soldeRestant === "PAID" && retouche.soldeRestant > 0) return false;
-
-    const query = retoucheFilters.recherche.trim().toLowerCase();
-    if (!query) return true;
-
-    const haystack = `${retouche.idRetouche} ${retouche.clientNom} ${retouche.statutRetouche} ${retouche.descriptionRetouche}`.toLowerCase();
-    return haystack.includes(query);
-  });
-});
-
-const retouchesSoldeRestantCount = computed(() => retouchesFiltered.value.filter((retouche) => retouche.soldeRestant > 0).length);
-const retouchesPaged = computed(() => retouchesFiltered.value.slice(0, retouchesVisibleCount.value));
-const retouchesInfiniteEndReached = computed(() => retouchesFiltered.value.length > 0 && retouchesPaged.value.length >= retouchesFiltered.value.length);
-const retouchesKpi = computed(() => ({
-  total: retouchesFiltered.value.length,
-  enCours: retouchesFiltered.value.filter((item) => item.statutRetouche === "EN_COURS").length,
-  livrees: retouchesFiltered.value.filter((item) => item.statutRetouche === "LIVREE").length,
-  avecSolde: retouchesSoldeRestantCount.value
-}));
-const commandeActionsById = ref({});
-const retoucheActionsById = ref({});
-const retoucheClientOptions = computed(() => {
-  const query = retoucheClientQuery.value.trim().toLowerCase();
-  if (!query) return clients.value;
-  return clients.value.filter((client) => {
-    const haystack = `${client.idClient || ""} ${client.nom || ""} ${client.prenom || ""} ${client.telephone || ""}`.toLowerCase();
-    return haystack.includes(query);
-  });
-});
-const retoucheFilterSummary = computed(() => {
-  const summary = [];
-  if (retoucheFilters.statut !== "ALL") summary.push(`Statut: ${retoucheFilters.statut}`);
-  if (retoucheFilters.client !== "ALL") summary.push("Client selectionne");
-  if (retoucheFilters.periode !== "ALL") summary.push(periodOptions.find((option) => option.value === retoucheFilters.periode)?.label || "Periode filtree");
-  if (retoucheFilters.soldeRestant !== "ALL") summary.push(soldeOptions.find((option) => option.value === retoucheFilters.soldeRestant)?.label || "Solde filtre");
-  if (retoucheClientQuery.value.trim()) summary.push("Recherche client active");
-  if (retoucheFilters.recherche.trim()) summary.push("Recherche texte active");
-  return summary.length > 0 ? summary.join(" · ") : "Aucun filtre applique";
-});
-
-function hasActionEntry(store, id) {
-  return Object.prototype.hasOwnProperty.call(store.value || {}, String(id || ""));
-}
-
-function readActionEntry(store, id) {
-  return (store.value || {})[String(id || "")] || null;
-}
-
-function normalizeActionFlags(payload) {
-  const actions = payload?.actions && typeof payload.actions === "object" ? payload.actions : {};
-  return {
-    voir: actions.voir === true,
-    payer: actions.payer === true,
-    terminer: actions.terminer === true,
-    livrer: actions.livrer === true,
-    annuler: actions.annuler === true,
-    modifier: actions.modifier === true
-  };
-}
-
-async function loadCommandeActionsForId(idCommande, { force = false, detail = false } = {}) {
-  const id = String(idCommande || "");
-  if (!id) return null;
-  if (!isRemoteEntityId(id)) {
-    commandeActionsById.value = { ...commandeActionsById.value, [id]: null };
-    if (detail) detailCommandeActions.value = null;
-    return null;
-  }
-  if (!force && hasActionEntry(commandeActionsById, id)) {
-    const cached = readActionEntry(commandeActionsById, id);
-    if (detail) detailCommandeActions.value = cached;
-    return cached;
-  }
-  const previous = readActionEntry(commandeActionsById, id);
-  try {
-    const payload = await atelierApi.getCommandeActions(id);
-    const normalized = normalizeActionFlags(payload);
-    commandeActionsById.value = { ...commandeActionsById.value, [id]: normalized };
-    if (detail) detailCommandeActions.value = normalized;
-    return normalized;
-  } catch {
-    commandeActionsById.value = { ...commandeActionsById.value, [id]: previous };
-    if (detail) detailCommandeActions.value = previous;
-    return previous;
-  }
-}
-
-async function loadRetoucheActionsForId(idRetouche, { force = false, detail = false } = {}) {
-  const id = String(idRetouche || "");
-  if (!id) return null;
-  if (!isRemoteEntityId(id)) {
-    retoucheActionsById.value = { ...retoucheActionsById.value, [id]: null };
-    if (detail) detailRetoucheActions.value = null;
-    return null;
-  }
-  if (!force && hasActionEntry(retoucheActionsById, id)) {
-    const cached = readActionEntry(retoucheActionsById, id);
-    if (detail) detailRetoucheActions.value = cached;
-    return cached;
-  }
-  const previous = readActionEntry(retoucheActionsById, id);
-  try {
-    const payload = await atelierApi.getRetoucheActions(id);
-    const normalized = normalizeActionFlags(payload);
-    retoucheActionsById.value = { ...retoucheActionsById.value, [id]: normalized };
-    if (detail) detailRetoucheActions.value = normalized;
-    return normalized;
-  } catch {
-    retoucheActionsById.value = { ...retoucheActionsById.value, [id]: previous };
-    if (detail) detailRetoucheActions.value = previous;
-    return previous;
-  }
-}
-
-watch(commandesPaged, (rows) => {
-  const ids = (rows || []).map((row) => row?.idCommande).filter(Boolean);
-  for (const id of ids) {
-    void loadCommandeActionsForId(id, { force: false, detail: false });
-  }
-}, { immediate: true });
-
-watch(retouchesPaged, (rows) => {
-  const ids = (rows || []).map((row) => row?.idRetouche).filter(Boolean);
-  for (const id of ids) {
-    void loadRetoucheActionsForId(id, { force: false, detail: false });
-  }
-}, { immediate: true });
 
 const selectedCommande = computed(() =>
   commandesView.value.find((commande) => commande.idCommande === selectedCommandeId.value) || null
@@ -15315,1437 +14577,163 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           @demote-owner="demoteSystemAtelierOwner"
         />
 
-        <section v-if="currentRoute === 'dashboard'" class="dashboard classic-dashboard" :class="`dashboard-role-${dashboardRoleTone}`">
-        <MobilePageLayout :has-action="isMobileViewport && (isCashierDashboard || isTailorDashboard || canCreateCommande || canCreateRetouche)">
-        <article class="panel dashboard-filter dashboard-hero">
-          <div class="dashboard-hero-copy">
-            <p class="mobile-overline dashboard-hero-eyebrow">{{ dashboardHeroEyebrow }}</p>
-            <h3>{{ dashboardHeroTitle }}</h3>
-            <p class="helper dashboard-hero-subtitle">{{ dashboardHeroSubtitle }}</p>
-            <div class="dashboard-hero-tags">
-              <span v-for="tag in dashboardHeroTags" :key="tag" class="dashboard-hero-tag">{{ tag }}</span>
-            </div>
-          </div>
-          <div class="dashboard-hero-side">
-            <div class="dashboard-hero-highlights">
-              <article v-for="item in dashboardHeroHighlights" :key="item.label" class="dashboard-highlight-card">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </article>
-            </div>
-            <div class="row-actions dashboard-hero-controls">
-              <p v-if="dashboardClientsActifs && !isCashierDashboard && !isTailorDashboard" class="helper"><strong>Clients actifs:</strong> {{ dashboardClientsActifs.value }}</p>
-              <select v-model="dashboardPeriod">
-                <option v-for="option in dashboardPeriodOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </div>
-          </div>
-        </article>
-
-        <ResponsiveDataContainer :mobile="isMobileViewport">
-          <template #mobile>
-            <template v-if="isCashierDashboard">
-              <article class="panel dashboard-focus-panel">
-                <MobileSectionHeader
-                  title="Vue caisse"
-                  subtitle="Les encaissements et soldes a traiter en priorite."
-                />
-                <DashboardMetricCardGrid :items="cashierDashboardCards" />
-              </article>
-
-              <article class="panel dashboard-focus-panel">
-                <MobileSectionHeader
-                  title="Prets a encaisser"
-                  subtitle="Documents termines avec solde restant."
-                />
-                <DashboardActivityMobileList
-                  :items="cashierCollections.readyToCash"
-                  title="Pret a encaisser"
-                  empty-label="Aucun document pret a encaisser"
-                  tone="warning"
-                  badge-label="Solde"
-                />
-              </article>
-
-              <article class="panel dashboard-focus-panel">
-                <MobileSectionHeader
-                  title="Commandes avec solde"
-                  subtitle="Les commandes qui attendent encore un paiement."
-                />
-                <DashboardActivityMobileList
-                  :items="cashierCollections.commandes"
-                  title="Commande"
-                  empty-label="Aucune commande avec solde"
-                  tone="info"
-                />
-              </article>
-
-              <article class="panel dashboard-focus-panel">
-                <MobileSectionHeader
-                  title="Retouches avec solde"
-                  subtitle="Les retouches a solder ou finaliser."
-                />
-                <DashboardActivityMobileList
-                  :items="cashierCollections.retouches"
-                  title="Retouche"
-                  empty-label="Aucune retouche avec solde"
-                  tone="info"
-                />
-              </article>
-
-              <article class="panel dashboard-focus-panel">
-                <MobileSectionHeader
-                  title="Activite caisse recente"
-                  subtitle="Les dernieres operations de caisse enregistrees."
-                />
-                <DashboardActivityMobileList
-                  :items="recentCaisseActivity"
-                  title="Activite caisse"
-                  empty-label="Aucune operation recente"
-                  tone="info"
-                  :value-formatter="formatCurrency"
-                />
-              </article>
-
-              <article class="panel alerts dashboard-focus-panel dashboard-focus-panel--warn">
-                <MobileSectionHeader
-                  title="Points d'attention"
-                  subtitle="Ce qui peut bloquer l'encaissement ou la livraison."
-                />
-                <DashboardActivityMobileList
-                  :items="cashierAlerts"
-                  title="Alerte caisse"
-                  empty-label="Aucune alerte de caisse"
-                  tone="warning"
-                  badge-label="Alerte"
-                />
-              </article>
-            </template>
-
-            <template v-else-if="isTailorDashboard">
-              <article class="panel dashboard-focus-panel">
-                <MobileSectionHeader
-                  title="Vue production"
-                  subtitle="Les travaux en cours et les echeances les plus proches."
-                />
-                <DashboardMetricCardGrid :items="tailorDashboardCards" />
-              </article>
-
-              <article class="panel dashboard-focus-panel">
-                <MobileSectionHeader
-                  title="A traiter aujourd'hui"
-                  subtitle="Travaux prevus sur la journee."
-                />
-                <DashboardActivityMobileList
-                  :items="tailorCollections.dueToday"
-                  title="Travail du jour"
-                  empty-label="Aucun travail prevu aujourd'hui"
-                  tone="info"
-                />
-              </article>
-
-              <article class="panel alerts dashboard-focus-panel dashboard-focus-panel--warn">
-                <MobileSectionHeader
-                  title="Travaux en retard"
-                  subtitle="Dossiers de production qui demandent une attention immediate."
-                />
-                <DashboardActivityMobileList
-                  :items="tailorCollections.overdue"
-                  title="Travail en retard"
-                  empty-label="Aucun travail en retard"
-                  tone="warning"
-                  badge-label="Urgent"
-                />
-              </article>
-
-              <article class="panel dashboard-focus-panel">
-                <MobileSectionHeader
-                  title="Prets a remettre"
-                  subtitle="Travaux termines a pousser vers la livraison."
-                />
-                <DashboardActivityMobileList
-                  :items="tailorCollections.ready"
-                  title="Travail pret"
-                  empty-label="Aucun travail pret"
-                  tone="info"
-                  badge-label="Pret"
-                />
-              </article>
-
-              <article class="panel dashboard-focus-panel">
-                <MobileSectionHeader
-                  title="Activite recente"
-                  subtitle="Les derniers mouvements utiles cote production."
-                />
-                <DashboardRecentWorkMobileList
-                  v-if="dashboardProductionRecentRows.length > 0"
-                  :items="dashboardProductionRecentRows"
-                  :format-currency="formatCurrency"
-                />
-                <MobileStateEmpty
-                  v-else
-                  title="Aucune activite recente"
-                  description="Aucune commande ou retouche recente sur la periode choisie."
-                />
-              </article>
-            </template>
-
-            <template v-else>
-            <article class="panel">
-              <MobileSectionHeader
-                title="Indicateurs cles"
-                subtitle="Les indicateurs prioritaires pour piloter la journee."
-              />
-              <DashboardMetricCardGrid :items="dashboardPrimaryMobileCards" />
-            </article>
-
-            <article class="panel">
-              <MobileSectionHeader
-                title="Caisse et encaissements"
-                subtitle="Lecture rapide de la situation financiere."
-              />
-              <DashboardMetricCardGrid :items="dashboardFinanceMobileCards" />
-            </article>
-
-            <article class="panel">
-              <MobileSectionHeader
-                title="Ventes stock"
-                subtitle="Performance recente des ventes atelier."
-              />
-              <DashboardMetricCardGrid :items="dashboardSalesMobileCards" />
-            </article>
-
-            <article class="panel">
-              <MobileSectionHeader
-                title="Activite recente"
-                subtitle="Les derniers mouvements les plus utiles."
-              />
-              <DashboardRecentWorkMobileList
-                v-if="recentWorkRows.length > 0"
-                :items="recentWorkRows"
-                :format-currency="formatCurrency"
-              />
-              <MobileStateEmpty
-                v-else
-                title="Aucune activite recente"
-                description="Aucune commande, retouche ou vente recente sur la periode choisie."
-              />
-            </article>
-
-            <article class="panel">
-              <MobileSectionHeader
-                title="Activite caisse recente"
-                subtitle="Les dernieres operations de caisse enregistrees."
-              />
-              <DashboardActivityMobileList
-                :items="recentCaisseActivity"
-                title="Activite caisse"
-                empty-label="Aucune operation recente"
-                tone="info"
-                :value-formatter="formatCurrency"
-              />
-            </article>
-
-            <article class="panel alerts">
-              <MobileSectionHeader
-                title="Alertes"
-                subtitle="Points d'attention a traiter rapidement."
-              />
-              <DashboardActivityMobileList
-                :items="alerts"
-                title="Alertes"
-                empty-label="Aucune alerte active"
-                tone="warning"
-                badge-label="Alerte"
-              />
-            </article>
-
-            <article v-if="canAccessContactFollowUpDashboard" class="panel">
-              <MobileSectionHeader
-                title="Suivi client"
-                subtitle="Relances et notifications a traiter rapidement."
-              />
-              <DashboardMetricCardGrid :items="dashboardFollowUpCards" />
-              <p v-if="dashboardContactBoardLoading" class="helper">Chargement du suivi client...</p>
-              <p v-else-if="dashboardContactBoardError" class="helper">{{ dashboardContactBoardError }}</p>
-            </article>
-
-            <article v-if="canAccessContactFollowUpDashboard" class="panel">
-              <MobileSectionHeader
-                title="Clients a relancer"
-                subtitle="Clients avec relance encore ouverte."
-              />
-              <DashboardActivityMobileList
-                :items="dashboardClientsToFollowUpMobileItems"
-                title="Relance client"
-                empty-label="Aucun client a relancer"
-                tone="warning"
-                badge-label="Relance"
-              />
-            </article>
-
-            <article v-if="canAccessContactFollowUpDashboard" class="panel">
-              <MobileSectionHeader
-                title="Commandes pretes a signaler"
-                subtitle="Commandes terminees sans suivi client enregistre."
-              />
-              <DashboardActivityMobileList
-                :items="dashboardCommandesToNotifyMobileItems"
-                title="Commande prete"
-                empty-label="Aucune commande en attente de signalement"
-                tone="info"
-                badge-label="Commande"
-              />
-            </article>
-
-            <article v-if="canAccessContactFollowUpDashboard" class="panel">
-              <MobileSectionHeader
-                title="Retouches pretes a signaler"
-                subtitle="Retouches terminees sans suivi client enregistre."
-              />
-              <DashboardActivityMobileList
-                :items="dashboardRetouchesToNotifyMobileItems"
-                title="Retouche prete"
-                empty-label="Aucune retouche en attente de signalement"
-                tone="info"
-                badge-label="Retouche"
-              />
-            </article>
-            </template>
-          </template>
-
-          <template #desktop>
-            <template v-if="isCashierDashboard">
-              <article class="panel">
-                <h3>Vue caisse</h3>
-                <DashboardMetricCardGrid :items="cashierDashboardCards" :columns="3" compact />
-              </article>
-
-              <div class="split-grid legacy-split">
-                <article class="panel dashboard-focus-panel">
-                  <h3>Documents prets a encaisser</h3>
-                  <ul class="activity-list activity-list--stacked">
-                    <li v-for="item in cashierCollections.readyToCash" :key="item.id">
-                      <div class="activity-copy">
-                        <strong>{{ item.libelle }}</strong>
-                        <small>{{ item.description }}</small>
-                      </div>
-                    </li>
-                    <li v-if="cashierCollections.readyToCash.length === 0">
-                      <span>Aucun document pret a encaisser.</span>
-                    </li>
-                  </ul>
-                  <div class="quick-inline">
-                    <button class="action-btn blue" @click="openRoute('caisse')">Ouvrir la caisse</button>
-                    <button class="action-btn green" @click="openRoute('facturation')">Voir facturation</button>
-                  </div>
-                </article>
-
-                <div class="stack">
-                  <article class="panel dashboard-focus-panel">
-                    <h3>Activite caisse recente</h3>
-                    <ul class="activity-list">
-                      <li v-for="item in recentCaisseActivity" :key="item.id">
-                        <span>{{ item.libelle }}</span>
-                        <strong>{{ formatCurrency(item.montant) }}</strong>
-                      </li>
-                      <li v-if="recentCaisseActivity.length === 0">
-                        <span>Aucune operation recente.</span>
-                      </li>
-                    </ul>
-                  </article>
-
-                  <article class="panel alerts dashboard-focus-panel dashboard-focus-panel--warn">
-                    <h3>Points d'attention</h3>
-                    <ul class="activity-list activity-list--stacked">
-                      <li v-for="item in cashierAlerts" :key="item.id">
-                        <div class="activity-copy">
-                          <strong>{{ item.libelle }}</strong>
-                          <small>{{ item.description }}</small>
-                        </div>
-                      </li>
-                      <li v-if="cashierAlerts.length === 0">
-                        <span>Aucune alerte de caisse.</span>
-                      </li>
-                    </ul>
-                  </article>
-                </div>
-              </div>
-
-              <div class="split-grid legacy-split">
-                <article class="panel dashboard-focus-panel">
-                  <h3>Commandes avec solde</h3>
-                  <ul class="activity-list activity-list--stacked">
-                    <li v-for="item in cashierCollections.commandes" :key="item.id">
-                      <div class="activity-copy">
-                        <strong>{{ item.libelle }}</strong>
-                        <small>{{ item.description }}</small>
-                      </div>
-                    </li>
-                    <li v-if="cashierCollections.commandes.length === 0">
-                      <span>Aucune commande avec solde.</span>
-                    </li>
-                  </ul>
-                </article>
-
-                <article class="panel dashboard-focus-panel">
-                  <h3>Retouches avec solde</h3>
-                  <ul class="activity-list activity-list--stacked">
-                    <li v-for="item in cashierCollections.retouches" :key="item.id">
-                      <div class="activity-copy">
-                        <strong>{{ item.libelle }}</strong>
-                        <small>{{ item.description }}</small>
-                      </div>
-                    </li>
-                    <li v-if="cashierCollections.retouches.length === 0">
-                      <span>Aucune retouche avec solde.</span>
-                    </li>
-                  </ul>
-                </article>
-              </div>
-            </template>
-
-            <template v-else-if="isTailorDashboard">
-              <article class="panel dashboard-focus-panel">
-                <h3>Vue production</h3>
-                <DashboardMetricCardGrid :items="tailorDashboardCards" :columns="3" compact />
-              </article>
-
-              <div class="split-grid legacy-split">
-                <article class="panel dashboard-focus-panel">
-                  <h3>A traiter aujourd'hui</h3>
-                  <ul class="activity-list activity-list--stacked">
-                    <li v-for="item in tailorCollections.dueToday" :key="item.id">
-                      <div class="activity-copy">
-                        <strong>{{ item.libelle }}</strong>
-                        <small>{{ item.description }}</small>
-                      </div>
-                    </li>
-                    <li v-if="tailorCollections.dueToday.length === 0">
-                      <span>Aucun travail prevu aujourd'hui.</span>
-                    </li>
-                  </ul>
-                  <div class="quick-inline">
-                    <button class="action-btn blue" @click="openRoute('commandes')">Voir commandes</button>
-                    <button class="action-btn green" @click="openRoute('retouches')">Voir retouches</button>
-                  </div>
-                </article>
-
-                <div class="stack">
-                  <article class="panel alerts dashboard-focus-panel dashboard-focus-panel--warn">
-                    <h3>Travaux en retard</h3>
-                    <ul class="activity-list activity-list--stacked">
-                      <li v-for="item in tailorCollections.overdue" :key="item.id">
-                        <div class="activity-copy">
-                          <strong>{{ item.libelle }}</strong>
-                          <small>{{ item.description }}</small>
-                        </div>
-                      </li>
-                      <li v-if="tailorCollections.overdue.length === 0">
-                        <span>Aucun travail en retard.</span>
-                      </li>
-                    </ul>
-                  </article>
-
-                  <article class="panel dashboard-focus-panel">
-                    <h3>Prets a remettre</h3>
-                    <ul class="activity-list activity-list--stacked">
-                      <li v-for="item in tailorCollections.ready" :key="item.id">
-                        <div class="activity-copy">
-                          <strong>{{ item.libelle }}</strong>
-                          <small>{{ item.description }}</small>
-                        </div>
-                      </li>
-                      <li v-if="tailorCollections.ready.length === 0">
-                        <span>Aucun travail pret.</span>
-                      </li>
-                    </ul>
-                  </article>
-                </div>
-              </div>
-            </template>
-
-            <template v-else>
-            <div class="kpi-grid legacy-kpi-grid">
-              <article v-for="card in dashboardCommandesCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
-                <div class="kpi-head"><span>{{ card.label }}</span></div>
-                <strong>{{ card.value }}</strong>
-              </article>
-            </div>
-
-            <div class="kpi-grid legacy-kpi-grid">
-              <article v-for="card in dashboardRetouchesCards" :key="card.label" class="kpi-card legacy-kpi" :data-tone="card.tone">
-                <div class="kpi-head"><span>{{ card.label }}</span></div>
-                <strong>{{ card.value }}</strong>
-              </article>
-            </div>
-
-            <article class="panel finance-band">
-              <div class="money-item">
-                <p>Solde Caisse</p>
-                <strong>{{ formatCurrency(financeMetrics.soldeCaisse) }}</strong>
-              </div>
-              <div class="money-item green">
-                <p>Total Encaissement</p>
-                <strong>{{ formatCurrency(financeMetrics.totalEncaissement) }}</strong>
-              </div>
-              <div class="money-item red">
-                <p>Depenses du Jour</p>
-                <strong>{{ formatCurrency(financeMetrics.depensesJour) }}</strong>
-              </div>
-              <div class="money-item red">
-                <p>Acomptes encaisses</p>
-                <strong>{{ formatCurrency(financeMetrics.acomptesEncaisses) }}</strong>
-              </div>
-            </article>
-
-            <article class="panel finance-band">
-              <div class="money-item">
-                <p>Ventes stock</p>
-                <strong>{{ dashboardSalesMetrics.nombreVentes }}</strong>
-              </div>
-              <div class="money-item blue">
-                <p>CA ventes stock</p>
-                <strong>{{ formatCurrency(dashboardSalesMetrics.chiffreAffaires) }}</strong>
-              </div>
-              <div class="money-item green">
-                <p>Benefice brut</p>
-                <strong>{{ formatCurrency(dashboardSalesMetrics.beneficeBrut) }}</strong>
-              </div>
-              <div class="money-item teal">
-                <p>Taux de marge</p>
-                <strong>{{ formatPercent(dashboardSalesMetrics.margeMoyenne) }}</strong>
-              </div>
-            </article>
-
-            <div class="split-grid legacy-split">
-              <article class="panel">
-                <h3>Dernieres Commandes</h3>
-                <table class="data-table mobile-stack-table">
-                  <thead>
-                    <tr>
-                      <th>Client</th>
-                      <th>Type</th>
-                      <th>Statut</th>
-                      <th>Montant</th>
-                      <th>Avance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="row in recentWorkRows" :key="row.id">
-                      <td data-label="Client">{{ row.clientNom }}</td>
-                      <td data-label="Type">{{ row.type }}</td>
-                      <td data-label="Statut">{{ row.statut }}</td>
-                      <td data-label="Montant">{{ formatCurrency(row.montantTotal) }}</td>
-                      <td data-label="Avance">{{ formatCurrency(row.avancePayee) }}</td>
-                    </tr>
-                    <tr v-if="recentWorkRows.length === 0">
-                      <td colspan="5">Aucune activite recente.</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div class="quick-inline">
-                  <button class="action-btn blue" @click="openNouvelleCommande">Nouvelle Commande</button>
-                  <button class="action-btn green" @click="openNouvelleRetouche">Nouvelle Retouche</button>
-                </div>
-              </article>
-
-              <div class="stack">
-                <article class="panel">
-                  <h3>Activite Caisse Recente</h3>
-                  <ul class="activity-list">
-                    <li v-for="item in recentCaisseActivity" :key="item.id">
-                      <span>{{ item.libelle }}</span>
-                      <strong>{{ formatCurrency(item.montant) }}</strong>
-                    </li>
-                    <li v-if="recentCaisseActivity.length === 0">
-                      <span>Aucune operation recente.</span>
-                    </li>
-                  </ul>
-                </article>
-
-                <article class="panel alerts">
-                  <h3>
-                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path v-for="(path, i) in iconPaths.alert" :key="`alert-${i}`" :d="path" />
-                    </svg>
-                    Alertes
-                  </h3>
-                  <ul class="activity-list">
-                    <li v-for="alert in alerts" :key="alert.label">
-                      <span class="status-pill" :data-tone="alert.tone">Alerte</span>
-                      <span>{{ alert.label }}</span>
-                    </li>
-                    <li v-if="alerts.length === 0">
-                      <span>Aucune alerte active.</span>
-                    </li>
-                  </ul>
-                </article>
-              </div>
-            </div>
-
-            <article v-if="canAccessContactFollowUpDashboard" class="panel">
-              <h3>Suivi client</h3>
-              <DashboardMetricCardGrid :items="dashboardFollowUpCards" :columns="4" compact />
-              <p v-if="dashboardContactBoardLoading" class="helper">Chargement du suivi client...</p>
-              <p v-else-if="dashboardContactBoardError" class="helper">{{ dashboardContactBoardError }}</p>
-            </article>
-
-            <div v-if="canAccessContactFollowUpDashboard" class="stack">
-              <article class="panel">
-                <h3>Clients a relancer</h3>
-                <ul class="activity-list activity-list--stacked">
-                  <li v-for="item in dashboardContactBoard.clientsARelancer.items" :key="item.idClient">
-                    <div class="activity-copy">
-                      <strong>{{ item.nomClient || item.telephone || item.idClient }}</strong>
-                      <small>{{ formatDashboardClientFollowUpDescription(item) }}</small>
-                    </div>
-                  </li>
-                  <li v-if="dashboardContactBoard.clientsARelancer.items.length === 0">
-                    <span>Aucun client a relancer.</span>
-                  </li>
-                </ul>
-              </article>
-
-              <article class="panel">
-                <h3>Commandes pretes a signaler</h3>
-                <ul class="activity-list activity-list--stacked">
-                  <li v-for="item in dashboardContactBoard.commandesPretesNonSignalees.items" :key="item.idCommande">
-                    <div class="activity-copy">
-                      <strong>{{ `${item.idCommande} - ${item.clientNom || item.idClient}` }}</strong>
-                      <small>{{ formatDashboardPendingCommandeDescription(item) }}</small>
-                    </div>
-                  </li>
-                  <li v-if="dashboardContactBoard.commandesPretesNonSignalees.items.length === 0">
-                    <span>Aucune commande en attente de signalement.</span>
-                  </li>
-                </ul>
-              </article>
-
-              <article class="panel">
-                <h3>Retouches pretes a signaler</h3>
-                <ul class="activity-list activity-list--stacked">
-                  <li v-for="item in dashboardContactBoard.retouchesPretesNonSignalees.items" :key="item.idRetouche">
-                    <div class="activity-copy">
-                      <strong>{{ `${item.idRetouche} - ${item.clientNom || item.idClient}` }}</strong>
-                      <small>{{ formatDashboardPendingRetoucheDescription(item) }}</small>
-                    </div>
-                  </li>
-                  <li v-if="dashboardContactBoard.retouchesPretesNonSignalees.items.length === 0">
-                    <span>Aucune retouche en attente de signalement.</span>
-                  </li>
-                </ul>
-              </article>
-            </div>
-            </template>
-          </template>
-        </ResponsiveDataContainer>
-
-        <template #action>
-          <MobilePrimaryActionBar
-            v-if="isMobileViewport && isCashierDashboard"
-            title="Action principale"
-            subtitle="Accedez rapidement a la caisse du jour."
-          >
-            <button class="action-btn blue" @click="openRoute('caisse')">Ouvrir la caisse</button>
-          </MobilePrimaryActionBar>
-          <MobilePrimaryActionBar
-            v-else-if="isMobileViewport && isTailorDashboard && canAccessRoute('commandes')"
-            title="Action principale"
-            subtitle="Consultez rapidement les commandes a traiter."
-          >
-            <button class="action-btn blue" @click="openRoute('commandes')">Voir commandes</button>
-          </MobilePrimaryActionBar>
-          <MobilePrimaryActionBar
-            v-else-if="isMobileViewport && canCreateCommande"
-            title="Action principale"
-            subtitle="Commencez rapidement une nouvelle commande."
-          >
-            <button class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
-          </MobilePrimaryActionBar>
-          <MobilePrimaryActionBar
-            v-else-if="isMobileViewport && canCreateRetouche"
-            title="Action principale"
-            subtitle="Commencez rapidement une nouvelle retouche."
-          >
-            <button class="action-btn green" @click="openNouvelleRetouche">Nouvelle retouche</button>
-          </MobilePrimaryActionBar>
-        </template>
-        </MobilePageLayout>
-      </section>
-
-        <section v-else-if="currentRoute === 'dossiers'" class="commandes-page">
-          <ResponsiveDataContainer :mobile="isMobileViewport">
-            <template #mobile>
-              <article class="panel panel-header">
-                <MobileSectionHeader
-                  eyebrow="Dossiers"
-                  title="Centre des operations atelier"
-                  subtitle="Familles, groupes et operations mixtes commandes + retouches."
-                >
-                  <template #actions>
-                    <button class="action-btn blue" @click="openCreateDossierModal">Nouveau dossier</button>
-                  </template>
-                </MobileSectionHeader>
-              </article>
-
-              <article class="panel stack-form">
-                <input v-model="dossierFilters.recherche" type="search" placeholder="Rechercher un responsable, un telephone ou un dossier" />
-                <div class="grid-2 dossier-filter-grid">
-                  <select v-model="dossierFilters.type">
-                    <option value="ALL">Tous les types</option>
-                    <option value="INDIVIDUEL">Individuel</option>
-                    <option value="FAMILLE">Famille</option>
-                    <option value="GROUPE">Groupe</option>
-                  </select>
-                  <select v-model="dossierFilters.statut">
-                    <option value="ALL">Tous les statuts</option>
-                    <option value="ACTIF">Actif</option>
-                    <option value="SOLDE">Solde</option>
-                    <option value="CLOTURE">Cloture</option>
-                  </select>
-                </div>
-                <div class="row-between dossier-filter-summary">
-                  <p class="helper">{{ dossiersFiltered.length }} dossier(s) visible(s)</p>
-                  <button class="mini-btn" type="button" @click="resetDossierFilters">Reinitialiser</button>
-                </div>
-              </article>
-
-              <div v-if="dossiersPaged.length > 0" class="stack-list">
-                <article v-for="dossier in dossiersPaged" :key="dossier.idDossier" class="panel dossier-card" @click="openDossierDetail(dossier.idDossier)">
-                  <div class="row-between">
-                    <div>
-                      <p class="mobile-overline">{{ dossier.typeDossier }}</p>
-                      <h3>{{ dossier.responsable.nomComplet || dossier.idDossier }}</h3>
-                      <p class="helper">{{ dossier.responsable.telephone || "Sans telephone" }}</p>
-                    </div>
-                    <span class="status-chip">{{ dossier.statutDossier }}</span>
-                  </div>
-                  <div class="dossier-card-signal" :data-tone="dossierPrimarySignal(dossier).tone">
-                    <strong>{{ dossierPrimarySignal(dossier).label }}</strong>
-                    <span>{{ dossierPrimarySignal(dossier).detail }}</span>
-                  </div>
-                  <p class="helper dossier-card-summary">{{ dossierSummaryLine(dossier) }}</p>
-                  <div class="mobile-kpi-grid dossier-kpis">
-                    <div class="mobile-kpi dossier-mobile-kpi-card">
-                      <span>Commandes</span>
-                      <strong>{{ dossier.totalCommandes }}</strong>
-                    </div>
-                    <div class="mobile-kpi dossier-mobile-kpi-card">
-                      <span>Retouches</span>
-                      <strong>{{ dossier.totalRetouches }}</strong>
-                    </div>
-                    <div class="mobile-kpi dossier-mobile-kpi-card">
-                      <span>Total</span>
-                      <strong class="dossier-value-blue">{{ formatCurrency(dossier.totalMontant) }}</strong>
-                    </div>
-                    <div class="mobile-kpi dossier-mobile-kpi-card">
-                      <span>Total paye</span>
-                      <strong class="dossier-value-green">{{ formatCurrency(dossier.totalPaye) }}</strong>
-                    </div>
-                    <div class="mobile-kpi dossier-mobile-kpi-card">
-                      <span>Reste</span>
-                      <strong class="dossier-value-red">{{ formatCurrency(dossier.soldeRestant) }}</strong>
-                    </div>
-                  </div>
-                  <div class="row-between dossier-card-footer">
-                    <p class="helper">Activite : {{ formatDossierLastActivity(dossier) }}</p>
-                    <span class="mini-btn gray">Ouvrir</span>
-                  </div>
-                </article>
-              </div>
-              <div v-if="dossiersPaged.length > 0 && dossiersPaged.length < dossiersFiltered.length" ref="dossierInfiniteSentinel" class="dossier-infinite-sentinel">
-                <span class="helper">Chargement des dossiers suivants...</span>
-              </div>
-              <article v-else-if="dossiersFiltered.length === 0" class="panel empty-state">
-                <h3>{{ dossierEmptyStateTitle }}</h3>
-                <p>{{ dossierEmptyStateDescription }}</p>
-              </article>
-            </template>
-
-            <template #desktop>
-              <article class="panel panel-header">
-                <MobileSectionHeader
-                  eyebrow="Dossiers"
-                  title="Centre des operations atelier"
-                  subtitle="Le dossier devient le point d'entree principal pour les familles, groupes et clients individuels."
-                >
-                  <template #actions>
-                    <button class="action-btn blue" @click="openCreateDossierModal">Nouveau dossier</button>
-                  </template>
-                </MobileSectionHeader>
-              </article>
-
-              <article class="panel">
-                <div class="grid-3 dossier-filter-grid">
-                  <input v-model="dossierFilters.recherche" type="search" placeholder="Rechercher un responsable, un telephone ou un dossier" />
-                  <select v-model="dossierFilters.type">
-                    <option value="ALL">Tous les types</option>
-                    <option value="INDIVIDUEL">Individuel</option>
-                    <option value="FAMILLE">Famille</option>
-                    <option value="GROUPE">Groupe</option>
-                  </select>
-                  <select v-model="dossierFilters.statut">
-                    <option value="ALL">Tous les statuts</option>
-                    <option value="ACTIF">Actif</option>
-                    <option value="SOLDE">Solde</option>
-                    <option value="CLOTURE">Cloture</option>
-                  </select>
-                </div>
-                <div class="row-between dossier-filter-summary">
-                  <p class="helper">{{ dossiersFiltered.length }} dossier(s) visible(s)</p>
-                  <button class="mini-btn" type="button" @click="resetDossierFilters">Reinitialiser</button>
-                </div>
-              </article>
-
-              <div v-if="dossiersPaged.length > 0" class="dossier-grid dossier-grid-desktop">
-                <article v-for="dossier in dossiersPaged" :key="dossier.idDossier" class="panel dossier-card dossier-card-desktop" @click="openDossierDetail(dossier.idDossier)">
-                  <div class="row-between">
-                    <div>
-                      <p class="mobile-overline">{{ dossier.typeDossier }}</p>
-                      <h3>{{ dossier.responsable.nomComplet || dossier.idDossier }}</h3>
-                      <p class="helper">{{ dossier.responsable.telephone || "Sans telephone" }}</p>
-                    </div>
-                    <div class="dossier-badge-stack">
-                      <span class="status-pill" data-tone="ok">{{ dossier.typeDossier }}</span>
-                      <span class="status-chip">{{ dossier.statutDossier }}</span>
-                    </div>
-                  </div>
-                  <div class="dossier-card-signal" :data-tone="dossierPrimarySignal(dossier).tone">
-                    <strong>{{ dossierPrimarySignal(dossier).label }}</strong>
-                    <span>{{ dossierPrimarySignal(dossier).detail }}</span>
-                  </div>
-                  <p class="helper dossier-card-summary">{{ dossierSummaryLine(dossier) }}</p>
-                  <div class="dossier-workspace-kpi-grid dossier-kpis-desktop">
-                    <article class="dossier-kpi-card">
-                      <span>Commandes</span>
-                      <strong>{{ dossier.totalCommandes }}</strong>
-                    </article>
-                    <article class="dossier-kpi-card">
-                      <span>Retouches</span>
-                      <strong>{{ dossier.totalRetouches }}</strong>
-                    </article>
-                    <article class="dossier-kpi-card">
-                      <span>Total</span>
-                      <strong class="dossier-value-blue">{{ formatCurrency(dossier.totalMontant) }}</strong>
-                    </article>
-                    <article class="dossier-kpi-card">
-                      <span>Total paye</span>
-                      <strong class="dossier-value-green">{{ formatCurrency(dossier.totalPaye) }}</strong>
-                    </article>
-                    <article class="dossier-kpi-card">
-                      <span>Reste</span>
-                      <strong class="dossier-value-red">{{ formatCurrency(dossier.soldeRestant) }}</strong>
-                    </article>
-                  </div>
-                  <div class="row-between dossier-card-footer">
-                    <p class="helper">Activite : {{ formatDossierLastActivity(dossier) }}</p>
-                    <button class="mini-btn" @click.stop="openDossierDetail(dossier.idDossier)">Ouvrir</button>
-                  </div>
-                </article>
-              </div>
-              <div v-if="dossiersPaged.length > 0 && dossiersPaged.length < dossiersFiltered.length" ref="dossierInfiniteSentinel" class="dossier-infinite-sentinel">
-                <span class="helper">Chargement des dossiers suivants...</span>
-              </div>
-              <article v-else-if="dossiersFiltered.length === 0" class="panel empty-state">
-                <h3>{{ dossierEmptyStateTitle }}</h3>
-                <p>{{ dossierEmptyStateDescription }}</p>
-              </article>
-            </template>
-          </ResponsiveDataContainer>
-        </section>
-
-        <section v-else-if="currentRoute === 'commandes'" class="commandes-page">
-        <MobilePageLayout :has-action="isMobileViewport && canCreateCommande && commandeSection === 'liste'">
-          <template #header>
-            <article class="panel panel-header">
-              <MobileSectionHeader
-                eyebrow="Activite atelier"
-                title="Page centrale des commandes"
-                subtitle="Pilotage, suivi et priorisation des commandes en cours."
-              >
-                <template #actions>
-                  <button v-if="canCreateCommande && !isMobileViewport" class="action-btn blue" @click="openNouvelleCommande">
-                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path v-for="(path, i) in iconPaths.plus" :key="`new-cmd-${i}`" :d="path" />
-                    </svg>
-                    Nouvelle commande
-                  </button>
-                </template>
-              </MobileSectionHeader>
-            </article>
-          </template>
-
-          <template #context>
-            <article class="panel">
-              <div class="segmented">
-                <button class="mini-btn" :class="{ active: commandeSection === 'liste' }" @click="commandeSection = 'liste'">Liste</button>
-                <button class="mini-btn" :class="{ active: commandeSection === 'indicateurs' }" @click="commandeSection = 'indicateurs'">Indicateurs</button>
-                <button class="mini-btn" :class="{ active: commandeSection === 'actions' }" @click="commandeSection = 'actions'">Actions rapides</button>
-              </div>
-            </article>
-
-            <MobileFilterBlock
-              v-if="isMobileViewport && commandeSection === 'liste'"
-              title="Filtres commandes"
-              :summary="commandeFilterSummary"
-              :open="commandeMobileFiltersOpen"
-              @toggle="commandeMobileFiltersOpen = !commandeMobileFiltersOpen"
-            >
-              <div class="filters compact">
-                <select v-model="filters.statut">
-                  <option v-for="status in statusOptions" :key="status" :value="status">
-                    {{ status === "ALL" ? "Tous statuts" : status }}
-                  </option>
-                </select>
-                <div class="commande-client-picker">
-                  <input v-model.trim="commandeClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
-                  <select v-model="filters.client">
-                    <option value="ALL">Tous clients</option>
-                    <option value="" v-if="commandeClientOptions.length === 0">Aucun resultat</option>
-                    <option v-for="client in commandeClientOptions" :key="client.idClient" :value="client.idClient">
-                      {{ `${client.nom} ${client.prenom}`.trim() }}
-                    </option>
-                  </select>
-                </div>
-                <select v-model="filters.periode">
-                  <option v-for="period in periodOptions" :key="period.value" :value="period.value">
-                    {{ period.label }}
-                  </option>
-                </select>
-                <select v-model="filters.soldeRestant">
-                  <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
-                <input v-model="filters.recherche" type="text" placeholder="Recherche client / id / statut" />
-              </div>
-              <div class="panel-footer">
-                <button class="mini-btn" @click="resetCommandeFilters">Reinitialiser filtres</button>
-              </div>
-              <p class="helper" v-if="commandeClientQuery.trim() || filters.recherche.trim()">
-                Recherche active - {{ commandesFiltered.length }} resultat(s)
-              </p>
-            </MobileFilterBlock>
-
-            <article v-else-if="commandeSection === 'liste'" class="panel">
-              <h3>Filtres commandes</h3>
-              <div class="filters compact">
-                <select v-model="filters.statut">
-                  <option v-for="status in statusOptions" :key="status" :value="status">
-                    {{ status === "ALL" ? "Tous statuts" : status }}
-                  </option>
-                </select>
-                <div class="commande-client-picker">
-                  <input v-model.trim="commandeClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
-                  <select v-model="filters.client">
-                    <option value="ALL">Tous clients</option>
-                    <option value="" v-if="commandeClientOptions.length === 0">Aucun resultat</option>
-                    <option v-for="client in commandeClientOptions" :key="client.idClient" :value="client.idClient">
-                      {{ `${client.nom} ${client.prenom}`.trim() }}
-                    </option>
-                  </select>
-                </div>
-                <select v-model="filters.periode">
-                  <option v-for="period in periodOptions" :key="period.value" :value="period.value">
-                    {{ period.label }}
-                  </option>
-                </select>
-                <select v-model="filters.soldeRestant">
-                  <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
-                <input v-model="filters.recherche" type="text" placeholder="Recherche client / id / statut" />
-              </div>
-              <div class="panel-footer">
-                <button class="mini-btn" @click="resetCommandeFilters">Reinitialiser filtres</button>
-              </div>
-              <p class="helper" v-if="commandeClientQuery.trim() || filters.recherche.trim()">
-                Recherche active - {{ commandesFiltered.length }} resultat(s)
-              </p>
-            </article>
-          </template>
-
-          <article v-show="commandeSection === 'indicateurs'" class="panel">
-            <MobileSectionHeader title="Indicateurs commandes" subtitle="Vue rapide sur le volume, l'avancement et les soldes." />
-            <div class="kpi-grid legacy-kpi-grid">
-              <div class="kpi-card legacy-kpi" data-tone="blue">
-                <div class="kpi-head"><span>Total</span></div>
-                <strong>{{ commandesKpi.total }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="teal">
-                <div class="kpi-head"><span>En cours</span></div>
-                <strong>{{ commandesKpi.enCours }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="green">
-                <div class="kpi-head"><span>Livrees</span></div>
-                <strong>{{ commandesKpi.livrees }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="amber">
-                <div class="kpi-head"><span>Solde restant</span></div>
-                <strong>{{ commandesKpi.avecSolde }}</strong>
-              </div>
-            </div>
-          </article>
-
-          <article v-show="commandeSection === 'actions'" class="panel">
-            <MobileSectionHeader title="Actions rapides" subtitle="Raccourcis utiles pour poursuivre le flux sans changer de contexte." />
-            <div class="quick-actions">
-              <button v-if="canCreateCommande" class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
-              <button class="action-btn gray" @click="commandeSection = 'liste'">Voir la liste</button>
-              <button v-if="canAccessModule('clientsMesures')" class="action-btn gray" @click="openRoute('clientsMesures')">Consulter client</button>
-            </div>
-          </article>
-
-          <article v-show="commandeSection === 'liste'" class="panel">
-            <MobileSectionHeader
-              title="Tableau des commandes"
-              subtitle="Vue detaillee de la file active avant l'integration des cards mobiles."
-            >
-              <template #actions>
-                <span class="status-pill" data-tone="due">
-                  {{ commandesSoldeRestantCount }} avec solde restant
-                </span>
-              </template>
-            </MobileSectionHeader>
-
-            <ResponsiveDataContainer :mobile="isMobileViewport" v-slot="{ isMobile }">
-              <MobileStateLoading
-                v-if="isMobile && loading"
-                title="Chargement des commandes"
-                description="La liste se met a jour."
-                :blocks="3"
-              />
-
-              <MobileStateError
-                v-else-if="isMobile && errorMessage"
-                title="Impossible d'afficher les commandes"
-                :description="errorMessage"
-              />
-
-              <MobileStateEmpty
-                v-else-if="isMobile && commandesFiltered.length === 0"
-                title="Aucune commande"
-                description="Aucune commande ne correspond aux filtres actuels."
-              >
-                <template #actions>
-                  <button v-if="canCreateCommande" class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
-                </template>
-              </MobileStateEmpty>
-
-              <CommandeMobileList
-                v-else-if="isMobile"
-                :items="commandesPaged"
-                :selected-id="selectedCommandeId"
-                :format-currency="formatCurrency"
-                :format-date="formatDateShort"
-                @view="onVoirCommande"
-              />
-
-              <div v-else class="table-scroll-x">
-                <table class="data-table mobile-stack-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Client</th>
-                      <th>Description</th>
-                      <th>Statut</th>
-                      <th>Etat solde</th>
-                      <th>Total</th>
-                      <th>Paye</th>
-                      <th>Solde</th>
-                      <th>Date prevue</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="commande in commandesPaged"
-                      :key="commande.idCommande"
-                      :class="[`status-row-${commande.statutCommande}`, { selected: selectedCommandeId === commande.idCommande }]"
-                    >
-                      <td data-label="ID">{{ commande.idCommande }}</td>
-                      <td data-label="Client">{{ commande.clientNom }}</td>
-                      <td data-label="Description">{{ commande.descriptionCommande }}</td>
-                      <td data-label="Statut">
-                        <span class="status-pill" :data-status="commande.statutCommande">{{ commande.statutCommande }}</span>
-                      </td>
-                      <td data-label="Etat solde">
-                        <span class="status-pill" :data-tone="commande.soldeRestant === 0 ? 'ok' : 'due'">
-                          {{ commande.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
-                        </span>
-                      </td>
-                      <td data-label="Total">{{ formatCurrency(commande.montantTotal) }}</td>
-                      <td data-label="Paye">{{ formatCurrency(commande.montantPaye) }}</td>
-                      <td data-label="Solde">{{ formatCurrency(commande.soldeRestant) }}</td>
-                      <td data-label="Date prevue">{{ commande.datePrevue || "-" }}</td>
-                      <td class="row-actions">
-                        <button class="mini-btn" @click="onVoirCommande(commande)">
-                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path v-for="(path, i) in iconPaths.eye" :key="`see-${commande.idCommande}-${i}`" :d="path" />
-                          </svg>
-                          Voir
-                        </button>
-                        <button class="mini-btn green" v-if="canPayer(commande)" @click="onPaiementCommande(commande)">
-                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path v-for="(path, i) in iconPaths.cash" :key="`cash-${commande.idCommande}-${i}`" :d="path" />
-                          </svg>
-                          Paiement
-                        </button>
-                        <button class="mini-btn blue" v-if="canLivrer(commande)" @click="onLivrerCommande(commande)">
-                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path v-for="(path, i) in iconPaths.check" :key="`liv-${commande.idCommande}-${i}`" :d="path" />
-                          </svg>
-                          Marquer comme livré
-                        </button>
-                        <button class="mini-btn blue" v-if="canTerminer(commande)" @click="onTerminerCommande(commande)">
-                          Marquer comme terminé
-                        </button>
-                        <button class="mini-btn red" v-if="canAnnuler(commande)" @click="onAnnulerCommande(commande)">
-                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M3 3l18 18" />
-                            <path d="M21 3L3 21" />
-                          </svg>
-                          Annuler
-                        </button>
-                      </td>
-                    </tr>
-                    <tr v-if="!isMobile && commandesFiltered.length === 0">
-                      <td colspan="10">Aucune commande ne correspond aux filtres actuels.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </ResponsiveDataContainer>
-            <div
-              v-if="commandesPaged.length > 0 && commandesPaged.length < commandesFiltered.length"
-              ref="commandeInfiniteSentinel"
-              class="dossier-infinite-sentinel infinite-list-status"
-            >
-              <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
-              <span class="helper">{{ commandesLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
-            </div>
-            <div v-else-if="commandesInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
-              <span class="helper">Aucune autre commande</span>
-            </div>
-          </article>
-
-          <template #action>
-            <MobilePrimaryActionBar
-              v-if="isMobileViewport && canCreateCommande && commandeSection === 'liste'"
-              title="Action principale"
-              subtitle="Creer rapidement une nouvelle commande."
-            >
-              <button class="action-btn blue" @click="openNouvelleCommande">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path v-for="(path, i) in iconPaths.plus" :key="`new-cmd-mobile-${i}`" :d="path" />
-                </svg>
-                Nouvelle commande
-              </button>
-            </MobilePrimaryActionBar>
-          </template>
-        </MobilePageLayout>
-      </section>
-
-        <section v-else-if="currentRoute === 'retouches'" class="commandes-page">
-        <MobilePageLayout :has-action="isMobileViewport && canCreateRetouche && retoucheSection === 'liste'">
-          <template #header>
-            <article class="panel panel-header">
-              <MobileSectionHeader
-                eyebrow="Activite atelier"
-                title="Page centrale des retouches"
-                subtitle="Suivi rapide des retouches, delais et soldes en attente."
-              >
-                <template #actions>
-                  <button v-if="canCreateRetouche && !isMobileViewport" class="action-btn blue" @click="openNouvelleRetouche">
-                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path v-for="(path, i) in iconPaths.plus" :key="`new-ret-${i}`" :d="path" />
-                    </svg>
-                    Nouvelle retouche
-                  </button>
-                </template>
-              </MobileSectionHeader>
-            </article>
-          </template>
-
-          <template #context>
-            <article class="panel">
-              <div class="segmented">
-                <button class="mini-btn" :class="{ active: retoucheSection === 'liste' }" @click="retoucheSection = 'liste'">Liste</button>
-                <button class="mini-btn" :class="{ active: retoucheSection === 'kpi' }" @click="retoucheSection = 'kpi'">Indicateurs</button>
-                <button class="mini-btn" :class="{ active: retoucheSection === 'actions' }" @click="retoucheSection = 'actions'">Actions rapides</button>
-              </div>
-            </article>
-
-            <MobileFilterBlock
-              v-if="isMobileViewport && retoucheSection === 'liste'"
-              title="Filtres retouches"
-              :summary="retoucheFilterSummary"
-              :open="retoucheMobileFiltersOpen"
-              @toggle="retoucheMobileFiltersOpen = !retoucheMobileFiltersOpen"
-            >
-              <div class="filters compact">
-                <select v-model="retoucheFilters.statut">
-                  <option v-for="status in retoucheStatusOptions" :key="status" :value="status">
-                    {{ status === "ALL" ? "Tous statuts" : status }}
-                  </option>
-                </select>
-                <div class="retouche-client-picker">
-                  <input v-model.trim="retoucheClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
-                  <select v-model="retoucheFilters.client">
-                    <option value="ALL">Tous clients</option>
-                    <option value="" v-if="retoucheClientOptions.length === 0">Aucun resultat</option>
-                    <option v-for="client in retoucheClientOptions" :key="client.idClient" :value="client.idClient">
-                      {{ `${client.nom} ${client.prenom}`.trim() }}
-                    </option>
-                  </select>
-                </div>
-                <select v-model="retoucheFilters.periode">
-                  <option v-for="period in periodOptions" :key="period.value" :value="period.value">
-                    {{ period.label }}
-                  </option>
-                </select>
-                <select v-model="retoucheFilters.soldeRestant">
-                  <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
-                <input v-model="retoucheFilters.recherche" type="text" placeholder="Recherche client / id / statut" />
-              </div>
-              <div class="panel-footer">
-                <button class="mini-btn" @click="resetRetoucheFilters">Reinitialiser filtres</button>
-              </div>
-              <p class="helper" v-if="retoucheClientQuery.trim() || retoucheFilters.recherche.trim()">
-                Recherche active - {{ retouchesFiltered.length }} resultat(s)
-              </p>
-            </MobileFilterBlock>
-
-            <article v-else-if="retoucheSection === 'liste'" class="panel">
-              <h3>Filtres retouches</h3>
-              <div class="filters compact">
-                <select v-model="retoucheFilters.statut">
-                  <option v-for="status in retoucheStatusOptions" :key="status" :value="status">
-                    {{ status === "ALL" ? "Tous statuts" : status }}
-                  </option>
-                </select>
-                <div class="retouche-client-picker">
-                  <input v-model.trim="retoucheClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" />
-                  <select v-model="retoucheFilters.client">
-                    <option value="ALL">Tous clients</option>
-                    <option value="" v-if="retoucheClientOptions.length === 0">Aucun resultat</option>
-                    <option v-for="client in retoucheClientOptions" :key="client.idClient" :value="client.idClient">
-                      {{ `${client.nom} ${client.prenom}`.trim() }}
-                    </option>
-                  </select>
-                </div>
-                <select v-model="retoucheFilters.periode">
-                  <option v-for="period in periodOptions" :key="period.value" :value="period.value">
-                    {{ period.label }}
-                  </option>
-                </select>
-                <select v-model="retoucheFilters.soldeRestant">
-                  <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
-                <input v-model="retoucheFilters.recherche" type="text" placeholder="Recherche client / id / statut" />
-              </div>
-              <div class="panel-footer">
-                <button class="mini-btn" @click="resetRetoucheFilters">Reinitialiser filtres</button>
-              </div>
-              <p class="helper" v-if="retoucheClientQuery.trim() || retoucheFilters.recherche.trim()">
-                Recherche active - {{ retouchesFiltered.length }} resultat(s)
-              </p>
-            </article>
-          </template>
-
-          <article v-show="retoucheSection === 'kpi'" class="panel">
-            <MobileSectionHeader title="Indicateurs retouches" subtitle="Vue rapide sur le volume, l'avancement et les soldes." />
-            <div class="kpi-grid legacy-kpi-grid">
-              <div class="kpi-card legacy-kpi" data-tone="teal">
-                <div class="kpi-head"><span>Total</span></div>
-                <strong>{{ retouchesKpi.total }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="blue">
-                <div class="kpi-head"><span>En cours</span></div>
-                <strong>{{ retouchesKpi.enCours }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="green">
-                <div class="kpi-head"><span>Livrees</span></div>
-                <strong>{{ retouchesKpi.livrees }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="amber">
-                <div class="kpi-head"><span>Solde restant</span></div>
-                <strong>{{ retouchesKpi.avecSolde }}</strong>
-              </div>
-            </div>
-          </article>
-
-          <article v-show="retoucheSection === 'actions'" class="panel">
-            <MobileSectionHeader title="Actions rapides" subtitle="Raccourcis utiles pour poursuivre le flux sans changer de contexte." />
-            <div class="quick-actions">
-              <button v-if="canCreateRetouche" class="action-btn blue" @click="openNouvelleRetouche">Nouvelle retouche</button>
-              <button class="action-btn gray" @click="retoucheSection = 'liste'">Voir la liste</button>
-              <button v-if="canAccessModule('clientsMesures')" class="action-btn gray" @click="openRoute('clientsMesures')">Consulter client</button>
-            </div>
-          </article>
-
-          <article v-show="retoucheSection === 'liste'" class="panel">
-            <MobileSectionHeader
-              title="Tableau des retouches"
-              subtitle="Vue detaillee de la file active avant l'integration des actions secondaires en detail."
-            >
-              <template #actions>
-                <span class="status-pill" data-tone="due">
-                  {{ retouchesSoldeRestantCount }} avec solde restant
-                </span>
-              </template>
-            </MobileSectionHeader>
-
-            <ResponsiveDataContainer :mobile="isMobileViewport" v-slot="{ isMobile }">
-              <MobileStateLoading
-                v-if="isMobile && loading"
-                title="Chargement des retouches"
-                description="La liste se met a jour."
-                :blocks="3"
-              />
-
-              <MobileStateError
-                v-else-if="isMobile && errorMessage"
-                title="Impossible d'afficher les retouches"
-                :description="errorMessage"
-              />
-
-              <MobileStateEmpty
-                v-else-if="isMobile && retouchesFiltered.length === 0"
-                title="Aucune retouche"
-                description="Aucune retouche ne correspond aux filtres actuels."
-              >
-                <template #actions>
-                  <button v-if="canCreateRetouche" class="action-btn blue" @click="openNouvelleRetouche">Nouvelle retouche</button>
-                </template>
-              </MobileStateEmpty>
-
-              <RetoucheMobileList
-                v-else-if="isMobile"
-                :items="retouchesPaged"
-                :selected-id="selectedRetoucheId"
-                :format-currency="formatCurrency"
-                :format-date="formatDateShort"
-                @view="onVoirRetouche"
-              />
-
-              <div v-else class="table-scroll-x">
-                <table class="data-table mobile-stack-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Client</th>
-                      <th>Type</th>
-                      <th>Description</th>
-                      <th>Statut</th>
-                      <th>Etat solde</th>
-                      <th>Total</th>
-                      <th>Paye</th>
-                      <th>Solde</th>
-                      <th>Date depot</th>
-                      <th>Date prevue</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="retouche in retouchesPaged"
-                      :key="retouche.idRetouche"
-                      :class="[`status-row-${retouche.statutRetouche}`, { selected: selectedRetoucheId === retouche.idRetouche }]"
-                    >
-                      <td data-label="ID">{{ retouche.idRetouche }}</td>
-                      <td data-label="Client">{{ retouche.clientNom }}</td>
-                      <td data-label="Type">{{ retouche.typeRetouche || "-" }}</td>
-                      <td data-label="Description">{{ retouche.descriptionRetouche }}</td>
-                      <td data-label="Statut">
-                        <span class="status-pill" :data-status="retouche.statutRetouche">{{ retouche.statutRetouche }}</span>
-                      </td>
-                      <td data-label="Etat solde">
-                        <span class="status-pill" :data-tone="retouche.soldeRestant === 0 ? 'ok' : 'due'">
-                          {{ retouche.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
-                        </span>
-                      </td>
-                      <td data-label="Total">{{ formatCurrency(retouche.montantTotal) }}</td>
-                      <td data-label="Paye">{{ formatCurrency(retouche.montantPaye) }}</td>
-                      <td data-label="Solde">{{ formatCurrency(retouche.soldeRestant) }}</td>
-                      <td data-label="Date depot">{{ retouche.dateDepot || "-" }}</td>
-                      <td data-label="Date prevue">{{ retouche.datePrevue || "-" }}</td>
-                      <td class="row-actions">
-                        <button class="mini-btn" @click="onVoirRetouche(retouche)">
-                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path v-for="(path, i) in iconPaths.eye" :key="`see-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                          </svg>
-                          Voir
-                        </button>
-                        <button class="mini-btn green" v-if="canPayerRetouche(retouche)" @click="onPaiementRetouche(retouche)">
-                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path v-for="(path, i) in iconPaths.cash" :key="`cash-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                          </svg>
-                          Paiement
-                        </button>
-                        <button class="mini-btn blue" v-if="canLivrerRetouche(retouche)" @click="onLivrerRetouche(retouche)">
-                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path v-for="(path, i) in iconPaths.check" :key="`liv-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                          </svg>
-                          Marquer comme livré
-                        </button>
-                        <button class="mini-btn blue" v-if="canTerminerRetouche(retouche)" @click="onTerminerRetouche(retouche)">
-                          Marquer comme terminé
-                        </button>
-                        <button class="mini-btn red" v-if="canAnnulerRetouche(retouche)" @click="onAnnulerRetouche(retouche)">
-                          <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M3 3l18 18" />
-                            <path d="M21 3L3 21" />
-                          </svg>
-                          Annuler
-                        </button>
-                      </td>
-                    </tr>
-                    <tr v-if="!isMobile && retouchesFiltered.length === 0">
-                      <td colspan="12">Aucune retouche ne correspond aux filtres actuels.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </ResponsiveDataContainer>
-            <div
-              v-if="retouchesPaged.length > 0 && retouchesPaged.length < retouchesFiltered.length"
-              ref="retoucheInfiniteSentinel"
-              class="dossier-infinite-sentinel infinite-list-status"
-            >
-              <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
-              <span class="helper">{{ retouchesLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
-            </div>
-            <div v-else-if="retouchesInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
-              <span class="helper">Aucune autre retouche</span>
-            </div>
-          </article>
-
-          <template #action>
-            <MobilePrimaryActionBar
-              v-if="isMobileViewport && canCreateRetouche && retoucheSection === 'liste'"
-              title="Action principale"
-              subtitle="Creer rapidement une nouvelle retouche."
-            >
-              <button class="action-btn blue" @click="openNouvelleRetouche">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path v-for="(path, i) in iconPaths.plus" :key="`new-ret-mobile-${i}`" :d="path" />
-                </svg>
-                Nouvelle retouche
-              </button>
-            </MobilePrimaryActionBar>
-          </template>
-        </MobilePageLayout>
-      </section>
+        <DashboardPage
+          v-if="currentRoute === 'dashboard'"
+          :dashboard-role-tone="dashboardRoleTone"
+          :is-mobile-viewport="isMobileViewport"
+          :is-cashier-dashboard="isCashierDashboard"
+          :is-tailor-dashboard="isTailorDashboard"
+          :can-create-commande="canCreateCommande"
+          :can-create-retouche="canCreateRetouche"
+          :dashboard-hero-eyebrow="dashboardHeroEyebrow"
+          :dashboard-hero-title="dashboardHeroTitle"
+          :dashboard-hero-subtitle="dashboardHeroSubtitle"
+          :dashboard-hero-tags="dashboardHeroTags"
+          :dashboard-hero-highlights="dashboardHeroHighlights"
+          :dashboard-clients-actifs="dashboardClientsActifs"
+          :dashboard-period="dashboardPeriod"
+          :dashboard-period-options="dashboardPeriodOptions"
+          :cashier-dashboard-cards="cashierDashboardCards"
+          :cashier-collections="cashierCollections"
+          :recent-caisse-activity="recentCaisseActivity"
+          :format-currency="formatCurrency"
+          :cashier-alerts="cashierAlerts"
+          :tailor-dashboard-cards="tailorDashboardCards"
+          :tailor-collections="tailorCollections"
+          :dashboard-production-recent-rows="dashboardProductionRecentRows"
+          :dashboard-primary-mobile-cards="dashboardPrimaryMobileCards"
+          :dashboard-finance-mobile-cards="dashboardFinanceMobileCards"
+          :dashboard-sales-mobile-cards="dashboardSalesMobileCards"
+          :recent-work-rows="recentWorkRows"
+          :alerts="alerts"
+          :can-access-contact-follow-up-dashboard="canAccessContactFollowUpDashboard"
+          :dashboard-follow-up-cards="dashboardFollowUpCards"
+          :dashboard-contact-board-loading="dashboardContactBoardLoading"
+          :dashboard-contact-board-error="dashboardContactBoardError"
+          :dashboard-clients-to-follow-up-mobile-items="dashboardClientsToFollowUpMobileItems"
+          :dashboard-commandes-to-notify-mobile-items="dashboardCommandesToNotifyMobileItems"
+          :dashboard-retouches-to-notify-mobile-items="dashboardRetouchesToNotifyMobileItems"
+          :finance-metrics="financeMetrics"
+          :dashboard-sales-metrics="dashboardSalesMetrics"
+          :dashboard-contact-board="dashboardContactBoard"
+          :dashboard-commandes-cards="dashboardCommandesCards"
+          :dashboard-retouches-cards="dashboardRetouchesCards"
+          :format-dashboard-client-follow-up-description="formatDashboardClientFollowUpDescription"
+          :format-dashboard-pending-commande-description="formatDashboardPendingCommandeDescription"
+          :format-dashboard-pending-retouche-description="formatDashboardPendingRetoucheDescription"
+          :open-route="openRoute"
+          :open-nouvelle-commande="openNouvelleCommande"
+          :open-nouvelle-retouche="openNouvelleRetouche"
+          :can-access-route="canAccessRoute"
+          :format-percent="formatPercent"
+          :icon-paths="iconPaths"
+          @update:dashboard-period="dashboardPeriod = $event"
+        />
+
+        <DossiersPage
+          v-else-if="currentRoute === 'dossiers'"
+          :is-mobile-viewport="isMobileViewport"
+          :dossier-filters="dossierFilters"
+          :dossiers-filtered="dossiersFiltered"
+          :dossiers-paged="dossiersPaged"
+          :dossier-empty-state-title="dossierEmptyStateTitle"
+          :dossier-empty-state-description="dossierEmptyStateDescription"
+          :format-currency="formatCurrency"
+          :format-dossier-last-activity="formatDossierLastActivity"
+          :dossier-primary-signal="dossierPrimarySignal"
+          :dossier-summary-line="dossierSummaryLine"
+          :open-create-dossier-modal="openCreateDossierModal"
+          :reset-dossier-filters="resetDossierFilters"
+          :open-dossier-detail="openDossierDetail"
+          :dossier-infinite-sentinel-ref="setDossierInfiniteSentinel"
+        />
+
+        <CommandesPage
+          v-else-if="currentRoute === 'commandes'"
+          :is-mobile-viewport="isMobileViewport"
+          :can-create-commande="canCreateCommande"
+          :commande-section="commandeSection"
+          :commandes-filter-summary="commandeFilterSummary"
+          :commande-mobile-filters-open="commandeMobileFiltersOpen"
+          :filters="filters"
+          :status-options="statusOptions"
+          :commande-client-query="commandeClientQuery"
+          :commande-client-options="commandeClientOptions"
+          :period-options="periodOptions"
+          :solde-options="soldeOptions"
+          :commandes-filtered="commandesFiltered"
+          :commandes-kpi="commandesKpi"
+          :can-access-module="canAccessModule"
+          :commandes-solde-restant-count="commandesSoldeRestantCount"
+          :loading="loading"
+          :error-message="errorMessage"
+          :commandes-paged="commandesPaged"
+          :selected-commande-id="selectedCommandeId"
+          :format-currency="formatCurrency"
+          :format-date-short="formatDateShort"
+          :icon-paths="iconPaths"
+          :commandes-infinite-end-reached="commandesInfiniteEndReached"
+          :commandes-loading-more="commandesLoadingMore"
+          :open-route="openRoute"
+          :can-payer="canPayer"
+          :can-livrer="canLivrer"
+          :can-terminer="canTerminer"
+          :can-annuler="canAnnuler"
+          @update:commande-section="commandeSection = $event"
+          @update:commande-mobile-filters-open="commandeMobileFiltersOpen = $event"
+          @update:commande-client-query="commandeClientQuery = $event"
+          @open-nouvelle-commande="openNouvelleCommande"
+          @reset-filters="resetCommandeFilters"
+          @voir-commande="onVoirCommande"
+          @paiement-commande="onPaiementCommande"
+          @livrer-commande="onLivrerCommande"
+          @terminer-commande="onTerminerCommande"
+          @annuler-commande="onAnnulerCommande"
+        />
+
+        <RetouchesPage
+          v-else-if="currentRoute === 'retouches'"
+          :is-mobile-viewport="isMobileViewport"
+          :can-create-retouche="canCreateRetouche"
+          :retouche-section="retoucheSection"
+          :retouche-filter-summary="retoucheFilterSummary"
+          :retouche-mobile-filters-open="retoucheMobileFiltersOpen"
+          :retouche-filters="retoucheFilters"
+          :retouche-status-options="retoucheStatusOptions"
+          :retouche-client-query="retoucheClientQuery"
+          :retouche-client-options="retoucheClientOptions"
+          :period-options="periodOptions"
+          :solde-options="soldeOptions"
+          :retouches-filtered="retouchesFiltered"
+          :retouches-kpi="retouchesKpi"
+          :can-access-module="canAccessModule"
+          :open-route="openRoute"
+          :retouches-solde-restant-count="retouchesSoldeRestantCount"
+          :loading="loading"
+          :error-message="errorMessage"
+          :retouches-paged="retouchesPaged"
+          :selected-retouche-id="selectedRetoucheId"
+          :format-currency="formatCurrency"
+          :format-date-short="formatDateShort"
+          :icon-paths="iconPaths"
+          :can-payer-retouche="canPayerRetouche"
+          :can-livrer-retouche="canLivrerRetouche"
+          :can-terminer-retouche="canTerminerRetouche"
+          :can-annuler-retouche="canAnnulerRetouche"
+          :retouches-loading-more="retouchesLoadingMore"
+          :retouches-infinite-end-reached="retouchesInfiniteEndReached"
+          :set-retouche-infinite-sentinel="setRetoucheInfiniteSentinel"
+          @update:retouche-section="retoucheSection = $event"
+          @update:retouche-mobile-filters-open="retoucheMobileFiltersOpen = $event"
+          @update:retouche-client-query="retoucheClientQuery = $event"
+          @open-nouvelle-retouche="openNouvelleRetouche"
+          @reset-filters="resetRetoucheFilters"
+          @voir-retouche="onVoirRetouche"
+          @paiement-retouche="onPaiementRetouche"
+          @livrer-retouche="onLivrerRetouche"
+          @terminer-retouche="onTerminerRetouche"
+          @annuler-retouche="onAnnulerRetouche"
+        />
 
         <section v-else-if="currentRoute === 'clientsMesures'" class="commandes-page">
         <MobilePageLayout compact>
@@ -17530,1404 +15518,199 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </MobilePageLayout>
       </section>
 
-        <section v-else-if="currentRoute === 'dossier-detail'" class="commande-detail">
-          <ResponsiveDataContainer :mobile="isMobileViewport">
-            <template #mobile>
-              <article class="panel panel-header detail-header">
-                <MobileSectionHeader
-                  eyebrow="Dossier"
-                  title="Detail dossier"
-                  :subtitle="detailDossier ? `${detailDossier.idDossier} - ${detailDossier.responsable.nomComplet || 'Responsable'}` : 'Vue consolidee du dossier atelier.'"
-                />
-                <div class="row-actions dossier-workspace-actions">
-                  <button class="mini-btn" @click="openRoute('dossiers')">Retour</button>
-                  <button class="mini-btn" @click="openCommandeWizardFromDossier">+ Commande</button>
-                  <button class="mini-btn" @click="openRetoucheWizardFromDossier">+ Retouche</button>
-                  <button
-                    v-if="canAccessRoute('caisse') && detailDossier?.synthese?.documentsAvecSolde > 0"
-                    class="mini-btn"
-                    @click="onDetailDossierCash"
-                  >
-                    Encaisser
-                  </button>
-                </div>
-              </article>
+        <DossierDetailPage
+          v-else-if="currentRoute === 'dossier-detail'"
+          :is-mobile-viewport="isMobileViewport"
+          :detail-dossier="detailDossier"
+          :detail-dossier-loading="detailDossierLoading"
+          :detail-dossier-error="detailDossierError"
+          :dossier-workspace-has-documents="dossierWorkspaceHasDocuments"
+          :dossier-retouche-cards="dossierRetoucheCards"
+          :dossier-commande-cards="dossierCommandeCards"
+          :dossier-workspace-active-document-key="dossierWorkspaceActiveDocumentKey"
+          :detail-dossier-delivered-documents-count="detailDossierDeliveredDocumentsCount"
+          :format-currency="formatCurrency"
+          :format-date-time="formatDateTime"
+          :format-dossier-last-activity="formatDossierLastActivity"
+          :dossier-summary-line="dossierSummaryLine"
+          :dossier-primary-signal="dossierPrimarySignal"
+          :dossier-recommended-action="dossierRecommendedAction"
+          :normalize-document-status="normalizeDocumentStatus"
+          :can-access-route="canAccessRoute"
+          :is-dossier-workspace-action-pending="isDossierWorkspaceActionPending"
+          :is-dossier-workspace-action-successful="isDossierWorkspaceActionSuccessful"
+          :is-dossier-workspace-action-in-error="isDossierWorkspaceActionInError"
+          :open-route="openRoute"
+          :open-commande-wizard-from-dossier="openCommandeWizardFromDossier"
+          :open-retouche-wizard-from-dossier="openRetoucheWizardFromDossier"
+          :on-detail-dossier-cash="onDetailDossierCash"
+          :on-dossier-workspace-open="onDossierWorkspaceOpen"
+          :on-dossier-workspace-cash="onDossierWorkspaceCash"
+        />
 
-              <article v-if="!detailDossier && detailDossierLoading" class="panel dossier-skeleton-card">
-                <div class="dossier-skeleton-line lg"></div>
-                <div class="dossier-skeleton-line md"></div>
-                <div class="dossier-skeleton-grid">
-                  <span class="dossier-skeleton-pill"></span>
-                  <span class="dossier-skeleton-pill"></span>
-                  <span class="dossier-skeleton-pill"></span>
-                </div>
-              </article>
-              <article v-else-if="detailDossierError" class="panel error-panel">
-                <strong>Detail dossier</strong>
-                <p>{{ detailDossierError }}</p>
-              </article>
-              <template v-else-if="detailDossier">
-                <article class="panel dossier-workspace-hero">
-                  <div class="dossier-workspace-heading">
-                    <div>
-                      <p class="mobile-overline">Workspace dossier</p>
-                      <h3>{{ detailDossier.responsable.nomComplet }}</h3>
-                      <p class="helper">{{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
-                      <p class="helper dossier-hero-subtitle">{{ dossierSummaryLine(detailDossier) }}</p>
-                    </div>
-                    <div class="dossier-badge-stack">
-                      <span class="status-pill" data-tone="ok">{{ detailDossier.typeDossier }}</span>
-                      <span class="status-chip">{{ detailDossier.statutDossier }}</span>
-                    </div>
-                  </div>
-                  <div class="dossier-card-signal dossier-hero-signal" :data-tone="dossierPrimarySignal(detailDossier).tone">
-                    <strong>{{ dossierPrimarySignal(detailDossier).label }}</strong>
-                    <span>{{ dossierPrimarySignal(detailDossier).detail }} · Activite : {{ formatDossierLastActivity(detailDossier) }}</span>
-                  </div>
-                  <div class="dossier-highlight-strip">
-                    <article class="dossier-highlight-card">
-                      <span>Prochaine action</span>
-                      <strong>{{ dossierRecommendedAction(detailDossier).label }}</strong>
-                      <p>{{ dossierRecommendedAction(detailDossier).detail }}</p>
-                    </article>
-                    <article class="dossier-highlight-card">
-                      <span>Responsable</span>
-                      <strong>{{ detailDossier.responsable.nomComplet }}</strong>
-                      <p>{{ detailDossier.responsable.telephone || "Telephone non renseigne" }}</p>
-                    </article>
-                  </div>
-                  <div class="mobile-kpi-grid dossier-workspace-kpis">
-                    <div class="mobile-kpi dossier-kpi-card"><span>Total montant</span><strong class="dossier-value-blue">{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong></div>
-                    <div class="mobile-kpi dossier-kpi-card"><span>Total paye</span><strong class="dossier-value-green">{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong></div>
-                    <div class="mobile-kpi dossier-kpi-card"><span>Solde restant</span><strong class="dossier-value-red">{{ formatCurrency(detailDossier.synthese.soldeRestant) }}</strong></div>
-                    <div class="mobile-kpi dossier-kpi-card"><span>Commandes en cours</span><strong>{{ detailDossier.synthese.commandesEnCours }}</strong></div>
-                    <div class="mobile-kpi dossier-kpi-card"><span>Retouches en cours</span><strong>{{ detailDossier.synthese.retouchesEnCours }}</strong></div>
-                    <div class="mobile-kpi dossier-kpi-card"><span>Documents avec solde</span><strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong></div>
-                  </div>
-                </article>
+        <CommandeDetailPage
+          v-else-if="currentRoute === 'commande-detail'"
+          :is-mobile-viewport="isMobileViewport"
+          :commande-detail-primary-action="commandeDetailPrimaryAction"
+          :detail-commande="detailCommande"
+          :detail-error="detailError"
+          :detail-loading="detailLoading"
+          :detail-paiements-loading="detailPaiementsLoading"
+          :can-emit-commande-detail-facture="canEmitCommandeDetailFacture"
+          :detail-commande-facture="detailCommandeFacture"
+          :can-payer-detail="canPayerDetail"
+          :can-livrer-detail="canLivrerDetail"
+          :can-terminer-detail="canTerminerDetail"
+          :can-annuler-detail="canAnnulerDetail"
+          :detail-commande-view="detailCommandeView"
+          :detail-commande-item-cards="detailCommandeItemCards"
+          :detail-solde-restant="detailSoldeRestant"
+          :format-currency="formatCurrency"
+          :format-date-time="formatDateTime"
+          :humanize-contact-label="humanizeContactLabel"
+          :detail-commande-contact-profile="detailCommandeContactProfile"
+          :detail-commande-contact-message-preview="detailCommandeContactMessagePreview"
+          :build-phone-dial-href="buildPhoneDialHref"
+          :build-preferred-whats-app-href="buildPreferredWhatsAppHref"
+          :copy-text-to-clipboard="copyTextToClipboard"
+          :detail-commande-history-panels="detailCommandeHistoryPanels"
+          :detail-paiements-paged="detailPaiementsPaged"
+          :detail-paiements="detailPaiements"
+          :detail-paiements-loading-more="detailPaiementsLoadingMore"
+          :detail-paiements-infinite-end-reached="detailPaiementsInfiniteEndReached"
+          :detail-paiements-infinite-sentinel-ref="setDetailPaiementsInfiniteSentinel"
+          :detail-commande-events-paged="detailCommandeEventsPaged"
+          :detail-commande-events="detailCommandeEvents"
+          :detail-commande-events-loading="detailCommandeEventsLoading"
+          :detail-commande-events-loading-more="detailCommandeEventsLoadingMore"
+          :detail-commande-events-infinite-end-reached="detailCommandeEventsInfiniteEndReached"
+          :detail-commande-events-infinite-sentinel-ref="setDetailCommandeEventsInfiniteSentinel"
+          :commande-item-photo-dialog="commandeItemPhotoDialog"
+          :commande-item-photo-dialog-items="commandeItemPhotoDialogItems"
+          :detail-commande-media-loading="detailCommandeMediaLoading"
+          :detail-commande-media-error="detailCommandeMediaError"
+          :detail-commande-media-uploading="detailCommandeMediaUploading"
+          :detail-commande-media-action-id="detailCommandeMediaActionId"
+          :open-route="openRoute"
+          :on-emettre-facture-commande-detail="onEmettreFactureCommandeDetail"
+          :on-voir-facture-par-origine="onVoirFactureParOrigine"
+          :on-imprimer-facture-par-origine="onImprimerFactureParOrigine"
+          :on-paiement-detail="onPaiementDetail"
+          :on-livrer-detail="onLivrerDetail"
+          :on-terminer-detail="onTerminerDetail"
+          :on-annuler-detail="onAnnulerDetail"
+          :on-paiement-detail-item="onPaiementDetailItem"
+          :open-commande-item-edit-modal="openCommandeItemEditModal"
+          :update-commande-item-status="updateCommandeItemStatus"
+          :open-commande-item-photo-dialog="openCommandeItemPhotoDialog"
+          :open-client-consultation-from-detail="openClientConsultationFromDetail"
+          :close-commande-item-photo-dialog="closeCommandeItemPhotoDialog"
+          :upload-commande-media-for-current-item="uploadCommandeMediaForCurrentItem"
+          :open-commande-media="openCommandeMedia"
+          :delete-commande-media="deleteCommandeMedia"
+          :set-commande-media-primary="setCommandeMediaPrimary"
+          :move-commande-media="moveCommandeMedia"
+          :save-commande-media-note="saveCommandeMediaNote"
+        />
 
-                <div class="dossier-document-columns" v-if="dossierWorkspaceHasDocuments">
-                  <article class="panel dossier-document-column">
-                    <div class="panel-header detail-panel-header dossier-section-header">
-                      <div>
-                        <h3>Retouches</h3>
-                        <p class="helper">{{ dossierRetoucheCards.length }} retouche(s) dans ce dossier.</p>
-                      </div>
-                    </div>
-                    <div v-if="dossierRetoucheCards.length > 0" class="stack-list dossier-workspace-list">
-                      <article
-                        v-for="document in dossierRetoucheCards"
-                        :key="document.key"
-                        class="list-link-card dossier-workspace-card dossier-workspace-card-simple"
-                        :class="{
-                          'is-active': dossierWorkspaceActiveDocumentKey === document.key,
-                          'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`) || isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
-                          'is-error': isDossierWorkspaceActionInError(`${document.key}:open`) || isDossierWorkspaceActionInError(`${document.key}:cash`)
-                        }"
-                      >
-                        <div class="row-between">
-                          <strong>{{ document.title }}</strong>
-                          <span class="status-chip dossier-status-badge" :data-status="normalizeDocumentStatus(document.status)">{{ document.status }}</span>
-                        </div>
-                        <div class="dossier-simple-metrics">
-                          <span>Statut : {{ document.status || "Non renseigne" }}</span>
-                          <span>Montant total : <strong class="dossier-value-blue">{{ formatCurrency(document.amount) }}</strong></span>
-                          <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
-                        </div>
-                        <div class="row-actions dossier-card-actions">
-                          <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
-                            Voir
-                          </button>
-                          <button
-                            v-if="canAccessRoute('caisse') && document.canCash"
-                            class="mini-btn dossier-action-btn dossier-action-btn-cash"
-                            :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
-                            @click="onDossierWorkspaceCash(document)"
-                          >
-                            Payer
-                          </button>
-                        </div>
-                      </article>
-                    </div>
-                    <article v-else class="panel dossier-column-empty">
-                      <strong>0 retouche</strong>
-                      <p class="helper">Aucune retouche rattachee a ce dossier.</p>
-                    </article>
-                  </article>
-                  <article class="panel dossier-document-column">
-                    <div class="panel-header detail-panel-header dossier-section-header">
-                      <div>
-                        <h3>Commandes</h3>
-                        <p class="helper">{{ dossierCommandeCards.length }} commande(s) dans ce dossier.</p>
-                      </div>
-                    </div>
-                    <div v-if="dossierCommandeCards.length > 0" class="stack-list dossier-workspace-list">
-                      <article
-                        v-for="document in dossierCommandeCards"
-                        :key="document.key"
-                        class="list-link-card dossier-workspace-card dossier-workspace-card-simple"
-                        :class="{
-                          'is-active': dossierWorkspaceActiveDocumentKey === document.key,
-                          'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`) || isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
-                          'is-error': isDossierWorkspaceActionInError(`${document.key}:open`) || isDossierWorkspaceActionInError(`${document.key}:cash`)
-                        }"
-                      >
-                        <div class="row-between">
-                          <strong>{{ document.title }}</strong>
-                          <span class="status-chip dossier-status-badge" :data-status="normalizeDocumentStatus(document.status)">{{ document.status }}</span>
-                        </div>
-                        <div class="dossier-simple-metrics">
-                          <span>Statut : {{ document.status || "Non renseigne" }}</span>
-                          <span>Montant total : <strong class="dossier-value-blue">{{ formatCurrency(document.amount) }}</strong></span>
-                          <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
-                        </div>
-                        <div class="row-actions dossier-card-actions">
-                          <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
-                            Voir
-                          </button>
-                          <button
-                            v-if="canAccessRoute('caisse') && document.canCash"
-                            class="mini-btn dossier-action-btn dossier-action-btn-cash"
-                            :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
-                            @click="onDossierWorkspaceCash(document)"
-                          >
-                            Payer
-                          </button>
-                        </div>
-                      </article>
-                    </div>
-                    <article v-else class="panel dossier-column-empty">
-                      <strong>0 commande</strong>
-                      <p class="helper">Aucune commande rattachee a ce dossier.</p>
-                    </article>
-                  </article>
-                </div>
-                <article v-else class="panel empty-state dossier-empty-state">
-                  <h3>0 document dans ce dossier</h3>
-                  <p>{{ detailDossier.totalCommandes }} commande(s) · {{ detailDossier.totalRetouches }} retouche(s)</p>
-                </article>
-              </template>
-            </template>
+        <RetoucheDetailPage
+          v-else-if="currentRoute === 'retouche-detail'"
+          :is-mobile-viewport="isMobileViewport"
+          :retouche-detail-primary-action="retoucheDetailPrimaryAction"
+          :detail-retouche="detailRetouche"
+          :detail-retouche-error="detailRetoucheError"
+          :detail-retouche-loading="detailRetoucheLoading"
+          :detail-retouche-paiements-loading="detailRetouchePaiementsLoading"
+          :can-emit-retouche-detail-facture="canEmitRetoucheDetailFacture"
+          :detail-retouche-facture="detailRetoucheFacture"
+          :can-payer-retouche-detail="canPayerRetoucheDetail"
+          :can-livrer-retouche-detail="canLivrerRetoucheDetail"
+          :can-terminer-retouche-detail="canTerminerRetoucheDetail"
+          :can-annuler-retouche-detail="canAnnulerRetoucheDetail"
+          :detail-retouche-view="detailRetoucheView"
+          :detail-retouche-item-cards="detailRetoucheItemCards"
+          :detail-retouche-solde-restant="detailRetoucheSoldeRestant"
+          :format-currency="formatCurrency"
+          :format-date-time="formatDateTime"
+          :humanize-contact-label="humanizeContactLabel"
+          :detail-retouche-contact-profile="detailRetoucheContactProfile"
+          :detail-retouche-contact-message-preview="detailRetoucheContactMessagePreview"
+          :build-phone-dial-href="buildPhoneDialHref"
+          :build-preferred-whats-app-href="buildPreferredWhatsAppHref"
+          :copy-text-to-clipboard="copyTextToClipboard"
+          :detail-retouche-history-panels="detailRetoucheHistoryPanels"
+          :detail-retouche-paiements-paged="detailRetouchePaiementsPaged"
+          :detail-retouche-paiements="detailRetouchePaiements"
+          :detail-retouche-paiements-loading-more="detailRetouchePaiementsLoadingMore"
+          :detail-retouche-paiements-infinite-end-reached="detailRetouchePaiementsInfiniteEndReached"
+          :detail-retouche-paiements-infinite-sentinel-ref="setDetailRetouchePaiementsInfiniteSentinel"
+          :detail-retouche-events-paged="detailRetoucheEventsPaged"
+          :detail-retouche-events="detailRetoucheEvents"
+          :detail-retouche-events-loading="detailRetoucheEventsLoading"
+          :detail-retouche-events-loading-more="detailRetoucheEventsLoadingMore"
+          :detail-retouche-events-infinite-end-reached="detailRetoucheEventsInfiniteEndReached"
+          :detail-retouche-events-infinite-sentinel-ref="setDetailRetoucheEventsInfiniteSentinel"
+          :open-route="openRoute"
+          :on-emettre-facture-retouche-detail="onEmettreFactureRetoucheDetail"
+          :on-voir-facture-par-origine="onVoirFactureParOrigine"
+          :on-imprimer-facture-par-origine="onImprimerFactureParOrigine"
+          :on-paiement-retouche-detail="onPaiementRetoucheDetail"
+          :on-livrer-retouche-detail="onLivrerRetoucheDetail"
+          :on-terminer-retouche-detail="onTerminerRetoucheDetail"
+          :on-annuler-retouche-detail="onAnnulerRetoucheDetail"
+          :on-paiement-retouche-detail-item="onPaiementRetoucheDetailItem"
+          :open-retouche-item-edit-modal="openRetoucheItemEditModal"
+          :update-retouche-item-status="updateRetoucheItemStatus"
+          :open-client-consultation-from-detail="openClientConsultationFromDetail"
+        />
 
-            <template #desktop>
-              <article class="panel panel-header detail-header" v-if="detailDossier">
-                <div class="dossier-workspace-heading">
-                  <div>
-                    <p class="mobile-overline">Dossier</p>
-                    <h2>{{ detailDossier.responsable.nomComplet || detailDossier.idDossier }}</h2>
-                    <p class="helper">{{ detailDossier.idDossier }} - {{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
-                  </div>
-                  <div class="dossier-badge-stack">
-                    <span class="status-pill" data-tone="ok">{{ detailDossier.typeDossier }}</span>
-                    <span class="status-chip">{{ detailDossier.statutDossier }}</span>
-                  </div>
-                </div>
-                <div class="row-actions dossier-workspace-actions">
-                  <button class="mini-btn" @click="openRoute('dossiers')">Retour</button>
-                  <button class="action-btn blue" @click="openCommandeWizardFromDossier">Ajouter une commande</button>
-                  <button class="action-btn blue" @click="openRetoucheWizardFromDossier">Ajouter une retouche</button>
-                  <button
-                    v-if="canAccessRoute('caisse') && detailDossier?.synthese?.documentsAvecSolde > 0"
-                    class="action-btn green"
-                    @click="onDetailDossierCash"
-                  >
-                    Encaisser
-                  </button>
-                </div>
-              </article>
-              <article v-if="!detailDossier && detailDossierLoading" class="panel dossier-skeleton-card">
-                <div class="dossier-skeleton-line lg"></div>
-                <div class="dossier-skeleton-line md"></div>
-                <div class="dossier-skeleton-grid">
-                  <span class="dossier-skeleton-pill"></span>
-                  <span class="dossier-skeleton-pill"></span>
-                  <span class="dossier-skeleton-pill"></span>
-                  <span class="dossier-skeleton-pill"></span>
-                </div>
-              </article>
-              <article v-else-if="!detailDossier && detailDossierError" class="panel error-panel">
-                <strong>Detail dossier</strong>
-                <p>{{ detailDossierError }}</p>
-              </article>
-              <template v-if="detailDossier">
-                <article class="panel dossier-workspace-hero">
-                  <div class="dossier-workspace-heading">
-                    <div>
-                      <p class="mobile-overline">Responsable</p>
-                      <h3>{{ detailDossier.responsable.nomComplet }}</h3>
-                      <p class="helper">{{ detailDossier.responsable.telephone || "Sans telephone" }}</p>
-                      <p class="helper dossier-hero-subtitle">{{ dossierSummaryLine(detailDossier) }}</p>
-                    </div>
-                    <div class="helper">Derniere activite : {{ formatDateTime(detailDossier.synthese.derniereActivite) }}</div>
-                  </div>
-                  <div class="dossier-card-signal dossier-hero-signal" :data-tone="dossierPrimarySignal(detailDossier).tone">
-                    <strong>{{ dossierPrimarySignal(detailDossier).label }}</strong>
-                    <span>{{ dossierPrimarySignal(detailDossier).detail }}</span>
-                  </div>
-                  <div class="dossier-highlight-strip">
-                    <article class="dossier-highlight-card">
-                      <span>Prochaine action</span>
-                      <strong>{{ dossierRecommendedAction(detailDossier).label }}</strong>
-                      <p>{{ dossierRecommendedAction(detailDossier).detail }}</p>
-                    </article>
-                    <article class="dossier-highlight-card">
-                      <span>Activite recente</span>
-                      <strong>{{ formatDossierLastActivity(detailDossier) }}</strong>
-                      <p>{{ detailDossier.responsable.telephone || "Telephone non renseigne" }}</p>
-                    </article>
-                    <article class="dossier-highlight-card">
-                      <span>Commandes / retouches livres</span>
-                      <strong>{{ detailDossierDeliveredDocumentsCount }}</strong>
-                      <p>Documents deja livres et visibles dans ce dossier</p>
-                    </article>
-                  </div>
-                  <div class="dossier-workspace-kpi-grid">
-                    <article class="dossier-kpi-card">
-                      <span>Total montant</span>
-                      <strong class="dossier-value-blue">{{ formatCurrency(detailDossier.synthese.totalMontant) }}</strong>
-                    </article>
-                    <article class="dossier-kpi-card">
-                      <span>Total paye</span>
-                      <strong class="dossier-value-green">{{ formatCurrency(detailDossier.synthese.totalPaye) }}</strong>
-                    </article>
-                    <article class="dossier-kpi-card">
-                      <span>Solde restant</span>
-                      <strong class="dossier-value-red">{{ formatCurrency(detailDossier.synthese.soldeRestant) }}</strong>
-                    </article>
-                    <article class="dossier-kpi-card">
-                      <span>Commandes en cours</span>
-                      <strong>{{ detailDossier.synthese.commandesEnCours }}</strong>
-                    </article>
-                    <article class="dossier-kpi-card">
-                      <span>Retouches en cours</span>
-                      <strong>{{ detailDossier.synthese.retouchesEnCours }}</strong>
-                    </article>
-                    <article class="dossier-kpi-card">
-                      <span>Cmd / ret. avec solde</span>
-                      <strong>{{ detailDossier.synthese.documentsAvecSolde }}</strong>
-                    </article>
-                  </div>
-                </article>
+        <VenteDetailPage
+          v-else-if="currentRoute === 'vente-detail'"
+          :is-mobile-viewport="isMobileViewport"
+          :vente-detail-primary-action="venteDetailPrimaryAction"
+          :detail-vente="detailVente"
+          :detail-vente-facture="detailVenteFacture"
+          :detail-vente-error="detailVenteError"
+          :detail-vente-loading="detailVenteLoading"
+          :caisse-ouverte="caisseOuverte"
+          :format-currency="formatCurrency"
+          :format-date-time="formatDateTime"
+          :open-route="openRoute"
+          :on-emettre-facture-vente-detail="onEmettreFactureVenteDetail"
+          :on-voir-facture-par-origine="onVoirFactureParOrigine"
+          :on-imprimer-facture-par-origine="onImprimerFactureParOrigine"
+          :on-valider-vente="onValiderVente"
+          :on-valider-vente-et-facturer="onValiderVenteEtFacturer"
+          :on-annuler-vente="onAnnulerVente"
+        />
 
-                <div class="dossier-document-columns" v-if="dossierWorkspaceHasDocuments">
-                  <article class="panel dossier-document-column">
-                    <div class="panel-header detail-panel-header dossier-section-header">
-                      <div>
-                        <h3>Retouches</h3>
-                        <p class="helper">{{ dossierRetoucheCards.length }} retouche(s) dans ce dossier.</p>
-                      </div>
-                    </div>
-                    <div v-if="dossierRetoucheCards.length > 0" class="stack-list dossier-workspace-list">
-                      <article
-                        v-for="document in dossierRetoucheCards"
-                        :key="document.key"
-                        class="dossier-workspace-card dossier-workspace-card-simple"
-                        :class="{
-                          'is-active': dossierWorkspaceActiveDocumentKey === document.key,
-                          'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`) || isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
-                          'is-error': isDossierWorkspaceActionInError(`${document.key}:open`) || isDossierWorkspaceActionInError(`${document.key}:cash`)
-                        }"
-                      >
-                        <div class="row-between">
-                          <strong>{{ document.title }}</strong>
-                          <span class="status-chip dossier-status-badge" :data-status="normalizeDocumentStatus(document.status)">{{ document.status }}</span>
-                        </div>
-                        <div class="dossier-simple-metrics">
-                          <span>Statut : {{ document.status || "Non renseigne" }}</span>
-                          <span>Montant total : <strong class="dossier-value-blue">{{ formatCurrency(document.amount) }}</strong></span>
-                          <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
-                        </div>
-                        <div class="row-actions dossier-card-actions">
-                          <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
-                            Voir
-                          </button>
-                          <button
-                            v-if="canAccessRoute('caisse') && document.canCash"
-                            class="mini-btn dossier-action-btn dossier-action-btn-cash"
-                            :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
-                            @click="onDossierWorkspaceCash(document)"
-                          >
-                            Payer
-                          </button>
-                        </div>
-                      </article>
-                    </div>
-                    <article v-else class="panel dossier-column-empty">
-                      <strong>0 retouche</strong>
-                      <p class="helper">Aucune retouche rattachee a ce dossier.</p>
-                    </article>
-                  </article>
-                  <article class="panel dossier-document-column">
-                    <div class="panel-header detail-panel-header dossier-section-header">
-                      <div>
-                        <h3>Commandes</h3>
-                        <p class="helper">{{ dossierCommandeCards.length }} commande(s) dans ce dossier.</p>
-                      </div>
-                    </div>
-                    <div v-if="dossierCommandeCards.length > 0" class="stack-list dossier-workspace-list">
-                      <article
-                        v-for="document in dossierCommandeCards"
-                        :key="document.key"
-                        class="dossier-workspace-card dossier-workspace-card-simple"
-                        :class="{
-                          'is-active': dossierWorkspaceActiveDocumentKey === document.key,
-                          'is-success': isDossierWorkspaceActionSuccessful(`${document.key}:open`) || isDossierWorkspaceActionSuccessful(`${document.key}:cash`),
-                          'is-error': isDossierWorkspaceActionInError(`${document.key}:open`) || isDossierWorkspaceActionInError(`${document.key}:cash`)
-                        }"
-                      >
-                        <div class="row-between">
-                          <strong>{{ document.title }}</strong>
-                          <span class="status-chip dossier-status-badge" :data-status="normalizeDocumentStatus(document.status)">{{ document.status }}</span>
-                        </div>
-                        <div class="dossier-simple-metrics">
-                          <span>Statut : {{ document.status || "Non renseigne" }}</span>
-                          <span>Montant total : <strong class="dossier-value-blue">{{ formatCurrency(document.amount) }}</strong></span>
-                          <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
-                        </div>
-                        <div class="row-actions dossier-card-actions">
-                          <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
-                            Voir
-                          </button>
-                          <button
-                            v-if="canAccessRoute('caisse') && document.canCash"
-                            class="mini-btn dossier-action-btn dossier-action-btn-cash"
-                            :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
-                            @click="onDossierWorkspaceCash(document)"
-                          >
-                            Payer
-                          </button>
-                        </div>
-                      </article>
-                    </div>
-                    <article v-else class="panel dossier-column-empty">
-                      <strong>0 commande</strong>
-                      <p class="helper">Aucune commande rattachee a ce dossier.</p>
-                    </article>
-                  </article>
-                </div>
-                <article v-else class="panel empty-state dossier-empty-state">
-                  <h3>0 document dans ce dossier</h3>
-                  <p>{{ detailDossier.totalCommandes }} commande(s) · {{ detailDossier.totalRetouches }} retouche(s)</p>
-                </article>
-              </template>
-            </template>
-          </ResponsiveDataContainer>
-        </section>
-
-        <section v-else-if="currentRoute === 'commande-detail'" class="commande-detail">
-        <MobilePageLayout :has-action="isMobileViewport && !!commandeDetailPrimaryAction">
-          <template #header>
-            <article class="panel panel-header detail-header">
-              <MobileSectionHeader
-                eyebrow="Commande"
-                title="Detail commande"
-                :subtitle="detailCommande ? `ID: ${detailCommande.idCommande}` : 'Suivez la commande, ses paiements et son historique.'"
-              />
-              <div class="row-actions">
-                <button class="mini-btn" @click="openRoute('commandes')">Retour</button>
-                <button
-                  v-show="!isMobileViewport && canEmitCommandeDetailFacture"
-                  class="action-btn blue"
-                  @click="onEmettreFactureCommandeDetail"
-                  :disabled="detailLoading"
-                >
-                  Emettre facture
-                </button>
-                <button class="mini-btn" v-show="!!detailCommandeFacture" @click="onVoirFactureParOrigine('COMMANDE', detailCommande.idCommande)">
-                  Voir facture
-                </button>
-                <button class="mini-btn" v-show="!!detailCommandeFacture" @click="onImprimerFactureParOrigine('COMMANDE', detailCommande.idCommande)">
-                  {{ isMobileViewport ? "Telecharger facture" : "Imprimer facture" }}
-                </button>
-                <button v-show="!isMobileViewport && canPayerDetail" class="action-btn green" @click="onPaiementDetail" :disabled="detailLoading || detailPaiementsLoading">
-                  Payer
-                </button>
-                <button v-show="!isMobileViewport && canLivrerDetail" class="action-btn blue" @click="onLivrerDetail" :disabled="detailLoading">
-                  Marquer comme livré
-                </button>
-                <button v-show="!isMobileViewport && canTerminerDetail" class="action-btn blue" @click="onTerminerDetail" :disabled="detailLoading">
-                  Marquer comme terminé
-                </button>
-                <button
-                  :class="isMobileViewport ? 'mini-btn' : 'action-btn red'"
-                  v-show="canAnnulerDetail"
-                  @click="onAnnulerDetail"
-                  :disabled="detailLoading"
-                >
-                  Annuler
-                </button>
-              </div>
-            </article>
-          </template>
-
-          <ResponsiveDataContainer v-show="!detailCommande && !!detailError" :mobile="isMobileViewport">
-            <template #mobile>
-              <MobileStateError title="Detail commande" :description="detailError" />
-            </template>
-            <template #desktop>
-              <article class="panel error-panel">
-                <strong>Detail commande</strong>
-                <p>{{ detailError }}</p>
-              </article>
-            </template>
-          </ResponsiveDataContainer>
-
-          <ResponsiveDataContainer v-show="!detailCommande && detailLoading && !detailError" :mobile="isMobileViewport">
-            <template #mobile>
-              <MobileStateLoading title="Chargement de la commande" description="Preparation des informations detaillees..." />
-            </template>
-            <template #desktop>
-              <article class="panel">
-                <p>Chargement de la commande...</p>
-              </article>
-            </template>
-          </ResponsiveDataContainer>
-
-          <div v-show="!!detailCommande">
-            <article class="panel detail-summary-shell">
-              <div class="detail-summary-columns">
-                <section class="detail-summary-column">
-                  <div class="detail-summary-heading">
-                    <p class="mobile-overline">Identite</p>
-                    <h4>Commande</h4>
-                  </div>
-                  <div class="detail-summary-list">
-                    <p><strong>Client : </strong>{{ detailCommandeView.clientNom || detailCommandeView.idClient || "-" }}</p>
-                    <p><strong>Description : </strong>{{ detailCommandeView.descriptionCommande || "-" }}</p>
-                    <p><strong>Statut : </strong><span class="status-pill" :data-status="detailCommandeView.statutCommande || ''">{{ detailCommandeView.statutCommande || "-" }}</span></p>
-                    <p><strong>Facture : </strong>{{ detailCommandeFacture ? detailCommandeFacture.numeroFacture : "Non emise" }}</p>
-                    <p><strong>Date creation : </strong>{{ detailCommandeView.dateCreation || "-" }}</p>
-                    <p><strong>Date prevue : </strong>{{ detailCommandeView.datePrevue || "-" }}</p>
-                  </div>
-                </section>
-                <section class="detail-summary-column">
-                  <div class="detail-summary-heading">
-                    <p class="mobile-overline">Habits</p>
-                    <h4>Habits de la commande</h4>
-                  </div>
-                  <div class="detail-summary-list">
-                    <p><strong>Nombre d'habits : </strong>{{ detailCommandeItemCards.length }}</p>
-                    <ol class="detail-numbered-list">
-                      <li v-for="item in detailCommandeItemCards" :key="`cmd-summary-${item.id}`">{{ item.title }}</li>
-                    </ol>
-                  </div>
-                </section>
-                <section class="detail-summary-column">
-                  <div class="detail-summary-heading">
-                    <p class="mobile-overline">Finance</p>
-                    <h4>Resume financier</h4>
-                  </div>
-                  <div class="detail-finance-list">
-                    <p class="detail-finance-row"><span>Total : </span><strong class="detail-finance-value blue">{{ formatCurrency(detailCommandeView.montantTotal) }}</strong></p>
-                    <p class="detail-finance-row"><span>Paye : </span><strong class="detail-finance-value green">{{ formatCurrency(detailCommandeView.montantPaye) }}</strong></p>
-                    <p class="detail-finance-row"><span>Reste : </span><strong class="detail-finance-value red">{{ formatCurrency(detailSoldeRestant) }}</strong></p>
-                  </div>
-                </section>
-              </div>
-            </article>
-
-            <article class="panel order-lines-panel detail-items-shell" v-show="detailCommandeItemCards.length > 0">
-              <div class="order-lines-head">
-                <div>
-                  <p class="mobile-overline">Habits</p>
-                  <h4>Habits de la commande</h4>
-                </div>
-                <span class="status-chip">{{ detailCommandeItemCards.length }} habit(s)</span>
-              </div>
-              <div class="order-lines-list detail-items-list">
-                <article v-for="item in detailCommandeItemCards" :key="`cmd-item-card-${item.id}`" class="order-line-card detail-item-card">
-                  <div class="order-line-card-head">
-                    <div>
-                      <p class="detail-item-index">Habit {{ item.index }}</p>
-                      <strong class="detail-item-title">{{ item.title }}</strong>
-                    </div>
-                    <span class="status-pill" :data-status="item.statut || ''">{{ item.statut || "-" }}</span>
-                  </div>
-                  <div class="detail-item-metrics">
-                    <p><strong>Montant : </strong><span class="detail-inline-value blue">{{ formatCurrency(item.prix) }}</span></p>
-                    <p><strong>Reste : </strong><span class="detail-inline-value red">{{ formatCurrency(item.reste) }}</span></p>
-                    <p><strong>Type : </strong>{{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "-" }}</p>
-                  </div>
-                  <div class="detail-item-measures">
-                    <strong>Mesures</strong>
-                    <ul v-show="item.mesuresLines.length > 0" class="client-insight-list detail-measures-list">
-                      <li v-for="(line, idx) in item.mesuresLines" :key="`cmd-item-line-${item.id}-${idx}`">{{ line }}</li>
-                    </ul>
-                    <p v-show="item.mesuresLines.length === 0" class="helper">Aucune mesure renseignee.</p>
-                  </div>
-                  <div class="row-actions detail-item-actions">
-                    <button v-show="item.canPay" class="mini-btn green" :disabled="detailLoading || detailPaiementsLoading" @click="onPaiementDetailItem(item)">Payer</button>
-                    <button v-show="item.canEdit" class="mini-btn" :disabled="detailLoading" @click="openCommandeItemEditModal(item)">Modifier</button>
-                    <button class="mini-btn blue" v-show="item.canAdvanceStatus" :disabled="detailLoading || !item.canAdvanceStatus" @click="updateCommandeItemStatus(item.id)">
-                      {{ item.statusActionLabel }}
-                    </button>
-                    <button
-                      class="mini-btn"
-                      :disabled="detailCommandeMediaLoading"
-                      @click="openCommandeItemPhotoDialog(item)"
-                    >
-                      Voir photos
-                    </button>
-                  </div>
-                </article>
-              </div>
-            </article>
-
-            <article class="panel detail-lite-contact">
-              <div class="detail-summary-heading">
-                <p class="mobile-overline">Client</p>
-                <h4>Telephone</h4>
-              </div>
-              <div class="detail-lite-contact-grid">
-                <p><strong>Telephone : </strong>{{ detailCommandeContactProfile?.telephone || "-" }}</p>
-                <div class="row-actions detail-item-actions">
-                  <a class="mini-btn blue" :href="buildPhoneDialHref(detailCommandeContactProfile?.telephone)">Appeler</a>
-                  <a
-                    class="mini-btn whatsapp"
-                    :href="buildPreferredWhatsAppHref(detailCommandeContactProfile?.telephone, detailCommandeContactMessagePreview)"
-                    :target="isMobileViewport ? '_self' : '_blank'"
-                    rel="noreferrer"
-                  >
-                    WhatsApp
-                  </a>
-                  <button class="mini-btn" @click="copyTextToClipboard(detailCommandeContactProfile?.telephone, 'Numero copie.')">Copier numero</button>
-                  <button class="mini-btn" @click="openClientConsultationFromDetail(detailCommandeView.idClient)">Voir fiche client</button>
-                </div>
-              </div>
-            </article>
-
-            <article class="panel detail-history-panel">
-              <div class="panel-header detail-panel-header">
-                <h4>Historique des paiements</h4>
-                <button class="mini-btn detail-collapsible-toggle" @click="detailCommandeHistoryPanels.paiements = !detailCommandeHistoryPanels.paiements">
-                  {{ detailCommandeHistoryPanels.paiements ? "Replier" : "Afficher" }}
-                </button>
-              </div>
-              <div v-show="detailCommandeHistoryPanels.paiements" class="stack">
-                <div v-show="isMobileViewport">
-                  <CommandeDetailPaymentMobileList
-                    :items="detailPaiementsPaged"
-                    :loading="detailPaiementsLoading"
-                    :format-currency="formatCurrency"
-                    :format-date-time="formatDateTime"
-                  />
-                </div>
-                <div v-show="!isMobileViewport">
-                  <table class="data-table mobile-stack-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Montant</th>
-                        <th>Mode</th>
-                        <th>Statut</th>
-                        <th>Reference</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="paiement in detailPaiementsPaged" :key="paiement.idOperation">
-                        <td data-label="Date">{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
-                        <td data-label="Montant">{{ formatCurrency(paiement.montant) }}</td>
-                        <td data-label="Mode">{{ paiement.modePaiement || "-" }}</td>
-                        <td data-label="Statut">{{ paiement.statutOperation || "-" }}</td>
-                        <td data-label="Reference">{{ paiement.motif || paiement.referenceMetier || "-" }}</td>
-                      </tr>
-                      <tr v-if="!detailPaiementsLoading && detailPaiements.length === 0">
-                        <td colspan="5">Aucun paiement enregistre.</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div
-                  v-if="detailPaiementsPaged.length > 0 && detailPaiementsPaged.length < detailPaiements.length"
-                  ref="detailPaiementsInfiniteSentinel"
-                  class="dossier-infinite-sentinel infinite-list-status"
-                >
-                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
-                  <span class="helper">{{ detailPaiementsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
-                </div>
-                <div v-else-if="detailPaiementsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
-                  <span class="helper">Aucun autre paiement</span>
-                </div>
-              </div>
-            </article>
-
-            <article class="panel detail-history-panel">
-              <div class="panel-header detail-panel-header">
-                <h4>Historique des evenements</h4>
-                <button class="mini-btn detail-collapsible-toggle" @click="detailCommandeHistoryPanels.evenements = !detailCommandeHistoryPanels.evenements">
-                  {{ detailCommandeHistoryPanels.evenements ? "Replier" : "Afficher" }}
-                </button>
-              </div>
-              <div v-show="detailCommandeHistoryPanels.evenements" class="stack">
-                <div v-show="isMobileViewport">
-                  <CommandeDetailEventMobileList
-                    :items="detailCommandeEventsPaged"
-                    :loading="detailCommandeEventsLoading"
-                    :format-date-time="formatDateTime"
-                  />
-                </div>
-                <div v-show="!isMobileViewport">
-                  <table class="data-table mobile-stack-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Evenement</th>
-                        <th>Etat precedent</th>
-                        <th>Nouvel etat</th>
-                        <th>Utilisateur</th>
-                        <th>Role</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="event in detailCommandeEventsPaged" :key="event.idEvent">
-                        <td data-label="Date">{{ formatDateTime(event.dateEvent) }}</td>
-                        <td data-label="Evenement">{{ event.typeEventLabel }}</td>
-                        <td data-label="Etat precedent"><span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span></td>
-                        <td data-label="Nouvel etat"><span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span></td>
-                        <td data-label="Utilisateur">{{ event.utilisateurNom }}</td>
-                        <td data-label="Role">{{ event.role }}</td>
-                      </tr>
-                      <tr v-if="!detailCommandeEventsLoading && detailCommandeEvents.length === 0">
-                        <td colspan="6">Aucun evenement enregistre.</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div
-                  v-if="detailCommandeEventsPaged.length > 0 && detailCommandeEventsPaged.length < detailCommandeEvents.length"
-                  ref="detailCommandeEventsInfiniteSentinel"
-                  class="dossier-infinite-sentinel infinite-list-status"
-                >
-                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
-                  <span class="helper">{{ detailCommandeEventsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
-                </div>
-                <div v-else-if="detailCommandeEventsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
-                  <span class="helper">Aucun autre evenement</span>
-                </div>
-              </div>
-            </article>
-
-            <div v-show="commandeItemPhotoDialog.open" class="detail-photo-dialog-backdrop" @click.self="closeCommandeItemPhotoDialog">
-              <article class="panel detail-photo-dialog">
-                <div class="panel-header detail-panel-header">
-                  <div>
-                    <h4>Photos de l'habit</h4>
-                    <p class="helper">{{ commandeItemPhotoDialog.title }}</p>
-                  </div>
-                  <button class="mini-btn" @click="closeCommandeItemPhotoDialog">Fermer</button>
-                </div>
-                <p v-show="detailCommandeMediaLoading" class="helper">Chargement des photos...</p>
-                <p v-show="!!detailCommandeMediaError" class="helper">{{ detailCommandeMediaError }}</p>
-                <CommandeMediaGallery
-                  v-show="commandeItemPhotoDialog.open"
-                  :items="commandeItemPhotoDialogItems"
-                  :loading="detailCommandeMediaLoading"
-                  :error="detailCommandeMediaError"
-                  :uploading="detailCommandeMediaUploading"
-                  :action-id="detailCommandeMediaActionId"
-                  @upload="uploadCommandeMediaForCurrentItem"
-                  @open="openCommandeMedia"
-                  @remove="deleteCommandeMedia"
-                  @set-primary="setCommandeMediaPrimary"
-                  @move="moveCommandeMedia"
-                  @save-note="saveCommandeMediaNote"
-                />
-                <p v-show="!detailCommandeMediaLoading && commandeItemPhotoDialogItems.length === 0" class="helper">Aucune photo rattachee a cet habit.</p>
-              </article>
-            </div>
-          </div>
-
-          <template #action>
-            <MobilePrimaryActionBar
-              v-if="isMobileViewport && commandeDetailPrimaryAction"
-              title="Action principale"
-              :subtitle="commandeDetailPrimaryAction.subtitle"
-            >
-              <button
-                :class="`action-btn ${commandeDetailPrimaryAction.tone}`"
-                :disabled="detailLoading || detailPaiementsLoading"
-                @click="commandeDetailPrimaryAction.handler"
-              >
-                {{ commandeDetailPrimaryAction.label }}
-              </button>
-            </MobilePrimaryActionBar>
-          </template>
-        </MobilePageLayout>
-      </section>
-
-        <section v-else-if="currentRoute === 'retouche-detail'" class="commande-detail">
-        <MobilePageLayout :has-action="isMobileViewport && !!retoucheDetailPrimaryAction">
-          <template #header>
-            <article class="panel panel-header detail-header">
-              <MobileSectionHeader
-                eyebrow="Retouche"
-                title="Detail retouche"
-                :subtitle="detailRetouche ? `ID: ${detailRetouche.idRetouche}` : 'Suivez la retouche, ses paiements et son historique.'"
-              />
-              <div class="row-actions">
-                <button class="mini-btn" @click="openRoute('retouches')">Retour</button>
-                <button
-                  v-show="!isMobileViewport && canEmitRetoucheDetailFacture"
-                  class="action-btn blue"
-                  @click="onEmettreFactureRetoucheDetail"
-                  :disabled="detailRetoucheLoading"
-                >
-                  Emettre facture
-                </button>
-                <button class="mini-btn" v-show="!!detailRetoucheFacture" @click="onVoirFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
-                  Voir facture
-                </button>
-                <button class="mini-btn" v-show="!!detailRetoucheFacture" @click="onImprimerFactureParOrigine('RETOUCHE', detailRetouche.idRetouche)">
-                  {{ isMobileViewport ? "Telecharger facture" : "Imprimer facture" }}
-                </button>
-                <button
-                  v-show="!isMobileViewport && canPayerRetoucheDetail"
-                  class="action-btn green"
-                  @click="onPaiementRetoucheDetail"
-                  :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading"
-                >
-                  Payer
-                </button>
-                <button v-show="!isMobileViewport && canLivrerRetoucheDetail" class="action-btn blue" @click="onLivrerRetoucheDetail" :disabled="detailRetoucheLoading">
-                  Marquer comme livré
-                </button>
-                <button v-show="!isMobileViewport && canTerminerRetoucheDetail" class="action-btn blue" @click="onTerminerRetoucheDetail" :disabled="detailRetoucheLoading">
-                  Marquer comme terminé
-                </button>
-                <button
-                  :class="isMobileViewport ? 'mini-btn' : 'action-btn red'"
-                  v-show="canAnnulerRetoucheDetail"
-                  @click="onAnnulerRetoucheDetail"
-                  :disabled="detailRetoucheLoading"
-                >
-                  Annuler
-                </button>
-              </div>
-            </article>
-          </template>
-
-          <ResponsiveDataContainer v-show="!detailRetouche && !!detailRetoucheError" :mobile="isMobileViewport">
-            <template #mobile>
-              <MobileStateError title="Detail retouche" :description="detailRetoucheError" />
-            </template>
-            <template #desktop>
-              <article class="panel error-panel">
-                <strong>Detail retouche</strong>
-                <p>{{ detailRetoucheError }}</p>
-              </article>
-            </template>
-          </ResponsiveDataContainer>
-
-          <ResponsiveDataContainer v-show="!detailRetouche && detailRetoucheLoading && !detailRetoucheError" :mobile="isMobileViewport">
-            <template #mobile>
-              <MobileStateLoading title="Chargement de la retouche" description="Preparation des informations detaillees..." />
-            </template>
-            <template #desktop>
-              <article class="panel">
-                <p>Chargement de la retouche...</p>
-              </article>
-            </template>
-          </ResponsiveDataContainer>
-
-          <div v-show="!!detailRetouche">
-            <article class="panel detail-summary-shell">
-              <div class="detail-summary-columns">
-                <section class="detail-summary-column">
-                  <div class="detail-summary-heading">
-                    <p class="mobile-overline">Identite</p>
-                    <h4>Retouche</h4>
-                  </div>
-                  <div class="detail-summary-list">
-                    <p><strong>Client : </strong>{{ detailRetoucheView.clientNom || detailRetoucheView.idClient || "-" }}</p>
-                    <p><strong>Description : </strong>{{ detailRetoucheView.descriptionRetouche || "-" }}</p>
-                    <p><strong>Statut : </strong><span class="status-pill" :data-status="detailRetoucheView.statutRetouche || ''">{{ detailRetoucheView.statutRetouche || "-" }}</span></p>
-                    <p><strong>Facture : </strong>{{ detailRetoucheFacture ? detailRetoucheFacture.numeroFacture : "Non emise" }}</p>
-                    <p><strong>Date depot : </strong>{{ detailRetoucheView.dateDepot || "-" }}</p>
-                    <p><strong>Date prevue : </strong>{{ detailRetoucheView.datePrevue || "-" }}</p>
-                  </div>
-                </section>
-                <section class="detail-summary-column">
-                  <div class="detail-summary-heading">
-                    <p class="mobile-overline">Retouches</p>
-                    <h4>Retouches de la fiche</h4>
-                  </div>
-                  <div class="detail-summary-list">
-                    <p><strong>Nombre d'interventions : </strong>{{ detailRetoucheItemCards.length }}</p>
-                    <ol class="detail-numbered-list">
-                      <li v-for="item in detailRetoucheItemCards" :key="`ret-summary-${item.id}`">{{ item.title }}</li>
-                    </ol>
-                  </div>
-                </section>
-                <section class="detail-summary-column">
-                  <div class="detail-summary-heading">
-                    <p class="mobile-overline">Finance</p>
-                    <h4>Resume financier</h4>
-                  </div>
-                  <div class="detail-finance-list">
-                    <p class="detail-finance-row"><span>Total : </span><strong class="detail-finance-value blue">{{ formatCurrency(detailRetoucheView.montantTotal) }}</strong></p>
-                    <p class="detail-finance-row"><span>Paye : </span><strong class="detail-finance-value green">{{ formatCurrency(detailRetoucheView.montantPaye) }}</strong></p>
-                    <p class="detail-finance-row"><span>Reste : </span><strong class="detail-finance-value red">{{ formatCurrency(detailRetoucheSoldeRestant) }}</strong></p>
-                  </div>
-                </section>
-              </div>
-            </article>
-
-            <article class="panel order-lines-panel detail-items-shell" v-show="detailRetoucheItemCards.length > 0">
-              <div class="order-lines-head">
-                <div>
-                  <p class="mobile-overline">Retouches</p>
-                  <h4>Interventions de la retouche</h4>
-                </div>
-                <span class="status-chip">{{ detailRetoucheItemCards.length }} intervention(s)</span>
-              </div>
-              <div class="order-lines-list detail-items-list">
-                <article v-for="item in detailRetoucheItemCards" :key="`ret-item-card-${item.id}`" class="order-line-card detail-item-card">
-                  <div class="order-line-card-head">
-                    <div>
-                      <p class="detail-item-index">Intervention {{ item.index }}</p>
-                      <strong class="detail-item-title">{{ item.title }}</strong>
-                    </div>
-                    <span class="status-pill" :data-status="item.statut || ''">{{ item.statut || "-" }}</span>
-                  </div>
-                  <div class="detail-item-metrics">
-                    <p><strong>Montant : </strong><span class="detail-inline-value blue">{{ formatCurrency(item.prix) }}</span></p>
-                    <p><strong>Reste : </strong><span class="detail-inline-value red">{{ formatCurrency(item.reste) }}</span></p>
-                    <p><strong>Type : </strong>{{ humanizeContactLabel(item.typeHabit) || item.typeHabit || "-" }}</p>
-                  </div>
-                  <div class="detail-item-measures">
-                    <strong>Mesures</strong>
-                    <ul v-show="item.mesuresLines.length > 0" class="client-insight-list detail-measures-list">
-                      <li v-for="(line, idx) in item.mesuresLines" :key="`ret-item-line-${item.id}-${idx}`">{{ line }}</li>
-                    </ul>
-                    <p v-show="item.mesuresLines.length === 0" class="helper">Aucune mesure renseignee.</p>
-                  </div>
-                  <div class="row-actions detail-item-actions">
-                    <button v-show="item.canPay" class="mini-btn green" :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading" @click="onPaiementRetoucheDetailItem(item)">Payer</button>
-                    <button v-show="item.canEdit" class="mini-btn" :disabled="detailRetoucheLoading" @click="openRetoucheItemEditModal(item)">Modifier</button>
-                    <button class="mini-btn blue" v-show="item.canAdvanceStatus" :disabled="detailRetoucheLoading || !item.canAdvanceStatus" @click="updateRetoucheItemStatus(item.id)">
-                      {{ item.statusActionLabel }}
-                    </button>
-                  </div>
-                </article>
-              </div>
-            </article>
-
-            <article class="panel detail-lite-contact">
-              <div class="detail-summary-heading">
-                <p class="mobile-overline">Client</p>
-                <h4>Telephone</h4>
-              </div>
-              <div class="detail-lite-contact-grid">
-                <p><strong>Telephone : </strong>{{ detailRetoucheContactProfile?.telephone || "-" }}</p>
-                <div class="row-actions detail-item-actions">
-                  <a class="mini-btn blue" :href="buildPhoneDialHref(detailRetoucheContactProfile?.telephone)">Appeler</a>
-                  <a
-                    class="mini-btn whatsapp"
-                    :href="buildPreferredWhatsAppHref(detailRetoucheContactProfile?.telephone, detailRetoucheContactMessagePreview)"
-                    :target="isMobileViewport ? '_self' : '_blank'"
-                    rel="noreferrer"
-                  >
-                    WhatsApp
-                  </a>
-                  <button class="mini-btn" @click="copyTextToClipboard(detailRetoucheContactProfile?.telephone, 'Numero copie.')">Copier numero</button>
-                  <button class="mini-btn" @click="openClientConsultationFromDetail(detailRetoucheView.idClient)">Voir fiche client</button>
-                </div>
-              </div>
-            </article>
-
-            <article class="panel detail-history-panel">
-              <div class="panel-header detail-panel-header">
-                <h4>Historique des paiements</h4>
-                <button class="mini-btn detail-collapsible-toggle" @click="detailRetoucheHistoryPanels.paiements = !detailRetoucheHistoryPanels.paiements">
-                  {{ detailRetoucheHistoryPanels.paiements ? "Replier" : "Afficher" }}
-                </button>
-              </div>
-              <div v-show="detailRetoucheHistoryPanels.paiements" class="stack">
-                <div v-show="isMobileViewport">
-                  <RetoucheDetailPaymentMobileList
-                    :items="detailRetouchePaiementsPaged"
-                    :loading="detailRetouchePaiementsLoading"
-                    :format-currency="formatCurrency"
-                    :format-date-time="formatDateTime"
-                  />
-                </div>
-                <div v-show="!isMobileViewport">
-                  <table class="data-table mobile-stack-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Montant</th>
-                        <th>Mode</th>
-                        <th>Statut</th>
-                        <th>Reference</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="paiement in detailRetouchePaiementsPaged" :key="paiement.idOperation">
-                        <td data-label="Date">{{ formatDateTime(paiement.dateOperation || paiement.dateJour) }}</td>
-                        <td data-label="Montant">{{ formatCurrency(paiement.montant) }}</td>
-                        <td data-label="Mode">{{ paiement.modePaiement || "-" }}</td>
-                        <td data-label="Statut">{{ paiement.statutOperation || "-" }}</td>
-                        <td data-label="Reference">{{ paiement.motif || paiement.referenceMetier || "-" }}</td>
-                      </tr>
-                      <tr v-if="!detailRetouchePaiementsLoading && detailRetouchePaiements.length === 0">
-                        <td colspan="5">Aucun paiement enregistre.</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div
-                  v-if="detailRetouchePaiementsPaged.length > 0 && detailRetouchePaiementsPaged.length < detailRetouchePaiements.length"
-                  ref="detailRetouchePaiementsInfiniteSentinel"
-                  class="dossier-infinite-sentinel infinite-list-status"
-                >
-                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
-                  <span class="helper">{{ detailRetouchePaiementsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
-                </div>
-                <div v-else-if="detailRetouchePaiementsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
-                  <span class="helper">Aucun autre paiement</span>
-                </div>
-              </div>
-            </article>
-
-            <article class="panel detail-history-panel">
-              <div class="panel-header detail-panel-header">
-                <h4>Historique des evenements</h4>
-                <button class="mini-btn detail-collapsible-toggle" @click="detailRetoucheHistoryPanels.evenements = !detailRetoucheHistoryPanels.evenements">
-                  {{ detailRetoucheHistoryPanels.evenements ? "Replier" : "Afficher" }}
-                </button>
-              </div>
-              <div v-show="detailRetoucheHistoryPanels.evenements" class="stack">
-                <div v-show="isMobileViewport">
-                  <RetoucheDetailEventMobileList
-                    :items="detailRetoucheEventsPaged"
-                    :loading="detailRetoucheEventsLoading"
-                    :format-date-time="formatDateTime"
-                  />
-                </div>
-                <div v-show="!isMobileViewport">
-                  <table class="data-table mobile-stack-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Evenement</th>
-                        <th>Etat precedent</th>
-                        <th>Nouvel etat</th>
-                        <th>Utilisateur</th>
-                        <th>Role</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="event in detailRetoucheEventsPaged" :key="event.idEvent">
-                        <td data-label="Date">{{ formatDateTime(event.dateEvent) }}</td>
-                        <td data-label="Evenement">{{ event.typeEventLabel }}</td>
-                        <td data-label="Etat precedent"><span class="status-pill" :data-status="event.ancienStatut || ''">{{ event.ancienStatutLabel }}</span></td>
-                        <td data-label="Nouvel etat"><span class="status-pill" :data-status="event.nouveauStatut || ''">{{ event.nouveauStatutLabel }}</span></td>
-                        <td data-label="Utilisateur">{{ event.utilisateurNom }}</td>
-                        <td data-label="Role">{{ event.role }}</td>
-                      </tr>
-                      <tr v-if="!detailRetoucheEventsLoading && detailRetoucheEvents.length === 0">
-                        <td colspan="6">Aucun evenement enregistre.</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div
-                  v-if="detailRetoucheEventsPaged.length > 0 && detailRetoucheEventsPaged.length < detailRetoucheEvents.length"
-                  ref="detailRetoucheEventsInfiniteSentinel"
-                  class="dossier-infinite-sentinel infinite-list-status"
-                >
-                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
-                  <span class="helper">{{ detailRetoucheEventsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
-                </div>
-                <div v-else-if="detailRetoucheEventsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
-                  <span class="helper">Aucun autre evenement</span>
-                </div>
-              </div>
-            </article>
-          </div>
-
-          <template #action>
-            <MobilePrimaryActionBar
-              v-if="isMobileViewport && retoucheDetailPrimaryAction"
-              title="Action principale"
-              :subtitle="retoucheDetailPrimaryAction.subtitle"
-            >
-              <button
-                :class="`action-btn ${retoucheDetailPrimaryAction.tone}`"
-                :disabled="detailRetoucheLoading || detailRetouchePaiementsLoading"
-                @click="retoucheDetailPrimaryAction.handler"
-              >
-                {{ retoucheDetailPrimaryAction.label }}
-              </button>
-            </MobilePrimaryActionBar>
-          </template>
-        </MobilePageLayout>
-      </section>
-
-        <section v-else-if="currentRoute === 'vente-detail'" class="commande-detail">
-        <MobilePageLayout :has-action="isMobileViewport && !!venteDetailPrimaryAction">
-          <template #header>
-            <article class="panel panel-header detail-header">
-              <MobileSectionHeader
-                eyebrow="Vente"
-                title="Detail vente"
-                :subtitle="detailVente ? `ID: ${detailVente.idVente}` : 'Consultez la vente et ses lignes en lecture seule.'"
-              />
-              <div class="row-actions">
-                <button class="mini-btn" @click="openRoute('stockVentes')">Retour</button>
-                <button
-                  class="mini-btn"
-                  v-if="detailVente && detailVente.statut === 'VALIDEE' && !detailVenteFacture"
-                  @click="onEmettreFactureVenteDetail"
-                >
-                  Emettre facture
-                </button>
-                <button class="mini-btn" v-if="detailVenteFacture" @click="onVoirFactureParOrigine('VENTE', detailVente.idVente)">
-                  Voir facture
-                </button>
-                <button class="mini-btn" v-if="detailVenteFacture" @click="onImprimerFactureParOrigine('VENTE', detailVente.idVente)">
-                  {{ isMobileViewport ? "Telecharger facture" : "Imprimer facture" }}
-                </button>
-                <button
-                  v-if="!isMobileViewport && detailVente && detailVente.statut === 'BROUILLON'"
-                  class="action-btn blue"
-                  :disabled="!caisseOuverte"
-                  :title="!caisseOuverte ? 'Caisse cloturee' : ''"
-                  @click="onValiderVente(detailVente)"
-                >
-                  Valider
-                </button>
-                <button
-                  class="mini-btn"
-                  v-if="detailVente && detailVente.statut === 'BROUILLON'"
-                  :disabled="!caisseOuverte"
-                  :title="!caisseOuverte ? 'Caisse cloturee' : ''"
-                  @click="onValiderVenteEtFacturer(detailVente)"
-                >
-                  Valider + facture
-                </button>
-                <button
-                  :class="isMobileViewport ? 'mini-btn' : 'action-btn red'"
-                  v-if="detailVente && detailVente.statut === 'BROUILLON'"
-                  @click="onAnnulerVente(detailVente)"
-                >
-                  Annuler
-                </button>
-              </div>
-            </article>
-          </template>
-
-          <ResponsiveDataContainer v-if="detailVenteError" :mobile="isMobileViewport">
-            <template #mobile>
-              <MobileStateError title="Erreur detail vente" :description="detailVenteError" />
-            </template>
-            <template #desktop>
-              <article class="panel error-panel">
-                <strong>Erreur detail vente</strong>
-                <p>{{ detailVenteError }}</p>
-              </article>
-            </template>
-          </ResponsiveDataContainer>
-
-          <ResponsiveDataContainer v-else-if="detailVenteLoading" :mobile="isMobileViewport">
-            <template #mobile>
-              <MobileStateLoading title="Chargement de la vente" description="Preparation des informations detaillees..." />
-            </template>
-            <template #desktop>
-              <article class="panel">
-                <p>Chargement de la vente...</p>
-              </article>
-            </template>
-          </ResponsiveDataContainer>
-
-          <template v-else-if="detailVente">
-            <ResponsiveDataContainer :mobile="isMobileViewport">
-              <template #mobile>
-                <VenteDetailOverviewCards
-                  :vente="detailVente"
-                  :facture-number="detailVenteFacture ? detailVenteFacture.numeroFacture : ''"
-                  :format-currency="formatCurrency"
-                  :format-date-time="formatDateTime"
-                />
-              </template>
-              <template #desktop>
-                <article class="panel detail-grid">
-                  <div>
-                    <h4>Informations vente</h4>
-                    <p><strong>Date:</strong> {{ formatDateTime(detailVente.date) }}</p>
-                    <p><strong>Statut:</strong> {{ detailVente.statut }}</p>
-                    <p><strong>Facture:</strong> {{ detailVenteFacture ? detailVenteFacture.numeroFacture : "Non emise" }}</p>
-                    <p><strong>Reference caisse:</strong> {{ detailVente.referenceCaisse || "-" }}</p>
-                    <p v-if="detailVente.statut === 'ANNULEE'"><strong>Motif annulation:</strong> {{ detailVente.motifAnnulation || "-" }}</p>
-                  </div>
-                  <div>
-                    <h4>Resume financier</h4>
-                    <p><strong>Total:</strong> {{ formatCurrency(detailVente.total) }}</p>
-                  </div>
-                </article>
-              </template>
-            </ResponsiveDataContainer>
-
-            <ResponsiveDataContainer :mobile="isMobileViewport">
-              <template #mobile>
-                <article class="panel">
-                  <MobileSectionHeader
-                    title="Lignes de vente"
-                    subtitle="Lecture detaillee des articles et quantites vendus."
-                  />
-                  <VenteDetailLinesMobileList
-                    :items="detailVente.lignesVente"
-                    :format-currency="formatCurrency"
-                  />
-                </article>
-              </template>
-              <template #desktop>
-                <article class="panel">
-                  <div class="panel-header detail-panel-header">
-                    <h4>Lignes de vente</h4>
-                    <span class="helper">Lecture seule</span>
-                  </div>
-                  <table class="data-table mobile-stack-table">
-                    <thead>
-                      <tr>
-                        <th>Article</th>
-                        <th>Quantite</th>
-                        <th>Prix unitaire</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="ligne in detailVente.lignesVente" :key="ligne.idLigne">
-                        <td data-label="Article">{{ ligne.libelleArticle || ligne.idArticle }}</td>
-                        <td data-label="Quantite">{{ ligne.quantite }}</td>
-                        <td data-label="Prix unitaire">{{ formatCurrency(ligne.prixUnitaire) }}</td>
-                      </tr>
-                      <tr v-if="detailVente.lignesVente.length === 0">
-                        <td colspan="3">Aucune ligne.</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </article>
-              </template>
-            </ResponsiveDataContainer>
-          </template>
-
-          <template #action>
-            <MobilePrimaryActionBar
-              v-if="isMobileViewport && venteDetailPrimaryAction"
-              title="Action principale"
-              :subtitle="venteDetailPrimaryAction.subtitle"
-            >
-              <button
-                :class="`action-btn ${venteDetailPrimaryAction.tone}`"
-                :disabled="venteDetailPrimaryAction.disabled"
-                @click="venteDetailPrimaryAction.handler"
-              >
-                {{ venteDetailPrimaryAction.label }}
-              </button>
-            </MobilePrimaryActionBar>
-          </template>
-        </MobilePageLayout>
-      </section>
-
-        <section v-else-if="currentRoute === 'facturation'" class="commandes-page">
-        <MobilePageLayout :has-action="isMobileViewport">
-          <template #header>
-            <article class="panel panel-header">
-              <MobileSectionHeader
-                eyebrow="Facturation"
-                title="Factures"
-                subtitle="Module immuable en lecture seule. Le statut est derive de la caisse."
-              />
-              <div class="row-actions">
-                <button v-if="!isMobileViewport" class="action-btn blue" @click="onEmettreFacture">Emettre facture</button>
-              </div>
-            </article>
-          </template>
-
-        <article class="panel">
-          <div class="segmented">
-            <button class="mini-btn" :class="{ active: factureSection === 'liste' }" @click="factureSection = 'liste'">Liste</button>
-            <button class="mini-btn" :class="{ active: factureSection === 'indicateurs' }" @click="factureSection = 'indicateurs'">Indicateurs</button>
-            <button class="mini-btn" :class="{ active: factureSection === 'actions' }" @click="factureSection = 'actions'">Actions rapides</button>
-          </div>
-        </article>
-
-        <article v-show="factureSection === 'liste'" class="panel">
-          <template v-if="isMobileViewport">
-            <MobileFilterBlock
-              title="Filtres factures"
-              :summary="factureFilterSummary"
-              :open="factureMobileFiltersOpen"
-              @toggle="factureMobileFiltersOpen = !factureMobileFiltersOpen"
-            >
-              <div class="filters compact">
-                <select v-model="factureFilters.statut">
-                  <option v-for="status in factureStatusOptions" :key="`fac-st-${status}`" :value="status">
-                    {{ status === "ALL" ? "Tous statuts" : status }}
-                  </option>
-                </select>
-                <select v-model="factureFilters.source">
-                  <option value="ALL">Toutes origines</option>
-                  <option value="COMMANDE">Commande</option>
-                  <option value="RETOUCHE">Retouche</option>
-                  <option value="VENTE">Vente</option>
-                </select>
-                <select v-model="factureFilters.soldeRestant">
-                  <option v-for="option in soldeOptions" :key="`fac-solde-${option.value}`" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
-                <input v-model="factureFilters.recherche" type="text" placeholder="Recherche numero / client / origine" />
-              </div>
-              <div class="panel-footer">
-                <button class="mini-btn" @click="resetFactureFilters">Reinitialiser filtres</button>
-              </div>
-            </MobileFilterBlock>
-          </template>
-          <template v-else>
-            <h3>Filtres factures</h3>
-            <div class="filters compact">
-              <select v-model="factureFilters.statut">
-                <option v-for="status in factureStatusOptions" :key="`fac-st-${status}`" :value="status">
-                  {{ status === "ALL" ? "Tous statuts" : status }}
-                </option>
-              </select>
-              <select v-model="factureFilters.source">
-                <option value="ALL">Toutes origines</option>
-                <option value="COMMANDE">Commande</option>
-                <option value="RETOUCHE">Retouche</option>
-                <option value="VENTE">Vente</option>
-              </select>
-              <select v-model="factureFilters.soldeRestant">
-                <option v-for="option in soldeOptions" :key="`fac-solde-${option.value}`" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-              <input v-model="factureFilters.recherche" type="text" placeholder="Recherche numero / client / origine" />
-            </div>
-            <div class="panel-footer">
-              <button class="mini-btn" @click="resetFactureFilters">Reinitialiser filtres</button>
-            </div>
-          </template>
-          <p class="helper" v-if="factureFilters.recherche.trim()">
-            Recherche active - {{ facturesFiltered.length }} resultat(s)
-          </p>
-        </article>
-
-        <article v-show="factureSection === 'indicateurs'" class="panel">
-          <template v-if="isMobileViewport">
-            <MobileSectionHeader
-              title="Indicateurs factures"
-              subtitle="Lecture rapide des statuts et montants sur la selection courante."
-            />
-            <DashboardMetricCardGrid :items="facturesMobileKpiCards" />
-          </template>
-          <template v-else>
-            <h3>Indicateurs factures</h3>
-            <div class="kpi-grid legacy-kpi-grid">
-              <div class="kpi-card legacy-kpi" data-tone="blue">
-                <div class="kpi-head"><span>Total</span></div>
-                <strong>{{ facturesKpi.total }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="green">
-                <div class="kpi-head"><span>Reglees</span></div>
-                <strong>{{ facturesKpi.reglees }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="amber">
-                <div class="kpi-head"><span>En attente</span></div>
-                <strong>{{ facturesKpi.enAttente }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="slate">
-                <div class="kpi-head"><span>Montant total</span></div>
-                <strong>{{ formatFactureCurrency(facturesKpi.montantTotal) }}</strong>
-              </div>
-            </div>
-          </template>
-        </article>
-
-        <article v-show="factureSection === 'actions'" class="panel">
-          <div class="quick-actions">
-            <button class="action-btn blue" @click="onEmettreFacture">Emettre facture</button>
-            <button class="action-btn green" @click="factureSection = 'liste'">Voir la liste</button>
-            <button class="action-btn amber" @click="openRoute('audit')">Ouvrir audit</button>
-          </div>
-        </article>
-
-        <article v-show="factureSection === 'liste'" class="panel">
-          <ResponsiveDataContainer :mobile="isMobileViewport">
-            <template #mobile>
-              <FactureMobileList
-                :items="facturesPaged"
-                :format-currency="formatFactureCurrency"
-                :format-date="formatDateShort"
-                @view="onVoirFacture"
-              />
-            </template>
-            <template #desktop>
-              <div class="table-scroll-x">
-                <table class="data-table mobile-stack-table">
-                  <thead>
-                    <tr>
-                      <th>Numero</th>
-                      <th>Client</th>
-                      <th>Origine</th>
-                      <th>Date emission</th>
-                      <th>Montant total</th>
-                      <th>Montant paye</th>
-                      <th>Solde</th>
-                      <th>Statut</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="facture in facturesPaged" :key="facture.idFacture">
-                      <td data-label="Numero">{{ facture.numeroFacture }}</td>
-                      <td data-label="Client">{{ facture.client?.nom || "-" }}</td>
-                      <td data-label="Origine">{{ facture.typeOrigine }} / {{ facture.idOrigine }}</td>
-                      <td data-label="Date emission">{{ formatDateShort(facture.dateEmission) }}</td>
-                      <td data-label="Montant total">{{ formatFactureCurrency(facture.montantTotal) }}</td>
-                      <td data-label="Montant paye">{{ formatFactureCurrency(facture.montantPaye) }}</td>
-                      <td data-label="Solde">{{ formatFactureCurrency(facture.solde) }}</td>
-                      <td data-label="Statut">{{ facture.statut }}</td>
-                      <td class="actions-cell">
-                        <button class="mini-btn" @click="onVoirFacture(facture)">Voir</button>
-                        <button class="mini-btn" @click="onImprimerFacture(facture)">Imprimer</button>
-                        <button class="mini-btn" @click="onGenererPdfFacture(facture)">PDF</button>
-                      </td>
-                    </tr>
-                    <tr v-if="facturesFiltered.length === 0">
-                      <td colspan="9">Aucune facture ne correspond aux filtres actuels.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </template>
-          </ResponsiveDataContainer>
-          <div
-            v-if="facturesPaged.length > 0 && facturesPaged.length < facturesFiltered.length"
-            ref="factureInfiniteSentinel"
-            class="dossier-infinite-sentinel infinite-list-status"
-          >
-            <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
-            <span class="helper">{{ facturesLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
-          </div>
-          <div v-else-if="facturesInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
-            <span class="helper">Aucune autre facture</span>
-          </div>
-        </article>
-
-        <template #action>
-          <MobilePrimaryActionBar
-            v-if="isMobileViewport"
-            title="Action principale"
-            subtitle="Emettez une nouvelle facture depuis une origine disponible."
-          >
-            <button class="action-btn blue" @click="onEmettreFacture">Emettre facture</button>
-          </MobilePrimaryActionBar>
-        </template>
-        </MobilePageLayout>
-      </section>
+        <FacturationPage
+          v-else-if="currentRoute === 'facturation'"
+          :is-mobile-viewport="isMobileViewport"
+          :facture-section="factureSection"
+          :facture-mobile-filters-open="factureMobileFiltersOpen"
+          :facture-filter-summary="factureFilterSummary"
+          :facture-filters="factureFilters"
+          :facture-status-options="factureStatusOptions"
+          :solde-options="soldeOptions"
+          :factures-filtered="facturesFiltered"
+          :factures-mobile-kpi-cards="facturesMobileKpiCards"
+          :factures-kpi="facturesKpi"
+          :format-facture-currency="formatFactureCurrency"
+          :factures-paged="facturesPaged"
+          :format-date-short="formatDateShort"
+          :factures-loading-more="facturesLoadingMore"
+          :factures-infinite-end-reached="facturesInfiniteEndReached"
+          :facture-infinite-sentinel-ref="setFactureInfiniteSentinel"
+          :on-voir-facture="onVoirFacture"
+          :on-imprimer-facture="onImprimerFacture"
+          :on-generer-pdf-facture="onGenererPdfFacture"
+          :on-emettre-facture="onEmettreFacture"
+          :open-route="openRoute"
+          :reset-facture-filters="resetFactureFilters"
+          @update:facture-section="factureSection = $event"
+          @update:facture-mobile-filters-open="factureMobileFiltersOpen = $event"
+        />
 
         <section v-else-if="currentRoute === 'parametres'" class="commandes-page parametres-page">
         <MobilePageLayout :has-action="isMobileViewport && settingsCanEdit">
@@ -20004,206 +16787,31 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </MobilePageLayout>
       </section>
 
-        <section v-else-if="currentRoute === 'caisse'" class="commande-detail">
-        <MobilePageLayout :has-action="isMobileViewport && ((!caisseOuverte && canOpenCaisse) || (caisseOuverte && canRecordCaisseExpense) || (caisseOuverte && !canRecordCaisseExpense && canCloseCaisse))">
-        <article class="panel panel-header detail-header" :class="{ 'caisse-header-closed': !caisseOuverte }">
-          <div>
-            <h3>Caisse du jour</h3>
-            <p class="helper" v-if="caisseJour">ID: {{ caisseJour.idCaisseJour }} · Date: {{ caisseJour.date }}</p>
-          </div>
-          <div class="row-actions">
-            <span class="status-pill" :data-status="caisseStatus">
-              <svg v-if="!caisseOuverte" class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path v-for="(path, i) in iconPaths.lock" :key="`lock-${i}`" :d="path" />
-              </svg>
-              {{ caisseStatus }}
-            </span>
-            <button class="action-btn green" v-if="!isMobileViewport && !caisseOuverte && canOpenCaisse" @click="onOuvrirCaisseDuJour">Ouvrir la caisse</button>
-            <button class="action-btn amber" v-if="!isMobileViewport && caisseOuverte && canRecordCaisseExpense" @click="onDepenseCaisse">Enregistrer depense</button>
-            <button class="action-btn red" v-if="!isMobileViewport && caisseOuverte && canCloseCaisse" @click="onCloturerCaisse">Cloturer la caisse</button>
-            <button class="mini-btn" v-if="isMobileViewport && caisseOuverte && canCloseCaisse" @click="onCloturerCaisse">Cloturer</button>
-          </div>
-        </article>
-
-        <article v-if="caisseJour && !caisseOuverte" class="panel caisse-locked">
-          <strong>Caisse cloturee</strong>
-          <p>Aucune ecriture n'est autorisee apres cloture.</p>
-        </article>
-
-        <ResponsiveDataContainer v-if="!caisseJour" :mobile="isMobileViewport">
-          <template #mobile>
-            <MobileStateError
-              title="Caisse indisponible"
-              :description="networkIsOnline ? `Aucune caisse du jour n'a ete chargee.` : 'Aucune caisse disponible hors ligne.'"
-            />
-          </template>
-          <template #desktop>
-            <article class="panel error-panel">
-              <strong>Caisse</strong>
-              <p>{{ networkIsOnline ? "Aucune caisse du jour n'a ete chargee." : "Aucune caisse disponible hors ligne." }}</p>
-            </article>
-          </template>
-        </ResponsiveDataContainer>
-
-        <template v-else>
-          <ResponsiveDataContainer :mobile="isMobileViewport">
-            <template #mobile>
-              <CaisseOverviewCards
-                :caisse="caisseJour"
-                :status="caisseStatus"
-                :totals="caisseTotals"
-                :format-currency="formatCurrency"
-                :format-date-time="formatDateTime"
-                :format-opened-by="formatCaisseOuvertePar"
-                :format-closed-by="formatCaisseClotureePar"
-              />
-
-              <article class="panel">
-                <MobileSectionHeader
-                  title="Historique des operations"
-                  :subtitle="`${caisseOperations.length} operation(s) enregistree(s)`"
-                />
-
-                <MobileStateEmpty
-                  v-if="caisseOperations.length === 0"
-                  title="Aucune operation"
-                  description="Aucune operation n'est enregistree pour cette caisse."
-                />
-
-                <CaisseOperationMobileList
-                  v-else
-                  :items="caisseOperationsPaged"
-                  :format-currency="formatCurrency"
-                  :format-date-time="formatDateTime"
-                  :depense-type-label="depenseTypeLabel"
-                />
-
-                <div
-                  v-if="caisseOperationsPaged.length > 0 && caisseOperationsPaged.length < caisseOperations.length"
-                  ref="caisseInfiniteSentinel"
-                  class="dossier-infinite-sentinel infinite-list-status"
-                >
-                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
-                  <span class="helper">{{ caisseOperationsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
-                </div>
-                <div v-else-if="caisseOperationsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
-                  <span class="helper">Aucune autre operation</span>
-                </div>
-              </article>
-            </template>
-
-            <template #desktop>
-              <article class="panel caisse-summary-grid">
-                <div class="caisse-summary-col">
-                  <h4>Statut de la caisse</h4>
-                  <p class="caisse-row"><strong>Etat:</strong> <span class="caisse-value">{{ caisseStatus }}</span></p>
-                  <p class="caisse-row"><strong>Solde d'ouverture:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeOuverture) }}</span></p>
-                  <p class="caisse-row"><strong>Solde courant:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
-                  <p class="caisse-row"><strong>Ouverte par:</strong> <span class="caisse-value">{{ formatCaisseOuvertePar(caisseJour) }}</span></p>
-                  <p class="caisse-row"><strong>Date d'ouverture:</strong> <span class="caisse-value">{{ formatDateTime(caisseJour.dateOuverture) }}</span></p>
-                  <p class="caisse-row"><strong>Cloturee par:</strong> <span class="caisse-value">{{ formatCaisseClotureePar(caisseJour) }}</span></p>
-                  <p class="caisse-row"><strong>Date de cloture:</strong> <span class="caisse-value">{{ formatDateTime(caisseJour.dateCloture) }}</span></p>
-                </div>
-                <div class="caisse-summary-col">
-                  <h4>Resume financier</h4>
-                  <p class="caisse-row"><strong>Total entrees:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
-                  <p class="caisse-row"><strong>Total sorties:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSorties) }}</span></p>
-                  <p class="caisse-row"><strong>Solde:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
-                </div>
-                <div class="caisse-summary-col">
-                  <h4>Resultat du jour</h4>
-                  <p class="caisse-row"><strong>Entrees du jour:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
-                  <p class="caisse-row"><strong>Depenses quotidiennes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</span></p>
-                  <p class="caisse-row"><strong>Resultat journalier:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.resultatJournalier) }}</span></p>
-                </div>
-              </article>
-
-              <article class="panel">
-                <div class="panel-header detail-panel-header">
-                  <h4>Historique des operations</h4>
-                  <span class="helper">Lecture seule</span>
-                </div>
-                <table class="data-table mobile-stack-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Type</th>
-                      <th>Montant</th>
-                      <th>Type depense</th>
-                      <th>Mode</th>
-                      <th>Motif</th>
-                      <th>Justification</th>
-                      <th>Reference</th>
-                      <th>Utilisateur</th>
-                      <th>Statut</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="op in caisseOperationsPaged" :key="op.idOperation">
-                      <td data-label="Date">{{ formatDateTime(op.dateOperation) }}</td>
-                      <td data-label="Type">{{ op.typeOperation }}</td>
-                      <td data-label="Montant">{{ formatCurrency(op.montant) }}</td>
-                      <td data-label="Type depense">
-                        <span v-if="op.typeOperation === 'SORTIE'" class="status-pill" :data-tone="op.typeDepense === 'EXCEPTIONNELLE' ? 'amber' : 'blue'">
-                          {{ depenseTypeLabel(op.typeDepense) }}
-                        </span>
-                        <span v-else>-</span>
-                      </td>
-                      <td data-label="Mode">{{ op.modePaiement || "-" }}</td>
-                      <td data-label="Motif">{{ op.motif || "-" }}</td>
-                      <td data-label="Justification">{{ op.justification || "-" }}</td>
-                      <td data-label="Reference">{{ op.referenceMetier || "-" }}</td>
-                      <td data-label="Utilisateur">{{ op.effectuePar || "-" }}</td>
-                      <td data-label="Statut">{{ op.statutOperation || "-" }}</td>
-                    </tr>
-                    <tr v-if="caisseOperations.length === 0">
-                      <td colspan="10">Aucune operation enregistree.</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div
-                  v-if="caisseOperationsPaged.length > 0 && caisseOperationsPaged.length < caisseOperations.length"
-                  ref="caisseInfiniteSentinel"
-                  class="dossier-infinite-sentinel infinite-list-status"
-                >
-                  <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
-                  <span class="helper">{{ caisseOperationsLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
-                </div>
-                <div v-else-if="caisseOperationsInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
-                  <span class="helper">Aucune autre operation</span>
-                </div>
-              </article>
-            </template>
-          </ResponsiveDataContainer>
-        </template>
-
-        <template #action>
-          <MobilePrimaryActionBar
-            v-if="isMobileViewport && !caisseOuverte && canOpenCaisse"
-            title="Action principale"
-            subtitle="Ouvrez la caisse du jour pour autoriser les ecritures."
-          >
-            <button class="action-btn green" @click="onOuvrirCaisseDuJour">Ouvrir la caisse</button>
-          </MobilePrimaryActionBar>
-
-          <MobilePrimaryActionBar
-            v-else-if="isMobileViewport && caisseOuverte && canRecordCaisseExpense"
-            title="Action principale"
-            subtitle="Enregistrez rapidement une depense sur la caisse ouverte."
-          >
-            <button class="action-btn amber" @click="onDepenseCaisse">Enregistrer depense</button>
-          </MobilePrimaryActionBar>
-
-          <MobilePrimaryActionBar
-            v-else-if="isMobileViewport && caisseOuverte && !canRecordCaisseExpense && canCloseCaisse"
-            title="Action principale"
-            subtitle="Cloturez la caisse lorsque les operations sont terminees."
-          >
-            <button class="action-btn red" @click="onCloturerCaisse">Cloturer la caisse</button>
-          </MobilePrimaryActionBar>
-        </template>
-        </MobilePageLayout>
-      </section>
+        <CaissePage
+          v-else-if="currentRoute === 'caisse'"
+          :is-mobile-viewport="isMobileViewport"
+          :caisse-ouverte="caisseOuverte"
+          :can-open-caisse="canOpenCaisse"
+          :can-record-caisse-expense="canRecordCaisseExpense"
+          :can-close-caisse="canCloseCaisse"
+          :caisse-jour="caisseJour"
+          :caisse-status="caisseStatus"
+          :icon-paths="iconPaths"
+          :network-is-online="networkIsOnline"
+          :caisse-totals="caisseTotals"
+          :format-currency="formatCurrency"
+          :format-date-time="formatDateTime"
+          :format-caisse-ouverte-par="formatCaisseOuvertePar"
+          :format-caisse-cloturee-par="formatCaisseClotureePar"
+          :caisse-operations="caisseOperations"
+          :caisse-operations-paged="caisseOperationsPaged"
+          :depense-type-label="depenseTypeLabel"
+          :caisse-operations-loading-more="caisseOperationsLoadingMore"
+          :caisse-operations-infinite-end-reached="caisseOperationsInfiniteEndReached"
+          @ouvrir-caisse="onOuvrirCaisseDuJour"
+          @depense-caisse="onDepenseCaisse"
+          @cloturer-caisse="onCloturerCaisse"
+        />
 
         <section v-else-if="currentRoute === 'audit'" class="commande-detail">
         <article class="panel panel-header detail-header">
