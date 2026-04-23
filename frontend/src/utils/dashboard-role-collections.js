@@ -16,8 +16,26 @@ function buildDashboardPaymentDescription(item, typeLabel, formatCurrency, forma
 function buildDashboardProductionDescription(item, typeLabel, formatStatusLabel, formatDateShort) {
   const parts = [`Statut ${formatStatusLabel(item?.statut || "-")}`];
   if (item?.clientNom) parts.push(item.clientNom);
+  if (item?.priorite && item.priorite !== "NORMALE") parts.push(`Priorite ${String(item.priorite).replaceAll("_", " ")}`);
   if (item?.datePrevue) parts.push(`Prevue ${formatDashboardWorkDueDate(item.datePrevue, formatDateShort)}`);
   return `${typeLabel} - ${parts.join(" - ")}`;
+}
+
+function normalizeDashboardPriorite(value = "") {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "TRES_URGENTE" || normalized === "URGENTE" || normalized === "NORMALE") return normalized;
+  return "NORMALE";
+}
+
+function getDashboardPrioriteWeight(value = "") {
+  switch (normalizeDashboardPriorite(value)) {
+    case "TRES_URGENTE":
+      return 3;
+    case "URGENTE":
+      return 2;
+    default:
+      return 1;
+  }
 }
 
 export function useDashboardRoleCollections({
@@ -98,10 +116,10 @@ export function useDashboardRoleCollections({
     const productionRows = [
       ...commandesView.value
         .filter((item) => item.statutCommande !== "LIVREE" && item.statutCommande !== "ANNULEE")
-        .map((item) => ({ type: "Commande", statut: item.statutCommande, datePrevue: item.datePrevue })),
+        .map((item) => ({ type: "Commande", statut: item.statutCommande, datePrevue: item.datePrevue, priorite: item.priorite })),
       ...retouches.value
         .filter((item) => item.statutRetouche !== "LIVREE" && item.statutRetouche !== "ANNULEE")
-        .map((item) => ({ type: "Retouche", statut: item.statutRetouche, datePrevue: item.datePrevue }))
+        .map((item) => ({ type: "Retouche", statut: item.statutRetouche, datePrevue: item.datePrevue, priorite: item.priorite }))
     ];
     const dueToday = productionRows.filter((item) => item.datePrevue === today).length;
     const overdue = productionRows.filter((item) => item.datePrevue && item.datePrevue < today).length;
@@ -127,7 +145,8 @@ export function useDashboardRoleCollections({
           type: "Commande",
           clientNom: item.clientNom,
           statut: item.statutCommande,
-          datePrevue: item.datePrevue
+          datePrevue: item.datePrevue,
+          priorite: item.priorite
         })),
       ...retouches.value
         .filter((item) => item.statutRetouche !== "LIVREE" && item.statutRetouche !== "ANNULEE")
@@ -137,11 +156,19 @@ export function useDashboardRoleCollections({
           type: "Retouche",
           clientNom: item.clientNom || clientMap.value.get(item.idClient) || item.idClient,
           statut: item.statutRetouche,
-          datePrevue: item.datePrevue
+          datePrevue: item.datePrevue,
+          priorite: item.priorite
         }))
-    ].sort((a, b) => String(a.datePrevue || "9999-12-31").localeCompare(String(b.datePrevue || "9999-12-31")));
+    ].sort((a, b) => {
+      const priorityDelta = getDashboardPrioriteWeight(b.priorite) - getDashboardPrioriteWeight(a.priorite);
+      if (priorityDelta !== 0) return priorityDelta;
+      return String(a.datePrevue || "9999-12-31").localeCompare(String(b.datePrevue || "9999-12-31"));
+    });
 
     return {
+      dueTodayCount: workRows.filter((item) => item.datePrevue === today).length,
+      overdueCount: workRows.filter((item) => item.datePrevue && item.datePrevue < today).length,
+      readyCount: workRows.filter((item) => item.statut === "TERMINEE").length,
       dueToday: workRows
         .filter((item) => item.datePrevue === today)
         .slice(0, 6)

@@ -68,7 +68,7 @@ export class CommandeRepoPg {
 
   async getById(idCommande) {
     const res = await this.db.query(
-      "SELECT id_commande, id_client, id_dossier, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM commandes WHERE id_commande = $1 AND atelier_id = $2",
+      "SELECT id_commande, id_client, id_dossier, description, date_creation, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM commandes WHERE id_commande = $1 AND atelier_id = $2",
       [idCommande, this.atelierId]
     );
     if (res.rowCount === 0) return null;
@@ -82,6 +82,7 @@ export class CommandeRepoPg {
       descriptionCommande: row.description,
       dateCreation: row.date_creation,
       datePrevue: row.date_prevue,
+      priorite: row.priorite,
       montantTotal: Number(row.montant_total),
       montantPaye: Number(row.montant_paye),
       statutCommande: row.statut,
@@ -94,11 +95,11 @@ export class CommandeRepoPg {
 
   async save(commande) {
     await this.db.query(
-      `INSERT INTO commandes (id_commande, atelier_id, id_client, id_dossier, description, date_creation, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `INSERT INTO commandes (id_commande, atelier_id, id_client, id_dossier, description, date_creation, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (id_commande)
        DO UPDATE SET atelier_id=$2, id_client=$3, id_dossier=$4, description=$5, date_creation=$6, date_prevue=$7,
-         montant_total=$8, montant_paye=$9, statut=$10, type_habit=$11, mesures_habit_snapshot=$12`,
+         priorite=$8, montant_total=$9, montant_paye=$10, statut=$11, type_habit=$12, mesures_habit_snapshot=$13`,
       [
         commande.idCommande,
         this.atelierId,
@@ -107,6 +108,7 @@ export class CommandeRepoPg {
         commande.descriptionCommande,
         commande.dateCreation,
         commande.datePrevue,
+        commande.priorite,
         commande.montantTotal,
         commande.montantPaye,
         commande.statutCommande,

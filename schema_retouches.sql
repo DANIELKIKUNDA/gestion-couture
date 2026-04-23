@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS retouches (
   type_retouche TEXT NOT NULL CHECK (type_retouche ~ '^[A-Z0-9_]+$'),
   date_depot TIMESTAMP NOT NULL,
   date_prevue TIMESTAMP NULL,
+  priorite TEXT NOT NULL DEFAULT 'NORMALE',
   montant_total NUMERIC(12,2) NOT NULL CHECK (montant_total >= 0),
   montant_paye NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (montant_paye >= 0),
   type_habit TEXT NULL,
@@ -22,9 +23,13 @@ CREATE TABLE IF NOT EXISTS retouches (
 ALTER TABLE retouches ADD COLUMN IF NOT EXISTS type_habit TEXT NULL;
 ALTER TABLE retouches ADD COLUMN IF NOT EXISTS mesures_habit_snapshot JSONB NULL;
 ALTER TABLE retouches ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+ALTER TABLE retouches ADD COLUMN IF NOT EXISTS priorite TEXT;
 UPDATE retouches SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+UPDATE retouches SET priorite = 'NORMALE' WHERE priorite IS NULL OR BTRIM(priorite) = '';
 ALTER TABLE retouches ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
 ALTER TABLE retouches ALTER COLUMN atelier_id SET NOT NULL;
+ALTER TABLE retouches ALTER COLUMN priorite SET DEFAULT 'NORMALE';
+ALTER TABLE retouches ALTER COLUMN priorite SET NOT NULL;
 
 DO $$
 BEGIN
@@ -34,6 +39,14 @@ BEGIN
     CHECK (
       type_habit IS NULL OR type_habit ~ '^[A-Z0-9_]+$'
     ) NOT VALID;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE retouches DROP CONSTRAINT IF EXISTS retouches_priorite_check;
+  ALTER TABLE retouches
+    ADD CONSTRAINT retouches_priorite_check
+    CHECK (priorite IN ('NORMALE','URGENTE','TRES_URGENTE'));
 END $$;
 
 DO $$

@@ -95,7 +95,7 @@ export class RetoucheRepoPg {
 
   async getById(idRetouche) {
     const res = await this.db.query(
-      "SELECT id_retouche, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM retouches WHERE id_retouche = $1 AND atelier_id = $2",
+      "SELECT id_retouche, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM retouches WHERE id_retouche = $1 AND atelier_id = $2",
       [idRetouche, this.atelierId]
     );
     if (res.rowCount === 0) return null;
@@ -110,6 +110,7 @@ export class RetoucheRepoPg {
       typeRetouche: row.type_retouche,
       dateDepot: row.date_depot,
       datePrevue: row.date_prevue,
+      priorite: row.priorite,
       montantTotal: Number(row.montant_total),
       montantPaye: Number(row.montant_paye),
       statutRetouche: row.statut,
@@ -122,11 +123,11 @@ export class RetoucheRepoPg {
 
   async save(retouche) {
     await this.db.query(
-      `INSERT INTO retouches (id_retouche, atelier_id, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      `INSERT INTO retouches (id_retouche, atelier_id, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        ON CONFLICT (id_retouche)
        DO UPDATE SET atelier_id=$2, id_client=$3, id_dossier=$4, description=$5, type_retouche=$6, date_depot=$7, date_prevue=$8,
-         montant_total=$9, montant_paye=$10, statut=$11, type_habit=$12, mesures_habit_snapshot=$13`,
+         priorite=$9, montant_total=$10, montant_paye=$11, statut=$12, type_habit=$13, mesures_habit_snapshot=$14`,
       [
         retouche.idRetouche,
         this.atelierId,
@@ -136,6 +137,7 @@ export class RetoucheRepoPg {
         retouche.typeRetouche,
         retouche.dateDepot,
         retouche.datePrevue,
+        retouche.priorite,
         retouche.montantTotal,
         retouche.montantPaye,
         retouche.statutRetouche,

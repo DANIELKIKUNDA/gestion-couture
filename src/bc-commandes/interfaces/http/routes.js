@@ -481,6 +481,7 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
                   c.description,
                   c.date_creation,
                   c.date_prevue,
+                  c.priorite,
                   c.montant_total,
                   c.montant_paye,
                   c.type_habit,
@@ -538,6 +539,7 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
         descriptionCommande: row.description,
         dateCreation: row.date_creation,
         datePrevue: row.date_prevue,
+        priorite: row.priorite,
         montantTotal: Number(row.montant_total),
         montantPaye: Number(row.montant_paye),
         typeHabit: row.type_habit,
@@ -568,6 +570,7 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
             c.description,
             c.date_creation,
             c.date_prevue,
+            c.priorite,
             c.montant_total,
             c.montant_paye,
             c.type_habit,
@@ -602,6 +605,7 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
             c.description,
             c.date_creation,
             c.date_prevue,
+            c.priorite,
             c.montant_total,
             c.montant_paye,
             c.type_habit,
@@ -632,6 +636,7 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
         descriptionCommande: row.description,
         dateCreation: row.date_creation,
         datePrevue: row.date_prevue,
+        priorite: row.priorite,
         montantTotal: Number(row.montant_total),
         montantPaye: Number(row.montant_paye),
         typeHabit: row.type_habit,
@@ -658,6 +663,7 @@ router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
               c.description,
               c.date_creation,
               c.date_prevue,
+              c.priorite,
               c.montant_total,
               c.montant_paye,
               c.type_habit,
@@ -689,6 +695,7 @@ router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
       descriptionCommande: row.description,
       dateCreation: row.date_creation,
       datePrevue: row.date_prevue,
+      priorite: row.priorite,
       montantTotal: Number(row.montant_total),
       montantPaye: Number(row.montant_paye),
       typeHabit: row.type_habit,
@@ -1126,7 +1133,8 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
         .optional(),
       typeHabit: z.string().min(1).optional(),
       mesuresHabit: z.any().optional(),
-      datePrevue: z.string().optional()
+      datePrevue: z.string().optional(),
+      priorite: z.enum(["NORMALE", "URGENTE", "TRES_URGENTE"]).optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -1244,6 +1252,7 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
         lignesResolution.mesuresHabitReference ||
         null,
       datePrevue: body.datePrevue,
+      priorite: body.priorite,
       items: commandeItems
     }, {
       policy: policyInput

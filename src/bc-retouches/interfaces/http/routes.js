@@ -364,6 +364,7 @@ router.get("/retouches", requireRetoucheReadAccess, async (req, res) => {
               r.type_retouche,
               r.date_depot,
               r.date_prevue,
+              r.priorite,
               r.montant_total,
               r.montant_paye,
               r.type_habit,
@@ -389,6 +390,7 @@ router.get("/retouches", requireRetoucheReadAccess, async (req, res) => {
       typeRetouche: row.type_retouche,
       dateDepot: row.date_depot,
       datePrevue: row.date_prevue,
+      priorite: row.priorite,
       montantTotal: Number(row.montant_total),
       montantPaye: Number(row.montant_paye),
       typeHabit: row.type_habit,
@@ -435,6 +437,7 @@ router.get("/audit/retouches", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
         r.type_retouche,
         r.date_depot,
         r.date_prevue,
+        r.priorite,
         r.montant_total,
         r.montant_paye,
         r.type_habit,
@@ -463,6 +466,7 @@ router.get("/audit/retouches", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
         typeRetouche: row.type_retouche,
         dateDepot: row.date_depot,
         datePrevue: row.date_prevue,
+        priorite: row.priorite,
         montantTotal: Number(row.montant_total),
         montantPaye: Number(row.montant_paye),
         typeHabit: row.type_habit,
@@ -488,6 +492,7 @@ router.get("/retouches/:id", requireRetoucheReadAccess, async (req, res) => {
               r.type_retouche,
               r.date_depot,
               r.date_prevue,
+              r.priorite,
               r.montant_total,
               r.montant_paye,
               r.type_habit,
@@ -514,6 +519,7 @@ router.get("/retouches/:id", requireRetoucheReadAccess, async (req, res) => {
       typeRetouche: row.type_retouche,
       dateDepot: row.date_depot,
       datePrevue: row.date_prevue,
+      priorite: row.priorite,
       montantTotal: Number(row.montant_total),
       montantPaye: Number(row.montant_paye),
       typeHabit: row.type_habit,
@@ -677,7 +683,9 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
         )
         .optional(),
       typeHabit: z.string().min(1).optional(),
-      mesuresHabit: z.any().optional()
+      mesuresHabit: z.any().optional(),
+      datePrevue: z.string().optional(),
+      priorite: z.enum(["NORMALE", "URGENTE", "TRES_URGENTE"]).optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -835,7 +843,8 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
         .optional(),
       typeHabit: z.string().min(1).optional(),
       mesuresHabit: z.any().optional(),
-      datePrevue: z.string().optional()
+      datePrevue: z.string().optional(),
+      priorite: z.enum(["NORMALE", "URGENTE", "TRES_URGENTE"]).optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -946,8 +955,8 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
     retouche.dossierId = requestedDossierId;
 
     await dbClient.query(
-      `INSERT INTO retouches (id_retouche, atelier_id, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      `INSERT INTO retouches (id_retouche, atelier_id, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [
         retouche.idRetouche,
         atelierId,
@@ -957,6 +966,7 @@ router.post("/retouches/wizard", requireRetoucheCreateAccess, async (req, res) =
         retouche.typeRetouche,
         retouche.dateDepot,
         retouche.datePrevue,
+        retouche.priorite,
         retouche.montantTotal,
         retouche.montantPaye,
         retouche.statutRetouche,

@@ -70,9 +70,9 @@ export function useDashboardPresentation({
     }
     if (isTailorDashboard.value) {
       return [
-        { label: "Travaux du jour", value: tailorCollections.value.dueToday.length },
-        { label: "En retard", value: tailorCollections.value.overdue.length },
-        { label: "Prets", value: tailorCollections.value.ready.length }
+        { label: "Travaux du jour", value: tailorCollections.value.dueTodayCount || 0 },
+        { label: "En retard", value: tailorCollections.value.overdueCount || 0 },
+        { label: "Prets", value: tailorCollections.value.readyCount || 0 }
       ];
     }
     return [

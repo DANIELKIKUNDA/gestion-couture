@@ -12,6 +12,12 @@ import { createMesuresCommande } from "../../shared/domain/mesures-habit.js";
 import { resolveCommandePolicy } from "./commande-policy.js";
 import { CommandeItem } from "./commande-item.js";
 
+function normalizePrioriteCommande(value = "NORMALE") {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "URGENTE" || normalized === "TRES_URGENTE") return normalized;
+  return "NORMALE";
+}
+
 export class Commande {
   constructor({
     idCommande,
@@ -20,6 +26,7 @@ export class Commande {
     descriptionCommande,
     dateCreation,
     datePrevue,
+    priorite = "NORMALE",
     montantTotal,
     montantPaye = 0,
     statutCommande = StatutCommande.CREEE,
@@ -52,6 +59,7 @@ export class Commande {
     this.descriptionCommande = descriptionCommande;
     this.dateCreation = dateCreation;
     this.datePrevue = datePrevue;
+    this.priorite = normalizePrioriteCommande(priorite);
     this.habitDefinitions = policy?.habits && typeof policy.habits === "object" ? policy.habits : null;
     this.commandePolicy = resolveCommandePolicy(policy);
     this.items = Array.isArray(items)

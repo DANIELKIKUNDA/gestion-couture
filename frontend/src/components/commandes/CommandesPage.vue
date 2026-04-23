@@ -34,6 +34,7 @@ defineProps({
   iconPaths: { type: Object, default: () => ({}) },
   commandesInfiniteEndReached: { type: Boolean, default: false },
   commandesLoadingMore: { type: Boolean, default: false },
+  commandeInfiniteSentinelRef: { type: Function, required: true },
   openRoute: { type: Function, required: true },
   canPayer: { type: Function, required: true },
   canLivrer: { type: Function, required: true },
@@ -333,7 +334,7 @@ function updateCommandeClientQuery(event) {
         </ResponsiveDataContainer>
         <div
           v-if="commandesPaged.length > 0 && commandesPaged.length < commandesFiltered.length"
-          ref="commandeInfiniteSentinel"
+          :ref="commandeInfiniteSentinelRef"
           class="dossier-infinite-sentinel infinite-list-status"
         >
           <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
