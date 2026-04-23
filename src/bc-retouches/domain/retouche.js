@@ -19,6 +19,12 @@ import {
 import { createRetoucheMesuresSnapshot } from "./mesures-retouche.js";
 import { RetoucheItem } from "./retouche-item.js";
 
+function normalizePrioriteRetouche(value = "NORMALE") {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "URGENTE" || normalized === "TRES_URGENTE") return normalized;
+  return "NORMALE";
+}
+
 export class Retouche {
   constructor({
     idRetouche,
@@ -28,6 +34,7 @@ export class Retouche {
     typeRetouche,
     dateDepot,
     datePrevue,
+    priorite = "NORMALE",
     montantTotal,
     montantPaye = 0,
     statutRetouche = StatutRetouche.DEPOSEE,
@@ -60,6 +67,7 @@ export class Retouche {
     this.descriptionRetouche = descriptionRetouche;
     this.dateDepot = dateDepot;
     this.datePrevue = datePrevue;
+    this.priorite = normalizePrioriteRetouche(priorite);
     this.montantPaye = montantPaye;
     this.statutRetouche = statutRetouche;
     const resolvedPolicy = resolveRetouchePolicy(policy);

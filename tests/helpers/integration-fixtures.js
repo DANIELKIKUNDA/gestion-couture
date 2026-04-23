@@ -92,6 +92,16 @@ export async function ensureCommandeFamilleSchema() {
   `).catch(() => {});
 
   await pool.query(`
+    ALTER TABLE commandes
+    ADD COLUMN IF NOT EXISTS priorite TEXT NOT NULL DEFAULT 'NORMALE'
+  `).catch(() => {});
+
+  await pool.query(`
+    ALTER TABLE retouches
+    ADD COLUMN IF NOT EXISTS priorite TEXT NOT NULL DEFAULT 'NORMALE'
+  `).catch(() => {});
+
+  await pool.query(`
     DO $$
     BEGIN
       IF to_regclass('public.commande_lignes') IS NULL THEN

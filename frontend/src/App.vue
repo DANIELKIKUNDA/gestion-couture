@@ -374,6 +374,9 @@ const commandesVisibleCount = ref(commandesPagination.pageSize);
 const commandesLoadingMore = ref(false);
 const commandeInfiniteSentinel = ref(null);
 let commandeInfiniteObserver = null;
+function setCommandeInfiniteSentinel(element) {
+  commandeInfiniteSentinel.value = element || null;
+}
 
 const retoucheFilters = reactive({
   statut: "ALL",
@@ -429,6 +432,9 @@ const caisseOperationsVisibleCount = ref(caisseOperationsPagination.pageSize);
 const caisseOperationsLoadingMore = ref(false);
 const caisseInfiniteSentinel = ref(null);
 let caisseInfiniteObserver = null;
+function setCaisseInfiniteSentinel(element) {
+  caisseInfiniteSentinel.value = element || null;
+}
 const commandeDirectFormEnabled = true;
 const retoucheDirectFormEnabled = true;
 const activeCommandeItemIndex = ref(0);
@@ -449,6 +455,11 @@ const dashboardPeriodOptions = [
 const dashboardContactBoard = ref(createEmptyDashboardContactBoard());
 const dashboardContactBoardLoading = ref(false);
 const dashboardContactBoardError = ref("");
+const documentPriorityOptions = [
+  { value: "NORMALE", label: "Normale" },
+  { value: "URGENTE", label: "Urgente" },
+  { value: "TRES_URGENTE", label: "Tres urgente" }
+];
 
 const wizard = reactive({
   open: false,
@@ -473,6 +484,7 @@ const wizard = reactive({
     descriptionCommande: "",
     montantTotal: "",
     datePrevue: "",
+    priorite: "NORMALE",
     emettreFacture: true,
     typeHabit: "",
     items: [],
@@ -505,6 +517,7 @@ const retoucheWizard = reactive({
     typeRetouche: "",
     montantTotal: "",
     datePrevue: "",
+    priorite: "NORMALE",
     emettreFacture: true,
     typeHabit: "",
     items: [],
@@ -10635,6 +10648,7 @@ function normalizeCommande(raw) {
     statutCommande: raw.statutCommande || raw.statut || "CREEE",
     dateCreation: toIsoDate(raw.dateCreation || raw.date_creation),
     datePrevue: toIsoDate(raw.datePrevue || raw.date_prevue || raw.dateLivraison),
+    priorite: String(raw.priorite || raw.priorite_document || "NORMALE").trim().toUpperCase() || "NORMALE",
     clientNom: raw.clientNom || raw.client_nom || "",
     soldeRestant: Number(raw.soldeRestant ?? raw.solde_restant ?? Math.max(0, Number(raw.montantTotal ?? raw.montant_total ?? 0) - Number(raw.montantPaye ?? raw.montant_paye ?? 0))),
     nombreLignes: Number(raw.nombreLignes ?? raw.nombre_lignes ?? resolvedItems.length ?? 0),
@@ -10736,6 +10750,7 @@ function normalizeRetouche(raw) {
     statutRetouche: raw.statutRetouche || raw.statut || "DEPOSEE",
     dateDepot: toIsoDate(raw.dateDepot || raw.date_depot),
     datePrevue: toIsoDate(raw.datePrevue || raw.date_prevue),
+    priorite: String(raw.priorite || raw.priorite_document || "NORMALE").trim().toUpperCase() || "NORMALE",
     clientNom: raw.clientNom || raw.client_nom || "",
     soldeRestant: Number(raw.soldeRestant ?? raw.solde_restant ?? Math.max(0, Number(raw.montantTotal ?? raw.montant_total ?? 0) - Number(raw.montantPaye ?? raw.montant_paye ?? 0))),
     beneficiaire: normalizeDossierBeneficiaire(raw.beneficiaire || {}),
@@ -11414,6 +11429,7 @@ function resetWizard() {
   wizard.commande.descriptionCommande = "";
   wizard.commande.montantTotal = "";
   wizard.commande.datePrevue = "";
+  wizard.commande.priorite = "NORMALE";
   wizard.commande.emettreFacture = true;
   wizard.commande.typeHabit = "";
   wizard.commande.items = [createCommandeItemDraft()];
@@ -11448,6 +11464,8 @@ function isCommandeDirectDirty() {
       String(wizard.newClient.prenom || "").trim() ||
       String(wizard.newClient.telephone || "").trim() ||
       String(wizard.commande.descriptionCommande || "").trim() ||
+      String(wizard.commande.datePrevue || "").trim() ||
+      String(wizard.commande.priorite || "NORMALE").trim().toUpperCase() !== "NORMALE" ||
       (wizard.commande.items || []).some((item) =>
         String(item?.typeHabit || "").trim() ||
         String(item?.description || "").trim() ||
@@ -11490,6 +11508,7 @@ function resetRetoucheWizard() {
   retoucheWizard.retouche.typeRetouche = "";
   retoucheWizard.retouche.montantTotal = "";
   retoucheWizard.retouche.datePrevue = "";
+  retoucheWizard.retouche.priorite = "NORMALE";
   retoucheWizard.retouche.emettreFacture = true;
   retoucheWizard.retouche.typeHabit = "";
   retoucheWizard.retouche.items = [createRetoucheItemDraft()];
@@ -11523,6 +11542,8 @@ function isRetoucheDirectDirty() {
       String(retoucheWizard.newClient.prenom || "").trim() ||
       String(retoucheWizard.newClient.telephone || "").trim() ||
       String(retoucheWizard.retouche.descriptionRetouche || "").trim() ||
+      String(retoucheWizard.retouche.datePrevue || "").trim() ||
+      String(retoucheWizard.retouche.priorite || "NORMALE").trim().toUpperCase() !== "NORMALE" ||
       (retoucheWizard.retouche.items || []).some((item) =>
         String(item?.description || "").trim() ||
         Number(item?.prix || 0) > 0 ||
@@ -12220,6 +12241,7 @@ async function onWizardStep4() {
       montantTotal: montant,
       typeHabit: primaryMeasuredItem?.typeHabit || wizard.commande.typeHabit,
       mesuresHabit: primaryMeasuredItem?.mesures || {},
+      priorite: String(wizard.commande.priorite || "NORMALE").trim().toUpperCase() || "NORMALE",
       items: itemsWithMeasures
     };
     if (wizard.dossierId) payload.idDossier = wizard.dossierId;
@@ -12471,6 +12493,7 @@ async function onRetoucheWizardStep4() {
       montantTotal: montant,
       typeHabit: primaryItem?.typeHabit || retoucheWizard.retouche.typeHabit,
       mesuresHabit: primaryMeasures,
+      priorite: String(retoucheWizard.retouche.priorite || "NORMALE").trim().toUpperCase() || "NORMALE",
       items
     };
     if (retoucheWizard.dossierId) payload.idDossier = retoucheWizard.dossierId;
@@ -14678,6 +14701,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :icon-paths="iconPaths"
           :commandes-infinite-end-reached="commandesInfiniteEndReached"
           :commandes-loading-more="commandesLoadingMore"
+          :commande-infinite-sentinel-ref="setCommandeInfiniteSentinel"
           :open-route="openRoute"
           :can-payer="canPayer"
           :can-livrer="canLivrer"
@@ -16812,6 +16836,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :depense-type-label="depenseTypeLabel"
           :caisse-operations-loading-more="caisseOperationsLoadingMore"
           :caisse-operations-infinite-end-reached="caisseOperationsInfiniteEndReached"
+          :caisse-infinite-sentinel-ref="setCaisseInfiniteSentinel"
           @ouvrir-caisse="onOuvrirCaisseDuJour"
           @depense-caisse="onDepenseCaisse"
           @cloturer-caisse="onCloturerCaisse"
@@ -18060,6 +18085,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             <p v-if="commandeDirectErrors.description" class="field-error">{{ commandeDirectErrors.description }}</p>
             <label>Date de retrait</label>
             <input v-model="wizard.commande.datePrevue" type="date" />
+            <label>Priorite</label>
+            <select v-model="wizard.commande.priorite">
+              <option v-for="option in documentPriorityOptions" :key="`commande-priorite-direct-${option.value}`" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
             <label class="helper helper-inline-checkbox">
               <input v-model="wizard.commande.emettreFacture" type="checkbox" />
               Emettre facture apres creation
@@ -18266,6 +18297,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             <input v-model="wizard.commande.descriptionCommande" type="text" placeholder="Ex: Commande mariage" />
             <label>Date prevue</label>
             <input v-model="wizard.commande.datePrevue" type="date" />
+            <label>Priorite</label>
+            <select v-model="wizard.commande.priorite">
+              <option v-for="option in documentPriorityOptions" :key="`commande-priorite-wizard-${option.value}`" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
             <label class="helper helper-inline-checkbox">
               <input v-model="wizard.commande.emettreFacture" type="checkbox" />
               Emettre facture apres creation (recommande)
@@ -18722,6 +18759,14 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           <label>Description retouche <span>*</span></label>
           <input v-model="retoucheWizard.retouche.descriptionRetouche" type="text" placeholder="Ex: raccourcir manche, changer fermeture, ajuster robe" @input="retoucheDirectErrors.description = ''" />
           <p v-if="retoucheDirectErrors.description" class="field-error">{{ retoucheDirectErrors.description }}</p>
+          <label>Date prevue</label>
+          <input v-model="retoucheWizard.retouche.datePrevue" type="date" />
+          <label>Priorite</label>
+          <select v-model="retoucheWizard.retouche.priorite">
+            <option v-for="option in documentPriorityOptions" :key="`retouche-priorite-direct-${option.value}`" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
           <label class="helper helper-inline-checkbox">
             <input v-model="retoucheWizard.retouche.emettreFacture" type="checkbox" />
             Emettre facture apres creation
@@ -19074,6 +19119,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           <input v-model="retoucheWizard.retouche.descriptionRetouche" type="text" />
           <label>Date prevue</label>
           <input v-model="retoucheWizard.retouche.datePrevue" type="date" />
+          <label>Priorite</label>
+          <select v-model="retoucheWizard.retouche.priorite">
+            <option v-for="option in documentPriorityOptions" :key="`retouche-priorite-wizard-${option.value}`" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
           <label class="helper helper-inline-checkbox">
             <input v-model="retoucheWizard.retouche.emettreFacture" type="checkbox" />
             Emettre facture apres creation (recommande)

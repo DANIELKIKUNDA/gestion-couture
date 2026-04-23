@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS commandes (
   description TEXT NOT NULL,
   date_creation TIMESTAMP NOT NULL,
   date_prevue TIMESTAMP NULL,
+  priorite TEXT NOT NULL DEFAULT 'NORMALE',
   montant_total NUMERIC(12,2) NOT NULL CHECK (montant_total >= 0),
   montant_paye NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (montant_paye >= 0),
   type_habit TEXT NULL,
@@ -22,9 +23,13 @@ CREATE TABLE IF NOT EXISTS commandes (
 ALTER TABLE commandes ADD COLUMN IF NOT EXISTS type_habit TEXT NULL;
 ALTER TABLE commandes ADD COLUMN IF NOT EXISTS mesures_habit_snapshot JSONB NULL;
 ALTER TABLE commandes ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+ALTER TABLE commandes ADD COLUMN IF NOT EXISTS priorite TEXT;
 UPDATE commandes SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+UPDATE commandes SET priorite = 'NORMALE' WHERE priorite IS NULL OR BTRIM(priorite) = '';
 ALTER TABLE commandes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
 ALTER TABLE commandes ALTER COLUMN atelier_id SET NOT NULL;
+ALTER TABLE commandes ALTER COLUMN priorite SET DEFAULT 'NORMALE';
+ALTER TABLE commandes ALTER COLUMN priorite SET NOT NULL;
 
 DO $$
 BEGIN
@@ -39,6 +44,14 @@ BEGIN
   ALTER TABLE commandes
     ADD CONSTRAINT commandes_statut_check
     CHECK (statut IN ('CREEE','EN_COURS','TERMINEE','LIVREE','ANNULEE'));
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE commandes DROP CONSTRAINT IF EXISTS commandes_priorite_check;
+  ALTER TABLE commandes
+    ADD CONSTRAINT commandes_priorite_check
+    CHECK (priorite IN ('NORMALE','URGENTE','TRES_URGENTE'));
 END $$;
 
 DO $$

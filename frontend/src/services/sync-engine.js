@@ -527,6 +527,9 @@ async function buildCommandeApiPayload(atelierId, payload = {}, localRecord = {}
   if (payload.datePrevue) {
     requestPayload.datePrevue = payload.datePrevue;
   }
+  if (payload.priorite || localRecord?.priorite) {
+    requestPayload.priorite = normalizeString(payload.priorite || localRecord.priorite).toUpperCase();
+  }
   return requestPayload;
 }
 
@@ -559,6 +562,9 @@ function buildRetoucheApiPayload(payload = {}, clientServerId, localRecord = {})
   }
   if (payload.datePrevue) {
     requestPayload.datePrevue = payload.datePrevue;
+  }
+  if (payload.priorite || localRecord?.priorite) {
+    requestPayload.priorite = normalizeString(payload.priorite || localRecord.priorite).toUpperCase();
   }
   return requestPayload;
 }

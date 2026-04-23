@@ -172,6 +172,7 @@ function buildCommandeRecord(input, clientRecord, timestamp, options = {}) {
   const primaryItem = items[0] || null;
   const typeHabit = normalizeString(primaryItem?.typeHabit || input?.typeHabit);
   const datePrevue = toNullableIsoTimestamp(input?.datePrevue);
+  const priorite = normalizeString(input?.priorite).toUpperCase() || "NORMALE";
   if (!descriptionCommande) {
     throw new Error("Description commande obligatoire.");
   }
@@ -205,6 +206,7 @@ function buildCommandeRecord(input, clientRecord, timestamp, options = {}) {
     statutCommande: "CREEE",
     dateCreation: timestamp,
     datePrevue,
+    priorite,
     nouveauClient: options.isNewClient ? buildClientReferenceDraft(clientRecord) : null
   };
 }
@@ -224,6 +226,7 @@ function buildRetoucheRecord(input, clientRecord, timestamp, options = {}) {
   const typeRetouche = normalizeString(primaryItem?.typeRetouche || input?.typeRetouche);
   const typeHabit = normalizeString(input?.typeHabit);
   const datePrevue = toNullableIsoTimestamp(input?.datePrevue);
+  const priorite = normalizeString(input?.priorite).toUpperCase() || "NORMALE";
   if (!typeRetouche) {
     throw new Error("Type de retouche obligatoire.");
   }
@@ -254,6 +257,7 @@ function buildRetoucheRecord(input, clientRecord, timestamp, options = {}) {
     statutRetouche: "DEPOSEE",
     dateDepot: timestamp,
     datePrevue,
+    priorite,
     nouveauClient: options.isNewClient ? buildClientReferenceDraft(clientRecord) : null
   };
 }
@@ -278,6 +282,9 @@ function buildCreateCommandePayload(commandeRecord) {
   }
   if (commandeRecord?.datePrevue) {
     requestPayload.datePrevue = commandeRecord.datePrevue;
+  }
+  if (commandeRecord?.priorite) {
+    requestPayload.priorite = normalizeString(commandeRecord.priorite).toUpperCase();
   }
   return requestPayload;
 }
@@ -304,6 +311,9 @@ function buildCreateRetouchePayload(retoucheRecord) {
   }
   if (retoucheRecord?.datePrevue) {
     requestPayload.datePrevue = retoucheRecord.datePrevue;
+  }
+  if (retoucheRecord?.priorite) {
+    requestPayload.priorite = normalizeString(retoucheRecord.priorite).toUpperCase();
   }
   return requestPayload;
 }

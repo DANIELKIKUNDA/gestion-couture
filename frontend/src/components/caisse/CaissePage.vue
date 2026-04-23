@@ -27,7 +27,8 @@ defineProps({
   caisseOperationsPaged: { type: Array, default: () => [] },
   depenseTypeLabel: { type: Function, required: true },
   caisseOperationsLoadingMore: { type: Boolean, default: false },
-  caisseOperationsInfiniteEndReached: { type: Boolean, default: false }
+  caisseOperationsInfiniteEndReached: { type: Boolean, default: false },
+  caisseInfiniteSentinelRef: { type: Function, required: true }
 });
 
 const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"]);
@@ -110,7 +111,7 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
 
               <div
                 v-if="caisseOperationsPaged.length > 0 && caisseOperationsPaged.length < caisseOperations.length"
-                ref="caisseInfiniteSentinel"
+                :ref="caisseInfiniteSentinelRef"
                 class="dossier-infinite-sentinel infinite-list-status"
               >
                 <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
@@ -193,7 +194,7 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
               </table>
               <div
                 v-if="caisseOperationsPaged.length > 0 && caisseOperationsPaged.length < caisseOperations.length"
-                ref="caisseInfiniteSentinel"
+                :ref="caisseInfiniteSentinelRef"
                 class="dossier-infinite-sentinel infinite-list-status"
               >
                 <span class="auth-loading-spinner subtle" aria-hidden="true"></span>

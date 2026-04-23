@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { mkdirSync, openSync, closeSync, rmSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
@@ -26,6 +26,7 @@ const RUNTIME_DIR = path.join(ROOT_DIR, "tests", "e2e", ".runtime");
 const START_LOCK_PATH = path.join(RUNTIME_DIR, "servers.lock");
 const FRONTEND_URL = process.env.E2E_FRONTEND_URL || "http://127.0.0.1:5173";
 const API_URL = process.env.E2E_API_URL || "http://127.0.0.1:3000";
+const START_LOCK_STALE_MS = 30_000;
 
 type TestActor = {
   atelierId: string;
@@ -64,6 +65,17 @@ async function waitForHttp(url: string, timeoutMs = 120_000) {
   throw new Error(`Service indisponible sur ${url}: ${lastError}`);
 }
 
+function cleanupStaleStartLock() {
+  if (!existsSync(START_LOCK_PATH)) return;
+  try {
+    const stats = statSync(START_LOCK_PATH);
+    if (Date.now() - stats.mtimeMs < START_LOCK_STALE_MS) return;
+    rmSync(START_LOCK_PATH, { force: true });
+  } catch {
+    // best effort cleanup
+  }
+}
+
 function spawnBackgroundProcess(command: string, args: string[], cwd: string, logName: string) {
   mkdirSync(RUNTIME_DIR, { recursive: true });
   let child: ChildProcess;
@@ -96,6 +108,7 @@ async function startServersIfNeeded() {
   }
 
   mkdirSync(RUNTIME_DIR, { recursive: true });
+  cleanupStaleStartLock();
 
   let lockAcquired = false;
   try {
