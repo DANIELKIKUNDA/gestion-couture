@@ -525,6 +525,68 @@ const retoucheWizard = reactive({
   }
 });
 
+const commandeDirectCardElements = new Map();
+const commandeDirectPrimaryFieldElements = new Map();
+const retoucheDirectCardElements = new Map();
+const retoucheDirectPrimaryFieldElements = new Map();
+
+function setCommandeDirectCardRef(itemId, element) {
+  const key = String(itemId || "").trim();
+  if (!key) return;
+  if (element) {
+    commandeDirectCardElements.set(key, element);
+    return;
+  }
+  commandeDirectCardElements.delete(key);
+}
+
+function setCommandeDirectPrimaryFieldRef(itemId, element) {
+  const key = String(itemId || "").trim();
+  if (!key) return;
+  if (element) {
+    commandeDirectPrimaryFieldElements.set(key, element);
+    return;
+  }
+  commandeDirectPrimaryFieldElements.delete(key);
+}
+
+function setRetoucheDirectCardRef(itemId, element) {
+  const key = String(itemId || "").trim();
+  if (!key) return;
+  if (element) {
+    retoucheDirectCardElements.set(key, element);
+    return;
+  }
+  retoucheDirectCardElements.delete(key);
+}
+
+function setRetoucheDirectPrimaryFieldRef(itemId, element) {
+  const key = String(itemId || "").trim();
+  if (!key) return;
+  if (element) {
+    retoucheDirectPrimaryFieldElements.set(key, element);
+    return;
+  }
+  retoucheDirectPrimaryFieldElements.delete(key);
+}
+
+function focusDirectItemCard(kind, itemId) {
+  const key = String(itemId || "").trim();
+  if (!key) return;
+  nextTick(() => {
+    const cardMap = kind === "retouche" ? retoucheDirectCardElements : commandeDirectCardElements;
+    const fieldMap = kind === "retouche" ? retoucheDirectPrimaryFieldElements : commandeDirectPrimaryFieldElements;
+    const card = cardMap.get(key);
+    const field = fieldMap.get(key);
+    if (card?.scrollIntoView) {
+      card.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    }
+    if (field?.focus) {
+      field.focus({ preventScroll: true });
+    }
+  });
+}
+
 function createEmptyDossierDetail() {
   return {
     idDossier: "",
@@ -4555,11 +4617,16 @@ function removeFreeMeasureFromItem(item, key) {
 function addCommandeItem() {
   wizard.commande.items.push(createCommandeItemDraft());
   activeCommandeItemIndex.value = wizard.commande.items.length - 1;
+  const createdItem = wizard.commande.items[activeCommandeItemIndex.value] || null;
+  focusDirectItemCard("commande", createdItem?.idItem);
 }
 
 function addCommandeItemDirect() {
   const current = wizard.commande.items[activeCommandeItemIndex.value] || null;
-  if (!validateCommandeDirectItemInline(current, activeCommandeItemIndex.value)) return;
+  if (!validateCommandeDirectItemInline(current, activeCommandeItemIndex.value)) {
+    focusDirectItemCard("commande", current?.idItem);
+    return;
+  }
   recalculateCommandeTotalFromItems();
   addCommandeItem();
 }
@@ -4721,11 +4788,16 @@ function handleMeasureViewportResize() {
 function addRetoucheItem() {
   retoucheWizard.retouche.items.push(createRetoucheItemDraft());
   activeRetoucheItemIndex.value = retoucheWizard.retouche.items.length - 1;
+  const createdItem = retoucheWizard.retouche.items[activeRetoucheItemIndex.value] || null;
+  focusDirectItemCard("retouche", createdItem?.idItem);
 }
 
 function addRetoucheItemDirect() {
   const current = retoucheWizard.retouche.items[activeRetoucheItemIndex.value] || null;
-  if (!validateRetoucheDirectItemInline(current, activeRetoucheItemIndex.value)) return;
+  if (!validateRetoucheDirectItemInline(current, activeRetoucheItemIndex.value)) {
+    focusDirectItemCard("retouche", current?.idItem);
+    return;
+  }
   recalculateRetoucheTotalFromItems();
   addRetoucheItem();
 }
@@ -12357,6 +12429,7 @@ async function submitCommandeDirect() {
     const invalidIndex = items.findIndex((item, index) => !validateCommandeDirectItemInline(item, index));
     if (invalidIndex >= 0) {
       activeCommandeItemIndex.value = invalidIndex;
+      focusDirectItemCard("commande", items[invalidIndex]?.idItem);
       throw new Error("Complète l'habit indiqué pour enregistrer la commande.");
     }
     recalculateCommandeTotalFromItems();
@@ -12605,6 +12678,7 @@ async function submitRetoucheDirect() {
     });
     if (invalidIndex >= 0) {
       activeRetoucheItemIndex.value = invalidIndex;
+      focusDirectItemCard("retouche", items[invalidIndex]?.idItem);
       throw new Error("Complète l'habit indiqué pour enregistrer la retouche.");
     }
     recalculateRetoucheTotalFromItems();
@@ -18110,6 +18184,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               <article
                 v-for="(item, index) in wizard.commande.items"
                 :key="item.idItem"
+                :ref="(element) => setCommandeDirectCardRef(item.idItem, element)"
                 class="panel subtle-panel wizard-item-card"
                 :class="{ 'wizard-item-card-active': activeCommandeItemIndex === index }"
               >
@@ -18127,7 +18202,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <div class="wizard-item-grid">
                     <div class="stack-form">
                       <label>Type d'habit <span>*</span></label>
-                      <select v-model="item.typeHabit" :class="{ invalid: getCommandeDirectItemErrors(item, index).typeHabit }" @change="commandeDirectErrors.items = { ...commandeDirectErrors.items, [getDirectItemErrorKey(item, index)]: { ...getCommandeDirectItemErrors(item, index), typeHabit: '' } }; onCommandeItemTypeChange(item)">
+                      <select :ref="(element) => setCommandeDirectPrimaryFieldRef(item.idItem, element)" v-model="item.typeHabit" :class="{ invalid: getCommandeDirectItemErrors(item, index).typeHabit }" @change="commandeDirectErrors.items = { ...commandeDirectErrors.items, [getDirectItemErrorKey(item, index)]: { ...getCommandeDirectItemErrors(item, index), typeHabit: '' } }; onCommandeItemTypeChange(item)">
                         <option value="">Choisir un type d'habit</option>
                         <option v-for="option in wizardAvailableHabitTypeOptions" :key="`cmd-direct-habit-${item.idItem}-${option.value}`" :value="option.value">
                           {{ option.label }}
@@ -18193,6 +18268,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </div>
               </article>
             </div>
+            <div class="inline-actions wizard-inline-add-secondary">
+              <button class="mini-btn blue" type="button" @click="addCommandeItemDirect">Ajouter un autre habit</button>
+            </div>
           </section>
 
           <div class="wizard-total-bar">
@@ -18203,7 +18281,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             </div>
           </div>
 
-          <div class="modal-actions wizard-modal-actions">
+          <div class="modal-actions wizard-modal-actions wizard-premium-actions">
+            <button class="mini-btn blue wizard-mobile-quick-add" type="button" @click="addCommandeItemDirect">Ajouter un autre habit</button>
             <button class="mini-btn" @click="requestCloseWizard">Annuler</button>
             <button class="action-btn green" @click="submitCommandeDirect" :disabled="wizard.submitting">
               {{ wizard.submitting ? "Enregistrement..." : "Enregistrer la commande" }}
@@ -18782,10 +18861,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             </div>
             <button class="mini-btn blue" type="button" @click="addRetoucheItemDirect">+ Ajouter un habit</button>
           </div>
-          <div class="wizard-items-stack">
+            <div class="wizard-items-stack">
             <article
               v-for="(item, index) in retoucheWizard.retouche.items"
               :key="item.idItem"
+              :ref="(element) => setRetoucheDirectCardRef(item.idItem, element)"
               class="panel subtle-panel wizard-item-card"
               :class="{ 'wizard-item-card-active': activeRetoucheItemIndex === index }"
             >
@@ -18803,7 +18883,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <div class="wizard-item-grid">
                   <div class="stack-form">
                     <label>Travail à faire <span>*</span></label>
-                    <input v-model="item.description" type="text" placeholder="Ex: raccourcir manche, reprendre taille, changer fermeture" :class="{ invalid: getRetoucheDirectItemErrors(item, index).description }" @input="retoucheDirectErrors.items = { ...retoucheDirectErrors.items, [getDirectItemErrorKey(item, index)]: { ...getRetoucheDirectItemErrors(item, index), description: '' } }" />
+                    <input :ref="(element) => setRetoucheDirectPrimaryFieldRef(item.idItem, element)" v-model="item.description" type="text" placeholder="Ex: raccourcir manche, reprendre taille, changer fermeture" :class="{ invalid: getRetoucheDirectItemErrors(item, index).description }" @input="retoucheDirectErrors.items = { ...retoucheDirectErrors.items, [getDirectItemErrorKey(item, index)]: { ...getRetoucheDirectItemErrors(item, index), description: '' } }" />
                     <p v-if="getRetoucheDirectItemErrors(item, index).description" class="field-error">{{ getRetoucheDirectItemErrors(item, index).description }}</p>
                   </div>
                   <div class="stack-form">
@@ -18838,10 +18918,13 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     Supprimer
                   </button>
                 </div>
-              </div>
-            </article>
-          </div>
-        </section>
+                </div>
+              </article>
+            </div>
+            <div class="inline-actions wizard-inline-add-secondary">
+              <button class="mini-btn blue" type="button" @click="addRetoucheItemDirect">Ajouter un autre habit</button>
+            </div>
+          </section>
 
         <div class="wizard-total-bar">
           <div class="wizard-total-meta">
@@ -18851,7 +18934,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </div>
         </div>
 
-        <div class="modal-actions wizard-modal-actions">
+        <div class="modal-actions wizard-modal-actions wizard-premium-actions">
+          <button class="mini-btn blue wizard-mobile-quick-add" type="button" @click="addRetoucheItemDirect">Ajouter un autre habit</button>
           <button class="mini-btn" @click="requestCloseRetoucheWizard">Annuler</button>
           <button class="action-btn green" @click="submitRetoucheDirect" :disabled="retoucheWizard.submitting">
             {{ retoucheWizard.submitting ? "Enregistrement..." : "Enregistrer la retouche" }}
