@@ -935,6 +935,15 @@ export const atelierApi = {
     return request(`/caisse/${idCaisseJour}`, { method: "GET" });
   },
 
+  enregistrerEntreeManuelleCaisse({ idCaisseJour, montant, justification, modePaiement = "CASH", utilisateur = null }) {
+    const payload = { montant, justification, modePaiement };
+    assignIfPresent(payload, "utilisateur", utilisateur);
+    return request(`/caisse/${idCaisseJour}/entrees/manuelles`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+
   enregistrerDepenseCaisse({ idCaisseJour, montant, motif, typeDepense, justification = "", utilisateur = null, role = "" }) {
     const payload = { montant, motif, typeDepense, justification, role };
     assignIfPresent(payload, "utilisateur", utilisateur);

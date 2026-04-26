@@ -12,6 +12,7 @@ defineProps({
   isMobileViewport: { type: Boolean, default: false },
   caisseOuverte: { type: Boolean, default: false },
   canOpenCaisse: { type: Boolean, default: false },
+  canRecordCaisseManualEntry: { type: Boolean, default: false },
   canRecordCaisseExpense: { type: Boolean, default: false },
   canCloseCaisse: { type: Boolean, default: false },
   caisseJour: { type: Object, default: null },
@@ -25,18 +26,20 @@ defineProps({
   formatCaisseClotureePar: { type: Function, required: true },
   caisseOperations: { type: Array, default: () => [] },
   caisseOperationsPaged: { type: Array, default: () => [] },
+  caisseSourceLabel: { type: Function, required: true },
+  caisseSourceTone: { type: Function, required: true },
   depenseTypeLabel: { type: Function, required: true },
   caisseOperationsLoadingMore: { type: Boolean, default: false },
   caisseOperationsInfiniteEndReached: { type: Boolean, default: false },
   caisseInfiniteSentinelRef: { type: Function, required: true }
 });
 
-const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"]);
+const emit = defineEmits(["ouvrir-caisse", "entree-manuelle-caisse", "depense-caisse", "cloturer-caisse"]);
 </script>
 
 <template>
   <section class="commande-detail">
-    <MobilePageLayout :has-action="isMobileViewport && ((!caisseOuverte && canOpenCaisse) || (caisseOuverte && canRecordCaisseExpense) || (caisseOuverte && !canRecordCaisseExpense && canCloseCaisse))">
+    <MobilePageLayout :has-action="isMobileViewport && ((!caisseOuverte && canOpenCaisse) || (caisseOuverte && canRecordCaisseManualEntry) || (caisseOuverte && canRecordCaisseExpense) || (caisseOuverte && !canRecordCaisseExpense && !canRecordCaisseManualEntry && canCloseCaisse))">
       <article class="panel panel-header detail-header" :class="{ 'caisse-header-closed': !caisseOuverte }">
         <div>
           <h3>Caisse du jour</h3>
@@ -50,6 +53,7 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
             {{ caisseStatus }}
           </span>
           <button v-if="!isMobileViewport && !caisseOuverte && canOpenCaisse" class="action-btn green" @click="emit('ouvrir-caisse')">Ouvrir la caisse</button>
+          <button v-if="!isMobileViewport && caisseOuverte && canRecordCaisseManualEntry" class="action-btn blue" @click="emit('entree-manuelle-caisse')">+ Ajouter une entree</button>
           <button v-if="!isMobileViewport && caisseOuverte && canRecordCaisseExpense" class="action-btn amber" @click="emit('depense-caisse')">Enregistrer depense</button>
           <button v-if="!isMobileViewport && caisseOuverte && canCloseCaisse" class="action-btn red" @click="emit('cloturer-caisse')">Cloturer la caisse</button>
           <button v-if="isMobileViewport && caisseOuverte && canCloseCaisse" class="mini-btn" @click="emit('cloturer-caisse')">Cloturer</button>
@@ -91,6 +95,25 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
 
             <article class="panel">
               <MobileSectionHeader
+                title="Repartition des encaissements"
+                subtitle="Lecture rapide des entrees par source et des depenses."
+              />
+              <div class="caisse-summary-grid">
+                <div class="caisse-summary-col">
+                  <p class="caisse-row"><strong>Commandes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalCommandes) }}</span></p>
+                  <p class="caisse-row"><strong>Retouches:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalRetouches) }}</span></p>
+                  <p class="caisse-row"><strong>Ventes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalVentes) }}</span></p>
+                </div>
+                <div class="caisse-summary-col">
+                  <p class="caisse-row"><strong>Entrees manuelles:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</span></p>
+                  <p class="caisse-row"><strong>Total global:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalGlobal) }}</span></p>
+                  <p class="caisse-row"><strong>Depenses:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalDepenses) }}</span></p>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <MobileSectionHeader
                 title="Historique des operations"
                 :subtitle="`${caisseOperations.length} operation(s) enregistree(s)`"
               />
@@ -106,6 +129,8 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
                 :items="caisseOperationsPaged"
                 :format-currency="formatCurrency"
                 :format-date-time="formatDateTime"
+                :source-label="caisseSourceLabel"
+                :source-tone="caisseSourceTone"
                 :depense-type-label="depenseTypeLabel"
               />
 
@@ -149,6 +174,25 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
               </div>
             </article>
 
+            <article class="panel caisse-summary-grid">
+              <div class="caisse-summary-col">
+                <h4>Repartition des encaissements</h4>
+                <p class="caisse-row"><strong>Commandes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalCommandes) }}</span></p>
+                <p class="caisse-row"><strong>Retouches:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalRetouches) }}</span></p>
+                <p class="caisse-row"><strong>Ventes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalVentes) }}</span></p>
+              </div>
+              <div class="caisse-summary-col">
+                <h4>Entrees controlees</h4>
+                <p class="caisse-row"><strong>Entrees manuelles:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</span></p>
+                <p class="caisse-row"><strong>Total global:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalGlobal) }}</span></p>
+                <p class="caisse-row"><strong>Total depenses:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalDepenses) }}</span></p>
+              </div>
+              <div class="caisse-summary-col">
+                <h4>Lecture premium</h4>
+                <p class="helper">Les entrees sont regroupees par source pour une lecture rapide. Les depenses restent visibles a part pour proteger la lisibilite de la caisse.</p>
+              </div>
+            </article>
+
             <article class="panel">
               <div class="panel-header detail-panel-header">
                 <h4>Historique des operations</h4>
@@ -160,6 +204,7 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
                     <th>Date</th>
                     <th>Type</th>
                     <th>Montant</th>
+                    <th>Source</th>
                     <th>Type depense</th>
                     <th>Mode</th>
                     <th>Motif</th>
@@ -174,6 +219,11 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
                     <td data-label="Date">{{ formatDateTime(op.dateOperation) }}</td>
                     <td data-label="Type">{{ op.typeOperation }}</td>
                     <td data-label="Montant">{{ formatCurrency(op.montant) }}</td>
+                    <td data-label="Source">
+                      <span class="status-pill" :data-tone="caisseSourceTone(op.sourceFlux)">
+                        {{ caisseSourceLabel(op.sourceFlux) }}
+                      </span>
+                    </td>
                     <td data-label="Type depense">
                       <span v-if="op.typeOperation === 'SORTIE'" class="status-pill" :data-tone="op.typeDepense === 'EXCEPTIONNELLE' ? 'amber' : 'blue'">
                         {{ depenseTypeLabel(op.typeDepense) }}
@@ -188,7 +238,7 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
                     <td data-label="Statut">{{ op.statutOperation || "-" }}</td>
                   </tr>
                   <tr v-if="caisseOperations.length === 0">
-                    <td colspan="10">Aucune operation enregistree.</td>
+                    <td colspan="11">Aucune operation enregistree.</td>
                   </tr>
                 </tbody>
               </table>
@@ -218,6 +268,14 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
         </MobilePrimaryActionBar>
 
         <MobilePrimaryActionBar
+          v-else-if="isMobileViewport && caisseOuverte && canRecordCaisseManualEntry"
+          title="Action principale"
+          subtitle="Ajoutez une entree manuelle controlee sans quitter la caisse."
+        >
+          <button class="action-btn blue" @click="emit('entree-manuelle-caisse')">+ Ajouter une entree</button>
+        </MobilePrimaryActionBar>
+
+        <MobilePrimaryActionBar
           v-else-if="isMobileViewport && caisseOuverte && canRecordCaisseExpense"
           title="Action principale"
           subtitle="Enregistrez rapidement une depense sur la caisse ouverte."
@@ -226,7 +284,7 @@ const emit = defineEmits(["ouvrir-caisse", "depense-caisse", "cloturer-caisse"])
         </MobilePrimaryActionBar>
 
         <MobilePrimaryActionBar
-          v-else-if="isMobileViewport && caisseOuverte && !canRecordCaisseExpense && canCloseCaisse"
+          v-else-if="isMobileViewport && caisseOuverte && !canRecordCaisseExpense && !canRecordCaisseManualEntry && canCloseCaisse"
           title="Action principale"
           subtitle="Cloturez la caisse lorsque les operations sont terminees."
         >

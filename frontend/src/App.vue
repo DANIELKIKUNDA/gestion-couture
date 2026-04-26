@@ -2243,6 +2243,9 @@ const canCreateRetouche = computed(() => hasPermission(PERMISSIONS.CREER_RETOUCH
 const canCreateWizardClient = computed(() => canCreateClient.value || canCreateCommande.value || canCreateRetouche.value);
 const canCreateVente = computed(() => hasAnyPermission([PERMISSIONS.GERER_VENTES, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
 const canOpenCaisse = computed(() => hasAnyPermission([PERMISSIONS.OUVRIR_CAISSE, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
+const canRecordCaisseManualEntry = computed(
+  () => currentRole.value !== "COUTURIER" && hasAnyPermission([PERMISSIONS.ENREGISTRER_ENTREE_CAISSE, PERMISSIONS.VOIR_BILANS_GLOBAUX])
+);
 const canRecordCaisseExpense = computed(() => hasAnyPermission([PERMISSIONS.ENREGISTRER_SORTIE_CAISSE, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
 const canCloseCaisse = computed(() => hasAnyPermission([PERMISSIONS.CLOTURER_CAISSE, PERMISSIONS.VOIR_BILANS_GLOBAUX]));
 const canManageStockPurchases = computed(() =>
@@ -9455,6 +9458,27 @@ function depenseTypeLabel(value) {
   return upper === "EXCEPTIONNELLE" ? "Exceptionnelle" : "Quotidienne";
 }
 
+function caisseSourceLabel(value) {
+  const upper = String(value || "").trim().toUpperCase();
+  if (upper === "COMMANDE") return "Commande";
+  if (upper === "RETOUCHE") return "Retouche";
+  if (upper === "VENTE") return "Vente";
+  if (upper === "MANUEL") return "Manuel";
+  if (upper === "DEPENSE") return "Depense";
+  if (upper === "AUTRE_ENTREE") return "Autre entree";
+  return upper ? upper.replaceAll("_", " ") : "-";
+}
+
+function caisseSourceTone(value) {
+  const upper = String(value || "").trim().toUpperCase();
+  if (upper === "COMMANDE") return "blue";
+  if (upper === "RETOUCHE") return "warning";
+  if (upper === "VENTE") return "green";
+  if (upper === "MANUEL") return "info";
+  if (upper === "DEPENSE") return "default";
+  return "default";
+}
+
 function formatRoleLabel(value) {
   const key = String(value || "").trim().toUpperCase();
   const labels = {
@@ -11021,6 +11045,7 @@ function normalizeFacture(raw) {
 }
 
 function normalizeCaisse(raw) {
+  const sourceTotals = raw?.totauxParSource || raw?.totaux_par_source || {};
   return {
     idCaisseJour: raw.idCaisseJour || raw.id_caisse_jour,
     date: raw.date || raw.date_jour,
@@ -11039,6 +11064,14 @@ function normalizeCaisse(raw) {
     ouvertureAnticipee: raw.ouvertureAnticipee === true || raw.ouverture_anticipee === true,
     motifOuvertureAnticipee: raw.motifOuvertureAnticipee || raw.motif_ouverture_anticipee || "",
     autoriseePar: raw.autoriseePar || raw.autorisee_par || "",
+    totauxParSource: {
+      totalCommandes: Number(sourceTotals.totalCommandes ?? sourceTotals.total_commandes ?? 0),
+      totalRetouches: Number(sourceTotals.totalRetouches ?? sourceTotals.total_retouches ?? 0),
+      totalVentes: Number(sourceTotals.totalVentes ?? sourceTotals.total_ventes ?? 0),
+      totalEntreesManuelles: Number(sourceTotals.totalEntreesManuelles ?? sourceTotals.total_entrees_manuelles ?? 0),
+      totalDepenses: Number(sourceTotals.totalDepenses ?? sourceTotals.total_depenses ?? 0),
+      totalGlobal: Number(sourceTotals.totalGlobal ?? sourceTotals.total_global ?? 0)
+    },
     operations: (raw.operations || []).map((op) => ({
       idOperation: op.idOperation || op.id_operation,
       typeOperation: op.typeOperation || op.type_operation,
@@ -11052,7 +11085,8 @@ function normalizeCaisse(raw) {
       impactGlobal: op.impactGlobal ?? op.impact_global ?? null,
       effectuePar: op.effectuePar || op.effectue_par || "",
       referenceMetier: op.referenceMetier || op.reference_metier || "",
-      modePaiement: op.modePaiement || op.mode_paiement || ""
+      modePaiement: op.modePaiement || op.mode_paiement || "",
+      sourceFlux: op.sourceFlux || op.source_flux || ""
     }))
   };
 }
@@ -13570,6 +13604,44 @@ async function onDepenseCaisse() {
     const message = readableError(err);
     if (isCaisseClosedMessage(message)) {
       notify("Impossible d'enregistrer cet achat : la caisse est cloturee.");
+      return;
+    }
+    notify(message);
+  }
+}
+
+async function onEntreeManuelleCaisse() {
+  if (!canRecordCaisseManualEntry.value) return;
+  if (!caisseJour.value) return;
+  if (!caisseOuverte.value) {
+    notify("Caisse cloturee. Entree manuelle interdite.");
+    return;
+  }
+
+  const payload = await openActionModal({
+    title: "Ajouter une entree manuelle",
+    message: "Enregistrez une entree controlee dans la caisse du jour.",
+    confirmLabel: "Enregistrer l'entree",
+    tone: "blue",
+    fields: [
+      { key: "montant", label: "Montant (FC)", type: "number", required: true, min: 1, defaultValue: 5000 },
+      { key: "justification", label: "Justification", type: "textarea", required: true, defaultValue: "" }
+    ]
+  });
+  if (!payload) return;
+
+  try {
+    await atelierApi.enregistrerEntreeManuelleCaisse({
+      idCaisseJour: caisseJour.value.idCaisseJour,
+      montant: Number(payload.montant),
+      justification: String(payload.justification || "").trim()
+    });
+    await reloadAll();
+    notify("Entree manuelle enregistree.");
+  } catch (err) {
+    const message = readableError(err);
+    if (isCaisseClosedMessage(message)) {
+      notify("Impossible d'enregistrer cette entree : la caisse est cloturee.");
       return;
     }
     notify(message);
@@ -17063,6 +17135,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :is-mobile-viewport="isMobileViewport"
           :caisse-ouverte="caisseOuverte"
           :can-open-caisse="canOpenCaisse"
+          :can-record-caisse-manual-entry="canRecordCaisseManualEntry"
           :can-record-caisse-expense="canRecordCaisseExpense"
           :can-close-caisse="canCloseCaisse"
           :caisse-jour="caisseJour"
@@ -17076,11 +17149,14 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :format-caisse-cloturee-par="formatCaisseClotureePar"
           :caisse-operations="caisseOperations"
           :caisse-operations-paged="caisseOperationsPaged"
+          :caisse-source-label="caisseSourceLabel"
+          :caisse-source-tone="caisseSourceTone"
           :depense-type-label="depenseTypeLabel"
           :caisse-operations-loading-more="caisseOperationsLoadingMore"
           :caisse-operations-infinite-end-reached="caisseOperationsInfiniteEndReached"
           :caisse-infinite-sentinel-ref="setCaisseInfiniteSentinel"
           @ouvrir-caisse="onOuvrirCaisseDuJour"
+          @entree-manuelle-caisse="onEntreeManuelleCaisse"
           @depense-caisse="onDepenseCaisse"
           @cloturer-caisse="onCloturerCaisse"
         />

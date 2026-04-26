@@ -6,6 +6,7 @@ import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/r
 import { ouvrirCaisseDuJour } from "../../application/use-cases/ouvrir-caisse-du-jour.js";
 import { preparerOuvertureCaisseDuJour } from "../../application/use-cases/preparer-ouverture-caisse.js";
 import { enregistrerEntree } from "../../application/use-cases/enregistrer-entree.js";
+import { enregistrerEntreeManuelle } from "../../application/use-cases/enregistrer-entree-manuelle.js";
 import { enregistrerSortie } from "../../application/use-cases/enregistrer-sortie.js";
 import { annulerOperation } from "../../application/use-cases/annuler-operation.js";
 import { cloturerCaisse } from "../../application/use-cases/cloturer-caisse.js";
@@ -14,6 +15,7 @@ import { requireFields, requireNumber, validateSchema } from "../../../shared/in
 import { generateOperationId } from "../../../shared/domain/id-generator.js";
 import { z } from "zod";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
+import { MotifOperation } from "../../domain/value-objects.js";
 import { requireAnyPermission, requirePermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 import { enregistrerEvenementAudit } from "../../../shared/infrastructure/audit-log.js";
 import { PermissionInsuffisante } from "../../domain/errors.js";
@@ -67,6 +69,22 @@ function scopedParametresRepo(req) {
   return parametresRepo.forAtelier(atelierIdFromReq(req));
 }
 
+function isRoleForbiddenForManualEntry(role = "") {
+  return String(role || "").trim().toUpperCase() === "COUTURIER";
+}
+
+function resolveCaisseOperationSource(op = {}) {
+  const typeOperation = String(op.typeOperation || op.type_operation || "").trim().toUpperCase();
+  if (typeOperation === "SORTIE") return "DEPENSE";
+
+  const motif = String(op.motif || "").trim().toUpperCase();
+  if ([MotifOperation.PAIEMENT_COMMANDE, MotifOperation.PAIEMENT_COMMANDE_ITEM].includes(motif)) return "COMMANDE";
+  if ([MotifOperation.PAIEMENT_RETOUCHE, MotifOperation.PAIEMENT_RETOUCHE_ITEM].includes(motif)) return "RETOUCHE";
+  if ([MotifOperation.VENTE_STOCK, MotifOperation.PAIEMENT_STOCK].includes(motif)) return "VENTE";
+  if (motif === MotifOperation.ENTREE_MANUELLE) return "MANUEL";
+  return typeOperation === "ENTREE" ? "AUTRE_ENTREE" : "AUTRE";
+}
+
 function normalizeCaisse(caisse) {
   const operations = caisse.operations || [];
   const soldeCourant = operations.reduce((sum, op) => {
@@ -88,6 +106,35 @@ function normalizeCaisse(caisse) {
     return sum;
   }, 0);
   const resultatJournalier = totalEntreesJour - totalSortiesQuotidiennesJour;
+  const totauxParSource = {
+    totalCommandes: 0,
+    totalRetouches: 0,
+    totalVentes: 0,
+    totalEntreesManuelles: 0,
+    totalDepenses: 0,
+    totalGlobal: 0
+  };
+
+  const normalizedOperations = operations.map((op) => {
+    const sourceFlux = resolveCaisseOperationSource(op);
+    const montant = Number(op.montant || 0);
+    if (op.statutOperation !== "ANNULEE") {
+      if (sourceFlux === "COMMANDE") totauxParSource.totalCommandes += montant;
+      else if (sourceFlux === "RETOUCHE") totauxParSource.totalRetouches += montant;
+      else if (sourceFlux === "VENTE") totauxParSource.totalVentes += montant;
+      else if (sourceFlux === "MANUEL") totauxParSource.totalEntreesManuelles += montant;
+      else if (sourceFlux === "DEPENSE") totauxParSource.totalDepenses += montant;
+    }
+    return {
+      ...op,
+      sourceFlux
+    };
+  });
+  totauxParSource.totalGlobal =
+    totauxParSource.totalCommandes +
+    totauxParSource.totalRetouches +
+    totauxParSource.totalVentes +
+    totauxParSource.totalEntreesManuelles;
 
   return {
     idCaisseJour: caisse.idCaisseJour,
@@ -107,7 +154,8 @@ function normalizeCaisse(caisse) {
     ouvertureAnticipee: caisse.ouvertureAnticipee === true,
     motifOuvertureAnticipee: caisse.motifOuvertureAnticipee || null,
     autoriseePar: caisse.autoriseePar || null,
-    operations
+    operations: normalizedOperations,
+    totauxParSource
   };
 }
 
@@ -429,6 +477,64 @@ router.post("/caisse/:id/entrees", requireCaisseEntreeAccess, async (req, res) =
     });
     res.json(caisse);
   } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/caisse/:id/entrees/manuelles", requireCaisseEntreeAccess, async (req, res) => {
+  const schema = z
+    .object({
+      montant: z.coerce.number(),
+      justification: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
+      modePaiement: z.string().min(1).optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+  const body = parsed.data;
+  const r1 = requireFields(body, ["montant", "justification"]);
+  if (!r1.ok) return res.status(400).json({ error: r1.error });
+  const r2 = requireNumber(body, "montant");
+  if (!r2.ok) return res.status(400).json({ error: r2.error });
+
+  try {
+    const acteur = resolveActeur(req, body.utilisateur);
+    if (isRoleForbiddenForManualEntry(acteur.role)) {
+      return res.status(403).json({ error: "Permission insuffisante" });
+    }
+
+    const caisse = await enregistrerEntreeManuelle({
+      idCaisseJour: req.params.id,
+      input: {
+        idOperation: generateOperationId(),
+        montant: body.montant,
+        modePaiement: body.modePaiement || "CASH",
+        justification: body.justification,
+        utilisateur: acteur.utilisateur || body.utilisateur
+      },
+      caisseRepo: scopedCaisseRepo(req)
+    });
+    await enregistrerEvenementAudit({
+      utilisateurId: acteur.utilisateurId,
+      role: acteur.role,
+      atelierId: req.auth?.atelierId,
+      action: "ENREGISTRER_ENTREE_MANUELLE_CAISSE",
+      entite: "CAISSE_OPERATION",
+      entiteId: null,
+      payload: {
+        utilisateurNom: acteur.utilisateurNom,
+        idCaisseJour: req.params.id,
+        montant: Number(body.montant || 0),
+        sourceFlux: "MANUEL",
+        justification: String(body.justification || "").trim()
+      }
+    });
+    res.json(normalizeCaisse(caisse));
+  } catch (err) {
+    if (err instanceof PermissionInsuffisante) {
+      return res.status(403).json({ error: err.message });
+    }
     res.status(400).json({ error: err.message });
   }
 });

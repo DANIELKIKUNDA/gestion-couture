@@ -2,6 +2,7 @@ import assert from "assert";
 import { CaisseJour } from "../src/bc-caisse/domain/caisse-jour.js";
 import { StatutCaisse } from "../src/bc-caisse/domain/value-objects.js";
 import { JustificationObligatoire, SoldeJournalierInsuffisant } from "../src/bc-caisse/domain/errors.js";
+import { enregistrerEntreeManuelle } from "../src/bc-caisse/application/use-cases/enregistrer-entree-manuelle.js";
 
 function run() {
   const c = new CaisseJour({
@@ -117,7 +118,63 @@ function testSortieExceptionnelleExigeJustificationEtNimpactePasLeResultatJourna
   assert.equal(c.soldeCourant(), 210);
 }
 
+async function testEntreeManuelleExigeJustificationEtResteUneEntreeStandard() {
+  const c = new CaisseJour({
+    idCaisseJour: "2026-02-13",
+    date: "2026-02-13",
+    statutCaisse: StatutCaisse.OUVERTE,
+    soldeOuverture: 300
+  });
+
+  const repo = {
+    saved: null,
+    async getById(id) {
+      assert.equal(id, "2026-02-13");
+      return c;
+    },
+    async save(caisse) {
+      this.saved = caisse;
+    }
+  };
+
+  await assert.rejects(
+    () =>
+      enregistrerEntreeManuelle({
+        idCaisseJour: "2026-02-13",
+        input: {
+          idOperation: "OP-M0",
+          montant: 25,
+          modePaiement: "CASH",
+          utilisateur: "user1",
+          justification: ""
+        },
+        caisseRepo: repo
+      }),
+    /Justification obligatoire/
+  );
+
+  const result = await enregistrerEntreeManuelle({
+    idCaisseJour: "2026-02-13",
+    input: {
+      idOperation: "OP-M1",
+      montant: 25,
+      modePaiement: "CASH",
+      utilisateur: "user1",
+      justification: "Contribution stagiaire"
+    },
+    caisseRepo: repo
+  });
+
+  assert.equal(result.operations.length, 1);
+  assert.equal(result.operations[0].typeOperation, "ENTREE");
+  assert.equal(result.operations[0].motif, "ENTREE_MANUELLE");
+  assert.equal(result.operations[0].justification, "Contribution stagiaire");
+  assert.equal(result.soldeCourant(), 325);
+  assert.equal(repo.saved, c);
+}
+
 run();
 testSortieQuotidienneRefuseSiResultatJournalierInsuffisant();
 testSortieExceptionnelleExigeJustificationEtNimpactePasLeResultatJournalier();
+await testEntreeManuelleExigeJustificationEtResteUneEntreeStandard();
 console.log("OK: caisse use cases");

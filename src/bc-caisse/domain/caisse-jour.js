@@ -111,7 +111,7 @@ export class CaisseJour {
     this.autoriseePar = ouvertureAnticipee ? autoriseePar || null : null;
   }
 
-  enregistrerEntree({ idOperation, montant, modePaiement, motif, referenceMetier, utilisateur, dateOperation }) {
+  enregistrerEntree({ idOperation, montant, modePaiement, motif, referenceMetier, utilisateur, dateOperation, justification = null }) {
     this.assertOuverte();
     assertPositive(montant, "montant");
     this.operations.push({
@@ -123,7 +123,8 @@ export class CaisseJour {
       referenceMetier,
       dateOperation: dateOperation || new Date().toISOString(),
       effectuePar: utilisateur,
-      statutOperation: StatutOperation.VALIDE
+      statutOperation: StatutOperation.VALIDE,
+      justification: justification === null || justification === undefined ? null : String(justification).trim() || null
     });
   }
 

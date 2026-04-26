@@ -1,5 +1,17 @@
 import { computed } from "vue";
 
+function resolveSourceFlux(op = {}) {
+  const explicit = String(op?.sourceFlux || "").trim().toUpperCase();
+  if (explicit) return explicit;
+  if (String(op?.typeOperation || "").trim().toUpperCase() === "SORTIE") return "DEPENSE";
+  const motif = String(op?.motif || "").trim().toUpperCase();
+  if (["PAIEMENT_COMMANDE", "PAIEMENT_COMMANDE_ITEM"].includes(motif)) return "COMMANDE";
+  if (["PAIEMENT_RETOUCHE", "PAIEMENT_RETOUCHE_ITEM"].includes(motif)) return "RETOUCHE";
+  if (["VENTE_STOCK", "PAIEMENT_STOCK"].includes(motif)) return "VENTE";
+  if (motif === "ENTREE_MANUELLE") return "MANUEL";
+  return String(op?.typeOperation || "").trim().toUpperCase() === "ENTREE" ? "AUTRE_ENTREE" : "AUTRE";
+}
+
 export function useCaisseViewModel({
   caisseJour,
   caisseOperationsVisibleCount
@@ -25,7 +37,44 @@ export function useCaisseViewModel({
     const soldeJournalierRestant = Number(caisseJour.value?.soldeJournalierRestant ?? resultatJournalier);
     const ops = caisseOperations.value.filter((op) => op.statutOperation !== "ANNULEE");
     const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
-    return { totalEntrees, totalSorties, totalSortiesQuotidiennes, resultatJournalier, soldeJournalierRestant };
+    const sourceTotals = caisseJour.value?.totauxParSource || {};
+    const fallbackSourceTotals = ops.reduce(
+      (acc, op) => {
+        const sourceFlux = resolveSourceFlux(op);
+        const montant = Number(op.montant || 0);
+        if (sourceFlux === "COMMANDE") acc.totalCommandes += montant;
+        else if (sourceFlux === "RETOUCHE") acc.totalRetouches += montant;
+        else if (sourceFlux === "VENTE") acc.totalVentes += montant;
+        else if (sourceFlux === "MANUEL") acc.totalEntreesManuelles += montant;
+        else if (sourceFlux === "DEPENSE") acc.totalDepenses += montant;
+        return acc;
+      },
+      {
+        totalCommandes: 0,
+        totalRetouches: 0,
+        totalVentes: 0,
+        totalEntreesManuelles: 0,
+        totalDepenses: totalSorties
+      }
+    );
+    const fallbackTotalGlobal =
+      fallbackSourceTotals.totalCommandes +
+      fallbackSourceTotals.totalRetouches +
+      fallbackSourceTotals.totalVentes +
+      fallbackSourceTotals.totalEntreesManuelles;
+    return {
+      totalEntrees,
+      totalSorties,
+      totalSortiesQuotidiennes,
+      resultatJournalier,
+      soldeJournalierRestant,
+      totalCommandes: Number(sourceTotals.totalCommandes ?? fallbackSourceTotals.totalCommandes),
+      totalRetouches: Number(sourceTotals.totalRetouches ?? fallbackSourceTotals.totalRetouches),
+      totalVentes: Number(sourceTotals.totalVentes ?? fallbackSourceTotals.totalVentes),
+      totalEntreesManuelles: Number(sourceTotals.totalEntreesManuelles ?? fallbackSourceTotals.totalEntreesManuelles),
+      totalDepenses: Number(sourceTotals.totalDepenses ?? fallbackSourceTotals.totalDepenses),
+      totalGlobal: Number(sourceTotals.totalGlobal ?? fallbackTotalGlobal)
+    };
   });
 
   return {

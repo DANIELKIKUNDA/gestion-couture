@@ -15,6 +15,14 @@ const props = defineProps({
     type: Function,
     required: true
   },
+  sourceLabel: {
+    type: Function,
+    required: true
+  },
+  sourceTone: {
+    type: Function,
+    required: true
+  },
   depenseTypeLabel: {
     type: Function,
     required: true
@@ -54,6 +62,11 @@ function metaItemsFor(op) {
       tone: String(op?.typeOperation || "").trim() === "SORTIE" ? "warning" : "success"
     },
     {
+      key: "source",
+      label: "Source",
+      value: props.sourceLabel(op?.sourceFlux)
+    },
+    {
       key: "depense",
       label: "Type depense",
       value: op?.typeOperation === "SORTIE" ? props.depenseTypeLabel(op?.typeDepense) : "-"
@@ -88,9 +101,14 @@ function metaItemsFor(op) {
       :tone="toneFor(op)"
     >
       <template #badge>
-        <span class="status-pill" :data-status="op.statutOperation || 'INCONNUE'">
-          {{ op.statutOperation || "-" }}
-        </span>
+        <div class="caisse-operation-badges">
+          <span class="status-pill" :data-tone="props.sourceTone(op?.sourceFlux)">
+            {{ props.sourceLabel(op?.sourceFlux) }}
+          </span>
+          <span class="status-pill" :data-status="op.statutOperation || 'INCONNUE'">
+            {{ op.statutOperation || "-" }}
+          </span>
+        </div>
       </template>
 
       <template #meta>
@@ -104,5 +122,11 @@ function metaItemsFor(op) {
 .caisse-operation-mobile-list {
   display: grid;
   gap: 12px;
+}
+
+.caisse-operation-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>
