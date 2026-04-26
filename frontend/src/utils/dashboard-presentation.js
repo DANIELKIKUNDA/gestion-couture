@@ -23,7 +23,7 @@ export function useDashboardPresentation({
     { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse), tone: "blue" },
     { label: "Encaissement", value: formatCurrency(financeMetrics.value.totalEncaissement), tone: "green" },
     { label: "Depenses", value: formatCurrency(financeMetrics.value.depensesJour), tone: "amber" },
-    { label: "Acomptes", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" }
+    { label: "Entrees atelier", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" }
   ]);
 
   const dashboardSalesMobileCards = computed(() => [

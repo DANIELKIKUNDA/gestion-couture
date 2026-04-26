@@ -55,7 +55,7 @@ export function useDashboardRoleCollections({
     { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse), tone: "blue" },
     { label: "Encaissements", value: formatCurrency(financeMetrics.value.totalEncaissement), tone: "green" },
     { label: "Depenses", value: formatCurrency(financeMetrics.value.depensesJour), tone: "amber" },
-    { label: "Acomptes encaisses", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" },
+    { label: "Entrees atelier", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" },
     { label: "Commandes a solder", value: dashboardCommandesCards.value[3]?.value || 0, tone: "amber" },
     { label: "Retouches a solder", value: dashboardRetouchesCards.value[3]?.value || 0, tone: "amber" }
   ]);
