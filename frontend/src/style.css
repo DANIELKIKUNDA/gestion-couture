@@ -940,6 +940,103 @@ body {
   border-color: rgba(255, 255, 255, 0.35);
 }
 
+.caisse-source-panel {
+  display: grid;
+  gap: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(40, 112, 199, 0.08), transparent 30%),
+    linear-gradient(180deg, #fbfdff 0%, #f4f8fc 100%);
+  border-color: #dbe5f0;
+}
+
+.caisse-source-panel-header {
+  margin-bottom: 0;
+}
+
+.caisse-source-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.caisse-source-cards-desktop {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.caisse-source-card {
+  min-width: 0;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(211, 221, 232, 0.95);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 14px 28px rgba(25, 55, 92, 0.07);
+  display: grid;
+  gap: 8px;
+}
+
+.caisse-source-card span {
+  color: #5d728b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.caisse-source-card strong {
+  color: #16385a;
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.caisse-source-card[data-tone="blue"] {
+  background: linear-gradient(180deg, #ffffff 0%, #eef5ff 100%);
+}
+
+.caisse-source-card[data-tone="blue"] strong {
+  color: #255a97;
+}
+
+.caisse-source-card[data-tone="amber"] {
+  background: linear-gradient(180deg, #fffef9 0%, #fff1d8 100%);
+}
+
+.caisse-source-card[data-tone="amber"] strong {
+  color: #996313;
+}
+
+.caisse-source-card[data-tone="teal"] {
+  background: linear-gradient(180deg, #fcffff 0%, #dff6f3 100%);
+}
+
+.caisse-source-card[data-tone="teal"] strong {
+  color: #156f68;
+}
+
+.caisse-source-card[data-tone="violet"] {
+  background: linear-gradient(180deg, #fffefe 0%, #efe8ff 100%);
+}
+
+.caisse-source-card[data-tone="violet"] strong {
+  color: #5f44a1;
+}
+
+.caisse-source-card[data-tone="green"] {
+  background: linear-gradient(180deg, #fdfffd 0%, #e4f7e9 100%);
+}
+
+.caisse-source-card[data-tone="green"] strong {
+  color: #237246;
+}
+
+.caisse-source-card[data-tone="red"] {
+  background: linear-gradient(180deg, #fffefe 0%, #fde7e4 100%);
+}
+
+.caisse-source-card[data-tone="red"] strong {
+  color: #b74235;
+}
+
 .detail-panel-header {
   display: flex;
   justify-content: space-between;
@@ -3314,6 +3411,11 @@ textarea:focus-visible {
   .caisse-summary-grid {
     grid-template-columns: 1fr;
     gap: 14px;
+  }
+
+  .caisse-source-cards,
+  .caisse-source-cards-desktop {
+    grid-template-columns: 1fr;
   }
 
   .caisse-summary-col:nth-child(3) {

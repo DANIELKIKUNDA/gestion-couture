@@ -96,19 +96,33 @@ const emit = defineEmits(["ouvrir-caisse", "entree-manuelle-caisse", "depense-ca
             <article class="panel">
               <MobileSectionHeader
                 title="Repartition des encaissements"
-                subtitle="Lecture rapide des entrees par source et des depenses."
+                subtitle="Vue caisse par source, pour lire les entrees et sorties d'un coup d'oeil."
               />
-              <div class="caisse-summary-grid">
-                <div class="caisse-summary-col">
-                  <p class="caisse-row"><strong>Commandes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalCommandes) }}</span></p>
-                  <p class="caisse-row"><strong>Retouches:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalRetouches) }}</span></p>
-                  <p class="caisse-row"><strong>Ventes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalVentes) }}</span></p>
-                </div>
-                <div class="caisse-summary-col">
-                  <p class="caisse-row"><strong>Entrees manuelles:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</span></p>
-                  <p class="caisse-row"><strong>Total global:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalGlobal) }}</span></p>
-                  <p class="caisse-row"><strong>Depenses:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalDepenses) }}</span></p>
-                </div>
+              <div class="caisse-source-cards">
+                <article class="caisse-source-card" data-tone="blue">
+                  <span>Commandes</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalCommandes) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="amber">
+                  <span>Retouches</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalRetouches) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="teal">
+                  <span>Ventes</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalVentes) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="violet">
+                  <span>Entrees manuelles</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="green">
+                  <span>Total global</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="red">
+                  <span>Depenses</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
+                </article>
               </div>
             </article>
 
@@ -174,22 +188,39 @@ const emit = defineEmits(["ouvrir-caisse", "entree-manuelle-caisse", "depense-ca
               </div>
             </article>
 
-            <article class="panel caisse-summary-grid">
-              <div class="caisse-summary-col">
-                <h4>Repartition des encaissements</h4>
-                <p class="caisse-row"><strong>Commandes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalCommandes) }}</span></p>
-                <p class="caisse-row"><strong>Retouches:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalRetouches) }}</span></p>
-                <p class="caisse-row"><strong>Ventes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalVentes) }}</span></p>
+            <article class="panel caisse-source-panel">
+              <div class="panel-header detail-panel-header caisse-source-panel-header">
+                <div>
+                  <h4>Repartition des encaissements</h4>
+                  <p class="helper">Lecture nette de la caisse par source, sans melanger les flux automatiques et manuels.</p>
+                </div>
+                <span class="status-pill" data-tone="info">Vue financiere</span>
               </div>
-              <div class="caisse-summary-col">
-                <h4>Entrees controlees</h4>
-                <p class="caisse-row"><strong>Entrees manuelles:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</span></p>
-                <p class="caisse-row"><strong>Total global:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalGlobal) }}</span></p>
-                <p class="caisse-row"><strong>Total depenses:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalDepenses) }}</span></p>
-              </div>
-              <div class="caisse-summary-col">
-                <h4>Lecture premium</h4>
-                <p class="helper">Les entrees sont regroupees par source pour une lecture rapide. Les depenses restent visibles a part pour proteger la lisibilite de la caisse.</p>
+              <div class="caisse-source-cards caisse-source-cards-desktop">
+                <article class="caisse-source-card" data-tone="blue">
+                  <span>Commandes</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalCommandes) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="amber">
+                  <span>Retouches</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalRetouches) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="teal">
+                  <span>Ventes</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalVentes) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="violet">
+                  <span>Entrees manuelles</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="green">
+                  <span>Total global</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="red">
+                  <span>Depenses</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
+                </article>
               </div>
             </article>
 

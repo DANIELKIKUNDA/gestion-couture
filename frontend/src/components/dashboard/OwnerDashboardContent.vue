@@ -189,7 +189,7 @@ defineProps({
         <strong>{{ formatCurrency(financeMetrics.depensesJour) }}</strong>
       </div>
       <div class="money-item red">
-        <p>Acomptes encaisses</p>
+        <p>Entrees commande</p>
         <strong>{{ formatCurrency(financeMetrics.acomptesEncaisses) }}</strong>
       </div>
     </article>
