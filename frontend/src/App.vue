@@ -4585,9 +4585,14 @@ function addFreeMeasureToItem(item) {
   if (!item || typeof item !== "object") return;
   item.freeMeasureOpen = true;
   const key = String(item.freeMeasureName || "").trim();
-  const value = item.freeMeasureValue;
-  if (!key || value === undefined || value === null || String(value).trim() === "") {
+  const rawValue = item.freeMeasureValue;
+  if (!key || rawValue === undefined || rawValue === null || String(rawValue).trim() === "") {
     notify("Renseignez le nom et la valeur de la mesure.");
+    return;
+  }
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) {
+    notify("La valeur de la mesure doit etre un nombre.");
     return;
   }
   if (!item.mesures || typeof item.mesures !== "object") item.mesures = {};
@@ -18248,7 +18253,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     </div>
                     <div v-else class="wizard-free-measure-row">
                       <input v-model="item.freeMeasureName" type="text" placeholder="Nom de la mesure" />
-                      <input v-model="item.freeMeasureValue" type="text" placeholder="Valeur (ex: 42 cm)" />
+                      <input v-model="item.freeMeasureValue" type="number" min="0" step="0.1" placeholder="Valeur (ex: 42)" />
                       <button class="mini-btn blue" type="button" @click="addFreeMeasureToItem(item)">Ajouter</button>
                       <button class="mini-btn" type="button" @click="cancelFreeMeasureForItem(item)">Annuler</button>
                     </div>
@@ -18901,7 +18906,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
                   <div v-else class="wizard-free-measure-row">
                     <input v-model="item.freeMeasureName" type="text" placeholder="Nom de la mesure" />
-                    <input v-model="item.freeMeasureValue" type="text" placeholder="Valeur (ex: 42 cm)" />
+                    <input v-model="item.freeMeasureValue" type="number" min="0" step="0.1" placeholder="Valeur (ex: 42)" />
                     <button class="mini-btn blue" type="button" @click="addFreeMeasureToItem(item)">Ajouter</button>
                     <button class="mini-btn" type="button" @click="cancelFreeMeasureForItem(item)">Annuler</button>
                   </div>
