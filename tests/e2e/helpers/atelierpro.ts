@@ -340,11 +340,11 @@ export async function createCommandeInCurrentDossierThroughUi(page: Page) {
 
 export async function createRetoucheInCurrentDossierThroughUi(page: Page) {
   await page.getByRole("button", { name: /\+ Retouche|Ajouter une retouche/i }).click();
-  const modal = page.locator(".modal-card").filter({ hasText: "Nouvelle retouche" }).first();
+  const modal = page.locator(".modal-card-wizard").filter({ hasText: "Nouvelle retouche" }).first();
   await expect(modal).toBeVisible();
 
   const label = `Retouche E2E ${Date.now()}`;
-  const form = modal.locator("section.modal-body:visible").first();
+  const form = modal.locator("section.modal-body-wizard:visible").first();
   await form.getByPlaceholder(/^Ex: raccourcir manche, changer fermeture, ajuster robe$/i).fill(label);
   await form.getByPlaceholder(/^Ex: raccourcir manche, reprendre taille, changer fermeture$/i).fill(label);
   await form.locator('article input[type="number"]:visible').first().fill("40");

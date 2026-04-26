@@ -186,6 +186,9 @@ function getInitialRoute() {
 }
 
 const currentRoute = ref(getInitialRoute());
+const CRITICAL_FORM_HISTORY_KEY = "__atelierCriticalForm";
+let criticalFormHistoryEntryActive = false;
+let ignoreNextBrowserNavigation = false;
 const contentScrollRef = ref(null);
 const mobileScrollButtonMode = ref("none");
 const isMobileViewport = ref(typeof window !== "undefined" ? window.innerWidth < MOBILE_BREAKPOINT : false);
@@ -1321,6 +1324,7 @@ const detailItemEditModal = reactive({
   prix: "",
   mesures: {},
   fields: [],
+  initialSnapshot: "",
   submitting: false,
   error: ""
 });
@@ -3109,6 +3113,47 @@ async function canLeaveSettings() {
   });
 }
 
+function hasCriticalFormUnsavedChanges() {
+  return isCommandeDirectDirty() || isRetoucheDirectDirty() || isDetailItemEditDirty();
+}
+
+async function canLeaveActiveCriticalForm() {
+  if (actionModal.open) {
+    closeActionModal(null);
+    return false;
+  }
+  if (detailItemEditModal.open) {
+    const wasOpen = detailItemEditModal.open;
+    await requestCloseDetailItemEditModal();
+    return wasOpen ? !detailItemEditModal.open : true;
+  }
+  if (wizard.open) {
+    const wasOpen = wizard.open;
+    await requestCloseWizard();
+    return wasOpen ? !wizard.open : true;
+  }
+  if (retoucheWizard.open) {
+    const wasOpen = retoucheWizard.open;
+    await requestCloseRetoucheWizard();
+    return wasOpen ? !retoucheWizard.open : true;
+  }
+  return true;
+}
+
+function buildDetailItemEditSnapshot() {
+  const mesures = Object.keys(detailItemEditModal.mesures || {})
+    .sort()
+    .reduce((acc, key) => {
+      acc[key] = detailItemEditModal.mesures[key];
+      return acc;
+    }, {});
+  return JSON.stringify({
+    description: String(detailItemEditModal.description || "").trim(),
+    prix: String(detailItemEditModal.prix ?? "").trim(),
+    mesures
+  });
+}
+
 async function addMesureToHabit(habitKey) {
   if (!settingsCanEdit.value) return;
   const habit = atelierSettings.habits[habitKey];
@@ -3434,6 +3479,33 @@ function closeActionModal(payload) {
     actionModalResolver(payload);
     actionModalResolver = null;
   }
+}
+
+function getActiveCriticalFormKey() {
+  if (wizard.open) return "commande-create";
+  if (retoucheWizard.open) return "retouche-create";
+  if (detailItemEditModal.open) return detailItemEditModal.kind === "retouche" ? "retouche-edit" : "commande-edit";
+  return "";
+}
+
+function ensureCriticalFormHistoryEntry(formKey = "") {
+  if (typeof window === "undefined") return;
+  const normalizedKey = String(formKey || "").trim();
+  if (!normalizedKey || criticalFormHistoryEntryActive) return;
+  const nextState = {
+    ...(window.history.state && typeof window.history.state === "object" ? window.history.state : {}),
+    [CRITICAL_FORM_HISTORY_KEY]: normalizedKey
+  };
+  window.history.pushState(nextState, "", window.location.href);
+  criticalFormHistoryEntryActive = true;
+}
+
+function releaseCriticalFormHistoryEntry() {
+  if (typeof window === "undefined") return;
+  if (!criticalFormHistoryEntryActive) return;
+  criticalFormHistoryEntryActive = false;
+  ignoreNextBrowserNavigation = true;
+  window.history.back();
 }
 
 function validateActionModal() {
@@ -6116,8 +6188,33 @@ function resetDetailItemEditModal() {
   detailItemEditModal.prix = "";
   detailItemEditModal.mesures = {};
   detailItemEditModal.fields = [];
+  detailItemEditModal.initialSnapshot = "";
   detailItemEditModal.submitting = false;
   detailItemEditModal.error = "";
+}
+
+function isDetailItemEditDirty() {
+  if (!detailItemEditModal.open) return false;
+  return buildDetailItemEditSnapshot() !== String(detailItemEditModal.initialSnapshot || "");
+}
+
+async function requestCloseDetailItemEditModal() {
+  if (!isDetailItemEditDirty()) {
+    resetDetailItemEditModal();
+    releaseCriticalFormHistoryEntry();
+    return;
+  }
+  const confirmed = await openActionModal({
+    title: "Modifications non enregistrees",
+    message: "Vous avez des modifications non enregistrees. Voulez-vous quitter sans enregistrer ?",
+    confirmLabel: "Quitter",
+    cancelLabel: "Continuer la saisie",
+    tone: "red",
+    stacked: true
+  });
+  if (!confirmed) return;
+  resetDetailItemEditModal();
+  releaseCriticalFormHistoryEntry();
 }
 
 function openCommandeItemEditModal(card) {
@@ -6139,6 +6236,8 @@ function openCommandeItemEditModal(card) {
     detailItemEditModal.mesures[field.key] = item?.mesures?.valeurs?.[field.key] ?? item?.mesures?.[field.key] ?? "";
   }
   detailItemEditModal.error = "";
+  detailItemEditModal.initialSnapshot = buildDetailItemEditSnapshot();
+  ensureCriticalFormHistoryEntry("commande-edit");
 }
 
 function openRetoucheItemEditModal(card) {
@@ -6160,6 +6259,8 @@ function openRetoucheItemEditModal(card) {
     detailItemEditModal.mesures[field.key] = item?.mesures?.valeurs?.[field.key] ?? item?.mesures?.[field.key] ?? "";
   }
   detailItemEditModal.error = "";
+  detailItemEditModal.initialSnapshot = buildDetailItemEditSnapshot();
+  ensureCriticalFormHistoryEntry("retouche-edit");
 }
 
 function buildDetailItemEditPayload() {
@@ -6207,6 +6308,7 @@ async function submitDetailItemEdit() {
       notify("Intervention mise a jour avant paiement.");
     }
     resetDetailItemEditModal();
+    releaseCriticalFormHistoryEntry();
   } catch (err) {
     detailItemEditModal.error = readableError(err);
   } finally {
@@ -6712,6 +6814,38 @@ function navigateAudit(path, replace = false) {
 
 async function onBrowserNavigation() {
   if (!isAuthenticated.value) return;
+  if (ignoreNextBrowserNavigation) {
+    ignoreNextBrowserNavigation = false;
+    return;
+  }
+  if (actionModal.open) {
+    const activeFormKey = getActiveCriticalFormKey();
+    closeActionModal(null);
+    if (activeFormKey) {
+      criticalFormHistoryEntryActive = false;
+      ensureCriticalFormHistoryEntry(activeFormKey);
+    }
+    return;
+  }
+  if (detailItemEditModal.open) {
+    criticalFormHistoryEntryActive = false;
+    const historyKey = detailItemEditModal.kind === "retouche" ? "retouche-edit" : "commande-edit";
+    await requestCloseDetailItemEditModal();
+    if (detailItemEditModal.open) ensureCriticalFormHistoryEntry(historyKey);
+    return;
+  }
+  if (wizard.open) {
+    criticalFormHistoryEntryActive = false;
+    await requestCloseWizard();
+    if (wizard.open) ensureCriticalFormHistoryEntry("commande-create");
+    return;
+  }
+  if (retoucheWizard.open) {
+    criticalFormHistoryEntryActive = false;
+    await requestCloseRetoucheWizard();
+    if (retoucheWizard.open) ensureCriticalFormHistoryEntry("retouche-create");
+    return;
+  }
   if (isSystemManager.value) {
     if (window.location.pathname.startsWith("/audit")) {
       window.history.replaceState({}, "", "/");
@@ -6737,8 +6871,8 @@ async function onBrowserNavigation() {
 }
 
 function onBeforeUnload(event) {
-  if (currentRoute.value !== "parametres") return;
-  if (!settingsHasUnsavedChanges.value) return;
+  const shouldBlock = (currentRoute.value === "parametres" && settingsHasUnsavedChanges.value) || hasCriticalFormUnsavedChanges();
+  if (!shouldBlock) return;
   event.preventDefault();
   event.returnValue = "";
 }
@@ -7885,6 +8019,10 @@ async function openRoute(routeId) {
   if (!isAuthenticated.value) {
     authError.value = "Connexion requise.";
     return;
+  }
+  if (wizard.open || retoucheWizard.open || detailItemEditModal.open || actionModal.open) {
+    const canLeaveCriticalForm = await canLeaveActiveCriticalForm();
+    if (!canLeaveCriticalForm) return;
   }
   if (!canAccessRoute(routeId)) {
     currentRoute.value = resolveAccessibleRoute(currentRoute.value);
@@ -9036,6 +9174,8 @@ async function loadDossierDetail(idDossier, { preserveExisting = true } = {}) {
 }
 
 async function openDossierDetail(idDossier) {
+  if (!(await canLeaveActiveCriticalForm())) return;
+  if (!(await canLeaveSettings())) return;
   selectedDossierId.value = idDossier;
   currentRoute.value = "dossier-detail";
   await loadDossierDetail(idDossier);
@@ -9136,6 +9276,7 @@ function openCommandeWizardFromDossier() {
     void loadWizardClientInsight(detailDossier.value.responsable.idClient);
   }
   wizard.open = true;
+  ensureCriticalFormHistoryEntry("commande-create");
 }
 
 function openRetoucheWizardFromDossier() {
@@ -9152,6 +9293,7 @@ function openRetoucheWizardFromDossier() {
     void loadRetoucheClientInsight(detailDossier.value.responsable.idClient);
   }
   retoucheWizard.open = true;
+  ensureCriticalFormHistoryEntry("retouche-create");
 }
 
 async function loadClientConsultation(idClient, force = false) {
@@ -11529,6 +11671,7 @@ async function openNouvelleCommande() {
   await loadAtelierRuntimeSettings();
   resetWizard();
   wizard.open = true;
+  ensureCriticalFormHistoryEntry("commande-create");
 }
 
 function closeWizard() {
@@ -11555,16 +11698,21 @@ function isCommandeDirectDirty() {
 async function requestCloseWizard() {
   if (!isCommandeDirectDirty()) {
     closeWizard();
+    releaseCriticalFormHistoryEntry();
     return;
   }
   const confirmed = await openActionModal({
     title: "Quitter sans enregistrer ?",
-    message: "Les informations saisies dans cette commande ne seront pas conservées.",
+    message: "Vous avez des modifications non enregistrees. Voulez-vous quitter sans enregistrer ?",
     confirmLabel: "Quitter",
     cancelLabel: "Continuer la saisie",
-    tone: "red"
+    tone: "red",
+    stacked: true
   });
-  if (confirmed) closeWizard();
+  if (confirmed) {
+    closeWizard();
+    releaseCriticalFormHistoryEntry();
+  }
 }
 
 function resetRetoucheWizard() {
@@ -11607,6 +11755,7 @@ async function openNouvelleRetouche() {
   await loadAtelierRuntimeSettings();
   resetRetoucheWizard();
   retoucheWizard.open = true;
+  ensureCriticalFormHistoryEntry("retouche-create");
 }
 
 function closeRetoucheWizard() {
@@ -11632,16 +11781,21 @@ function isRetoucheDirectDirty() {
 async function requestCloseRetoucheWizard() {
   if (!isRetoucheDirectDirty()) {
     closeRetoucheWizard();
+    releaseCriticalFormHistoryEntry();
     return;
   }
   const confirmed = await openActionModal({
     title: "Quitter sans enregistrer ?",
-    message: "Les informations saisies dans cette retouche ne seront pas conservées.",
+    message: "Vous avez des modifications non enregistrees. Voulez-vous quitter sans enregistrer ?",
     confirmLabel: "Quitter",
     cancelLabel: "Continuer la saisie",
-    tone: "red"
+    tone: "red",
+    stacked: true
   });
-  if (confirmed) closeRetoucheWizard();
+  if (confirmed) {
+    closeRetoucheWizard();
+    releaseCriticalFormHistoryEntry();
+  }
 }
 
 function selectWizardExistingClient(result) {
@@ -12379,6 +12533,7 @@ async function onWizardStep4() {
     wizard.createdFactureId = "";
     prependCommandeRow(normalized);
     closeWizard();
+    releaseCriticalFormHistoryEntry();
     await openCommandeDetail(normalized.idCommande);
 
     if (useOfflinePath && wizard.commande.emettreFacture === true) {
@@ -12624,6 +12779,7 @@ async function onRetoucheWizardStep4() {
     retoucheWizard.createdFactureId = "";
     prependRetoucheRow(normalized);
     closeRetoucheWizard();
+    releaseCriticalFormHistoryEntry();
     await openRetoucheDetail(normalized.idRetouche);
 
     if (useOfflinePath && retoucheWizard.retouche.emettreFacture === true) {
@@ -12869,6 +13025,8 @@ async function onAnnulerVente(vente) {
 }
 
 async function openVenteDetail(idVente) {
+  if (!(await canLeaveActiveCriticalForm())) return;
+  if (!(await canLeaveSettings())) return;
   selectedVenteId.value = idVente;
   currentRoute.value = "vente-detail";
   await loadVenteDetail(idVente);
@@ -13510,6 +13668,8 @@ async function onOuvrirCaisseAnticipee() {
 }
 
 async function openCommandeDetail(idCommande) {
+  if (!(await canLeaveActiveCriticalForm())) return;
+  if (!(await canLeaveSettings())) return;
   selectedCommandeId.value = idCommande;
   currentRoute.value = "commande-detail";
   await loadCommandeDetail(idCommande);
@@ -13521,6 +13681,8 @@ function onVoirCommande(commande) {
 }
 
 async function openRetoucheDetail(idRetouche) {
+  if (!(await canLeaveActiveCriticalForm())) return;
+  if (!(await canLeaveSettings())) return;
   selectedRetoucheId.value = idRetouche;
   currentRoute.value = "retouche-detail";
   await loadRetoucheDetail(idRetouche);
@@ -13532,6 +13694,8 @@ function onVoirRetouche(retouche) {
 }
 
 async function openFactureDetail(idFacture) {
+  if (!(await canLeaveActiveCriticalForm())) return;
+  if (!(await canLeaveSettings())) return;
   selectedFactureId.value = idFacture;
   currentRoute.value = "facture-detail";
   await loadFactureDetail(idFacture);
@@ -19335,7 +19499,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
     </div>
   </div>
 
-  <div v-if="detailItemEditModal.open" class="modal-backdrop" @click.self="resetDetailItemEditModal">
+  <div v-if="detailItemEditModal.open" class="modal-backdrop" @click.self="requestCloseDetailItemEditModal">
     <div class="modal-card">
       <header class="modal-header">
         <div>
@@ -19378,7 +19542,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         <p v-if="detailItemEditModal.error" class="auth-error">{{ detailItemEditModal.error }}</p>
 
         <div class="modal-actions">
-          <button class="mini-btn" @click="resetDetailItemEditModal">Annuler</button>
+          <button class="mini-btn" @click="requestCloseDetailItemEditModal">Annuler</button>
           <button class="action-btn blue" :disabled="detailItemEditModal.submitting" @click="submitDetailItemEdit">
             Enregistrer
           </button>

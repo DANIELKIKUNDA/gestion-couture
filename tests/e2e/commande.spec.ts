@@ -170,3 +170,42 @@ test("modifie un item avant paiement puis bloque la modification apres paiement 
   await expect(page.locator(".detail-item-card").filter({ hasText: /Chemise test/i }).first()).toContainText(/Reste\s*:\s*0/i);
   await expect(page.locator(".detail-item-card").filter({ hasText: /Pantalon corrige|Chemise test/i }).getByRole("button", { name: /^Modifier$/i })).toHaveCount(0);
 });
+
+test("protege la creation commande sur retour navigateur et ferme d abord la popup de confirmation", async ({ page }) => {
+  const actor = await createActor("commande-back-guard");
+  await createDossierViaApi(actor, {
+    nom: "Retour",
+    prenom: "Commande",
+    typeDossier: "INDIVIDUEL"
+  });
+  await loginInBrowser(page, actor);
+  await gotoDossiers(page);
+  await openDossierFromList(page, "Retour Commande");
+
+  await page.getByRole("button", { name: /\+ Commande|Ajouter une commande/i }).click();
+  const wizardModal = page.locator(".modal-card-wizard").filter({ hasText: /Nouvelle commande/i }).first();
+  await expect(wizardModal).toBeVisible();
+
+  await wizardModal.getByPlaceholder(/pantalon slim|robe droite|veste homme/i).fill("Commande non enregistree");
+  await page.goBack();
+
+  const confirmModal = page.locator(".modal-card").filter({ hasText: /Quitter sans enregistrer/i }).first();
+  await expect(confirmModal).toBeVisible();
+  await expect(confirmModal.getByText(/modifications non enregistrees/i)).toBeVisible();
+
+  await confirmModal.getByRole("button", { name: /Continuer la saisie/i }).click();
+  await expect(confirmModal).toBeHidden({ timeout: 10_000 });
+  await expect(wizardModal).toBeVisible();
+
+  await wizardModal.getByRole("button", { name: /^Annuler$/i }).click();
+  await expect(confirmModal).toBeVisible();
+  await page.goBack();
+  await expect(confirmModal).toBeHidden({ timeout: 10_000 });
+  await expect(wizardModal).toBeVisible();
+
+  await page.goBack();
+  await expect(confirmModal).toBeVisible();
+  await confirmModal.getByRole("button", { name: /^Quitter$/i }).click();
+  await expect(wizardModal).toBeHidden({ timeout: 10_000 });
+  await expect(page.getByRole("heading", { name: /^Detail Dossier$/i }).first()).toBeVisible();
+});

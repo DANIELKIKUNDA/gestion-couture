@@ -101,3 +101,35 @@ test("paye une intervention ciblee et masque la modification apres paiement", as
   await expect(page.locator(".detail-item-card").filter({ hasText: /Ourlet secondaire/i }).first()).toContainText(/Reste\s*:\s*0/i);
   await expect(page.locator(".detail-item-card").getByRole("button", { name: /^Modifier$/i })).toHaveCount(0);
 });
+
+test("protege la creation retouche sur retour navigateur", async ({ page }) => {
+  const actor = await createActor("retouche-back-guard");
+  await createDossierViaApi(actor, {
+    nom: "Retour",
+    prenom: "Retouche",
+    typeDossier: "INDIVIDUEL"
+  });
+
+  await loginInBrowser(page, actor);
+  await gotoDossiers(page);
+  await openDossierFromList(page, "Retour Retouche");
+
+  await page.getByRole("button", { name: /\+ Retouche|Ajouter une retouche/i }).click();
+  const wizardModal = page.locator(".modal-card-wizard").filter({ hasText: /Nouvelle retouche/i }).first();
+  await expect(wizardModal).toBeVisible();
+
+  await wizardModal.getByPlaceholder(/^Ex: raccourcir manche, changer fermeture, ajuster robe$/i).fill("Retouche non enregistree");
+  await page.goBack();
+
+  const confirmModal = page.locator(".modal-card").filter({ hasText: /Quitter sans enregistrer/i }).first();
+  await expect(confirmModal).toBeVisible();
+  await confirmModal.getByRole("button", { name: /Continuer la saisie/i }).click();
+  await expect(confirmModal).toBeHidden({ timeout: 10_000 });
+  await expect(wizardModal).toBeVisible();
+
+  await page.goBack();
+  await expect(confirmModal).toBeVisible();
+  await confirmModal.getByRole("button", { name: /^Quitter$/i }).click();
+  await expect(wizardModal).toBeHidden({ timeout: 10_000 });
+  await expect(page.getByRole("heading", { name: /^Detail Dossier$/i }).first()).toBeVisible();
+});
