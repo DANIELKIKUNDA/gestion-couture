@@ -28,6 +28,13 @@ import {
   statutFidelite
 } from "../../domain/consultation-client.js";
 import { getLatestMeasuresForClientAndType } from "../../application/services/measure-prefill-service.js";
+import {
+  IdempotencyConflict,
+  assertSameString,
+  idempotencyConflictResponse,
+  lockIdempotencyKey,
+  normalizeIdempotencyKey
+} from "../../../shared/application/idempotency.js";
 
 const router = express.Router();
 const clientRepo = new ClientRepoPg();
@@ -71,6 +78,12 @@ const requireClientContactAccess = requireAnyPermission([
   PERMISSIONS.VOIR_BILANS_GLOBAUX,
   PERMISSIONS.CLOTURER_CAISSE
 ]);
+
+function assertSameClientCreation(existingClient, body) {
+  assertSameString(existingClient?.nom, body?.nom, "Cette cle d'idempotence correspond deja a un autre nom client.");
+  assertSameString(existingClient?.prenom, body?.prenom, "Cette cle d'idempotence correspond deja a un autre prenom client.");
+  assertSameString(existingClient?.telephone, body?.telephone, "Cette cle d'idempotence correspond deja a un autre telephone client.");
+}
 const atelierConfigFallback = {
   nom: process.env.ATELIER_NOM || "Atelier de Couture",
   adresse: process.env.ATELIER_ADRESSE || "Adresse atelier",
@@ -660,7 +673,8 @@ router.post("/clients", requireClientCreateAccess, async (req, res) => {
       idClient: z.string().min(1).optional(),
       nom: z.string().min(1),
       prenom: z.string().min(1),
-      telephone: z.string().optional().default("")
+      telephone: z.string().optional().default(""),
+      idempotencyKey: z.string().min(1).optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -669,12 +683,36 @@ router.post("/clients", requireClientCreateAccess, async (req, res) => {
   const r1 = requireFields(body, ["nom", "prenom"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
 
+  const dbClient = await pool.connect();
+  let transactionStarted = false;
   try {
+    const repo = scopedClientRepo(req).withExecutor(dbClient);
+    const atelierId = req.auth?.atelierId || "ATELIER";
+    const idempotencyKey = normalizeIdempotencyKey(body.idempotencyKey);
+    await dbClient.query("BEGIN");
+    transactionStarted = true;
+    if (idempotencyKey) {
+      await lockIdempotencyKey(dbClient, "client:create", atelierId, idempotencyKey);
+      const existingByKey = await repo.findByIdempotencyKey(idempotencyKey);
+      if (existingByKey) {
+        assertSameClientCreation(existingByKey, body);
+        await dbClient.query("COMMIT");
+        transactionStarted = false;
+        return res.status(200).json({
+          client: existingByKey,
+          idempotent: true
+        });
+      }
+    }
+
     const client = creerClient({
       ...body,
-      idClient: body.idClient || generateClientId()
+      idClient: body.idClient || generateClientId(),
+      idempotencyKey
     });
-    await scopedClientRepo(req).save(client);
+    await repo.save(client);
+    await dbClient.query("COMMIT");
+    transactionStarted = false;
     res.status(201).json({
       client,
       event: {
@@ -685,6 +723,10 @@ router.post("/clients", requireClientCreateAccess, async (req, res) => {
       }
     });
   } catch (err) {
+    if (transactionStarted) await dbClient.query("ROLLBACK").catch(() => {});
+    if (err instanceof IdempotencyConflict) {
+      return res.status(409).json(idempotencyConflictResponse(err));
+    }
     if (err instanceof DomainError) {
       return res.status(422).json({
         error: err.message,
@@ -693,6 +735,8 @@ router.post("/clients", requireClientCreateAccess, async (req, res) => {
       });
     }
     res.status(400).json({ error: err.message });
+  } finally {
+    dbClient.release();
   }
 });
 

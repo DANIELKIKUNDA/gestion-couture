@@ -5,6 +5,17 @@ function dateOnly(value) {
   return String(value).slice(0, 10);
 }
 
+function humanizeDashboardLabel(value, fallback = "ce travail") {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  if (/[a-zàâçéèêëîïôûùüÿñæœ]/.test(text)) return text;
+  return text.replace(/_/g, " ").toLowerCase().trim() || fallback;
+}
+
+function dashboardPerson(value, fallback = "Ce client") {
+  return String(value || "").trim() || fallback;
+}
+
 export function useDashboardOwnerViewModel({
   dashboardPeriod,
   commandesView,
@@ -70,16 +81,16 @@ export function useDashboardOwnerViewModel({
       value: dashboardScopedRetouches.value.filter((r) => Boolean(dateOnly(r.dateDepot))).length,
       tone: "teal"
     },
-    { label: "Commandes en cours", value: dashboardScopedCommandes.value.filter((c) => c.statutCommande === "EN_COURS").length, tone: "blue" },
-    { label: "Commandes pretes", value: dashboardScopedCommandes.value.filter((c) => c.statutCommande === "TERMINEE").length, tone: "green" },
+    { label: "Commandes en cours", value: commandesView.value.filter((c) => c.statutCommande === "EN_COURS").length, tone: "blue" },
+    { label: "Commandes pretes", value: commandesView.value.filter((c) => c.statutCommande === "TERMINEE").length, tone: "green" },
     {
       label: "Commandes a solder",
-      value: dashboardScopedCommandes.value.filter((c) => c.soldeRestant > 0 && c.statutCommande !== "ANNULEE").length,
+      value: commandesView.value.filter((c) => c.soldeRestant > 0 && c.statutCommande !== "ANNULEE").length,
       tone: "amber"
     },
-    { label: "Retouches en cours", value: dashboardScopedRetouches.value.filter((r) => r.statutRetouche === "EN_COURS").length, tone: "teal" },
-    { label: "Retouches pretes", value: dashboardScopedRetouches.value.filter((r) => r.statutRetouche === "TERMINEE").length, tone: "green" },
-    { label: "Retouches a solder", value: dashboardScopedRetouches.value.filter((r) => r.soldeRestant > 0).length, tone: "amber" },
+    { label: "Retouches en cours", value: retouchesView.value.filter((r) => r.statutRetouche === "EN_COURS").length, tone: "teal" },
+    { label: "Retouches pretes", value: retouchesView.value.filter((r) => r.statutRetouche === "TERMINEE").length, tone: "green" },
+    { label: "Retouches a solder", value: retouchesView.value.filter((r) => r.soldeRestant > 0 && r.statutRetouche !== "ANNULEE").length, tone: "amber" },
     { label: "Clients actifs", value: clients.value.filter((c) => c.actif !== false).length, tone: "slate" }
   ]);
 
@@ -99,6 +110,16 @@ export function useDashboardOwnerViewModel({
 
   const dashboardClientsActifs = computed(() => dashboardCards.value.find((card) => card.label === "Clients actifs") || null);
 
+  const dashboardArgentAttendu = computed(() => {
+    const commandesRestantes = commandesView.value
+      .filter((commande) => commande.statutCommande !== "ANNULEE")
+      .reduce((sum, commande) => sum + Math.max(0, Number(commande.soldeRestant || 0)), 0);
+    const retouchesRestantes = retouchesView.value
+      .filter((retouche) => retouche.statutRetouche !== "ANNULEE")
+      .reduce((sum, retouche) => sum + Math.max(0, Number(retouche.soldeRestant || 0)), 0);
+    return commandesRestantes + retouchesRestantes;
+  });
+
   const dashboardFollowUpCards = computed(() => [
     { label: "Clients a relancer", value: dashboardContactBoard.value.clientsARelancer.total, tone: "amber" },
     { label: "Commandes a signaler", value: dashboardContactBoard.value.commandesPretesNonSignalees.total, tone: "green" },
@@ -117,6 +138,8 @@ export function useDashboardOwnerViewModel({
     dashboardContactBoard.value.clientsARelancer.items.map((item) => ({
       id: item.idClient,
       libelle: item.nomClient || item.telephone || item.idClient,
+      type: "Client a relancer",
+      title: `${dashboardPerson(item.nomClient || item.telephone || item.idClient)} n'a pas ete contacte recemment.`,
       description: formatDashboardClientFollowUpDescription(item)
     }))
   );
@@ -125,6 +148,8 @@ export function useDashboardOwnerViewModel({
     dashboardContactBoard.value.commandesPretesNonSignalees.items.map((item) => ({
       id: item.idCommande,
       libelle: `${item.idCommande} - ${item.clientNom || item.idClient}`,
+      type: Number(item.soldeRestant || 0) > 0 ? "Prevenir et encaisser" : "Client a prevenir",
+      title: `${dashboardPerson(item.clientNom || item.idClient)} peut venir recuperer ${humanizeDashboardLabel(item.typeHabit, "sa commande")}.`,
       description: formatDashboardPendingCommandeDescription(item)
     }))
   );
@@ -133,6 +158,8 @@ export function useDashboardOwnerViewModel({
     dashboardContactBoard.value.retouchesPretesNonSignalees.items.map((item) => ({
       id: item.idRetouche,
       libelle: `${item.idRetouche} - ${item.clientNom || item.idClient}`,
+      type: Number(item.soldeRestant || 0) > 0 ? "Prevenir et encaisser" : "Client a prevenir",
+      title: `${dashboardPerson(item.clientNom || item.idClient)} peut venir recuperer ${humanizeDashboardLabel(item.typeRetouche || item.typeHabit, "sa retouche")}.`,
       description: formatDashboardPendingRetoucheDescription(item)
     }))
   );
@@ -164,7 +191,7 @@ export function useDashboardOwnerViewModel({
 
     const venteRows = ventes.value.map((v) => ({
       id: v.idVente,
-      clientNom: "Client comptoir",
+      clientNom: "Acheteur non renseigne",
       type: "Vente",
       statut: v.statut,
       montantTotal: Number(v.total || 0),
@@ -204,6 +231,7 @@ export function useDashboardOwnerViewModel({
     dashboardCommandesCards,
     dashboardRetouchesCards,
     dashboardClientsActifs,
+    dashboardArgentAttendu,
     dashboardFollowUpCards,
     dashboardClientsToFollowUpMobileItems,
     dashboardCommandesToNotifyMobileItems,

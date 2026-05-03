@@ -212,7 +212,7 @@ function updateRetoucheClientQuery(event) {
         </div>
       </article>
 
-      <article v-show="retoucheSection === 'liste'" class="panel">
+      <article v-show="retoucheSection === 'liste'" class="panel retouches-list-panel">
         <MobileSectionHeader
           title="Tableau des retouches"
           subtitle="Vue detaillee de la file active avant l'integration des actions secondaires en detail."
@@ -224,128 +224,130 @@ function updateRetoucheClientQuery(event) {
           </template>
         </MobileSectionHeader>
 
-        <ResponsiveDataContainer :mobile="isMobileViewport" v-slot="{ isMobile }">
-          <MobileStateLoading
-            v-if="isMobile && loading"
-            title="Chargement des retouches"
-            description="La liste se met a jour."
-            :blocks="3"
-          />
+        <div class="retouches-list-scroll">
+          <ResponsiveDataContainer :mobile="isMobileViewport" v-slot="{ isMobile }">
+            <MobileStateLoading
+              v-if="isMobile && loading"
+              title="Chargement des retouches"
+              description="La liste se met a jour."
+              :blocks="3"
+            />
 
-          <MobileStateError
-            v-else-if="isMobile && errorMessage"
-            title="Impossible d'afficher les retouches"
-            :description="errorMessage"
-          />
+            <MobileStateError
+              v-else-if="isMobile && errorMessage"
+              title="Impossible d'afficher les retouches"
+              :description="errorMessage"
+            />
 
-          <MobileStateEmpty
-            v-else-if="isMobile && retouchesFiltered.length === 0"
-            title="Aucune retouche"
-            description="Aucune retouche ne correspond aux filtres actuels."
+            <MobileStateEmpty
+              v-else-if="isMobile && retouchesFiltered.length === 0"
+              title="Aucune retouche"
+              description="Aucune retouche ne correspond aux filtres actuels."
+            >
+              <template #actions>
+                <button v-if="canCreateRetouche" class="action-btn blue" @click="emit('open-nouvelle-retouche')">Nouvelle retouche</button>
+              </template>
+            </MobileStateEmpty>
+
+            <RetoucheMobileList
+              v-else-if="isMobile"
+              :items="retouchesPaged"
+              :selected-id="selectedRetoucheId"
+              :format-currency="formatCurrency"
+              :format-date="formatDateShort"
+              @view="emit('voir-retouche', $event)"
+            />
+
+            <div v-else class="table-scroll-x">
+              <table class="data-table mobile-stack-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Client</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>Statut</th>
+                    <th>Etat solde</th>
+                    <th>Total</th>
+                    <th>Paye</th>
+                    <th>Solde</th>
+                    <th>Date depot</th>
+                    <th>Date prevue</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="retouche in retouchesPaged"
+                    :key="retouche.idRetouche"
+                    :class="[`status-row-${retouche.statutRetouche}`, { selected: selectedRetoucheId === retouche.idRetouche }]"
+                  >
+                    <td data-label="ID">{{ retouche.idRetouche }}</td>
+                    <td data-label="Client">{{ retouche.clientNom }}</td>
+                    <td data-label="Type">{{ retouche.typeRetouche || "-" }}</td>
+                    <td data-label="Description">{{ retouche.descriptionRetouche }}</td>
+                    <td data-label="Statut">
+                      <span class="status-pill" :data-status="retouche.statutRetouche">{{ retouche.statutRetouche }}</span>
+                    </td>
+                    <td data-label="Etat solde">
+                      <span class="status-pill" :data-tone="retouche.soldeRestant === 0 ? 'ok' : 'due'">
+                        {{ retouche.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
+                      </span>
+                    </td>
+                    <td data-label="Total">{{ formatCurrency(retouche.montantTotal) }}</td>
+                    <td data-label="Paye">{{ formatCurrency(retouche.montantPaye) }}</td>
+                    <td data-label="Solde">{{ formatCurrency(retouche.soldeRestant) }}</td>
+                    <td data-label="Date depot">{{ retouche.dateDepot || "-" }}</td>
+                    <td data-label="Date prevue">{{ retouche.datePrevue || "-" }}</td>
+                    <td class="row-actions">
+                      <button class="mini-btn" @click="emit('voir-retouche', retouche)">
+                        <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                          <path v-for="(path, i) in iconPaths.eye" :key="`see-ret-${retouche.idRetouche}-${i}`" :d="path" />
+                        </svg>
+                        Voir
+                      </button>
+                      <button class="mini-btn green" v-if="canPayerRetouche(retouche)" @click="emit('paiement-retouche', retouche)">
+                        <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                          <path v-for="(path, i) in iconPaths.cash" :key="`cash-ret-${retouche.idRetouche}-${i}`" :d="path" />
+                        </svg>
+                        Paiement
+                      </button>
+                      <button class="mini-btn blue" v-if="canLivrerRetouche(retouche)" @click="emit('livrer-retouche', retouche)">
+                        <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                          <path v-for="(path, i) in iconPaths.check" :key="`liv-ret-${retouche.idRetouche}-${i}`" :d="path" />
+                        </svg>
+                        Marquer comme livre
+                      </button>
+                      <button class="mini-btn blue" v-if="canTerminerRetouche(retouche)" @click="emit('terminer-retouche', retouche)">
+                        Marquer comme termine
+                      </button>
+                      <button class="mini-btn red" v-if="canAnnulerRetouche(retouche)" @click="emit('annuler-retouche', retouche)">
+                        <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M3 3l18 18" />
+                          <path d="M21 3L3 21" />
+                        </svg>
+                        Annuler
+                      </button>
+                    </td>
+                  </tr>
+                  <tr v-if="!isMobile && retouchesFiltered.length === 0">
+                    <td colspan="12">Aucune retouche ne correspond aux filtres actuels.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </ResponsiveDataContainer>
+          <div
+            v-if="retouchesPaged.length > 0 && retouchesPaged.length < retouchesFiltered.length"
+            :ref="setRetoucheInfiniteSentinel"
+            class="dossier-infinite-sentinel infinite-list-status"
           >
-            <template #actions>
-              <button v-if="canCreateRetouche" class="action-btn blue" @click="emit('open-nouvelle-retouche')">Nouvelle retouche</button>
-            </template>
-          </MobileStateEmpty>
-
-          <RetoucheMobileList
-            v-else-if="isMobile"
-            :items="retouchesPaged"
-            :selected-id="selectedRetoucheId"
-            :format-currency="formatCurrency"
-            :format-date="formatDateShort"
-            @view="emit('voir-retouche', $event)"
-          />
-
-          <div v-else class="table-scroll-x">
-            <table class="data-table mobile-stack-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Client</th>
-                  <th>Type</th>
-                  <th>Description</th>
-                  <th>Statut</th>
-                  <th>Etat solde</th>
-                  <th>Total</th>
-                  <th>Paye</th>
-                  <th>Solde</th>
-                  <th>Date depot</th>
-                  <th>Date prevue</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="retouche in retouchesPaged"
-                  :key="retouche.idRetouche"
-                  :class="[`status-row-${retouche.statutRetouche}`, { selected: selectedRetoucheId === retouche.idRetouche }]"
-                >
-                  <td data-label="ID">{{ retouche.idRetouche }}</td>
-                  <td data-label="Client">{{ retouche.clientNom }}</td>
-                  <td data-label="Type">{{ retouche.typeRetouche || "-" }}</td>
-                  <td data-label="Description">{{ retouche.descriptionRetouche }}</td>
-                  <td data-label="Statut">
-                    <span class="status-pill" :data-status="retouche.statutRetouche">{{ retouche.statutRetouche }}</span>
-                  </td>
-                  <td data-label="Etat solde">
-                    <span class="status-pill" :data-tone="retouche.soldeRestant === 0 ? 'ok' : 'due'">
-                      {{ retouche.soldeRestant === 0 ? "Solde OK" : "Solde restant" }}
-                    </span>
-                  </td>
-                  <td data-label="Total">{{ formatCurrency(retouche.montantTotal) }}</td>
-                  <td data-label="Paye">{{ formatCurrency(retouche.montantPaye) }}</td>
-                  <td data-label="Solde">{{ formatCurrency(retouche.soldeRestant) }}</td>
-                  <td data-label="Date depot">{{ retouche.dateDepot || "-" }}</td>
-                  <td data-label="Date prevue">{{ retouche.datePrevue || "-" }}</td>
-                  <td class="row-actions">
-                    <button class="mini-btn" @click="emit('voir-retouche', retouche)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.eye" :key="`see-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                      </svg>
-                      Voir
-                    </button>
-                    <button class="mini-btn green" v-if="canPayerRetouche(retouche)" @click="emit('paiement-retouche', retouche)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.cash" :key="`cash-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                      </svg>
-                      Paiement
-                    </button>
-                    <button class="mini-btn blue" v-if="canLivrerRetouche(retouche)" @click="emit('livrer-retouche', retouche)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path v-for="(path, i) in iconPaths.check" :key="`liv-ret-${retouche.idRetouche}-${i}`" :d="path" />
-                      </svg>
-                      Marquer comme livre
-                    </button>
-                    <button class="mini-btn blue" v-if="canTerminerRetouche(retouche)" @click="emit('terminer-retouche', retouche)">
-                      Marquer comme termine
-                    </button>
-                    <button class="mini-btn red" v-if="canAnnulerRetouche(retouche)" @click="emit('annuler-retouche', retouche)">
-                      <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M3 3l18 18" />
-                        <path d="M21 3L3 21" />
-                      </svg>
-                      Annuler
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="!isMobile && retouchesFiltered.length === 0">
-                  <td colspan="12">Aucune retouche ne correspond aux filtres actuels.</td>
-                </tr>
-              </tbody>
-            </table>
+            <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
+            <span class="helper">{{ retouchesLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
           </div>
-        </ResponsiveDataContainer>
-        <div
-          v-if="retouchesPaged.length > 0 && retouchesPaged.length < retouchesFiltered.length"
-          :ref="setRetoucheInfiniteSentinel"
-          class="dossier-infinite-sentinel infinite-list-status"
-        >
-          <span class="auth-loading-spinner subtle" aria-hidden="true"></span>
-          <span class="helper">{{ retouchesLoadingMore ? "Chargement..." : "Faites defiler pour charger la suite" }}</span>
-        </div>
-        <div v-else-if="retouchesInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
-          <span class="helper">Aucune autre retouche</span>
+          <div v-else-if="retouchesInfiniteEndReached" class="dossier-infinite-sentinel infinite-list-status">
+            <span class="helper">Aucune autre retouche</span>
+          </div>
         </div>
       </article>
 
@@ -366,3 +368,29 @@ function updateRetoucheClientQuery(event) {
     </MobilePageLayout>
   </section>
 </template>
+
+<style scoped>
+.retouches-list-panel {
+  display: grid;
+  gap: 12px;
+  align-self: start;
+}
+
+.retouches-list-scroll {
+  max-height: clamp(360px, 58vh, 680px);
+  overflow: auto;
+  padding-right: 4px;
+  min-width: 0;
+  scrollbar-gutter: stable;
+}
+
+.retouches-list-scroll .table-scroll-x {
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  .retouches-list-scroll {
+    max-height: min(62vh, 620px);
+  }
+}
+</style>

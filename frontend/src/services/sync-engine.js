@@ -517,7 +517,8 @@ async function buildCommandeApiPayload(atelierId, payload = {}, localRecord = {}
     montantTotal: Number(payload.montantTotal || 0),
     typeHabit: normalizeString(payload.typeHabit || primaryItem?.typeHabit),
     mesuresHabit: payload.mesuresHabit || primaryItem?.mesures || {},
-    items
+    items,
+    idempotencyKey: normalizeString(payload.idempotencyKey || localRecord?.idempotencyKey)
   };
   if (payload.nouveauClient && typeof payload.nouveauClient === "object") {
     requestPayload.nouveauClient = payload.nouveauClient;
@@ -549,6 +550,7 @@ function buildRetoucheApiPayload(payload = {}, clientServerId, localRecord = {})
     montantTotal: Number(payload.montantTotal || 0),
     typeHabit: normalizeString(payload.typeHabit),
     mesuresHabit: payload.mesuresHabit || {},
+    idempotencyKey: normalizeString(payload.idempotencyKey || localRecord?.idempotencyKey),
     items: Array.isArray(payload.items)
       ? payload.items
       : Array.isArray(localRecord?.items)

@@ -41,7 +41,7 @@ test("cree un dossier et le retrouve dans la liste", async ({ page }) => {
   await expect(page.locator(".dossier-workspace-hero").first()).toContainText(new RegExp(dossier.responsableNomComplet, "i"));
 
   await page.getByRole("button", { name: /^Retour$/i }).click();
-  await expect(page.getByText(new RegExp(dossier.responsableNomComplet, "i"))).toBeVisible();
+  await expect(page.locator(".dossier-card, tr").filter({ hasText: dossier.responsableNomComplet }).first()).toBeVisible();
 });
 
 test("navigue dossiers -> detail -> retour sans perdre la navigation", async ({ page }) => {
@@ -59,5 +59,5 @@ test("navigue dossiers -> detail -> retour sans perdre la navigation", async ({ 
 
   await page.getByRole("button", { name: /^Retour$/i }).click();
   await expectSidebarVisible(page);
-  await expect(page.getByText(new RegExp(dossier.responsableNomComplet, "i"))).toBeVisible();
+  await expect(page.locator(".dossier-card, tr").filter({ hasText: dossier.responsableNomComplet }).first()).toBeVisible();
 });

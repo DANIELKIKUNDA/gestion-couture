@@ -14,6 +14,11 @@ export const TypeDepense = Object.freeze({
   EXCEPTIONNELLE: "EXCEPTIONNELLE"
 });
 
+export const ActiviteCaisse = Object.freeze({
+  ATELIER: "ATELIER",
+  STOCK: "STOCK"
+});
+
 export const ModePaiement = Object.freeze({
   CASH: "CASH",
   MOBILE_MONEY: "MOBILE_MONEY",

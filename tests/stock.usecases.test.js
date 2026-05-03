@@ -72,6 +72,7 @@ async function run() {
   assert.equal(caisse.operations[0].motif, "ACHAT_STOCK");
   assert.equal(caisse.operations[0].montant, 30);
   assert.equal(caisse.operations[0].referenceMetier, "M-ACHAT-1");
+  assert.equal(caisse.operations[0].activite, "STOCK");
 }
 
 run()

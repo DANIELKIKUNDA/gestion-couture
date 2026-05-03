@@ -28,6 +28,11 @@ function toneFor(vente) {
 function metaItemsFor(vente) {
   return [
     {
+      key: "acheteur",
+      label: "Acheteur",
+      value: vente?.acheteurNom || "Non renseigne"
+    },
+    {
       key: "date",
       label: "Date",
       value: props.formatDateTime(vente?.date)
@@ -54,7 +59,7 @@ function metaItemsFor(vente) {
       v-for="vente in items"
       :key="vente.idVente"
       :eyebrow="`Vente #${vente.idVente}`"
-      title="Historique vente"
+      :title="vente.acheteurNom || 'Acheteur non renseigne'"
       :subtitle="vente.date ? `Enregistree le ${formatDateTime(vente.date)}` : 'Vente atelier'"
       :tone="toneFor(vente)"
     >

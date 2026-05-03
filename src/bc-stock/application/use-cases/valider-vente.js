@@ -1,12 +1,30 @@
 import { ArticleInexistant, VenteIntrouvable } from "../../domain/errors.js";
 import { generateMouvementId, generateOperationId } from "../../../shared/domain/id-generator.js";
+import { assertCaisseDateDuJour } from "../../../bc-caisse/application/services/caisse-date-guard.js";
+import {
+  findAndAssertIdempotentOperation,
+  findOperationByIdempotencyKey,
+  normalizeIdempotencyKey,
+  saveCaisseIdempotently
+} from "../../../bc-caisse/application/services/idempotency.js";
 
-export async function validerVente({ idVente, idCaisseJour, modePaiement, utilisateur, venteRepo, articleRepo, caisseRepo }) {
+export async function validerVente({ idVente, idCaisseJour, modePaiement, utilisateur, venteRepo, articleRepo, caisseRepo, enforceDateDuJour = false, idempotencyKey = null, now, timeZone }) {
   const vente = await venteRepo.getById(idVente);
   if (!vente) throw new VenteIntrouvable("Vente introuvable");
 
   const caisse = await caisseRepo.getById(idCaisseJour);
   if (!caisse) throw new Error("Caisse introuvable");
+  if (enforceDateDuJour) assertCaisseDateDuJour(caisse, { now, timeZone });
+  const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
+  if (
+    findAndAssertIdempotentOperation(caisse, normalizedIdempotencyKey, {
+      typeOperation: "ENTREE",
+      montant: vente.total,
+      motif: "VENTE_STOCK",
+      referenceMetier: vente.idVente,
+      activite: "STOCK"
+    })
+  ) return vente;
   try {
     caisse.assertOuverte();
   } catch (err) {
@@ -57,11 +75,13 @@ export async function validerVente({ idVente, idCaisseJour, modePaiement, utilis
     modePaiement,
     motif: "VENTE_STOCK",
     referenceMetier: vente.idVente,
-    utilisateur
+    activite: "STOCK",
+    utilisateur,
+    idempotencyKey: normalizedIdempotencyKey
   });
-  await caisseRepo.save(caisse);
+  const savedCaisse = await saveCaisseIdempotently(caisseRepo, caisse, normalizedIdempotencyKey);
 
-  vente.valider({ referenceCaisse: idOperation });
+  vente.valider({ referenceCaisse: findOperationByIdempotencyKey(savedCaisse, normalizedIdempotencyKey)?.idOperation || idOperation });
   await venteRepo.save(vente);
 
   return vente;

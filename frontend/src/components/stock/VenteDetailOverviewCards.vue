@@ -24,6 +24,11 @@ const props = defineProps({
 
 const venteItems = computed(() => [
   {
+    key: "acheteur",
+    label: "Acheteur",
+    value: props.vente?.acheteurNom || "Non renseigne"
+  },
+  {
     key: "date",
     label: "Date",
     value: props.vente?.date ? props.formatDateTime(props.vente.date) : "-"

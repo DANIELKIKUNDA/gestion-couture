@@ -100,6 +100,7 @@ test("paye une intervention ciblee et masque la modification apres paiement", as
   await expect(page.locator(".detail-item-card").filter({ hasText: /Ourlet principal/i }).first()).toContainText(/Reste\s*:\s*25/i);
   await expect(page.locator(".detail-item-card").filter({ hasText: /Ourlet secondaire/i }).first()).toContainText(/Reste\s*:\s*0/i);
   await expect(page.locator(".detail-item-card").getByRole("button", { name: /^Modifier$/i })).toHaveCount(0);
+  await page.close({ runBeforeUnload: false });
 });
 
 test("protege la creation retouche sur retour navigateur", async ({ page }) => {

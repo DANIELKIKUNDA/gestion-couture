@@ -119,6 +119,7 @@ defineProps({
             <article class="panel detail-grid">
               <div>
                 <h4>Informations vente</h4>
+                <p><strong>Acheteur:</strong> {{ detailVente.acheteurNom || "Non renseigne" }}</p>
                 <p><strong>Date:</strong> {{ formatDateTime(detailVente.date) }}</p>
                 <p><strong>Statut:</strong> {{ detailVente.statut }}</p>
                 <p><strong>Facture:</strong> {{ detailVenteFacture ? detailVenteFacture.numeroFacture : "Non emise" }}</p>

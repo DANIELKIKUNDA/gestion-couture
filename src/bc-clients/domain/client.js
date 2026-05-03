@@ -2,7 +2,7 @@
 import { ClientInvalide } from "./errors.js";
 
 export class Client {
-  constructor({ idClient, nom, prenom, telephone, adresse = null, sexe = null, actif = true, dateCreation }) {
+  constructor({ idClient, nom, prenom, telephone, adresse = null, sexe = null, actif = true, dateCreation, idempotencyKey = null }) {
     try {
       assertNonEmpty(idClient, "idClient");
       assertNonEmpty(nom, "nom");
@@ -20,6 +20,7 @@ export class Client {
     this.sexe = sexe;
     this.actif = actif;
     this.dateCreation = dateCreation || new Date().toISOString();
+    this.idempotencyKey = idempotencyKey || null;
   }
 
   modifier({ nom, prenom, telephone, adresse, sexe }) {

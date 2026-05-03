@@ -2,6 +2,7 @@
 import CashierDashboardContent from "./CashierDashboardContent.vue";
 import OwnerDashboardContent from "./OwnerDashboardContent.vue";
 import TailorDashboardContent from "./TailorDashboardContent.vue";
+import DateNavigator from "../DateNavigator.vue";
 import MobilePageLayout from "../mobile/MobilePageLayout.vue";
 import MobilePrimaryActionBar from "../mobile/MobilePrimaryActionBar.vue";
 
@@ -17,7 +18,9 @@ defineProps({
   dashboardHeroSubtitle: { type: String, default: "" },
   dashboardHeroTags: { type: Array, default: () => [] },
   dashboardHeroHighlights: { type: Array, default: () => [] },
+  dailyDecisionPills: { type: Array, default: () => [] },
   dashboardClientsActifs: { type: Object, default: null },
+  selectedDate: { type: String, default: "" },
   dashboardPeriod: { type: String, default: "LAST_7" },
   dashboardPeriodOptions: { type: Array, default: () => [] },
   cashierDashboardCards: { type: Array, default: () => [] },
@@ -33,6 +36,7 @@ defineProps({
   dashboardSalesMobileCards: { type: Array, default: () => [] },
   dashboardCommandesCards: { type: Array, default: () => [] },
   dashboardRetouchesCards: { type: Array, default: () => [] },
+  dashboardArgentAttendu: { type: Number, default: 0 },
   recentWorkRows: { type: Array, default: () => [] },
   alerts: { type: Array, default: () => [] },
   canAccessContactFollowUpDashboard: { type: Boolean, default: false },
@@ -56,16 +60,12 @@ defineProps({
   iconPaths: { type: Object, default: () => ({}) }
 });
 
-const emit = defineEmits(["update:dashboardPeriod"]);
-
-function updateDashboardPeriod(event) {
-  emit("update:dashboardPeriod", event?.target?.value || "LAST_7");
-}
+const emit = defineEmits(["update:dashboardPeriod", "update:selectedDate"]);
 </script>
 
 <template>
   <section class="dashboard classic-dashboard" :class="`dashboard-role-${dashboardRoleTone}`">
-    <MobilePageLayout :has-action="isMobileViewport && (isCashierDashboard || isTailorDashboard || canCreateCommande || canCreateRetouche)">
+    <MobilePageLayout :has-action="isMobileViewport && (isCashierDashboard || isTailorDashboard)">
       <article class="panel dashboard-filter dashboard-hero">
         <div class="dashboard-hero-copy">
           <p class="mobile-overline dashboard-hero-eyebrow">{{ dashboardHeroEyebrow }}</p>
@@ -83,15 +83,21 @@ function updateDashboardPeriod(event) {
             </article>
           </div>
           <div class="row-actions dashboard-hero-controls">
-            <p v-if="dashboardClientsActifs && !isCashierDashboard && !isTailorDashboard" class="helper"><strong>Clients actifs:</strong> {{ dashboardClientsActifs.value }}</p>
-            <select :value="dashboardPeriod" @change="updateDashboardPeriod">
-              <option v-for="option in dashboardPeriodOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
+            <DateNavigator
+              v-if="selectedDate"
+              :model-value="selectedDate"
+              @update:model-value="emit('update:selectedDate', $event)"
+            />
           </div>
         </div>
       </article>
+
+      <div v-if="dailyDecisionPills.length > 0" class="decision-strip" aria-label="Resume decisionnel du jour">
+        <article v-for="pill in dailyDecisionPills" :key="pill.label" class="decision-pill" :data-tone="pill.tone || 'neutral'">
+          <span>{{ pill.label }}</span>
+          <strong>{{ pill.value }}</strong>
+        </article>
+      </div>
 
       <CashierDashboardContent
         v-if="isCashierDashboard"
@@ -135,6 +141,7 @@ function updateDashboardPeriod(event) {
         :dashboard-contact-board="dashboardContactBoard"
         :dashboard-commandes-cards="dashboardCommandesCards"
         :dashboard-retouches-cards="dashboardRetouchesCards"
+        :dashboard-argent-attendu="dashboardArgentAttendu"
         :format-currency="formatCurrency"
         :format-percent="formatPercent"
         :format-dashboard-client-follow-up-description="formatDashboardClientFollowUpDescription"
@@ -160,21 +167,56 @@ function updateDashboardPeriod(event) {
         >
           <button class="action-btn blue" @click="openRoute('commandes')">Voir commandes</button>
         </MobilePrimaryActionBar>
-        <MobilePrimaryActionBar
-          v-else-if="isMobileViewport && canCreateCommande"
-          title="Action principale"
-          subtitle="Commencez rapidement une nouvelle commande."
-        >
-          <button class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
-        </MobilePrimaryActionBar>
-        <MobilePrimaryActionBar
-          v-else-if="isMobileViewport && canCreateRetouche"
-          title="Action principale"
-          subtitle="Commencez rapidement une nouvelle retouche."
-        >
-          <button class="action-btn green" @click="openNouvelleRetouche">Nouvelle retouche</button>
-        </MobilePrimaryActionBar>
       </template>
     </MobilePageLayout>
   </section>
 </template>
+
+<style scoped>
+.decision-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 1px 4px;
+  scrollbar-width: none;
+}
+
+.decision-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.decision-pill {
+  flex: 1 0 160px;
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+  display: grid;
+  gap: 4px;
+}
+
+.decision-pill span {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.decision-pill strong {
+  color: #24364d;
+  font-size: 1rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.decision-pill[data-tone="in"] strong {
+  color: #17643d;
+}
+
+.decision-pill[data-tone="out"] strong {
+  color: #b74235;
+}
+</style>

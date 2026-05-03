@@ -10,9 +10,14 @@ export class VenteRepoPg {
     return new VenteRepoPg(atelierId);
   }
 
+  async ensureAcheteurColumns() {
+    await pool.query("ALTER TABLE ventes ADD COLUMN IF NOT EXISTS acheteur_nom TEXT");
+  }
+
   async getById(idVente) {
+    await this.ensureAcheteurColumns();
     const res = await pool.query(
-      "SELECT id_vente, date_vente, total, total_prix_achat, benefice_total, statut, reference_caisse, motif_annulation FROM ventes WHERE id_vente = $1 AND atelier_id = $2",
+      "SELECT id_vente, date_vente, acheteur_nom, total, total_prix_achat, benefice_total, statut, reference_caisse, motif_annulation FROM ventes WHERE id_vente = $1 AND atelier_id = $2",
       [idVente, this.atelierId]
     );
     if (res.rowCount === 0) return null;
@@ -29,6 +34,7 @@ export class VenteRepoPg {
     return new Vente({
       idVente: row.id_vente,
       date: row.date_vente,
+      acheteurNom: row.acheteur_nom || "",
       total: Number(row.total),
       totalPrixAchat: Number(row.total_prix_achat || 0),
       beneficeTotal: Number(row.benefice_total || 0),
@@ -49,12 +55,24 @@ export class VenteRepoPg {
   }
 
   async save(vente) {
+    await this.ensureAcheteurColumns();
     await pool.query(
-      `INSERT INTO ventes (id_vente, atelier_id, date_vente, total, total_prix_achat, benefice_total, statut, reference_caisse, motif_annulation)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO ventes (id_vente, atelier_id, date_vente, acheteur_nom, total, total_prix_achat, benefice_total, statut, reference_caisse, motif_annulation)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (id_vente)
-       DO UPDATE SET atelier_id=$2, date_vente=$3, total=$4, total_prix_achat=$5, benefice_total=$6, statut=$7, reference_caisse=$8, motif_annulation=$9`,
-      [vente.idVente, this.atelierId, vente.date, vente.total, vente.totalPrixAchat, vente.beneficeTotal, vente.statut, vente.referenceCaisse, vente.motifAnnulation || null]
+       DO UPDATE SET atelier_id=$2, date_vente=$3, acheteur_nom=$4, total=$5, total_prix_achat=$6, benefice_total=$7, statut=$8, reference_caisse=$9, motif_annulation=$10`,
+      [
+        vente.idVente,
+        this.atelierId,
+        vente.date,
+        vente.acheteurNom || null,
+        vente.total,
+        vente.totalPrixAchat,
+        vente.beneficeTotal,
+        vente.statut,
+        vente.referenceCaisse,
+        vente.motifAnnulation || null
+      ]
     );
 
     await pool.query("DELETE FROM vente_lignes WHERE id_vente = $1 AND atelier_id = $2", [vente.idVente, this.atelierId]);

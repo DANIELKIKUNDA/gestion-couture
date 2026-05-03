@@ -41,6 +41,7 @@ export class Retouche {
     typeHabit,
     mesuresHabit,
     items = [],
+    idempotencyKey = null,
     policy = null,
     rehydrate = false
   }) {
@@ -64,6 +65,7 @@ export class Retouche {
     this.idRetouche = idRetouche;
     this.idClient = idClient;
     this.dossierId = dossierId ? String(dossierId).trim() : null;
+    this.idempotencyKey = idempotencyKey || null;
     this.descriptionRetouche = descriptionRetouche;
     this.dateDepot = dateDepot;
     this.datePrevue = datePrevue;

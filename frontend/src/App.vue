@@ -3,8 +3,12 @@ import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, react
 import { atelierApi, ApiError, resolveMediaUrl, setAuthLostHandler } from "./services/api.js";
 import {
   OFFLINE_READ_MESSAGES,
+  READONLY_CACHE_KEYS,
+  cacheReadonlyList,
   loadCommandeDetailLocalFirst,
   loadMainListsLocalFirst,
+  loadReadonlyDetailLocalFirst,
+  loadReadonlyListsLocalFirst,
   loadRetoucheDetailLocalFirst
 } from "./services/offline-read-service.js";
 import {
@@ -298,11 +302,13 @@ const stockArticles = ref([]);
 const ventes = ref([]);
 const factures = ref([]);
 const caisseJour = ref(null);
+const selectedBusinessDate = ref(todayIso());
 
 const stockVentesTab = ref("stock");
 const venteSubmitting = ref(false);
 const SIMPLE_STOCK_ENTRY_DEFAULT_MOTIF = "ENTREE";
 const venteDraft = reactive({
+  acheteurNom: "",
   lignes: [],
   current: {
     idArticle: "",
@@ -435,6 +441,7 @@ const caisseOperationsVisibleCount = ref(caisseOperationsPagination.pageSize);
 const caisseOperationsLoadingMore = ref(false);
 const caisseInfiniteSentinel = ref(null);
 let caisseInfiniteObserver = null;
+const caisseQuickFilter = ref("ALL");
 function setCaisseInfiniteSentinel(element) {
   caisseInfiniteSentinel.value = element || null;
 }
@@ -449,11 +456,20 @@ const retoucheClientDetailsOpen = ref(false);
 const commandeNewClientEditing = ref(true);
 const retoucheNewClientEditing = ref(true);
 
-const dashboardPeriod = ref("LAST_7");
+const dashboardPeriod = ref("TODAY");
 const dashboardPeriodOptions = [
   { value: "TODAY", label: "Aujourd'hui" },
   { value: "LAST_7", label: "7 derniers jours" },
   { value: "LAST_30", label: "30 derniers jours" }
+];
+const caisseAuditQuickFilterOptions = [
+  { value: "ALL", label: "Tous" },
+  { value: "ATELIER", label: "Atelier" },
+  { value: "STOCK", label: "Stock" },
+  { value: "ENTREES", label: "Entrees" },
+  { value: "SORTIES", label: "Sorties" },
+  { value: "MANUEL", label: "Manuel" },
+  { value: "DEPENSES", label: "Depenses" }
 ];
 const dashboardContactBoard = ref(createEmptyDashboardContactBoard());
 const dashboardContactBoardLoading = ref(false);
@@ -1376,6 +1392,7 @@ const bilanMensuel = ref([]);
 const bilanAnnuel = ref([]);
 const auditCaisseJournalier = ref([]);
 const auditOperations = ref([]);
+const auditOperationsQuickFilter = ref("ALL");
 const auditCommandes = ref([]);
 const auditRetouches = ref([]);
 const auditStockVentes = ref([]);
@@ -1413,7 +1430,51 @@ const { pages: auditCaisseJournalierPages, paged: auditCaisseJournalierPaged } =
 const { pages: bilanHebdoPages, paged: bilanHebdoPaged } = createClientSidePager(bilanHebdo, bilanHebdoPagination);
 const { pages: bilanMensuelPages, paged: bilanMensuelPaged } = createClientSidePager(bilanMensuel, bilanMensuelPagination);
 const { pages: bilanAnnuelPages, paged: bilanAnnuelPaged } = createClientSidePager(bilanAnnuel, bilanAnnuelPagination);
-const { pages: auditOperationsPages, paged: auditOperationsPaged } = createClientSidePager(auditOperations, auditOperationsPagination);
+function auditOperationSource(row = {}) {
+  const typeOperation = String(row.type_operation || row.typeOperation || "").trim().toUpperCase();
+  if (typeOperation === "SORTIE") return "DEPENSE";
+  const motif = String(row.motif || "").trim().toUpperCase();
+  if (["PAIEMENT_COMMANDE", "PAIEMENT_COMMANDE_ITEM"].includes(motif)) return "COMMANDE";
+  if (["PAIEMENT_RETOUCHE", "PAIEMENT_RETOUCHE_ITEM"].includes(motif)) return "RETOUCHE";
+  if (["VENTE_STOCK", "PAIEMENT_STOCK"].includes(motif)) return "VENTE";
+  if (motif === "ENTREE_MANUELLE") return "MANUEL";
+  return typeOperation === "ENTREE" ? "AUTRE_ENTREE" : "AUTRE";
+}
+
+function auditOperationActivity(row = {}) {
+  return String(row.activite || "ATELIER").trim().toUpperCase() === "STOCK" ? "STOCK" : "ATELIER";
+}
+
+function auditOperationAmountTone(row = {}) {
+  return String(row.type_operation || "").trim().toUpperCase() === "SORTIE" ? "out" : "in";
+}
+
+function auditOperationSignedAmount(row = {}) {
+  const amount = formatCurrency(row.montant);
+  return auditOperationAmountTone(row) === "out" ? `-${amount}` : `+${amount}`;
+}
+
+function auditOperationQuickLabel(row = {}) {
+  return `[${auditOperationSource(row)}][${auditOperationActivity(row)}]`;
+}
+
+const auditOperationsFiltered = computed(() => {
+  const filter = String(auditOperationsQuickFilter.value || "ALL").trim().toUpperCase();
+  return auditOperations.value.filter((row) => {
+    const typeOperation = String(row.type_operation || "").trim().toUpperCase();
+    const source = auditOperationSource(row);
+    const activite = auditOperationActivity(row);
+    if (filter === "ATELIER") return activite === "ATELIER";
+    if (filter === "STOCK") return activite === "STOCK";
+    if (filter === "ENTREES") return typeOperation === "ENTREE";
+    if (filter === "SORTIES") return typeOperation === "SORTIE";
+    if (filter === "MANUEL") return source === "MANUEL";
+    if (filter === "DEPENSES") return source === "DEPENSE";
+    return true;
+  });
+});
+
+const { pages: auditOperationsPages, paged: auditOperationsPaged } = createClientSidePager(auditOperationsFiltered, auditOperationsPagination);
 const { pages: auditCommandesPages, paged: auditCommandesPaged } = createClientSidePager(auditCommandes, auditCommandesPagination);
 const { pages: auditRetouchesPages, paged: auditRetouchesPaged } = createClientSidePager(auditRetouches, auditRetouchesPagination);
 const { pages: auditStockVentesPages, paged: auditStockVentesPaged } = createClientSidePager(auditStockVentes, auditStockVentesPagination);
@@ -6482,29 +6543,32 @@ async function loadDashboardContactBoard({ syncGlobalError = false } = {}) {
 
 function formatDashboardClientFollowUpDescription(item) {
   if (!item) return "";
-  const parts = [contactFollowUpStatusLabels[String(item.statut || "").trim().toUpperCase()] || "A relancer"];
-  if (item.telephone) parts.push(item.telephone);
-  if (item.dateContact) parts.push(formatDateTime(item.dateContact));
-  return parts.filter(Boolean).join(" · ");
+  const parts = [];
+  if (item.telephone) parts.push(`Telephone: ${item.telephone}`);
+  if (item.dateContact) parts.push(`Dernier contact: ${formatDateTime(item.dateContact)}`);
+  return parts.filter(Boolean).join(" · ") || "Un petit rappel peut aider a faire avancer le dossier.";
+}
+
+function dashboardDateHint(dateValue) {
+  return dateValue ? `Prevu le ${formatDateShort(dateValue)}.` : "";
+}
+
+function formatDashboardReadyWorkDescription({ datePrevue = "", soldeRestant = 0 } = {}) {
+  const parts = [];
+  if (Number(soldeRestant || 0) > 0) parts.push(`Reste a encaisser: ${formatCurrency(soldeRestant)}`);
+  const dateHint = dashboardDateHint(datePrevue);
+  if (dateHint) parts.push(dateHint);
+  return parts.join(" ") || "Le client peut etre prevenu.";
 }
 
 function formatDashboardPendingCommandeDescription(item) {
   if (!item) return "";
-  const parts = [];
-  if (item.typeHabit) parts.push(item.typeHabit);
-  if (Number(item.soldeRestant || 0) > 0) parts.push(`Solde: ${formatCurrency(item.soldeRestant)}`);
-  if (item.datePrevue) parts.push(`Prevue: ${formatDateShort(item.datePrevue)}`);
-  return parts.filter(Boolean).join(" · ") || "Commande prete a signaler";
+  return formatDashboardReadyWorkDescription(item);
 }
 
 function formatDashboardPendingRetoucheDescription(item) {
   if (!item) return "";
-  const parts = [];
-  if (item.typeRetouche) parts.push(item.typeRetouche);
-  else if (item.typeHabit) parts.push(item.typeHabit);
-  if (Number(item.soldeRestant || 0) > 0) parts.push(`Solde: ${formatCurrency(item.soldeRestant)}`);
-  if (item.datePrevue) parts.push(`Prevue: ${formatDateShort(item.datePrevue)}`);
-  return parts.filter(Boolean).join(" · ") || "Retouche prete a signaler";
+  return formatDashboardReadyWorkDescription(item);
 }
 
 function resolveHabitUiDefinition(typeHabit) {
@@ -6594,7 +6658,7 @@ const { financeMetrics, dashboardSalesMetrics } = useDashboardFinanceMetrics({
   commandesView,
   retouches,
   ventes,
-  todayIso,
+  todayIso: selectedBusinessDateIso,
   addDays
 });
 
@@ -6605,6 +6669,7 @@ const {
   dashboardCommandesCards,
   dashboardRetouchesCards,
   dashboardClientsActifs,
+  dashboardArgentAttendu,
   dashboardFollowUpCards,
   dashboardClientsToFollowUpMobileItems,
   dashboardCommandesToNotifyMobileItems,
@@ -6625,7 +6690,7 @@ const {
   formatDashboardClientFollowUpDescription,
   formatDashboardPendingCommandeDescription,
   formatDashboardPendingRetoucheDescription,
-  todayIso,
+  todayIso: selectedBusinessDateIso,
   addDays
 });
 
@@ -6633,6 +6698,8 @@ function dateOnly(value) {
   if (!value) return "";
   return String(value).slice(0, 10);
 }
+
+const selectedBusinessDateIsToday = computed(() => selectedBusinessDateIso() === todayIso());
 
 const {
   caisseStatus,
@@ -6643,7 +6710,41 @@ const {
   caisseTotals
 } = useCaisseViewModel({
   caisseJour,
-  caisseOperationsVisibleCount
+  caisseOperationsVisibleCount,
+  caisseQuickFilter
+});
+
+const dailyDecisionPills = computed(() => {
+  if (!caisseJour.value) return [];
+  const validOps = (caisseJour.value.operations || []).filter((op) => op.statutOperation !== "ANNULEE");
+  const biggestExpense = validOps
+    .filter((op) => op.typeOperation === "SORTIE")
+    .reduce((max, op) => (Number(op.montant || 0) > Number(max?.montant || 0) ? op : max), null);
+  const netJour = Number(caisseTotals.value.netJour || 0);
+  const netAtelier = Number(caisseTotals.value.netAtelier || 0);
+  const netStock = Number(caisseTotals.value.netStock || 0);
+  return [
+    {
+      label: "Net jour",
+      value: formatCurrency(netJour),
+      tone: netJour < 0 ? "out" : "in"
+    },
+    {
+      label: "Atelier net",
+      value: formatCurrency(netAtelier),
+      tone: netAtelier < 0 ? "out" : "neutral"
+    },
+    {
+      label: "Stock net",
+      value: formatCurrency(netStock),
+      tone: netStock < 0 ? "out" : "neutral"
+    },
+    {
+      label: "Plus grosse sortie",
+      value: biggestExpense ? formatCurrency(biggestExpense.montant) : "-",
+      tone: biggestExpense ? "out" : "neutral"
+    }
+  ];
 });
 const {
   cashierDashboardCards,
@@ -6662,7 +6763,7 @@ const {
   formatCurrency,
   formatDateShort,
   formatStatusLabel,
-  todayIso
+  todayIso: selectedBusinessDateIso
 });
 const {
   dashboardPrimaryMobileCards,
@@ -6698,11 +6799,41 @@ const alerts = computed(() => {
   const caisseNotClosed = caisseJour.value && caisseJour.value.statutCaisse !== "CLOTUREE";
 
   const items = [];
-  if (lateCommandes.length > 0) items.push({ tone: "due", label: `${lateCommandes.length} commande(s) en retard` });
-  for (const article of lowStock) {
-    items.push({ tone: "due", label: `Stock faible: ${article.nomArticle}` });
+  if (lateCommandes.length > 0) {
+    items.push({
+      tone: "due",
+      type: "Commande en retard",
+      label: `${lateCommandes.length} commande(s) en retard`,
+      title: `${lateCommandes.length} commande(s) sont en retard.`,
+      description: "Verifiez les dates et prevenez les clients concernes."
+    });
   }
-  if (caisseNotClosed) items.push({ tone: "due", label: "Caisse non cloturee" });
+  for (const article of lowStock) {
+    const quantite = Number(article.quantiteDisponible || 0);
+    const nomArticle = String(article.nomArticle || "cet article").trim();
+    items.push({
+      tone: "due",
+      type: quantite <= 0 ? "Stock epuise" : "Stock faible",
+      label: `Stock faible: ${nomArticle}`,
+      title:
+        quantite <= 0
+          ? `Le stock de ${nomArticle} est epuise.`
+          : `Le stock de ${nomArticle} est trop faible.`,
+      description:
+        quantite <= 0
+          ? "Il faut approvisionner avant la prochaine vente."
+          : "Pensez a approvisionner pour continuer a vendre sans rupture."
+    });
+  }
+  if (caisseNotClosed) {
+    items.push({
+      tone: "due",
+      type: "Caisse ouverte",
+      label: "Caisse non cloturee",
+      title: "La caisse du jour est encore ouverte.",
+      description: "Pensez a la cloturer avant de terminer la journee."
+    });
+  }
   return items;
 });
 
@@ -8872,6 +9003,73 @@ async function revokeSystemAtelierOwnerSessions() {
   }
 }
 
+async function loadCaisseForBusinessDate(businessDate, daysInput = null) {
+  if (!canAccessModule("caisse")) {
+    caisseJour.value = null;
+    return;
+  }
+  const atelierId = currentAtelierId.value;
+  let days = [];
+  if (Array.isArray(daysInput)) {
+    days = daysInput;
+  } else if (atelierId) {
+    const listLocalFirst = await loadReadonlyListsLocalFirst({ atelierId, keys: [READONLY_CACHE_KEYS.CAISSE_JOURS] });
+    days = listLocalFirst.cached[READONLY_CACHE_KEYS.CAISSE_JOURS] || [];
+    if (listLocalFirst.online && listLocalFirst.refreshPromise) {
+      const refreshed = await listLocalFirst.refreshPromise;
+      days = refreshed?.values?.[READONLY_CACHE_KEYS.CAISSE_JOURS] || days;
+    }
+  } else {
+    days = await atelierApi.listCaisseJours();
+  }
+  const selected = String(businessDate || selectedBusinessDateIso()).slice(0, 10);
+  const match = days.find((day) => dateOnly(day.date || day.date_jour) === selected);
+  if (!match) {
+    caisseJour.value = null;
+    return;
+  }
+  const idCaisseJour = match.idCaisseJour || match.id_caisse_jour;
+  if (!atelierId) {
+    const detail = await atelierApi.getCaisseJour(idCaisseJour);
+    caisseJour.value = normalizeCaisse(detail);
+    return;
+  }
+
+  const localFirst = await loadReadonlyDetailLocalFirst({
+    atelierId,
+    cacheKey: READONLY_CACHE_KEYS.CAISSE_JOURS,
+    identifier: idCaisseJour,
+    loader: (id) => atelierApi.getCaisseJour(id)
+  });
+
+  if (localFirst.cached) {
+    caisseJour.value = normalizeCaisse(localFirst.cached);
+  } else {
+    caisseJour.value = normalizeCaisse(match);
+  }
+
+  if (localFirst.online && localFirst.refreshPromise) {
+    const refreshed = await localFirst.refreshPromise;
+    if (refreshed?.row) {
+      caisseJour.value = normalizeCaisse(refreshed.row);
+    }
+  }
+}
+
+async function loadCaisseForSelectedDate(daysInput = null) {
+  return loadCaisseForBusinessDate(selectedBusinessDateIso(), daysInput);
+}
+
+watch(selectedBusinessDate, async () => {
+  if (!["dashboard", "caisse"].includes(currentRoute.value)) return;
+  if (!canAccessModule("caisse")) return;
+  try {
+    await loadCaisseForSelectedDate();
+  } catch (err) {
+    appendError(err);
+  }
+});
+
 async function reloadAll() {
   loading.value = true;
   clearGlobalErrorMessage();
@@ -8930,28 +9128,56 @@ async function reloadAll() {
     loadCommandes: shouldLoadCommandes,
     loadRetouches: shouldLoadRetouches
   });
+  const readonlyKeys = [
+    shouldLoadDossiers ? READONLY_CACHE_KEYS.DOSSIERS : "",
+    shouldLoadRetoucheTypes ? READONLY_CACHE_KEYS.RETOUCHE_TYPES : "",
+    shouldLoadStock ? READONLY_CACHE_KEYS.STOCK_ARTICLES : "",
+    shouldLoadVentes ? READONLY_CACHE_KEYS.VENTES : "",
+    shouldLoadFactures ? READONLY_CACHE_KEYS.FACTURES : "",
+    shouldLoadCaisse ? READONLY_CACHE_KEYS.CAISSE_JOURS : ""
+  ].filter(Boolean);
+  const readonlyLocalFirst = await loadReadonlyListsLocalFirst({
+    atelierId,
+    keys: readonlyKeys
+  });
 
   if (shouldLoadClients) applyClientsRows(localFirst.cached.clients);
   if (shouldLoadCommandes) applyCommandesRows(localFirst.cached.commandes);
   if (shouldLoadRetouches) applyRetouchesRows(localFirst.cached.retouches);
+  if (shouldLoadDossiers) applyDossiersRows(readonlyLocalFirst.cached[READONLY_CACHE_KEYS.DOSSIERS] || []);
+  if (shouldLoadRetoucheTypes) {
+    retoucheTypeDefinitions.value = (readonlyLocalFirst.cached[READONLY_CACHE_KEYS.RETOUCHE_TYPES] || [])
+      .map(normalizeRetoucheTypeDefinition)
+      .filter(Boolean)
+      .sort((left, right) => {
+        if (left.ordreAffichage !== right.ordreAffichage) return left.ordreAffichage - right.ordreAffichage;
+        return String(left.libelle || left.code).localeCompare(String(right.libelle || right.code), "fr", {
+          sensitivity: "base"
+        });
+      });
+  }
+  if (shouldLoadStock) stockArticles.value = (readonlyLocalFirst.cached[READONLY_CACHE_KEYS.STOCK_ARTICLES] || []).map(normalizeStockArticle);
+  if (shouldLoadVentes) ventes.value = (readonlyLocalFirst.cached[READONLY_CACHE_KEYS.VENTES] || []).map(normalizeVente);
+  if (shouldLoadFactures) factures.value = (readonlyLocalFirst.cached[READONLY_CACHE_KEYS.FACTURES] || []).map(normalizeFacture);
+  if (shouldLoadCaisse) {
+    await loadCaisseForSelectedDate(readonlyLocalFirst.cached[READONLY_CACHE_KEYS.CAISSE_JOURS] || []);
+  }
 
   if (!localFirst.online) {
-    if (!localFirst.hasCachedData && (shouldLoadClients || shouldLoadCommandes || shouldLoadRetouches)) {
+    if (
+      !localFirst.hasCachedData &&
+      !readonlyLocalFirst.hasCachedData &&
+      (shouldLoadClients || shouldLoadCommandes || shouldLoadRetouches || readonlyKeys.length > 0)
+    ) {
       appendUiMessage(OFFLINE_READ_MESSAGES.NO_LOCAL_DATA);
     }
 
-    dossiers.value = [];
-    retoucheTypeDefinitions.value = [];
-    stockArticles.value = [];
-    ventes.value = [];
-    factures.value = [];
-    caisseJour.value = null;
-
-    if (shouldLoadRetoucheTypes) appendUiMessage(OFFLINE_READ_MESSAGES.RETOUCHE_TYPES);
-    if (shouldLoadStock) appendUiMessage(OFFLINE_READ_MESSAGES.STOCK);
-    if (shouldLoadVentes) appendUiMessage(OFFLINE_READ_MESSAGES.VENTES);
-    if (shouldLoadFactures) appendUiMessage(OFFLINE_READ_MESSAGES.FACTURES);
-    if (shouldLoadCaisse) appendUiMessage(OFFLINE_READ_MESSAGES.CAISSE);
+    if (shouldLoadDossiers && dossiers.value.length > 0) appendUiMessage(OFFLINE_READ_MESSAGES.DOSSIERS);
+    if (shouldLoadRetoucheTypes && retoucheTypeDefinitions.value.length === 0) appendUiMessage(OFFLINE_READ_MESSAGES.RETOUCHE_TYPES);
+    if (shouldLoadStock && stockArticles.value.length > 0) appendUiMessage(OFFLINE_READ_MESSAGES.STOCK);
+    if (shouldLoadVentes && ventes.value.length > 0) appendUiMessage(OFFLINE_READ_MESSAGES.VENTES);
+    if (shouldLoadFactures && factures.value.length > 0) appendUiMessage(OFFLINE_READ_MESSAGES.FACTURES);
+    if (shouldLoadCaisse && !caisseJour.value) appendUiMessage(OFFLINE_READ_MESSAGES.CAISSE);
     if (shouldLoadClients && currentRoute.value === "clientsMesures" && selectedClientConsultationId.value) {
       clientConsultation.value = null;
       clientConsultationLoading.value = false;
@@ -8996,10 +9222,14 @@ async function reloadAll() {
     shouldLoadCaisse ? atelierApi.listCaisseJours() : Promise.resolve([])
   ]);
 
-  if (dossiersResult.status === "fulfilled") applyDossiersRows(dossiersResult.value || []);
+  if (dossiersResult.status === "fulfilled") {
+    await cacheReadonlyList(atelierId, READONLY_CACHE_KEYS.DOSSIERS, dossiersResult.value || []);
+    applyDossiersRows(dossiersResult.value || []);
+  }
   else if (shouldLoadDossiers) appendError(dossiersResult.reason);
 
   if (retoucheTypesResult.status === "fulfilled") {
+    await cacheReadonlyList(atelierId, READONLY_CACHE_KEYS.RETOUCHE_TYPES, retoucheTypesResult.value || []);
     retoucheTypeDefinitions.value = (retoucheTypesResult.value || [])
       .map(normalizeRetoucheTypeDefinition)
       .filter(Boolean)
@@ -9011,26 +9241,30 @@ async function reloadAll() {
       });
   } else if (shouldLoadRetoucheTypes) appendError(retoucheTypesResult.reason);
 
-  if (stockResult.status === "fulfilled") stockArticles.value = stockResult.value.map(normalizeStockArticle);
+  if (stockResult.status === "fulfilled") {
+    await cacheReadonlyList(atelierId, READONLY_CACHE_KEYS.STOCK_ARTICLES, stockResult.value || []);
+    stockArticles.value = stockResult.value.map(normalizeStockArticle);
+  }
   else if (shouldLoadStock) appendError(stockResult.reason);
 
-  if (ventesResult.status === "fulfilled") ventes.value = ventesResult.value.map(normalizeVente);
+  if (ventesResult.status === "fulfilled") {
+    await cacheReadonlyList(atelierId, READONLY_CACHE_KEYS.VENTES, ventesResult.value || []);
+    ventes.value = ventesResult.value.map(normalizeVente);
+  }
   else if (shouldLoadVentes) appendError(ventesResult.reason);
 
-  if (facturesResult.status === "fulfilled") factures.value = facturesResult.value.map(normalizeFacture);
+  if (facturesResult.status === "fulfilled") {
+    await cacheReadonlyList(atelierId, READONLY_CACHE_KEYS.FACTURES, facturesResult.value || []);
+    factures.value = facturesResult.value.map(normalizeFacture);
+  }
   else if (shouldLoadFactures) appendError(facturesResult.reason);
 
   if (caisseDaysResult.status === "fulfilled") {
-    const days = caisseDaysResult.value || [];
-    if (days.length > 0) {
-      try {
-        const detail = await atelierApi.getCaisseJour(days[0].idCaisseJour || days[0].id_caisse_jour);
-        caisseJour.value = normalizeCaisse(detail);
-      } catch (err) {
-        appendError(err);
-      }
-    } else {
-      caisseJour.value = null;
+    await cacheReadonlyList(atelierId, READONLY_CACHE_KEYS.CAISSE_JOURS, caisseDaysResult.value || []);
+    try {
+      await loadCaisseForSelectedDate(caisseDaysResult.value || []);
+    } catch (err) {
+      appendError(err);
     }
   } else if (shouldLoadCaisse) {
     appendError(caisseDaysResult.reason);
@@ -9147,9 +9381,28 @@ async function loadDossierDetail(idDossier, { preserveExisting = true } = {}) {
       detailDossierError.value = "";
     }
     try {
-      const payload = await atelierApi.getDossier(requestedId);
+      const localFirst = await loadReadonlyDetailLocalFirst({
+        atelierId: currentAtelierId.value,
+        cacheKey: READONLY_CACHE_KEYS.DOSSIERS,
+        identifier: requestedId,
+        loader: (id) => atelierApi.getDossier(id)
+      });
       if (requestId !== dossierDetailLoadRequestId) return null;
-      detailDossier.value = normalizeDossier(payload);
+      if (localFirst.cached) {
+        detailDossier.value = normalizeDossier(localFirst.cached);
+      }
+      if (localFirst.online && localFirst.refreshPromise) {
+        const refreshed = await localFirst.refreshPromise;
+        if (requestId !== dossierDetailLoadRequestId) return null;
+        if (refreshed?.row) {
+          detailDossier.value = normalizeDossier(refreshed.row);
+        }
+      }
+      if (!detailDossier.value) {
+        detailDossier.value = null;
+        detailDossierError.value = OFFLINE_READ_MESSAGES.NO_LOCAL_DATA;
+        return null;
+      }
       detailDossierError.value = "";
       return detailDossier.value;
     } catch (err) {
@@ -10012,16 +10265,11 @@ async function refreshDashboardContactBoardInBackground() {
   }
 }
 
-async function refreshLatestCaisseDayInBackground() {
+async function refreshCaisseForBusinessDateInBackground(businessDate = selectedBusinessDateIso()) {
   if (!canAccessModule("caisse") || !networkIsOnline.value) return false;
   try {
     const days = await atelierApi.listCaisseJours();
-    if (!Array.isArray(days) || days.length === 0) {
-      caisseJour.value = null;
-      return true;
-    }
-    const detail = await atelierApi.getCaisseJour(days[0].idCaisseJour || days[0].id_caisse_jour);
-    caisseJour.value = normalizeCaisse(detail);
+    await loadCaisseForBusinessDate(businessDate, days);
     return true;
   } catch {
     return false;
@@ -10067,7 +10315,7 @@ async function refreshVisibleRouteInBackground({ force = false } = {}) {
 
     if (routeName === "caisse") {
       await loadAtelierRuntimeSettings();
-      await refreshLatestCaisseDayInBackground();
+      await refreshCaisseForBusinessDateInBackground(selectedBusinessDateIso());
       return true;
     }
 
@@ -10085,7 +10333,7 @@ async function refreshVisibleRouteInBackground({ force = false } = {}) {
           // Keep the existing dashboard sales snapshot when the background refresh fails.
         }
       }
-      await refreshLatestCaisseDayInBackground();
+      await refreshCaisseForBusinessDateInBackground(todayIso());
       await refreshDashboardContactBoardInBackground();
       return true;
     }
@@ -11023,7 +11271,18 @@ function normalizeVente(raw) {
     statut: raw.statut || "BROUILLON",
     referenceCaisse: raw.referenceCaisse || raw.reference_caisse || null,
     motifAnnulation: raw.motifAnnulation || raw.motif_annulation || null,
+    acheteurNom: raw.acheteurNom || raw.acheteur_nom || "",
     lignesVente: raw.lignesVente || raw.lignes_vente || []
+  };
+}
+
+function normalizeFactureClient(client = {}) {
+  const snapshot = client && typeof client === "object" ? client : {};
+  const nom = String(snapshot.nom || "").trim();
+  return {
+    ...snapshot,
+    nom: !nom || nom.toLowerCase() === "client comptoir" ? "Acheteur non renseigne" : nom,
+    contact: String(snapshot.contact || "").trim()
   };
 }
 
@@ -11033,7 +11292,7 @@ function normalizeFacture(raw) {
     numeroFacture: raw.numeroFacture || raw.numero_facture || "",
     typeOrigine: raw.typeOrigine || raw.type_origine || "",
     idOrigine: raw.idOrigine || raw.id_origine || "",
-    client: raw.client || raw.client_snapshot || { nom: "", contact: "" },
+    client: normalizeFactureClient(raw.client || raw.client_snapshot),
     dateEmission: raw.dateEmission || raw.date_emission || "",
     montantTotal: Number(raw.montantTotal ?? raw.montant_total ?? 0),
     montantPaye: Number(raw.montantPaye ?? raw.montant_paye ?? 0),
@@ -11046,6 +11305,7 @@ function normalizeFacture(raw) {
 
 function normalizeCaisse(raw) {
   const sourceTotals = raw?.totauxParSource || raw?.totaux_par_source || {};
+  const activiteTotals = raw?.totauxParActivite || raw?.totaux_par_activite || {};
   return {
     idCaisseJour: raw.idCaisseJour || raw.id_caisse_jour,
     date: raw.date || raw.date_jour,
@@ -11072,6 +11332,17 @@ function normalizeCaisse(raw) {
       totalDepenses: Number(sourceTotals.totalDepenses ?? sourceTotals.total_depenses ?? 0),
       totalGlobal: Number(sourceTotals.totalGlobal ?? sourceTotals.total_global ?? 0)
     },
+    totauxParActivite: {
+      totalAtelier: Number(activiteTotals.totalAtelier ?? activiteTotals.total_atelier ?? 0),
+      totalStock: Number(activiteTotals.totalStock ?? activiteTotals.total_stock ?? 0),
+      depensesAtelier: Number(activiteTotals.depensesAtelier ?? activiteTotals.depenses_atelier ?? 0),
+      depensesStock: Number(activiteTotals.depensesStock ?? activiteTotals.depenses_stock ?? 0),
+      netAtelier: Number(activiteTotals.netAtelier ?? activiteTotals.net_atelier ?? 0),
+      netStock: Number(activiteTotals.netStock ?? activiteTotals.net_stock ?? 0),
+      totalGlobal: Number(activiteTotals.totalGlobal ?? activiteTotals.total_global ?? 0),
+      totalDepenses: Number(activiteTotals.totalDepenses ?? activiteTotals.total_depenses ?? 0),
+      netJour: Number(activiteTotals.netJour ?? activiteTotals.net_jour ?? 0)
+    },
     operations: (raw.operations || []).map((op) => ({
       idOperation: op.idOperation || op.id_operation,
       typeOperation: op.typeOperation || op.type_operation,
@@ -11086,6 +11357,7 @@ function normalizeCaisse(raw) {
       effectuePar: op.effectuePar || op.effectue_par || "",
       referenceMetier: op.referenceMetier || op.reference_metier || "",
       modePaiement: op.modePaiement || op.mode_paiement || "",
+      activite: String(op.activite || "ATELIER").trim().toUpperCase(),
       sourceFlux: op.sourceFlux || op.source_flux || ""
     }))
   };
@@ -11344,6 +11616,12 @@ function getCancellationPayload(entity) {
   return { idCaisseJour };
 }
 
+function getCurrentPaymentCaisseJourId() {
+  const caisse = caisseJour.value;
+  if (!caisse || dateOnly(caisse.date) !== todayIso()) return "";
+  return String(caisse.idCaisseJour || "").trim();
+}
+
 function notifyCancellationError(err) {
   const message = readableError(err);
   if (isCaisseRefundUnavailableMessage(message)) {
@@ -11412,6 +11690,10 @@ function todayLabel() {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function selectedBusinessDateIso() {
+  return selectedBusinessDate.value || todayIso();
 }
 
 function addDays(isoDate, days) {
@@ -12884,6 +13166,7 @@ async function submitRetoucheDirect() {
 }
 
 function resetVenteDraft() {
+  venteDraft.acheteurNom = "";
   venteDraft.lignes.splice(0);
   venteDraft.current.idArticle = "";
   venteDraft.current.quantite = "";
@@ -12985,7 +13268,7 @@ async function onCreerVente() {
   }
   venteSubmitting.value = true;
   try {
-    const created = await atelierApi.createVente(venteDraft.lignes);
+    const created = await atelierApi.createVente(venteDraft.lignes, { acheteurNom: venteDraft.acheteurNom });
     const normalized = normalizeVente(created);
     ventes.value.unshift(normalized);
     resetVenteDraft();
@@ -13074,8 +13357,24 @@ async function loadVenteDetail(idVente) {
   detailVenteLoading.value = true;
   detailVenteError.value = "";
   try {
-    const detail = await atelierApi.getVente(idVente);
-    detailVente.value = normalizeVente(detail);
+    const localFirst = await loadReadonlyDetailLocalFirst({
+      atelierId: currentAtelierId.value,
+      cacheKey: READONLY_CACHE_KEYS.VENTES,
+      identifier: idVente,
+      loader: (id) => atelierApi.getVente(id)
+    });
+    if (localFirst.cached) {
+      detailVente.value = normalizeVente(localFirst.cached);
+    }
+    if (localFirst.online && localFirst.refreshPromise) {
+      const refreshed = await localFirst.refreshPromise;
+      if (refreshed?.row) {
+        detailVente.value = normalizeVente(refreshed.row);
+      }
+    }
+    if (!detailVente.value) {
+      detailVenteError.value = OFFLINE_READ_MESSAGES.NO_LOCAL_DATA;
+    }
   } catch (err) {
     detailVenteError.value = readableError(err);
   } finally {
@@ -13216,7 +13515,7 @@ async function onPaiementCommande(commande) {
   const montant = Number(payload.montant);
 
   try {
-    await atelierApi.enregistrerPaiementViaCaisse({ idCommande: commande.idCommande, montant, utilisateur: "frontend" });
+    await atelierApi.enregistrerPaiementViaCaisse({ idCommande: commande.idCommande, montant, utilisateur: "frontend", idCaisseJour: getCurrentPaymentCaisseJourId() });
     await reloadAll();
     notify(`Paiement enregistre via la caisse pour ${commande.idCommande}`);
   } catch (err) {
@@ -13245,7 +13544,7 @@ async function onPaiementDetail() {
   const montant = Number(payload.montant);
 
   try {
-    await atelierApi.enregistrerPaiementViaCaisse({ idCommande: detailCommande.value.idCommande, montant, utilisateur: "frontend" });
+    await atelierApi.enregistrerPaiementViaCaisse({ idCommande: detailCommande.value.idCommande, montant, utilisateur: "frontend", idCaisseJour: getCurrentPaymentCaisseJourId() });
     await loadCommandeDetail(detailCommande.value.idCommande);
     await reloadAll();
     notify(`Paiement enregistre via la caisse pour ${detailCommande.value.idCommande}`);
@@ -13285,7 +13584,8 @@ async function onPaiementDetailItem(itemCard) {
       idCommande: detailCommande.value.idCommande,
       idItem: itemCard.id,
       montant: Number(payload.montant),
-      utilisateur: "frontend"
+      utilisateur: "frontend",
+      idCaisseJour: getCurrentPaymentCaisseJourId()
     });
     await loadCommandeDetail(detailCommande.value.idCommande, { preserveExisting: true });
     await reloadAll();
@@ -13381,7 +13681,7 @@ async function onPaiementRetouche(retouche) {
   const montant = Number(payload.montant);
 
   try {
-    await atelierApi.enregistrerPaiementRetoucheViaCaisse({ idRetouche: retouche.idRetouche, montant, utilisateur: "frontend" });
+    await atelierApi.enregistrerPaiementRetoucheViaCaisse({ idRetouche: retouche.idRetouche, montant, utilisateur: "frontend", idCaisseJour: getCurrentPaymentCaisseJourId() });
     await reloadAll();
     notify(`Paiement enregistre via la caisse pour ${retouche.idRetouche}`);
   } catch (err) {
@@ -13410,7 +13710,7 @@ async function onPaiementRetoucheDetail() {
   const montant = Number(payload.montant);
 
   try {
-    await atelierApi.enregistrerPaiementRetoucheViaCaisse({ idRetouche: detailRetouche.value.idRetouche, montant, utilisateur: "frontend" });
+    await atelierApi.enregistrerPaiementRetoucheViaCaisse({ idRetouche: detailRetouche.value.idRetouche, montant, utilisateur: "frontend", idCaisseJour: getCurrentPaymentCaisseJourId() });
     await loadRetoucheDetail(detailRetouche.value.idRetouche);
     await reloadAll();
     notify(`Paiement enregistre via la caisse pour ${detailRetouche.value.idRetouche}`);
@@ -13450,7 +13750,8 @@ async function onPaiementRetoucheDetailItem(itemCard) {
       idRetouche: detailRetouche.value.idRetouche,
       idItem: itemCard.id,
       montant: Number(payload.montant),
-      utilisateur: "frontend"
+      utilisateur: "frontend",
+      idCaisseJour: getCurrentPaymentCaisseJourId()
     });
     await loadRetoucheDetail(detailRetouche.value.idRetouche, { preserveExisting: true });
     await reloadAll();
@@ -13553,6 +13854,10 @@ async function onAnnulerRetoucheDetail() {
 async function onDepenseCaisse() {
   if (!canRecordCaisseExpense.value) return;
   if (!caisseJour.value) return;
+  if (!selectedBusinessDateIsToday.value || dateOnly(caisseJour.value.date) !== todayIso()) {
+    notify("Lecture seule: seules les operations de la caisse du jour sont autorisees.");
+    return;
+  }
   if (!caisseOuverte.value) {
     notify("Caisse cloturee. Depense interdite.");
     return;
@@ -13566,6 +13871,17 @@ async function onDepenseCaisse() {
     fields: [
       { key: "motif", label: "Motif", type: "text", required: true, defaultValue: "" },
       { key: "montant", label: "Montant (FC)", type: "number", required: true, min: 1, defaultValue: 5000 },
+      {
+        key: "activite",
+        label: "Activite",
+        type: "select",
+        required: true,
+        defaultValue: "ATELIER",
+        options: [
+          { value: "ATELIER", label: "Atelier" },
+          { value: "STOCK", label: "Stock" }
+        ]
+      },
       {
         key: "typeDepense",
         label: "Type de depense",
@@ -13592,12 +13908,13 @@ async function onDepenseCaisse() {
   try {
     await atelierApi.enregistrerDepenseCaisse({
       idCaisseJour: caisseJour.value.idCaisseJour,
-      montant,
-      motif: String(payload.motif || "").trim(),
-      typeDepense,
-      justification,
-      role: currentRole.value
-    });
+        montant,
+        motif: String(payload.motif || "").trim(),
+        typeDepense,
+        justification,
+        activite: String(payload.activite || "ATELIER").trim().toUpperCase(),
+        role: currentRole.value
+      });
     await reloadAll();
     notify(`Depense ${depenseTypeLabel(typeDepense).toLowerCase()} enregistree.`);
   } catch (err) {
@@ -13613,6 +13930,10 @@ async function onDepenseCaisse() {
 async function onEntreeManuelleCaisse() {
   if (!canRecordCaisseManualEntry.value) return;
   if (!caisseJour.value) return;
+  if (!selectedBusinessDateIsToday.value || dateOnly(caisseJour.value.date) !== todayIso()) {
+    notify("Lecture seule: seules les operations de la caisse du jour sont autorisees.");
+    return;
+  }
   if (!caisseOuverte.value) {
     notify("Caisse cloturee. Entree manuelle interdite.");
     return;
@@ -13625,6 +13946,17 @@ async function onEntreeManuelleCaisse() {
     tone: "blue",
     fields: [
       { key: "montant", label: "Montant (FC)", type: "number", required: true, min: 1, defaultValue: 5000 },
+      {
+        key: "activite",
+        label: "Activite",
+        type: "select",
+        required: true,
+        defaultValue: "ATELIER",
+        options: [
+          { value: "ATELIER", label: "Atelier" },
+          { value: "STOCK", label: "Stock" }
+        ]
+      },
       { key: "justification", label: "Justification", type: "textarea", required: true, defaultValue: "" }
     ]
   });
@@ -13634,7 +13966,8 @@ async function onEntreeManuelleCaisse() {
     await atelierApi.enregistrerEntreeManuelleCaisse({
       idCaisseJour: caisseJour.value.idCaisseJour,
       montant: Number(payload.montant),
-      justification: String(payload.justification || "").trim()
+      justification: String(payload.justification || "").trim(),
+      activite: String(payload.activite || "ATELIER").trim().toUpperCase()
     });
     await reloadAll();
     notify("Entree manuelle enregistree.");
@@ -13651,6 +13984,10 @@ async function onEntreeManuelleCaisse() {
 async function onCloturerCaisse() {
   if (!canCloseCaisse.value) return;
   if (!caisseJour.value) return;
+  if (!selectedBusinessDateIsToday.value || dateOnly(caisseJour.value.date) !== todayIso()) {
+    notify("Lecture seule: seule la caisse du jour peut etre cloturee manuellement.");
+    return;
+  }
   if (!caisseOuverte.value) {
     notify("Caisse deja cloturee.");
     return;
@@ -13675,6 +14012,10 @@ async function onCloturerCaisse() {
 
 async function onOuvrirCaisseDuJour() {
   if (!canOpenCaisse.value) return;
+  if (!selectedBusinessDateIsToday.value) {
+    notify("Lecture seule: une date passee ne peut pas etre ouverte.");
+    return;
+  }
   try {
     const info = await atelierApi.getOuvertureCaisseInfo();
     let soldeOuverture = 0;
@@ -13798,8 +14139,24 @@ async function loadFactureDetail(idFacture) {
   detailFactureLoading.value = true;
   detailFactureError.value = "";
   try {
-    const detail = await atelierApi.getFacture(idFacture);
-    detailFacture.value = normalizeFacture(detail);
+    const localFirst = await loadReadonlyDetailLocalFirst({
+      atelierId: currentAtelierId.value,
+      cacheKey: READONLY_CACHE_KEYS.FACTURES,
+      identifier: idFacture,
+      loader: (id) => atelierApi.getFacture(id)
+    });
+    if (localFirst.cached) {
+      detailFacture.value = normalizeFacture(localFirst.cached);
+    }
+    if (localFirst.online && localFirst.refreshPromise) {
+      const refreshed = await localFirst.refreshPromise;
+      if (refreshed?.row) {
+        detailFacture.value = normalizeFacture(refreshed.row);
+      }
+    }
+    if (!detailFacture.value) {
+      detailFactureError.value = OFFLINE_READ_MESSAGES.NO_LOCAL_DATA;
+    }
   } catch (err) {
     detailFacture.value = null;
     detailFactureError.value = readableError(err);
@@ -14932,7 +15289,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :dashboard-hero-subtitle="dashboardHeroSubtitle"
           :dashboard-hero-tags="dashboardHeroTags"
           :dashboard-hero-highlights="dashboardHeroHighlights"
+          :daily-decision-pills="dailyDecisionPills"
           :dashboard-clients-actifs="dashboardClientsActifs"
+          :selected-date="selectedBusinessDate"
           :dashboard-period="dashboardPeriod"
           :dashboard-period-options="dashboardPeriodOptions"
           :cashier-dashboard-cards="cashierDashboardCards"
@@ -14960,6 +15319,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :dashboard-contact-board="dashboardContactBoard"
           :dashboard-commandes-cards="dashboardCommandesCards"
           :dashboard-retouches-cards="dashboardRetouchesCards"
+          :dashboard-argent-attendu="dashboardArgentAttendu"
           :format-dashboard-client-follow-up-description="formatDashboardClientFollowUpDescription"
           :format-dashboard-pending-commande-description="formatDashboardPendingCommandeDescription"
           :format-dashboard-pending-retouche-description="formatDashboardPendingRetoucheDescription"
@@ -14970,6 +15330,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :format-percent="formatPercent"
           :icon-paths="iconPaths"
           @update:dashboard-period="dashboardPeriod = $event"
+          @update:selected-date="selectedBusinessDate = $event"
         />
 
         <DossiersPage
@@ -15679,7 +16040,18 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               subtitle="Ajoutez des lignes au brouillon avant de creer la vente."
             />
 
-            <div class="stack-form">
+            <div class="stack-form vente-buyer-form">
+              <label for="vente-acheteur-nom">Nom du client sur la facture <span class="helper">(optionnel)</span></label>
+              <input
+                id="vente-acheteur-nom"
+                v-model="venteDraft.acheteurNom"
+                type="text"
+                maxlength="160"
+                autocomplete="off"
+                placeholder="Ex: Maman Sarah"
+              />
+              <p class="helper vente-buyer-form__hint">Ce nom sert seulement pour la facture. Il ne sera pas ajoute a la liste des clients.</p>
+
               <label>Article</label>
               <select v-model="venteDraft.current.idArticle">
                 <option value="">Choisir un article</option>
@@ -15766,6 +16138,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <thead>
                     <tr>
                       <th>ID</th>
+                      <th>Acheteur</th>
                       <th>Date</th>
                       <th>Statut</th>
                       <th>Total</th>
@@ -15776,6 +16149,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <tbody>
                     <tr v-for="vente in ventesPaged" :key="vente.idVente">
                       <td data-label="ID">{{ vente.idVente }}</td>
+                      <td data-label="Acheteur">{{ vente.acheteurNom || "Non renseigne" }}</td>
                       <td data-label="Date">{{ formatDateTime(vente.date) }}</td>
                       <td data-label="Statut">
                         <span class="status-pill" :data-status="vente.statut">{{ vente.statut }}</span>
@@ -15851,8 +16225,19 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           <MobilePrimaryActionBar
             v-else-if="isMobileViewport && stockVentesTab === 'ventes' && canCreateVente && venteDraft.lignes.length > 0"
             title="Action principale"
-            subtitle="Validez le brouillon lorsque la vente est prete."
+            subtitle="Confirmez le nom a afficher sur la facture avant de creer la vente."
           >
+            <label class="mobile-sale-buyer-field" for="vente-acheteur-nom-mobile">
+              <span>Nom sur facture</span>
+              <input
+                id="vente-acheteur-nom-mobile"
+                v-model="venteDraft.acheteurNom"
+                type="text"
+                maxlength="160"
+                autocomplete="off"
+                placeholder="Ex: Maman Sarah"
+              />
+            </label>
             <button class="action-btn blue" @click="onCreerVente" :disabled="venteSubmitting">
               Creer la vente
             </button>
@@ -16878,21 +17263,21 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </thead>
                   <tbody>
                     <tr v-for="user in securityUsersPaged" :key="user.id">
-                      <td><input v-model="user.nom" type="text" /></td>
-                      <td>{{ user.email }}</td>
-                      <td>
+                      <td data-label="Nom"><input v-model="user.nom" type="text" /></td>
+                      <td data-label="Email">{{ user.email }}</td>
+                      <td data-label="Role">
                         <select v-model="user.roleId">
                           <option v-for="role in securityRoleOptions" :key="`user-role-${user.id}-${role.value}`" :value="role.value">
                             {{ role.label }}
                           </option>
                         </select>
                       </td>
-                      <td>
+                      <td data-label="Statut">
                         <span class="status-pill" :data-tone="user.actif ? 'ok' : 'due'">
                           {{ user.actif ? "ACTIF" : "DESACTIVE" }}
                         </span>
                       </td>
-                      <td>
+                      <td class="actions-cell" data-label="Actions">
                         <button class="mini-btn" :disabled="securitySaving" @click="saveSecurityUser(user)">Sauver</button>
                         <button class="mini-btn" :disabled="securitySaving || user.id === authUser?.id" @click="toggleSecurityUserActivation(user)">
                           {{ user.actif ? "Desactiver" : "Activer" }}
@@ -17134,21 +17519,24 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           v-else-if="currentRoute === 'caisse'"
           :is-mobile-viewport="isMobileViewport"
           :caisse-ouverte="caisseOuverte"
-          :can-open-caisse="canOpenCaisse"
-          :can-record-caisse-manual-entry="canRecordCaisseManualEntry"
-          :can-record-caisse-expense="canRecordCaisseExpense"
-          :can-close-caisse="canCloseCaisse"
+          :can-open-caisse="canOpenCaisse && selectedBusinessDateIsToday"
+          :can-record-caisse-manual-entry="canRecordCaisseManualEntry && selectedBusinessDateIsToday"
+          :can-record-caisse-expense="canRecordCaisseExpense && selectedBusinessDateIsToday"
+          :can-close-caisse="canCloseCaisse && selectedBusinessDateIsToday"
           :caisse-jour="caisseJour"
+          :selected-date="selectedBusinessDate"
           :caisse-status="caisseStatus"
           :icon-paths="iconPaths"
           :network-is-online="networkIsOnline"
           :caisse-totals="caisseTotals"
+          :daily-decision-pills="dailyDecisionPills"
           :format-currency="formatCurrency"
           :format-date-time="formatDateTime"
           :format-caisse-ouverte-par="formatCaisseOuvertePar"
           :format-caisse-cloturee-par="formatCaisseClotureePar"
           :caisse-operations="caisseOperations"
           :caisse-operations-paged="caisseOperationsPaged"
+          :caisse-quick-filter="caisseQuickFilter"
           :caisse-source-label="caisseSourceLabel"
           :caisse-source-tone="caisseSourceTone"
           :depense-type-label="depenseTypeLabel"
@@ -17159,9 +17547,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           @entree-manuelle-caisse="onEntreeManuelleCaisse"
           @depense-caisse="onDepenseCaisse"
           @cloturer-caisse="onCloturerCaisse"
+          @update:selected-date="selectedBusinessDate = $event"
+          @update:caisse-quick-filter="caisseQuickFilter = $event; resetCaisseOperationsVisibleCount()"
         />
 
-        <section v-else-if="currentRoute === 'audit'" class="commande-detail">
+        <section v-else-if="currentRoute === 'audit'" class="commande-detail audit-page">
         <article class="panel panel-header detail-header">
           <div>
             <h3>{{ currentAuditRoute.title }}</h3>
@@ -17173,6 +17563,19 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </div>
 
         </article>
+
+        <nav v-if="isMobileViewport" class="audit-mobile-route-nav" aria-label="Navigation audit">
+          <button
+            v-for="route in auditRoutes.filter((item) => canAccessAuditPath(item.path))"
+            :key="`audit-mobile-route-${route.path}`"
+            type="button"
+            class="audit-mobile-route-chip"
+            :class="{ active: auditSubRoute === route.path }"
+            @click="navigateAudit(route.path)"
+          >
+            {{ route.title.replace("Historique & Audit", "Hub").replace("Audit de la ", "").replace("Audit des ", "").replace("Audit ", "") }}
+          </button>
+        </nav>
 
         <article v-if="auditError" class="panel error-panel">
           <strong>Erreur audit</strong>
@@ -17468,30 +17871,64 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
         <template v-else-if="auditSubRoute === '/audit/operations'">
           <article class="panel">
-            <ResponsiveDataContainer>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
                 <MobileSectionHeader
                   title="Journal financier global"
-                  :subtitle="`${auditOperations.length} operation(s) enregistree(s)`"
+                  :subtitle="`${auditOperationsFiltered.length} operation(s) affichee(s)`"
                 />
+                <div class="audit-quick-filters" aria-label="Filtres rapides audit caisse">
+                  <button
+                    v-for="option in caisseAuditQuickFilterOptions"
+                    :key="`audit-mobile-${option.value}`"
+                    type="button"
+                    class="audit-filter-chip"
+                    :class="{ active: auditOperationsQuickFilter === option.value }"
+                    @click="auditOperationsQuickFilter = option.value; auditOperationsPagination.page = 1"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
                 <AuditOperationMobileList
                   :items="auditOperationsPaged"
                   :format-currency="formatCurrency"
                   :format-date-time="formatDateTime"
                   :operation-audit-type="operationAuditType"
                   :depense-type-label="depenseTypeLabel"
+                  :operation-source="auditOperationSource"
+                  :operation-activity="auditOperationActivity"
+                  :signed-amount="auditOperationSignedAmount"
+                  :amount-tone="auditOperationAmountTone"
                 />
               </template>
 
               <template #desktop>
-                <h3>Journal financier global</h3>
+                <div class="panel-header detail-panel-header">
+                  <h3>Journal financier global</h3>
+                  <span class="helper">{{ auditOperationsFiltered.length }} operation(s)</span>
+                </div>
+                <div class="audit-quick-filters" aria-label="Filtres rapides audit caisse">
+                  <button
+                    v-for="option in caisseAuditQuickFilterOptions"
+                    :key="`audit-desktop-${option.value}`"
+                    type="button"
+                    class="audit-filter-chip"
+                    :class="{ active: auditOperationsQuickFilter === option.value }"
+                    @click="auditOperationsQuickFilter = option.value; auditOperationsPagination.page = 1"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
                 <table class="data-table">
                   <thead>
-                    <tr>
-                      <th>Date & heure</th>
-                      <th>Type d'operation</th>
-                      <th>Montant</th>
-                      <th>Type depense</th>
+                  <tr>
+                    <th>Date & heure</th>
+                    <th>Journal</th>
+                    <th>Type d'operation</th>
+                    <th>Montant</th>
+                    <th>Source</th>
+                    <th>Activite</th>
+                    <th>Type depense</th>
                       <th>Mode de paiement</th>
                       <th>Justification</th>
                       <th>Impact journalier</th>
@@ -17504,8 +17941,22 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <tbody>
                     <tr v-for="op in auditOperationsPaged" :key="op.id_operation">
                       <td>{{ formatDateTime(op.date_operation) }}</td>
+                      <td>
+                        <div class="audit-journal-line">
+                          <span class="audit-journal-code">{{ auditOperationQuickLabel(op) }}</span>
+                          <strong :data-tone="auditOperationAmountTone(op)">{{ auditOperationSignedAmount(op) }}</strong>
+                        </div>
+                      </td>
                       <td>{{ operationAuditType(op) }}</td>
-                      <td>{{ formatCurrency(op.montant) }}</td>
+                      <td>
+                        <strong class="audit-signed-amount" :data-tone="auditOperationAmountTone(op)">
+                          {{ auditOperationSignedAmount(op) }}
+                        </strong>
+                      </td>
+                      <td>{{ auditOperationSource(op) }}</td>
+                      <td>
+                        <span class="status-pill" data-tone="info">{{ auditOperationActivity(op) }}</span>
+                      </td>
                       <td>
                         <span v-if="op.type_operation === 'SORTIE'" class="status-pill" :data-tone="op.type_depense === 'EXCEPTIONNELLE' ? 'amber' : 'blue'">
                           {{ depenseTypeLabel(op.type_depense) }}
@@ -17520,8 +17971,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <td>{{ op.reference_metier || "-" }}</td>
                       <td>{{ op.id_caisse_jour || "-" }}</td>
                     </tr>
-                    <tr v-if="auditOperations.length === 0">
-                      <td colspan="11">Aucune operation.</td>
+                    <tr v-if="auditOperationsFiltered.length === 0">
+                      <td colspan="14">Aucune operation.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -17543,7 +17994,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
         <template v-else-if="auditSubRoute === '/audit/commandes'">
           <article class="panel">
-            <ResponsiveDataContainer>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
                 <MobileSectionHeader
                   title="Historique commandes"
@@ -17607,7 +18058,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
         <template v-else-if="auditSubRoute === '/audit/retouches'">
           <article class="panel">
-            <ResponsiveDataContainer>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
                 <MobileSectionHeader
                   title="Historique retouches"
@@ -17673,7 +18124,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
         <template v-else-if="auditSubRoute === '/audit/stock-ventes'">
           <article class="panel">
-            <ResponsiveDataContainer>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
                 <MobileSectionHeader
                   title="Ventes & sorties stock"
@@ -17751,7 +18202,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
         <template v-else-if="auditSubRoute === '/audit/factures'">
           <article class="panel">
-            <ResponsiveDataContainer>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
                 <MobileSectionHeader
                   title="Historique factures"
@@ -17815,7 +18266,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
         <template v-else-if="auditSubRoute === '/audit/utilisateurs'">
           <article class="panel">
-            <ResponsiveDataContainer>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
                 <MobileSectionHeader
                   title="Audit Utilisateurs"
@@ -17962,7 +18413,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
         <template v-else-if="auditSubRoute === '/audit/annuel'">
           <article class="panel">
-            <ResponsiveDataContainer>
+            <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
                 <MobileSectionHeader
                   title="Consolidation annuelle"
@@ -19683,6 +20134,176 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
   </div>
 </template>
 
+<style scoped>
+.vente-buyer-form {
+  padding: 12px;
+  border: 1px solid #d9e4ef;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.vente-buyer-form__hint {
+  margin: -4px 0 4px;
+}
+
+.mobile-sale-buyer-field {
+  display: grid;
+  gap: 6px;
+  color: #16324d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mobile-sale-buyer-field input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #d6e2ef;
+  border-radius: 10px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #16324d;
+  font: inherit;
+  font-weight: 700;
+}
+
+.audit-page {
+  min-width: 0;
+}
+
+.audit-mobile-route-nav {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 6px;
+  scrollbar-width: none;
+}
+
+.audit-mobile-route-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.audit-mobile-route-chip {
+  flex: 0 0 auto;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #fff;
+  color: #334155;
+  border-radius: 999px;
+  min-height: 36px;
+  max-width: 190px;
+  padding: 0 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.audit-mobile-route-chip.active {
+  border-color: rgba(37, 99, 235, 0.45);
+  background: #eef5ff;
+  color: #255a97;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.1);
+}
+
+@media (max-width: 767px) {
+  .audit-hub-card {
+    gap: 12px;
+  }
+
+  .audit-hub-card .action-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .audit-metrics {
+    gap: 8px;
+  }
+
+  .audit-metrics p {
+    display: grid;
+    grid-template-columns: minmax(110px, 42%) minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+    padding: 9px 10px;
+    border: 1px solid #e4ebf3;
+    border-radius: 12px;
+    background: #fbfdff;
+    min-width: 0;
+  }
+
+  .audit-metrics strong {
+    color: #6d86a0;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+}
+
+.audit-quick-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0 14px;
+}
+
+.audit-filter-chip {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #fff;
+  color: #334155;
+  border-radius: 999px;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.audit-filter-chip:hover,
+.audit-filter-chip.active {
+  border-color: rgba(37, 99, 235, 0.45);
+  background: #eef5ff;
+  color: #255a97;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.1);
+}
+
+.audit-journal-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.audit-journal-code {
+  color: #24364d;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.audit-journal-line strong,
+.audit-signed-amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.audit-journal-line strong[data-tone="in"],
+.audit-signed-amount[data-tone="in"] {
+  color: #17643d;
+}
+
+.audit-journal-line strong[data-tone="out"],
+.audit-signed-amount[data-tone="out"] {
+  color: #b74235;
+}
+</style>
 
 
 

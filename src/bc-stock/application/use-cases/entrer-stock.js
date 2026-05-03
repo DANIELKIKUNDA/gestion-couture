@@ -1,6 +1,12 @@
 import { generateMouvementId, generateOperationId } from "../../../shared/domain/id-generator.js";
+import { assertCaisseDateDuJour } from "../../../bc-caisse/application/services/caisse-date-guard.js";
+import {
+  findAndAssertIdempotentOperation,
+  normalizeIdempotencyKey,
+  saveCaisseIdempotently
+} from "../../../bc-caisse/application/services/idempotency.js";
 
-export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, idCaisseJour, fournisseurRepo }) {
+export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, idCaisseJour, fournisseurRepo, enforceDateDuJour = false, now, timeZone }) {
   const article = await articleRepo.getById(idArticle);
   if (!article) throw new Error("Article introuvable");
 
@@ -29,6 +35,7 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
   };
 
   let caisse = null;
+  const idempotencyKey = normalizeIdempotencyKey(input?.idempotencyKey);
   if (isAchat) {
     const prixAchatUnitaire = Number(mouvementInput.prixAchatUnitaire);
     if (!Number.isFinite(prixAchatUnitaire) || prixAchatUnitaire < 0) {
@@ -56,6 +63,16 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
     }
 
     if (!caisse) throw new Error("Caisse du jour introuvable");
+    if (enforceDateDuJour) assertCaisseDateDuJour(caisse, { now, timeZone });
+    if (
+      findAndAssertIdempotentOperation(caisse, idempotencyKey, {
+        typeOperation: "SORTIE",
+        montant: Number(mouvementInput.quantite || 0) * prixAchatUnitaire,
+        motif: "ACHAT_STOCK",
+        referenceMetier: mouvementInput.idMouvement || null,
+        activite: "STOCK"
+      })
+    ) return article;
     try {
       caisse.assertOuverte();
     } catch (err) {
@@ -73,7 +90,9 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
       // Achat stock is operational spend that should not be blocked by daily result.
       typeDepense: "EXCEPTIONNELLE",
       justification: "Achat stock",
-      role: "ADMIN"
+      activite: "STOCK",
+      role: "ADMIN",
+      idempotencyKey
     });
   }
 
@@ -81,7 +100,7 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
   await articleRepo.save(article);
 
   if (isAchat) {
-    await caisseRepo.save(caisse);
+    await saveCaisseIdempotently(caisseRepo, caisse, idempotencyKey);
   }
 
   return article;

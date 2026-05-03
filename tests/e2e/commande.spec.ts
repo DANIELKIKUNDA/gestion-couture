@@ -88,7 +88,13 @@ test("upload une photo et la conserve apres refresh UI", async ({ page }) => {
   await page.getByRole("button", { name: /^Fermer$/i }).click();
   await page.getByRole("button", { name: /^Actualiser$/i }).click();
   await page.getByRole("button", { name: /^Voir photos$/i }).first().click();
-  await expect(mediaPanel.locator(".commande-media-card img")).toHaveCount(1);
+  const restoredImage = mediaPanel.locator(".commande-media-card img").first();
+  await expect(restoredImage).toBeVisible();
+  await expect
+    .poll(async () => restoredImage.evaluate((img) => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0))
+    .toBe(true);
+  await page.locator(".detail-photo-dialog").getByRole("button", { name: /^Fermer$/i }).click();
+  await expect(page.locator(".detail-photo-dialog")).toBeHidden();
 });
 
 test("modifie un item avant paiement puis bloque la modification apres paiement cible", async ({ page }) => {

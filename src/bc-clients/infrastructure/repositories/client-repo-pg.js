@@ -24,13 +24,14 @@ export class ClientRepoPg {
       adresse: row.adresse,
       sexe: row.sexe,
       actif: row.actif,
-      dateCreation: row.date_creation
+      dateCreation: row.date_creation,
+      idempotencyKey: row.idempotency_key
     });
   }
 
   async listAll() {
     const res = await this.db.query(
-      `SELECT id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation
+      `SELECT id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation, idempotency_key
        FROM clients
        WHERE atelier_id = $1
        ORDER BY date_creation DESC`,
@@ -45,13 +46,14 @@ export class ClientRepoPg {
       adresse: row.adresse,
       sexe: row.sexe,
       actif: row.actif,
-      dateCreation: row.date_creation
+      dateCreation: row.date_creation,
+      idempotencyKey: row.idempotency_key
     }));
   }
 
   async getById(idClient) {
     const res = await this.db.query(
-      `SELECT id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation
+      `SELECT id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation, idempotency_key
        FROM clients
        WHERE id_client = $1 AND atelier_id = $2`,
       [idClient, this.atelierId]
@@ -65,7 +67,7 @@ export class ClientRepoPg {
     if (!normalizedTelephone) return null;
 
     const res = await this.db.query(
-      `SELECT id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation
+      `SELECT id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation, idempotency_key
        FROM clients
        WHERE atelier_id = $1
          AND regexp_replace(COALESCE(telephone, ''), '[^0-9]', '', 'g') = $2
@@ -83,7 +85,7 @@ export class ClientRepoPg {
     if (!normalizedNom || !normalizedPrenom) return [];
 
     const res = await this.db.query(
-      `SELECT id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation
+      `SELECT id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation, idempotency_key
        FROM clients
        WHERE atelier_id = $1
          AND LOWER(TRIM(nom)) = LOWER(TRIM($2))
@@ -95,12 +97,26 @@ export class ClientRepoPg {
     return res.rows.map((row) => this.mapRow(row));
   }
 
+  async findByIdempotencyKey(idempotencyKey) {
+    const normalizedKey = String(idempotencyKey || "").trim();
+    if (!normalizedKey) return null;
+    const res = await this.db.query(
+      `SELECT id_client, nom, prenom, telephone, adresse, sexe, actif, date_creation, idempotency_key
+       FROM clients
+       WHERE atelier_id = $1 AND idempotency_key = $2
+       LIMIT 1`,
+      [this.atelierId, normalizedKey]
+    );
+    if (res.rowCount === 0) return null;
+    return this.mapRow(res.rows[0]);
+  }
+
   async save(client) {
     await this.db.query(
-      `INSERT INTO clients (id_client, atelier_id, nom, prenom, telephone, adresse, sexe, actif, date_creation)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO clients (id_client, atelier_id, nom, prenom, telephone, adresse, sexe, actif, date_creation, idempotency_key)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (id_client)
-       DO UPDATE SET atelier_id=$2, nom=$3, prenom=$4, telephone=$5, adresse=$6, sexe=$7, actif=$8`,
+       DO UPDATE SET atelier_id=$2, nom=$3, prenom=$4, telephone=$5, adresse=$6, sexe=$7, actif=$8, idempotency_key=COALESCE(clients.idempotency_key, $10)`,
       [
         client.idClient,
         this.atelierId,
@@ -110,7 +126,8 @@ export class ClientRepoPg {
         client.adresse,
         client.sexe,
         client.actif,
-        client.dateCreation
+        client.dateCreation,
+        client.idempotencyKey || null
       ]
     );
   }

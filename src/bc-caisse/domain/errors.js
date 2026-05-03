@@ -19,3 +19,4 @@ export class TypeDepenseInvalide extends DomainError {}
 export class JustificationObligatoire extends DomainError {}
 export class PermissionInsuffisante extends DomainError {}
 export class SoldeJournalierInsuffisant extends DomainError {}
+export class ActiviteCaisseInvalide extends DomainError {}

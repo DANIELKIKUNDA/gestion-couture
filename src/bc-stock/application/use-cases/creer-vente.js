@@ -29,6 +29,7 @@ export async function creerVente({ input, articleRepo, venteRepo }) {
   const vente = new Vente({
     idVente: generateVenteId(),
     date: input?.date || new Date().toISOString(),
+    acheteurNom: input?.acheteurNom || input?.acheteur_nom || "",
     lignesVente,
     statut: StatutVente.BROUILLON,
     referenceCaisse: null

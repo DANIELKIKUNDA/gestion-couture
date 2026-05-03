@@ -19,6 +19,13 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function createOfflineIdempotencyKey() {
+  if (typeof globalThis !== "undefined" && globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `idem-offline-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 function normalizeString(value) {
   return typeof value === "string" ? value.trim() : String(value || "").trim();
 }
@@ -93,11 +100,12 @@ async function resolveClientDependencyQueueIds(atelierId, clientRecord, explicit
   return entry?.queueId ? [entry.queueId] : [];
 }
 
-function buildPendingEntityBase(localId, timestamp) {
+function buildPendingEntityBase(localId, timestamp, idempotencyKey = createOfflineIdempotencyKey()) {
   return {
     localId,
     serverId: "",
     syncStatus: ENTITY_SYNC_STATUSES.PENDING,
+    idempotencyKey: normalizeString(idempotencyKey) || createOfflineIdempotencyKey(),
     updatedAt: timestamp,
     lastSyncedAt: null
   };
@@ -128,7 +136,8 @@ function buildCreateClientPayload(clientRecord) {
     idClient: normalizeString(clientRecord?.idClient),
     nom: normalizeString(clientRecord?.nom),
     prenom: normalizeString(clientRecord?.prenom),
-    telephone: normalizeString(clientRecord?.telephone)
+    telephone: normalizeString(clientRecord?.telephone),
+    idempotencyKey: normalizeString(clientRecord?.idempotencyKey)
   };
 }
 
@@ -269,7 +278,8 @@ function buildCreateCommandePayload(commandeRecord) {
     montantTotal: Number(commandeRecord?.montantTotal || 0),
     typeHabit: normalizeString(commandeRecord?.typeHabit),
     mesuresHabit: cloneSerializable(commandeRecord?.mesuresHabit || {}),
-    items: cloneSerializable(commandeRecord?.items || [])
+    items: cloneSerializable(commandeRecord?.items || []),
+    idempotencyKey: normalizeString(commandeRecord?.idempotencyKey)
   };
   const payerServerId = normalizeString(commandeRecord?.clientPayeurServerId || commandeRecord?.clientServerId);
   const payerLocalId = normalizeString(commandeRecord?.clientPayeurLocalId || commandeRecord?.clientLocalId);
@@ -297,7 +307,8 @@ function buildCreateRetouchePayload(retoucheRecord) {
     montantTotal: Number(retoucheRecord?.montantTotal || 0),
     typeHabit: normalizeString(retoucheRecord?.typeHabit),
     mesuresHabit: cloneSerializable(retoucheRecord?.mesuresHabit || {}),
-    items: cloneSerializable(retoucheRecord?.items || [])
+    items: cloneSerializable(retoucheRecord?.items || []),
+    idempotencyKey: normalizeString(retoucheRecord?.idempotencyKey)
   };
   if (retoucheRecord?.nouveauClient && typeof retoucheRecord.nouveauClient === "object") {
     requestPayload.nouveauClient = cloneSerializable(retoucheRecord.nouveauClient);

@@ -42,10 +42,15 @@ function normalizeLignes(lignesVente = []) {
   });
 }
 
+function normalizeAcheteurNom(value = "") {
+  return String(value || "").trim().slice(0, 160);
+}
+
 export class Vente {
   constructor({
     idVente,
     date,
+    acheteurNom = "",
     lignesVente,
     total = null,
     totalPrixAchat = null,
@@ -57,6 +62,7 @@ export class Vente {
     assertNonEmpty(idVente, "idVente");
     this.idVente = idVente;
     this.date = date || new Date().toISOString();
+    this.acheteurNom = normalizeAcheteurNom(acheteurNom);
     this.statut = statut;
     this.referenceCaisse = referenceCaisse || null;
     this.motifAnnulation = motifAnnulation || null;
@@ -95,6 +101,11 @@ export class Vente {
     this.total = calculerTotal(this.lignesVente);
     this.totalPrixAchat = calculerTotalPrixAchat(this.lignesVente);
     this.beneficeTotal = this.total - this.totalPrixAchat;
+  }
+
+  setAcheteurNom(acheteurNom = "") {
+    this.assertBrouillon();
+    this.acheteurNom = normalizeAcheteurNom(acheteurNom);
   }
 
   appliquerPrixAchatParArticle(mapPrixAchat = new Map()) {

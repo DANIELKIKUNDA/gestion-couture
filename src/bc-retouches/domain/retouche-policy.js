@@ -208,7 +208,7 @@ export function getTypeRetoucheDefinitionSafe(
       actif: true,
       ordreAffichage: 1,
       necessiteMesures: measures.length > 0,
-      mesures,
+      mesures: measures,
       descriptionObligatoire: false,
       habitsCompatibles: normalizedHabit ? [normalizedHabit] : ["*"]
     };

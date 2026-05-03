@@ -1,11 +1,13 @@
 import { pool } from "../../../shared/infrastructure/db.js";
 import { hasCommandeLignesTable } from "../../../bc-commandes/infrastructure/repositories/commande-ligne-schema.js";
 
+const ACHETEUR_NON_RENSEIGNE = "Acheteur non renseigne";
+
 function clientSnapshot(row) {
   const nom = String(row.client_nom || "").trim();
   const contact = String(row.client_contact || "").trim();
   return {
-    nom: nom || "Client comptoir",
+    nom: nom || ACHETEUR_NON_RENSEIGNE,
     contact
   };
 }
@@ -17,6 +19,10 @@ export class OrigineFactureReaderPg {
 
   forAtelier(atelierId) {
     return new OrigineFactureReaderPg(atelierId);
+  }
+
+  async ensureVenteAcheteurColumns() {
+    await pool.query("ALTER TABLE ventes ADD COLUMN IF NOT EXISTS acheteur_nom TEXT");
   }
 
   async readCommande(idCommande) {
@@ -107,8 +113,9 @@ export class OrigineFactureReaderPg {
   }
 
   async readVente(idVente) {
+    await this.ensureVenteAcheteurColumns();
     const venteRes = await pool.query(
-      `SELECT id_vente, total, reference_caisse
+      `SELECT id_vente, acheteur_nom, total, reference_caisse
        FROM ventes
        WHERE id_vente = $1 AND atelier_id = $2`,
       [idVente, this.atelierId]
@@ -127,7 +134,7 @@ export class OrigineFactureReaderPg {
       typeOrigine: "VENTE",
       idOrigine: vente.id_vente,
       client: {
-        nom: "Client comptoir",
+        nom: String(vente.acheteur_nom || "").trim() || ACHETEUR_NON_RENSEIGNE,
         contact: ""
       },
       montantTotal: Number(vente.total),

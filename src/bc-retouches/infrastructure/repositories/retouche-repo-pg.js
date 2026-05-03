@@ -95,7 +95,7 @@ export class RetoucheRepoPg {
 
   async getById(idRetouche) {
     const res = await this.db.query(
-      "SELECT id_retouche, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM retouches WHERE id_retouche = $1 AND atelier_id = $2",
+      "SELECT id_retouche, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot, idempotency_key FROM retouches WHERE id_retouche = $1 AND atelier_id = $2",
       [idRetouche, this.atelierId]
     );
     if (res.rowCount === 0) return null;
@@ -116,18 +116,30 @@ export class RetoucheRepoPg {
       statutRetouche: row.statut,
       typeHabit: row.type_habit,
       mesuresHabit: row.mesures_habit_snapshot,
+      idempotencyKey: row.idempotency_key,
       items,
       rehydrate: true
     });
   }
 
+  async findByIdempotencyKey(idempotencyKey) {
+    const normalizedKey = String(idempotencyKey || "").trim();
+    if (!normalizedKey) return null;
+    const res = await this.db.query(
+      "SELECT id_retouche FROM retouches WHERE atelier_id = $1 AND idempotency_key = $2 LIMIT 1",
+      [this.atelierId, normalizedKey]
+    );
+    if (res.rowCount === 0) return null;
+    return this.getById(res.rows[0].id_retouche);
+  }
+
   async save(retouche) {
     await this.db.query(
-      `INSERT INTO retouches (id_retouche, atelier_id, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      `INSERT INTO retouches (id_retouche, atelier_id, id_client, id_dossier, description, type_retouche, date_depot, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot, idempotency_key)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (id_retouche)
        DO UPDATE SET atelier_id=$2, id_client=$3, id_dossier=$4, description=$5, type_retouche=$6, date_depot=$7, date_prevue=$8,
-         priorite=$9, montant_total=$10, montant_paye=$11, statut=$12, type_habit=$13, mesures_habit_snapshot=$14`,
+         priorite=$9, montant_total=$10, montant_paye=$11, statut=$12, type_habit=$13, mesures_habit_snapshot=$14, idempotency_key=COALESCE(retouches.idempotency_key, $15)`,
       [
         retouche.idRetouche,
         this.atelierId,
@@ -142,7 +154,8 @@ export class RetoucheRepoPg {
         retouche.montantPaye,
         retouche.statutRetouche,
         retouche.typeHabit,
-        JSON.stringify(retouche.mesuresHabit)
+        JSON.stringify(retouche.mesuresHabit),
+        retouche.idempotencyKey || null
       ]
     );
   }

@@ -3,6 +3,7 @@ import {
   ENTITY_SYNC_STATUSES,
   clientsStore,
   commandesStore,
+  metaStore,
   retouchesStore
 } from "./local-db.js";
 import { isOnline } from "./network-service.js";
@@ -15,16 +16,42 @@ const PROTECTED_LOCAL_STATUSES = new Set([
 export const OFFLINE_READ_MESSAGES = Object.freeze({
   NO_LOCAL_DATA: "Aucune donnee disponible hors ligne.",
   CLIENT_CONSULTATION: "Aucun detail client disponible hors ligne.",
-  RETOUCHE_TYPES: "",
-  STOCK: "",
-  VENTES: "",
-  FACTURES: "",
+  RETOUCHE_TYPES: "Types de retouche indisponibles hors ligne.",
+  STOCK: "Stock affiche depuis la derniere synchronisation.",
+  VENTES: "Ventes affichees depuis la derniere synchronisation.",
+  FACTURES: "Factures affichees depuis la derniere synchronisation.",
   CAISSE: "Aucune caisse disponible hors ligne.",
+  DOSSIERS: "Dossiers affiches depuis la derniere synchronisation.",
   COMMANDE_DETAIL: "Aucune commande disponible hors ligne.",
   COMMANDE_SUPPLEMENTAL: "Certaines informations sont limitees hors ligne.",
   COMMANDE_MEDIA: "",
   RETOUCHE_DETAIL: "Aucune retouche disponible hors ligne.",
   RETOUCHE_SUPPLEMENTAL: "Certaines informations sont limitees hors ligne."
+});
+
+export const READONLY_CACHE_KEYS = Object.freeze({
+  DOSSIERS: "dossiers",
+  RETOUCHE_TYPES: "retoucheTypes",
+  STOCK_ARTICLES: "stockArticles",
+  VENTES: "ventes",
+  FACTURES: "factures",
+  CAISSE_JOURS: "caisseJours"
+});
+
+const READONLY_DETAIL_KEYS = Object.freeze({
+  DOSSIERS: "dossiers",
+  FACTURES: "factures",
+  CAISSE_JOURS: "caisseJours",
+  VENTES: "ventes"
+});
+
+const READONLY_LIST_LOADERS = Object.freeze({
+  [READONLY_CACHE_KEYS.DOSSIERS]: () => atelierApi.listDossiers(),
+  [READONLY_CACHE_KEYS.RETOUCHE_TYPES]: () => atelierApi.listRetoucheTypes(),
+  [READONLY_CACHE_KEYS.STOCK_ARTICLES]: () => atelierApi.listStockArticles(),
+  [READONLY_CACHE_KEYS.VENTES]: () => atelierApi.listVentes(),
+  [READONLY_CACHE_KEYS.FACTURES]: () => atelierApi.listFactures(),
+  [READONLY_CACHE_KEYS.CAISSE_JOURS]: () => atelierApi.listCaisseJours()
 });
 
 const ENTITY_DESCRIPTORS = Object.freeze({
@@ -107,6 +134,70 @@ function isProtectedLocalRow(row) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function readonlyListMetaKey(cacheKey) {
+  return `readonly:list:${normalizeString(cacheKey)}`;
+}
+
+function readonlyDetailMetaKey(cacheKey, identifier) {
+  return `readonly:detail:${normalizeString(cacheKey)}:${encodeURIComponent(normalizeString(identifier))}`;
+}
+
+function ensureReadonlyListKey(cacheKey) {
+  const normalized = normalizeString(cacheKey);
+  if (!READONLY_LIST_LOADERS[normalized]) {
+    throw new Error(`Cache lecture inconnu: ${cacheKey}`);
+  }
+  return normalized;
+}
+
+function ensureReadonlyDetailKey(cacheKey) {
+  const normalized = normalizeString(cacheKey);
+  if (!Object.values(READONLY_DETAIL_KEYS).includes(normalized)) {
+    throw new Error(`Cache detail lecture inconnu: ${cacheKey}`);
+  }
+  return normalized;
+}
+
+async function getReadonlyListCache(atelierId, cacheKey) {
+  const scopedAtelierId = ensureAtelierId(atelierId);
+  const normalizedKey = ensureReadonlyListKey(cacheKey);
+  const record = await metaStore.getByAtelierAndKey(scopedAtelierId, readonlyListMetaKey(normalizedKey));
+  return Array.isArray(record?.value) ? record.value : [];
+}
+
+async function getReadonlyDetailCache(atelierId, cacheKey, identifier) {
+  const scopedAtelierId = ensureAtelierId(atelierId);
+  const normalizedKey = ensureReadonlyDetailKey(cacheKey);
+  const normalizedIdentifier = normalizeString(identifier);
+  if (!normalizedIdentifier) return null;
+  const record = await metaStore.getByAtelierAndKey(
+    scopedAtelierId,
+    readonlyDetailMetaKey(normalizedKey, normalizedIdentifier)
+  );
+  return record?.value && typeof record.value === "object" ? record.value : null;
+}
+
+export async function cacheReadonlyList(atelierId, cacheKey, rows = []) {
+  const scopedAtelierId = ensureAtelierId(atelierId);
+  const normalizedKey = ensureReadonlyListKey(cacheKey);
+  const value = Array.isArray(rows) ? rows : [];
+  await metaStore.putByAtelier(scopedAtelierId, readonlyListMetaKey(normalizedKey), value, {
+    updatedAt: nowIso()
+  });
+  return value;
+}
+
+export async function cacheReadonlyDetail(atelierId, cacheKey, identifier, row) {
+  const scopedAtelierId = ensureAtelierId(atelierId);
+  const normalizedKey = ensureReadonlyDetailKey(cacheKey);
+  const normalizedIdentifier = normalizeString(identifier);
+  if (!normalizedIdentifier || !row || typeof row !== "object") return null;
+  await metaStore.putByAtelier(scopedAtelierId, readonlyDetailMetaKey(normalizedKey, normalizedIdentifier), row, {
+    updatedAt: nowIso()
+  });
+  return row;
 }
 
 async function getCachedRowsByEntity(atelierId, entityKey) {
@@ -216,6 +307,35 @@ async function refreshMainListsFromServer({
   return refreshed;
 }
 
+async function refreshReadonlyListsFromServer({ atelierId, keys = [] } = {}) {
+  const scopedAtelierId = ensureAtelierId(atelierId);
+  const normalizedKeys = Array.from(new Set((keys || []).map(ensureReadonlyListKey)));
+  const settled = await Promise.allSettled(normalizedKeys.map((key) => READONLY_LIST_LOADERS[key]()));
+  const refreshed = { values: {}, errors: {} };
+
+  for (let index = 0; index < normalizedKeys.length; index += 1) {
+    const key = normalizedKeys[index];
+    const result = settled[index];
+    if (result.status === "fulfilled") {
+      refreshed.values[key] = await cacheReadonlyList(scopedAtelierId, key, result.value || []);
+    } else {
+      refreshed.errors[key] = result.reason;
+    }
+  }
+
+  return refreshed;
+}
+
+async function refreshReadonlyDetailFromServer({ atelierId, cacheKey, identifier, loader } = {}) {
+  const scopedAtelierId = ensureAtelierId(atelierId);
+  const normalizedKey = ensureReadonlyDetailKey(cacheKey);
+  const normalizedIdentifier = normalizeString(identifier);
+  if (!normalizedIdentifier) return { row: null, skipped: true };
+  const payload = await loader(normalizedIdentifier);
+  await cacheReadonlyDetail(scopedAtelierId, normalizedKey, normalizedIdentifier, payload);
+  return { row: payload, skipped: false };
+}
+
 function resolveServerIdentifier(identifier, cachedRow, entityKey) {
   const normalizedIdentifier = normalizeString(identifier);
   if (normalizeString(cachedRow?.serverId)) return normalizeString(cachedRow.serverId);
@@ -278,6 +398,52 @@ export async function loadMainListsLocalFirst({
           loadRetouches
         })
       : Promise.resolve(null)
+  };
+}
+
+export async function loadReadonlyListsLocalFirst({ atelierId, keys = [] } = {}) {
+  const scopedAtelierId = ensureAtelierId(atelierId);
+  const normalizedKeys = Array.from(new Set((keys || []).map(ensureReadonlyListKey)));
+  const cachedEntries = await Promise.all(
+    normalizedKeys.map(async (key) => [key, await getReadonlyListCache(scopedAtelierId, key)])
+  );
+  const cached = Object.fromEntries(cachedEntries);
+  const hasCachedData = Object.values(cached).some((rows) => Array.isArray(rows) && rows.length > 0);
+  const online = isOnline();
+
+  return {
+    online,
+    cached,
+    hasCachedData,
+    refreshPromise: online
+      ? refreshReadonlyListsFromServer({
+          atelierId: scopedAtelierId,
+          keys: normalizedKeys
+        })
+      : Promise.resolve(null)
+  };
+}
+
+export async function loadReadonlyDetailLocalFirst({ atelierId, cacheKey, identifier, loader } = {}) {
+  const scopedAtelierId = ensureAtelierId(atelierId);
+  const normalizedKey = ensureReadonlyDetailKey(cacheKey);
+  const normalizedIdentifier = normalizeString(identifier);
+  const cached = await getReadonlyDetailCache(scopedAtelierId, normalizedKey, normalizedIdentifier);
+  const online = isOnline();
+
+  return {
+    online,
+    cached,
+    hasCachedData: Boolean(cached),
+    refreshPromise:
+      online && typeof loader === "function"
+        ? refreshReadonlyDetailFromServer({
+            atelierId: scopedAtelierId,
+            cacheKey: normalizedKey,
+            identifier: normalizedIdentifier,
+            loader
+          })
+        : Promise.resolve(null)
   };
 }
 

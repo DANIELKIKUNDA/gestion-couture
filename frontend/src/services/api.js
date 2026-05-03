@@ -298,16 +298,40 @@ function tryParseJson(text) {
   }
 }
 
+function todayIsoKinshasa() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Kinshasa",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
+function dateOnly(value = "") {
+  return String(value || "").slice(0, 10);
+}
+
+function createIdempotencyKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `idem-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 async function resolveCaisseJourId(preferredId = "") {
   if (preferredId) return preferredId;
   if (CAISSE_JOUR_ID) return CAISSE_JOUR_ID;
 
   const jours = await request("/caisse", { method: "GET" });
-  const latest = jours?.[0]?.idCaisseJour || jours?.[0]?.id_caisse_jour;
-  if (!latest) {
-    throw new ApiError("Aucune caisse disponible pour enregistrer un paiement.", 400, null);
+  const today = todayIsoKinshasa();
+  const currentDay = Array.isArray(jours)
+    ? jours.find((day) => dateOnly(day?.date || day?.date_jour) === today)
+    : null;
+  const currentId = currentDay?.idCaisseJour || currentDay?.id_caisse_jour;
+  if (!currentId) {
+    throw new ApiError("Aucune caisse du jour disponible pour enregistrer un paiement.", 400, null);
   }
-  return latest;
+  return currentId;
 }
 
 export const atelierApi = {
@@ -841,7 +865,8 @@ export const atelierApi = {
       fournisseurId = null,
       fournisseur = null,
       referenceAchat = null,
-      prixAchatUnitaire = null
+      prixAchatUnitaire = null,
+      idempotencyKey = createIdempotencyKey()
     } = {}
   ) {
     const payload = { quantite, motif };
@@ -852,6 +877,7 @@ export const atelierApi = {
     assignIfPresent(payload, "fournisseurId", fournisseurId);
     assignIfPresent(payload, "referenceAchat", referenceAchat);
     assignIfPresent(payload, "prixAchatUnitaire", prixAchatUnitaire);
+    assignIfPresent(payload, "idempotencyKey", idempotencyKey);
     return request(`/stock/articles/${idArticle}/entrees`, {
       method: "POST",
       body: JSON.stringify(payload)
@@ -886,23 +912,25 @@ export const atelierApi = {
     return request(`/ventes/${idVente}`, { method: "GET" });
   },
 
-  createVente(lignesVente) {
+  createVente(lignesVente, { acheteurNom = "" } = {}) {
     return request("/ventes", {
       method: "POST",
-      body: JSON.stringify({ lignesVente })
+      body: JSON.stringify({ lignesVente, acheteurNom })
     });
   },
 
-  updateVenteLignes(idVente, lignesVente) {
+  updateVenteLignes(idVente, lignesVente, { acheteurNom = undefined } = {}) {
+    const payload = { lignesVente };
+    if (acheteurNom !== undefined) payload.acheteurNom = acheteurNom;
     return request(`/ventes/${idVente}/lignes`, {
       method: "POST",
-      body: JSON.stringify({ lignesVente })
+      body: JSON.stringify(payload)
     });
   },
 
-  async validerVente({ idVente, utilisateur = null, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT }) {
+  async validerVente({ idVente, utilisateur = null, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT, idempotencyKey = createIdempotencyKey() }) {
     const caisseJourId = await resolveCaisseJourId(idCaisseJour);
-    const payload = { idCaisseJour: caisseJourId, modePaiement };
+    const payload = { idCaisseJour: caisseJourId, modePaiement, idempotencyKey };
     assignIfPresent(payload, "utilisateur", utilisateur);
     return request(`/ventes/${idVente}/valider`, {
       method: "POST",
@@ -910,9 +938,9 @@ export const atelierApi = {
     });
   },
 
-  async validerVenteEtFacturer({ idVente, utilisateur = null, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT }) {
+  async validerVenteEtFacturer({ idVente, utilisateur = null, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT, idempotencyKey = createIdempotencyKey() }) {
     const caisseJourId = await resolveCaisseJourId(idCaisseJour);
-    const payload = { idCaisseJour: caisseJourId, modePaiement };
+    const payload = { idCaisseJour: caisseJourId, modePaiement, idempotencyKey };
     assignIfPresent(payload, "utilisateur", utilisateur);
     return request(`/ventes/${idVente}/valider-et-facturer`, {
       method: "POST",
@@ -935,8 +963,8 @@ export const atelierApi = {
     return request(`/caisse/${idCaisseJour}`, { method: "GET" });
   },
 
-  enregistrerEntreeManuelleCaisse({ idCaisseJour, montant, justification, modePaiement = "CASH", utilisateur = null }) {
-    const payload = { montant, justification, modePaiement };
+  enregistrerEntreeManuelleCaisse({ idCaisseJour, montant, justification, modePaiement = "CASH", utilisateur = null, activite = "ATELIER", idempotencyKey = createIdempotencyKey() }) {
+    const payload = { montant, justification, modePaiement, activite, idempotencyKey };
     assignIfPresent(payload, "utilisateur", utilisateur);
     return request(`/caisse/${idCaisseJour}/entrees/manuelles`, {
       method: "POST",
@@ -944,8 +972,8 @@ export const atelierApi = {
     });
   },
 
-  enregistrerDepenseCaisse({ idCaisseJour, montant, motif, typeDepense, justification = "", utilisateur = null, role = "" }) {
-    const payload = { montant, motif, typeDepense, justification, role };
+  enregistrerDepenseCaisse({ idCaisseJour, montant, motif, typeDepense, justification = "", utilisateur = null, role = "", activite = "ATELIER", idempotencyKey = createIdempotencyKey() }) {
+    const payload = { montant, motif, typeDepense, justification, role, activite, idempotencyKey };
     assignIfPresent(payload, "utilisateur", utilisateur);
     return request(`/caisse/${idCaisseJour}/sorties`, {
       method: "POST",
@@ -1127,10 +1155,11 @@ export const atelierApi = {
     return request(`/commandes/${idCommande}/terminer`, { method: "POST" });
   },
 
-  annulerCommande(idCommande, { utilisateur = CAISSE_USER, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT } = {}) {
+  annulerCommande(idCommande, { utilisateur = CAISSE_USER, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT, idempotencyKey = createIdempotencyKey() } = {}) {
     const payload = {
       utilisateur,
-      modePaiement
+      modePaiement,
+      idempotencyKey
     };
     if (idCaisseJour) payload.idCaisseJour = idCaisseJour;
     return request(`/commandes/${idCommande}/annuler`, {
@@ -1147,10 +1176,11 @@ export const atelierApi = {
     return request(`/retouches/${idRetouche}/terminer`, { method: "POST" });
   },
 
-  annulerRetouche(idRetouche, { utilisateur = CAISSE_USER, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT } = {}) {
+  annulerRetouche(idRetouche, { utilisateur = CAISSE_USER, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT, idempotencyKey = createIdempotencyKey() } = {}) {
     const payload = {
       utilisateur,
-      modePaiement
+      modePaiement,
+      idempotencyKey
     };
     if (idCaisseJour) payload.idCaisseJour = idCaisseJour;
     return request(`/retouches/${idRetouche}/annuler`, {
@@ -1173,7 +1203,7 @@ export const atelierApi = {
     });
   },
 
-  async enregistrerPaiementViaCaisse({ idCommande, idItem = "", montant, utilisateur = CAISSE_USER, idCaisseJour = "" }) {
+  async enregistrerPaiementViaCaisse({ idCommande, idItem = "", montant, utilisateur = CAISSE_USER, idCaisseJour = "", idempotencyKey = createIdempotencyKey() }) {
       const caisseJourId = await resolveCaisseJourId(idCaisseJour);
       return request(`/commandes/${idCommande}/paiements/caisse`, {
         method: "POST",
@@ -1182,12 +1212,13 @@ export const atelierApi = {
           idCaisseJour: caisseJourId,
           modePaiement: CAISSE_MODE_PAIEMENT,
           utilisateur,
+          idempotencyKey,
           ...(idItem ? { idItem } : {})
         })
       });
     },
 
-  async enregistrerPaiementRetoucheViaCaisse({ idRetouche, idItem = "", montant, utilisateur = CAISSE_USER, idCaisseJour = "" }) {
+  async enregistrerPaiementRetoucheViaCaisse({ idRetouche, idItem = "", montant, utilisateur = CAISSE_USER, idCaisseJour = "", idempotencyKey = createIdempotencyKey() }) {
       const caisseJourId = await resolveCaisseJourId(idCaisseJour);
       return request(`/retouches/${idRetouche}/paiements/caisse`, {
         method: "POST",
@@ -1196,6 +1227,7 @@ export const atelierApi = {
           idCaisseJour: caisseJourId,
           modePaiement: CAISSE_MODE_PAIEMENT,
           utilisateur,
+          idempotencyKey,
           ...(idItem ? { idItem } : {})
         })
       });

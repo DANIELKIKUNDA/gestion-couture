@@ -52,7 +52,7 @@ function titleFor(row) {
 
 function subtitleFor(row) {
   const user = row?.userName || row?.userId || "Utilisateur inconnu";
-  return `${props.formatDateTime(row?.createdAt)} · ${user}`;
+  return `${props.formatDateTime(row?.createdAt)} - ${user}`;
 }
 
 function metaItemsFor(row) {

@@ -68,7 +68,7 @@ export class CommandeRepoPg {
 
   async getById(idCommande) {
     const res = await this.db.query(
-      "SELECT id_commande, id_client, id_dossier, description, date_creation, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot FROM commandes WHERE id_commande = $1 AND atelier_id = $2",
+      "SELECT id_commande, id_client, id_dossier, description, date_creation, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot, idempotency_key FROM commandes WHERE id_commande = $1 AND atelier_id = $2",
       [idCommande, this.atelierId]
     );
     if (res.rowCount === 0) return null;
@@ -88,18 +88,30 @@ export class CommandeRepoPg {
       statutCommande: row.statut,
       typeHabit: row.type_habit,
       mesuresHabit: row.mesures_habit_snapshot,
+      idempotencyKey: row.idempotency_key,
       items,
       rehydrate: true
     });
   }
 
+  async findByIdempotencyKey(idempotencyKey) {
+    const normalizedKey = String(idempotencyKey || "").trim();
+    if (!normalizedKey) return null;
+    const res = await this.db.query(
+      "SELECT id_commande FROM commandes WHERE atelier_id = $1 AND idempotency_key = $2 LIMIT 1",
+      [this.atelierId, normalizedKey]
+    );
+    if (res.rowCount === 0) return null;
+    return this.getById(res.rows[0].id_commande);
+  }
+
   async save(commande) {
     await this.db.query(
-      `INSERT INTO commandes (id_commande, atelier_id, id_client, id_dossier, description, date_creation, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      `INSERT INTO commandes (id_commande, atelier_id, id_client, id_dossier, description, date_creation, date_prevue, priorite, montant_total, montant_paye, statut, type_habit, mesures_habit_snapshot, idempotency_key)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        ON CONFLICT (id_commande)
        DO UPDATE SET atelier_id=$2, id_client=$3, id_dossier=$4, description=$5, date_creation=$6, date_prevue=$7,
-         priorite=$8, montant_total=$9, montant_paye=$10, statut=$11, type_habit=$12, mesures_habit_snapshot=$13`,
+         priorite=$8, montant_total=$9, montant_paye=$10, statut=$11, type_habit=$12, mesures_habit_snapshot=$13, idempotency_key=COALESCE(commandes.idempotency_key, $14)`,
       [
         commande.idCommande,
         this.atelierId,
@@ -113,7 +125,8 @@ export class CommandeRepoPg {
         commande.montantPaye,
         commande.statutCommande,
         commande.typeHabit,
-        JSON.stringify(commande.mesuresHabit)
+        JSON.stringify(commande.mesuresHabit),
+        commande.idempotencyKey || null
       ]
     );
   }

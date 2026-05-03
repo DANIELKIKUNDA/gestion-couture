@@ -14,16 +14,29 @@ function resolveSourceFlux(op = {}) {
 
 export function useCaisseViewModel({
   caisseJour,
-  caisseOperationsVisibleCount
+  caisseOperationsVisibleCount,
+  caisseQuickFilter
 }) {
   const caisseStatus = computed(() => caisseJour.value?.statutCaisse || "INCONNUE");
   const caisseOuverte = computed(() => caisseStatus.value === "OUVERTE");
 
-  const caisseOperations = computed(() =>
-    [...(caisseJour.value?.operations || [])].sort((a, b) =>
-      String(b.dateOperation || "").localeCompare(String(a.dateOperation || ""))
-    )
-  );
+  const caisseOperations = computed(() => {
+    const filter = String(caisseQuickFilter?.value || "ALL").trim().toUpperCase();
+    return [...(caisseJour.value?.operations || [])]
+      .filter((op) => {
+        const typeOperation = String(op?.typeOperation || "").trim().toUpperCase();
+        const activite = String(op?.activite || "ATELIER").trim().toUpperCase();
+        const sourceFlux = resolveSourceFlux(op);
+        if (filter === "ATELIER") return activite === "ATELIER";
+        if (filter === "STOCK") return activite === "STOCK";
+        if (filter === "ENTREES") return typeOperation === "ENTREE";
+        if (filter === "SORTIES") return typeOperation === "SORTIE";
+        if (filter === "MANUEL") return sourceFlux === "MANUEL";
+        if (filter === "DEPENSES") return sourceFlux === "DEPENSE";
+        return true;
+      })
+      .sort((a, b) => String(b.dateOperation || "").localeCompare(String(a.dateOperation || "")));
+  });
 
   const caisseOperationsPaged = computed(() => caisseOperations.value.slice(0, caisseOperationsVisibleCount.value));
   const caisseOperationsInfiniteEndReached = computed(
@@ -38,6 +51,7 @@ export function useCaisseViewModel({
     const ops = caisseOperations.value.filter((op) => op.statutOperation !== "ANNULEE");
     const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
     const sourceTotals = caisseJour.value?.totauxParSource || {};
+    const activityTotals = caisseJour.value?.totauxParActivite || {};
     const fallbackSourceTotals = ops.reduce(
       (acc, op) => {
         const sourceFlux = resolveSourceFlux(op);
@@ -57,17 +71,62 @@ export function useCaisseViewModel({
         totalDepenses: totalSorties
       }
     );
+    const fallbackActivityTotals = ops.reduce(
+      (acc, op) => {
+        const activite = String(op?.activite || "ATELIER").trim().toUpperCase() === "STOCK" ? "STOCK" : "ATELIER";
+        const montant = Number(op.montant || 0);
+        if (activite === "STOCK") {
+          if (op.typeOperation === "SORTIE") {
+            acc.depensesStock += montant;
+            acc.netStock -= montant;
+          } else {
+            acc.totalStock += montant;
+            acc.netStock += montant;
+          }
+          return acc;
+        }
+        if (op.typeOperation === "SORTIE") {
+          acc.depensesAtelier += montant;
+          acc.netAtelier -= montant;
+        } else {
+          acc.totalAtelier += montant;
+          acc.netAtelier += montant;
+        }
+        return acc;
+      },
+      {
+        totalAtelier: 0,
+        totalStock: 0,
+        depensesAtelier: 0,
+        depensesStock: 0,
+        netAtelier: 0,
+        netStock: 0
+      }
+    );
     const fallbackTotalGlobal =
       fallbackSourceTotals.totalCommandes +
       fallbackSourceTotals.totalRetouches +
       fallbackSourceTotals.totalVentes +
       fallbackSourceTotals.totalEntreesManuelles;
+    const totalAtelier = Number(activityTotals.totalAtelier ?? fallbackActivityTotals.totalAtelier);
+    const totalStock = Number(activityTotals.totalStock ?? fallbackActivityTotals.totalStock);
+    const depensesAtelier = Number(activityTotals.depensesAtelier ?? fallbackActivityTotals.depensesAtelier);
+    const depensesStock = Number(activityTotals.depensesStock ?? fallbackActivityTotals.depensesStock);
+    const netAtelier = Number(activityTotals.netAtelier ?? fallbackActivityTotals.netAtelier);
+    const netStock = Number(activityTotals.netStock ?? fallbackActivityTotals.netStock);
     return {
       totalEntrees,
       totalSorties,
       totalSortiesQuotidiennes,
       resultatJournalier,
       soldeJournalierRestant,
+      totalAtelier,
+      totalStock,
+      depensesAtelier,
+      depensesStock,
+      netAtelier,
+      netStock,
+      netJour: Number(activityTotals.netJour ?? (netAtelier + netStock)),
       totalCommandes: Number(sourceTotals.totalCommandes ?? fallbackSourceTotals.totalCommandes),
       totalRetouches: Number(sourceTotals.totalRetouches ?? fallbackSourceTotals.totalRetouches),
       totalVentes: Number(sourceTotals.totalVentes ?? fallbackSourceTotals.totalVentes),

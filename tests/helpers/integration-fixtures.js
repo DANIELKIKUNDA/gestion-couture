@@ -92,13 +92,46 @@ export async function ensureCommandeFamilleSchema() {
   `).catch(() => {});
 
   await pool.query(`
+    ALTER TABLE clients
+    ADD COLUMN IF NOT EXISTS idempotency_key TEXT
+  `).catch(() => {});
+
+  await pool.query(`
     ALTER TABLE commandes
     ADD COLUMN IF NOT EXISTS priorite TEXT NOT NULL DEFAULT 'NORMALE'
   `).catch(() => {});
 
   await pool.query(`
+    ALTER TABLE commandes
+    ADD COLUMN IF NOT EXISTS idempotency_key TEXT
+  `).catch(() => {});
+
+  await pool.query(`
     ALTER TABLE retouches
     ADD COLUMN IF NOT EXISTS priorite TEXT NOT NULL DEFAULT 'NORMALE'
+  `).catch(() => {});
+
+  await pool.query(`
+    ALTER TABLE retouches
+    ADD COLUMN IF NOT EXISTS idempotency_key TEXT
+  `).catch(() => {});
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_clients_atelier_idempotency
+    ON clients (atelier_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL
+  `).catch(() => {});
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_commandes_atelier_idempotency
+    ON commandes (atelier_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL
+  `).catch(() => {});
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_retouches_atelier_idempotency
+    ON retouches (atelier_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL
   `).catch(() => {});
 
   await pool.query(`
@@ -385,11 +418,12 @@ export async function createAuthenticatedSession({
   };
 }
 
-export async function createClientViaApi({ client, token, nom = "Client", prenom = "Test", telephone }) {
+export async function createClientViaApi({ client, token, nom = "Client", prenom = "Test", telephone, ...extraPayload }) {
   const response = await withAuth(client.post("/api/clients"), token).send({
     nom,
     prenom,
-    telephone: telephone === undefined ? `+243${Date.now().toString().slice(-9)}` : telephone
+    telephone: telephone === undefined ? `+243${Date.now().toString().slice(-9)}` : telephone,
+    ...extraPayload
   });
   return response;
 }
@@ -429,7 +463,8 @@ export async function createRetoucheViaApi({
   typeRetouche = "OURLET",
   montantTotal = 40,
   typeHabit = "ROBE",
-  mesuresHabit = { longueur: 98 }
+  mesuresHabit = { longueur: 98 },
+  ...extraPayload
 }) {
   const response = await withAuth(client.post("/api/retouches"), token).send({
     idClient,
@@ -437,7 +472,8 @@ export async function createRetoucheViaApi({
     typeRetouche,
     montantTotal,
     typeHabit,
-    mesuresHabit
+    mesuresHabit,
+    ...extraPayload
   });
   return response;
 }

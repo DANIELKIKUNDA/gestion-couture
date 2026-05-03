@@ -3679,6 +3679,103 @@ textarea:focus-visible {
 }
 
 @media (max-width: 767px) {
+  .auth-shell {
+    min-height: 100vh;
+    min-height: 100svh;
+    align-items: flex-start;
+    justify-content: stretch;
+    padding: calc(18px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .auth-card {
+    width: 100%;
+    max-width: 440px;
+    margin: auto;
+    padding: 22px 16px;
+    border-radius: 22px;
+    gap: 14px;
+  }
+
+  .auth-loading-card {
+    max-width: 340px;
+    padding: 30px 18px;
+  }
+
+  .auth-card-head {
+    gap: 8px;
+  }
+
+  .auth-card-head h2 {
+    max-width: 100%;
+    font-size: 22px;
+    line-height: 1.12;
+    overflow-wrap: anywhere;
+  }
+
+  .auth-card-head p,
+  .auth-message,
+  .auth-helper,
+  .auth-error {
+    line-height: 1.45;
+  }
+
+  .auth-logo {
+    width: 54px;
+    height: 54px;
+  }
+
+  .auth-logo.auth-logo-app {
+    width: 64px;
+    height: 64px;
+  }
+
+  .auth-portal-switch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    overflow: visible;
+  }
+
+  .auth-portal-btn {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 10px;
+    text-align: center;
+    line-height: 1.15;
+    white-space: normal;
+  }
+
+  .auth-form {
+    gap: 9px;
+  }
+
+  .auth-form input,
+  .auth-submit,
+  .auth-password-toggle {
+    min-height: 46px;
+  }
+
+  .auth-password-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .auth-password-toggle {
+    min-width: 72px;
+    padding-inline: 10px;
+    justify-content: center;
+  }
+
+  .auth-link-inline {
+    justify-self: center;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
     position: relative;
@@ -3817,6 +3914,11 @@ textarea:focus-visible {
     display: none;
   }
 
+  .segmented.auth-portal-switch {
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
   .segmented .mini-btn {
     flex: 0 0 auto;
     min-height: 40px;
@@ -3858,6 +3960,84 @@ textarea:focus-visible {
 
   #settings-securite .auth-password-toggle {
     padding-inline: 10px;
+  }
+
+  #settings-securite .table-scroll-x {
+    overflow-x: visible;
+  }
+
+  #settings-securite .data-table {
+    display: block;
+    width: 100%;
+    border-collapse: separate;
+  }
+
+  #settings-securite .data-table thead {
+    display: none;
+  }
+
+  #settings-securite .data-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  #settings-securite .data-table tr {
+    display: block;
+    border: 1px solid var(--stroke);
+    border-radius: 14px;
+    background: #fbfdff;
+    box-shadow: 0 10px 24px rgba(23, 57, 95, 0.08);
+    overflow: hidden;
+  }
+
+  #settings-securite .data-table td {
+    display: grid;
+    grid-template-columns: minmax(78px, 34%) minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e7eef6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  #settings-securite .data-table td:last-child {
+    border-bottom: none;
+  }
+
+  #settings-securite .data-table td[data-label]::before {
+    content: attr(data-label);
+    color: #6d86a0;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  #settings-securite .data-table td.actions-cell {
+    grid-template-columns: 1fr;
+  }
+
+  #settings-securite .data-table td.actions-cell::before {
+    content: attr(data-label);
+  }
+
+  #settings-securite .data-table td.actions-cell .mini-btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 38px;
+  }
+
+  #settings-securite .data-table input,
+  #settings-securite .data-table select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  #settings-securite .settings-roles .helper {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
   }
 
   .quick-inline,

@@ -1,5 +1,6 @@
 ﻿import { getKinshasaParts, buildDateJour, isAfterOrAt, TIMEZONE_KINSHASA } from "../../domain/horloge-kinshasa.js";
 import { StatutCaisse } from "../../domain/value-objects.js";
+import { heureClotureDuJourAtteinte, resolveClotureAutoConfig } from "../../domain/cloture-automatique-policy.js";
 import { ouvrirCaisseDuJour } from "./ouvrir-caisse-du-jour.js";
 
 function parseTime(value, fallback = "07:30") {
@@ -45,6 +46,17 @@ export async function ouvrirCaisseAutomatique({
     : null;
 
   const caisseCfg = parametres?.payload?.caisse || {};
+  const clotureAuto = resolveClotureAutoConfig(parametres?.payload || null);
+  if (heureClotureDuJourAtteinte(parts, clotureAuto)) {
+    log("open-skip", {
+      reason: "heure-cloture-deja-atteinte",
+      dateJour,
+      heureCloture: `${String(clotureAuto.hour).padStart(2, "0")}:${String(clotureAuto.minute).padStart(2, "0")}`,
+      heureCourante: `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`
+    });
+    return null;
+  }
+
   const isSunday = parts.weekday === 0;
   const opening = parseTime(isSunday ? caisseCfg.ouvertureDimanche : caisseCfg.ouvertureAuto);
 

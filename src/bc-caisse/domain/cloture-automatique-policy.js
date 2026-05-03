@@ -27,6 +27,15 @@ export function resolveClotureAutoConfig(payload = null) {
   };
 }
 
+export function heureClotureDuJourAtteinte(parts, clotureAuto = null) {
+  const active = clotureAuto?.active !== false;
+  const hour = Number.isInteger(clotureAuto?.hour) ? clotureAuto.hour : HEURE_CLOTURE_AUTOMATIQUE;
+  const minute = Number.isInteger(clotureAuto?.minute) ? clotureAuto.minute : MINUTE_CLOTURE_AUTOMATIQUE;
+  if (!active) return false;
+  if (hour === 0 && minute === 0) return false;
+  return isAfterOrAt(parts, hour, minute);
+}
+
 function caisseOuverteLaPlusRecente(caisses = []) {
   for (const caisse of caisses) {
     if (caisse?.statutCaisse === StatutCaisse.OUVERTE) return caisse;
@@ -49,7 +58,7 @@ export function selectionnerCaisseACloturer({ parts, caisseDuJour = null, caisse
   if (hour === 0 && minute === 0) return null;
 
   // Priorite 2: a partir de l'heure de cloture, fermer la caisse du jour si elle est ouverte.
-  if (!isAfterOrAt(parts, hour, minute)) return null;
+  if (!heureClotureDuJourAtteinte(parts, { active, hour, minute })) return null;
   if (!caisseDuJour || caisseDuJour.statutCaisse !== StatutCaisse.OUVERTE) return null;
   return caisseDuJour;
 }

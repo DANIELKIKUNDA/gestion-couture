@@ -29,6 +29,16 @@ const CLIENT_SNAPSHOT_SQL = `
   ) AS client_snapshot
 `;
 
+function normalizeClientSnapshot(snapshot = {}) {
+  const client = snapshot && typeof snapshot === "object" ? snapshot : {};
+  const nom = String(client.nom || "").trim();
+  return {
+    ...client,
+    nom: !nom || nom.toLowerCase() === "client comptoir" ? "Acheteur non renseigne" : nom,
+    contact: String(client.contact || "").trim()
+  };
+}
+
 function toFacture(row) {
   const normalizedType = String(row.type_origine || "").trim().toUpperCase();
   const operations = Array.isArray(row.operations_caisse) ? row.operations_caisse : [];
@@ -42,7 +52,7 @@ function toFacture(row) {
     numeroFacture: row.numero_facture,
     typeOrigine: normalizedType,
     idOrigine: String(row.id_origine || "").trim(),
-    client: row.client_snapshot || {},
+    client: normalizeClientSnapshot(row.client_snapshot),
     dateEmission: row.date_emission,
     montantTotal: Number(row.montant_total),
     referenceCaisse: row.reference_caisse || null,
@@ -67,6 +77,16 @@ export class FactureRepoPg {
     return generateFactureId();
   }
 
+  async migrateLegacyClientSnapshots() {
+    await pool.query(
+      `UPDATE factures
+       SET client_snapshot = jsonb_set(COALESCE(client_snapshot, '{}'::jsonb), '{nom}', to_jsonb('Acheteur non renseigne'::text), true)
+       WHERE atelier_id = $1
+         AND LOWER(TRIM(COALESCE(client_snapshot->>'nom', ''))) = 'client comptoir'`,
+      [this.atelierId]
+    );
+  }
+
   async nextNumeroFacture(date = new Date(), prefixe = "FAC") {
     await this.ensureNumeroSequence();
     const res = await pool.query(
@@ -82,6 +102,7 @@ export class FactureRepoPg {
   }
 
   async getByOrigine(typeOrigine, idOrigine) {
+    await this.migrateLegacyClientSnapshots();
     const res = await pool.query(
       `SELECT f.id_facture,
               f.numero_facture,
@@ -106,6 +127,7 @@ export class FactureRepoPg {
   }
 
   async getByIdWithPaiements(idFacture) {
+    await this.migrateLegacyClientSnapshots();
     const res = await pool.query(
       `SELECT f.id_facture,
               f.numero_facture,
@@ -129,6 +151,7 @@ export class FactureRepoPg {
   }
 
   async listWithPaiements() {
+    await this.migrateLegacyClientSnapshots();
     const res = await pool.query(
       `SELECT f.id_facture,
               f.numero_facture,

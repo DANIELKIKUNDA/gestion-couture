@@ -57,6 +57,17 @@ function atelierIdFromReq(req) {
   return String(req.auth?.atelierId || "ATELIER");
 }
 
+function normalizeDateOnly(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(value || "").trim());
+  return match ? match[1] : String(value || "").trim();
+}
+
 function scopedCaisseRepo(req) {
   return caisseRepo.forAtelier(atelierIdFromReq(req));
 }
@@ -71,6 +82,11 @@ function scopedParametresRepo(req) {
 
 function isRoleForbiddenForManualEntry(role = "") {
   return String(role || "").trim().toUpperCase() === "COUTURIER";
+}
+
+function normalizeActiviteInput(value, fallback = "ATELIER") {
+  const normalized = String(value || fallback).trim().toUpperCase();
+  return ["ATELIER", "STOCK"].includes(normalized) ? normalized : "";
 }
 
 function resolveCaisseOperationSource(op = {}) {
@@ -114,20 +130,49 @@ function normalizeCaisse(caisse) {
     totalDepenses: 0,
     totalGlobal: 0
   };
+  const totauxParActivite = {
+    totalAtelier: 0,
+    totalStock: 0,
+    depensesAtelier: 0,
+    depensesStock: 0,
+    netAtelier: 0,
+    netStock: 0,
+    totalGlobal: 0,
+    totalDepenses: 0,
+    netJour: 0
+  };
 
   const normalizedOperations = operations.map((op) => {
     const sourceFlux = resolveCaisseOperationSource(op);
     const montant = Number(op.montant || 0);
+    const activite = normalizeActiviteInput(op.activite, "ATELIER") || "ATELIER";
     if (op.statutOperation !== "ANNULEE") {
       if (sourceFlux === "COMMANDE") totauxParSource.totalCommandes += montant;
       else if (sourceFlux === "RETOUCHE") totauxParSource.totalRetouches += montant;
       else if (sourceFlux === "VENTE") totauxParSource.totalVentes += montant;
       else if (sourceFlux === "MANUEL") totauxParSource.totalEntreesManuelles += montant;
       else if (sourceFlux === "DEPENSE") totauxParSource.totalDepenses += montant;
+
+      if (activite === "STOCK") {
+        if (op.typeOperation === "SORTIE") {
+          totauxParActivite.depensesStock += montant;
+          totauxParActivite.netStock -= montant;
+        } else {
+          totauxParActivite.totalStock += montant;
+          totauxParActivite.netStock += montant;
+        }
+      } else if (op.typeOperation === "SORTIE") {
+        totauxParActivite.depensesAtelier += montant;
+        totauxParActivite.netAtelier -= montant;
+      } else {
+        totauxParActivite.totalAtelier += montant;
+        totauxParActivite.netAtelier += montant;
+      }
     }
     return {
       ...op,
-      sourceFlux
+      sourceFlux,
+      activite
     };
   });
   totauxParSource.totalGlobal =
@@ -135,6 +180,9 @@ function normalizeCaisse(caisse) {
     totauxParSource.totalRetouches +
     totauxParSource.totalVentes +
     totauxParSource.totalEntreesManuelles;
+  totauxParActivite.totalGlobal = totauxParActivite.totalAtelier + totauxParActivite.totalStock;
+  totauxParActivite.totalDepenses = totauxParActivite.depensesAtelier + totauxParActivite.depensesStock;
+  totauxParActivite.netJour = totauxParActivite.netAtelier + totauxParActivite.netStock;
 
   return {
     idCaisseJour: caisse.idCaisseJour,
@@ -155,7 +203,8 @@ function normalizeCaisse(caisse) {
     motifOuvertureAnticipee: caisse.motifOuvertureAnticipee || null,
     autoriseePar: caisse.autoriseePar || null,
     operations: normalizedOperations,
-    totauxParSource
+    totauxParSource,
+    totauxParActivite
   };
 }
 
@@ -163,7 +212,7 @@ function normalizeCaisse(caisse) {
 router.get("/caisse", async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id_caisse_jour, date_jour, statut, solde_ouverture, solde_cloture, ouverte_par, cloturee_par, date_ouverture, date_cloture
+      `SELECT id_caisse_jour, to_char(date_jour, 'YYYY-MM-DD') AS date_jour, statut, solde_ouverture, solde_cloture, ouverte_par, cloturee_par, date_ouverture, date_cloture
        FROM caisse_jour
        WHERE atelier_id = $1
        ORDER BY date_jour DESC`
@@ -174,7 +223,7 @@ router.get("/caisse", async (req, res) => {
     res.json(
       result.rows.map((row) => ({
         idCaisseJour: row.id_caisse_jour,
-        date: row.date_jour,
+        date: normalizeDateOnly(row.date_jour),
         statutCaisse: row.statut,
         soldeOuverture: Number(row.solde_ouverture),
         soldeCloture: row.solde_cloture === null ? null : Number(row.solde_cloture),
@@ -201,7 +250,7 @@ router.get("/caisse/:id", async (req, res, next) => {
     if (!caisse) return res.status(404).json({ error: "Caisse introuvable" });
     res.json(normalizeCaisse(caisse));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -319,6 +368,7 @@ router.get("/caisse/audit/operations", requirePermission(PERMISSIONS.VOIR_BILANS
         op.justification,
         op.impact_journalier,
         op.impact_global,
+        op.activite,
         op.id_caisse_jour
       FROM caisse_operation op
       WHERE op.atelier_id = $1
@@ -436,7 +486,8 @@ router.post("/caisse/:id/entrees", requireCaisseEntreeAccess, async (req, res) =
       modePaiement: z.string().min(1),
       motif: z.string().min(1),
       utilisateur: z.string().min(1).optional(),
-      referenceMetier: z.string().optional()
+      referenceMetier: z.string().optional(),
+      idempotencyKey: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -457,9 +508,11 @@ router.post("/caisse/:id/entrees", requireCaisseEntreeAccess, async (req, res) =
         modePaiement: body.modePaiement,
         motif: body.motif,
         referenceMetier: body.referenceMetier || null,
-        utilisateur: acteur.utilisateur || body.utilisateur
+        utilisateur: acteur.utilisateur || body.utilisateur,
+        idempotencyKey: body.idempotencyKey || null
       },
-      caisseRepo: scopedCaisseRepo(req)
+      caisseRepo: scopedCaisseRepo(req),
+      enforceDateDuJour: true
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
@@ -477,7 +530,7 @@ router.post("/caisse/:id/entrees", requireCaisseEntreeAccess, async (req, res) =
     });
     res.json(caisse);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -487,7 +540,9 @@ router.post("/caisse/:id/entrees/manuelles", requireCaisseEntreeAccess, async (r
       montant: z.coerce.number(),
       justification: z.string().min(1),
       utilisateur: z.string().min(1).optional(),
-      modePaiement: z.string().min(1).optional()
+      modePaiement: z.string().min(1).optional(),
+      activite: z.string().min(1).optional(),
+      idempotencyKey: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -500,6 +555,8 @@ router.post("/caisse/:id/entrees/manuelles", requireCaisseEntreeAccess, async (r
 
   try {
     const acteur = resolveActeur(req, body.utilisateur);
+    const activite = normalizeActiviteInput(body.activite, "ATELIER");
+    if (!activite) return res.status(400).json({ error: "activite invalide" });
     if (isRoleForbiddenForManualEntry(acteur.role)) {
       return res.status(403).json({ error: "Permission insuffisante" });
     }
@@ -511,9 +568,12 @@ router.post("/caisse/:id/entrees/manuelles", requireCaisseEntreeAccess, async (r
         montant: body.montant,
         modePaiement: body.modePaiement || "CASH",
         justification: body.justification,
-        utilisateur: acteur.utilisateur || body.utilisateur
+        activite,
+        utilisateur: acteur.utilisateur || body.utilisateur,
+        idempotencyKey: body.idempotencyKey || null
       },
-      caisseRepo: scopedCaisseRepo(req)
+      caisseRepo: scopedCaisseRepo(req),
+      enforceDateDuJour: true
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
@@ -527,6 +587,7 @@ router.post("/caisse/:id/entrees/manuelles", requireCaisseEntreeAccess, async (r
         idCaisseJour: req.params.id,
         montant: Number(body.montant || 0),
         sourceFlux: "MANUEL",
+        activite,
         justification: String(body.justification || "").trim()
       }
     });
@@ -535,7 +596,7 @@ router.post("/caisse/:id/entrees/manuelles", requireCaisseEntreeAccess, async (r
     if (err instanceof PermissionInsuffisante) {
       return res.status(403).json({ error: err.message });
     }
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -549,7 +610,9 @@ router.post("/caisse/:id/sorties", requireCaisseSortieAccess, async (req, res) =
       referenceMetier: z.string().optional(),
       typeDepense: z.string().min(1),
       justification: z.string().optional(),
-      role: z.string().optional()
+      activite: z.string().min(1).optional(),
+      role: z.string().optional(),
+      idempotencyKey: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -562,6 +625,8 @@ router.post("/caisse/:id/sorties", requireCaisseSortieAccess, async (req, res) =
 
   try {
     const acteur = resolveActeur(req, body.utilisateur);
+    const activite = normalizeActiviteInput(body.activite, "ATELIER");
+    if (!activite) return res.status(400).json({ error: "activite invalide" });
     const caisse = await enregistrerSortie({
       idCaisseJour: req.params.id,
       input: {
@@ -572,10 +637,13 @@ router.post("/caisse/:id/sorties", requireCaisseSortieAccess, async (req, res) =
         utilisateur: acteur.utilisateur || body.utilisateur,
         typeDepense: body.typeDepense,
         justification: body.justification || null,
-        role: acteur.role || body.role || ""
+        activite,
+        role: acteur.role || body.role || "",
+        idempotencyKey: body.idempotencyKey || null
       },
       caisseRepo: scopedCaisseRepo(req),
-      parametresRepo: scopedParametresRepo(req)
+      parametresRepo: scopedParametresRepo(req),
+      enforceDateDuJour: true
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
@@ -590,6 +658,7 @@ router.post("/caisse/:id/sorties", requireCaisseSortieAccess, async (req, res) =
         montant: Number(body.montant || 0),
         motif: body.motif || null,
         typeDepense: body.typeDepense || null,
+        activite,
         justification: body.justification || null,
         impactJournalier: String(body.typeDepense || "").toUpperCase() !== "EXCEPTIONNELLE",
         impactGlobal: true
@@ -597,7 +666,7 @@ router.post("/caisse/:id/sorties", requireCaisseSortieAccess, async (req, res) =
     });
     res.json(caisse);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -624,7 +693,8 @@ router.post("/caisse/:id/operations/:opId/annuler", requireCaisseAnnulationAcces
         motifAnnulation: body.motifAnnulation,
         utilisateur: acteur.utilisateur || body.utilisateur
       },
-      caisseRepo: scopedCaisseRepo(req)
+      caisseRepo: scopedCaisseRepo(req),
+      enforceDateDuJour: true
     });
     await enregistrerEvenementAudit({
       utilisateurId: acteur.utilisateurId,
@@ -661,7 +731,8 @@ router.post("/caisse/:id/cloturer", requirePermission(PERMISSIONS.CLOTURER_CAISS
     const caisse = await cloturerCaisse({
       idCaisseJour: req.params.id,
       input: { utilisateur: acteur.utilisateur || body.utilisateur },
-      caisseRepo: scopedCaisseRepo(req)
+      caisseRepo: scopedCaisseRepo(req),
+      enforceDateDuJour: true
     });
     await genererBilansApresCloture({
       caisseCloturee: caisse,

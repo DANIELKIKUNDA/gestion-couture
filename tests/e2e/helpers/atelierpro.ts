@@ -148,6 +148,21 @@ async function startServersIfNeeded() {
   }
 }
 
+async function gotoFrontendWithRetry(page: Page, attempts = 3) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await page.goto(FRONTEND_URL, { waitUntil: "domcontentloaded" });
+      return;
+    } catch (error) {
+      lastError = error;
+      await startServersIfNeeded();
+      await wait(750 * attempt);
+    }
+  }
+  throw lastError;
+}
+
 export async function ensureAppReady() {
   await ensureDossierSchema();
   await startServersIfNeeded();
@@ -201,7 +216,7 @@ export async function loginInBrowser(page: Page, actor: TestActor) {
     },
     { token: actor.token, atelierSlug: actor.atelierSlug }
   );
-  await page.goto(FRONTEND_URL, { waitUntil: "domcontentloaded" });
+  await gotoFrontendWithRetry(page);
   await expect(page.getByText(/Chargement de la session/i)).toHaveCount(0, { timeout: 45_000 });
   await expect(page.locator(".workspace")).toBeVisible({ timeout: 45_000 });
   await expect(page.locator(".topbar")).toBeVisible({ timeout: 45_000 });
@@ -257,8 +272,8 @@ export async function createDossierThroughUi(
   await inputs.nth(2).fill(telephone);
   await modal.locator("select").first().selectOption(typeDossier);
   await modal.getByRole("button", { name: /Creer le dossier/i }).click();
-  await expect(page.getByRole("heading", { name: /^Detail Dossier$/i }).first()).toBeVisible();
-  await expect(page.locator(".dossier-workspace-hero").first()).toContainText(new RegExp(`${nom}\\s+${prenom}`, "i"));
+  await expect(page.getByRole("heading", { name: /^Detail Dossier$/i }).first()).toBeVisible({ timeout: 45_000 });
+  await expect(page.locator(".dossier-workspace-hero").first()).toContainText(new RegExp(`${nom}\\s+${prenom}`, "i"), { timeout: 45_000 });
   return {
     responsableNomComplet: `${nom} ${prenom}`.trim(),
     telephone

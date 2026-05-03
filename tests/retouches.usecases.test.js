@@ -1,6 +1,7 @@
 import assert from "assert";
 import { deposerRetouche } from "../src/bc-retouches/application/use-cases/deposer-retouche.js";
 import { StatutRetouche } from "../src/bc-retouches/domain/value-objects.js";
+import { getTypeRetoucheDefinitionSafe } from "../src/bc-retouches/domain/retouche-policy.js";
 
 function shouldFail(fn) {
   let failed = false;
@@ -145,6 +146,15 @@ function run() {
   assert.equal(rLibre.items[0].typeRetouche, "LIBRE");
   assert.equal(Number(rLibre.items[0].mesures.valeurs.longueurZip), 18);
   assert.equal(rLibre.items[0].mesures.valeurs.observation, "zip metal");
+
+  const legacyDefinition = getTypeRetoucheDefinitionSafe("ANCIEN_TYPE", policy, {
+    rehydrate: true,
+    fallbackTypeHabit: "ROBE",
+    fallbackMeasures: { valeurs: { longueur: 140 } }
+  });
+  assert.equal(legacyDefinition.code, "ANCIEN_TYPE");
+  assert.equal(legacyDefinition.necessiteMesures, true);
+  assert.equal(legacyDefinition.mesures[0].code, "longueur");
 }
 
 run();

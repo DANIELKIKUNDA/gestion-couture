@@ -4,6 +4,7 @@ import {
   TypeOperation,
   StatutOperation,
   TypeDepense,
+  ActiviteCaisse,
   assertPositive
 } from "./value-objects.js";
 import {
@@ -15,8 +16,17 @@ import {
   TypeDepenseInvalide,
   JustificationObligatoire,
   PermissionInsuffisante,
-  SoldeJournalierInsuffisant
+  SoldeJournalierInsuffisant,
+  ActiviteCaisseInvalide
 } from "./errors.js";
+
+function normalizeActiviteCaisse(value) {
+  const normalized = String(value || ActiviteCaisse.ATELIER).trim().toUpperCase();
+  if (![ActiviteCaisse.ATELIER, ActiviteCaisse.STOCK].includes(normalized)) {
+    throw new ActiviteCaisseInvalide("activite invalide");
+  }
+  return normalized;
+}
 
 export class CaisseJour {
   constructor({
@@ -111,7 +121,18 @@ export class CaisseJour {
     this.autoriseePar = ouvertureAnticipee ? autoriseePar || null : null;
   }
 
-  enregistrerEntree({ idOperation, montant, modePaiement, motif, referenceMetier, utilisateur, dateOperation, justification = null }) {
+  enregistrerEntree({
+    idOperation,
+    montant,
+    modePaiement,
+    motif,
+    referenceMetier,
+    utilisateur,
+    dateOperation,
+    justification = null,
+    activite = ActiviteCaisse.ATELIER,
+    idempotencyKey = null
+  }) {
     this.assertOuverte();
     assertPositive(montant, "montant");
     this.operations.push({
@@ -124,7 +145,9 @@ export class CaisseJour {
       dateOperation: dateOperation || new Date().toISOString(),
       effectuePar: utilisateur,
       statutOperation: StatutOperation.VALIDE,
-      justification: justification === null || justification === undefined ? null : String(justification).trim() || null
+      justification: justification === null || justification === undefined ? null : String(justification).trim() || null,
+      activite: normalizeActiviteCaisse(activite),
+      idempotencyKey: idempotencyKey === null || idempotencyKey === undefined ? null : String(idempotencyKey).trim() || null
     });
   }
 
@@ -137,6 +160,8 @@ export class CaisseJour {
     dateOperation,
     typeDepense = null,
     justification = null,
+    activite = ActiviteCaisse.ATELIER,
+    idempotencyKey = null,
     role = "",
     rolesAutorises = []
   }) {
@@ -182,7 +207,9 @@ export class CaisseJour {
       typeDepense: normalizedType,
       justification: normalizedType === TypeDepense.EXCEPTIONNELLE ? String(justification || "").trim() : null,
       impactJournalier: normalizedType === TypeDepense.QUOTIDIENNE,
-      impactGlobal: true
+      impactGlobal: true,
+      activite: normalizeActiviteCaisse(activite),
+      idempotencyKey: idempotencyKey === null || idempotencyKey === undefined ? null : String(idempotencyKey).trim() || null
     });
   }
 
