@@ -39,6 +39,14 @@ import { CommandeItemRepoPg } from "../../infrastructure/repositories/commande-i
 import { generateCommandeItemId } from "../../../shared/domain/id-generator.js";
 import { createMesuresCommande } from "../../../shared/domain/mesures-habit.js";
 import { CommandeItem } from "../../domain/commande-item.js";
+import {
+  IdempotencyConflict,
+  assertSameNumber,
+  assertSameString,
+  idempotencyConflictResponse,
+  lockIdempotencyKey,
+  normalizeIdempotencyKey
+} from "../../../shared/application/idempotency.js";
 
 const router = express.Router();
 const commandeRepo = new CommandeRepoPg();
@@ -226,6 +234,20 @@ async function enregistrerEvenementCommande({
 async function lockCommandeCreation(db, atelierId, idCommande) {
   const lockKey = `commande:create:${String(atelierId || "").trim()}:${String(idCommande || "").trim()}`;
   await db.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+}
+
+function assertSameCommandeCreation(existingCommande, body) {
+  assertSameString(existingCommande?.descriptionCommande, body?.descriptionCommande, "Cette cle d'idempotence correspond deja a une autre description de commande.");
+  assertSameNumber(existingCommande?.montantTotal, body?.montantTotal, "Cette cle d'idempotence correspond deja a un autre montant de commande.");
+  if (body?.idClient || body?.clientPayeurId) {
+    assertSameString(existingCommande?.idClient, body.idClient || body.clientPayeurId, "Cette cle d'idempotence correspond deja a un autre client de commande.");
+  }
+  if (body?.idDossier) {
+    assertSameString(existingCommande?.dossierId, body.idDossier, "Cette cle d'idempotence correspond deja a un autre dossier de commande.");
+  }
+  if (body?.typeHabit) {
+    assertSameString(existingCommande?.typeHabit, body.typeHabit, "Cette cle d'idempotence correspond deja a un autre type d'habit de commande.");
+  }
 }
 
 function mapCommandeMedia(row) {
@@ -553,7 +575,7 @@ router.get("/commandes", requireCommandeReadAccess, async (req, res) => {
 
     res.json(rows);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -649,7 +671,7 @@ router.get("/audit/commandes", requirePermission(PERMISSIONS.VOIR_BILANS_GLOBAUX
       }))
     );
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -709,7 +731,7 @@ router.get("/commandes/:id", requireCommandeReadAccess, async (req, res) => {
       lignesCommande: resolvedLignes
     });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -721,7 +743,7 @@ router.get("/commandes/:id/actions", requireCommandeReadAccess, async (req, res)
     const policyMeta = await loadCommandePolicy("commandes.actions", req);
     res.json(actionRulesForCommandeAvecPermissions(commande, req.auth, policyMeta.policy));
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -1134,7 +1156,8 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
       typeHabit: z.string().min(1).optional(),
       mesuresHabit: z.any().optional(),
       datePrevue: z.string().optional(),
-      priorite: z.enum(["NORMALE", "URGENTE", "TRES_URGENTE"]).optional()
+      priorite: z.enum(["NORMALE", "URGENTE", "TRES_URGENTE"]).optional(),
+      idempotencyKey: z.string().min(1).optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -1169,6 +1192,7 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     const atelierId = atelierIdFromReq(req);
     const requestedDossierId = String(body.idDossier || "").trim() || null;
     const requestedIdCommande = String(body.idCommande || "").trim();
+    const idempotencyKey = normalizeIdempotencyKey(body.idempotencyKey);
     if (requestedIdCommande) {
       const existingCommande = await repo.getById(requestedIdCommande);
       if (existingCommande) {
@@ -1187,6 +1211,38 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     }
 
     await dbClient.query("BEGIN");
+    if (idempotencyKey) {
+      await lockIdempotencyKey(dbClient, "commande:create", atelierId, idempotencyKey);
+      const existingByKey = await repo.findByIdempotencyKey(idempotencyKey);
+      if (existingByKey) {
+        assertSameCommandeCreation(existingByKey, body);
+        const existingItems = await scopedCommandeItemRepo(req).withExecutor(dbClient).listByCommande(existingByKey.idCommande);
+        const clientAssocie = await clients.getById(existingByKey.idClient);
+        const clientsAssocies = clientAssocie ? [clientAssocie] : [];
+        const commandePayload = {
+          ...existingByKey,
+          idempotent: true,
+          items: hydrateCommandeItems(existingItems, {
+            id_commande: existingByKey.idCommande,
+            type_habit: existingByKey.typeHabit,
+            description: existingByKey.descriptionCommande,
+            montant_total: existingByKey.montantTotal,
+            date_creation: existingByKey.dateCreation
+          }),
+          clientsAssocies
+        };
+        await dbClient.query("COMMIT");
+        if (hasNewClient) {
+          return res.status(200).json({
+            commande: commandePayload,
+            client: clientAssocie || null,
+            idempotent: true,
+            clientsAssocies
+          });
+        }
+        return res.status(200).json(commandePayload);
+      }
+    }
     const resolvedCommandeId = requestedIdCommande || generateCommandeId();
     await lockCommandeCreation(dbClient, atelierId, resolvedCommandeId);
     const existingCommande = await repo.getById(resolvedCommandeId);
@@ -1253,7 +1309,8 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
         null,
       datePrevue: body.datePrevue,
       priorite: body.priorite,
-      items: commandeItems
+      items: commandeItems,
+      idempotencyKey
     }, {
       policy: policyInput
     });
@@ -1341,6 +1398,9 @@ router.post("/commandes", requireCommandeCreateAccess, async (req, res) => {
     });
   } catch (err) {
     await dbClient.query("ROLLBACK").catch(() => {});
+    if (err instanceof IdempotencyConflict) {
+      return res.status(409).json(idempotencyConflictResponse(err));
+    }
     if (Number(err?.status || 0) === 409) {
       return res.status(409).json(serializeCommandeClientConflict(err));
     }
@@ -1467,7 +1527,8 @@ router.post("/commandes/:id/paiements/caisse", async (req, res) => {
       idCaisseJour: z.string().min(1),
       utilisateur: z.string().min(1),
       modePaiement: z.string().optional(),
-      idItem: z.string().min(1).optional()
+      idItem: z.string().min(1).optional(),
+      idempotencyKey: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -1495,7 +1556,9 @@ router.post("/commandes/:id/paiements/caisse", async (req, res) => {
           idCaisseJour: body.idCaisseJour,
           utilisateur: acteur.utilisateur || body.utilisateur,
           modePaiement: body.modePaiement || "CASH",
-          policy: { commandes: policyMeta.policy }
+          policy: { commandes: policyMeta.policy },
+          enforceDateDuJour: true,
+          idempotencyKey: body.idempotencyKey || null
         })
       : await enregistrerPaiementViaCaisse({
           idCommande: req.params.id,
@@ -1505,7 +1568,9 @@ router.post("/commandes/:id/paiements/caisse", async (req, res) => {
           idCaisseJour: body.idCaisseJour,
           utilisateur: acteur.utilisateur || body.utilisateur,
           modePaiement: body.modePaiement || "CASH",
-          policy: { commandes: policyMeta.policy }
+          policy: { commandes: policyMeta.policy },
+          enforceDateDuJour: true,
+          idempotencyKey: body.idempotencyKey || null
         });
     await enregistrerEvenementCommande({
       atelierId: atelierIdFromReq(req),
@@ -1540,7 +1605,7 @@ router.post("/commandes/:id/paiements/caisse", async (req, res) => {
     });
     res.json(commande);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -1595,7 +1660,8 @@ router.post("/commandes/:id/annuler", requirePermission(PERMISSIONS.ANNULER_COMM
     .object({
       idCaisseJour: z.string().min(1).optional(),
       utilisateur: z.string().min(1).optional(),
-      modePaiement: z.string().optional()
+      modePaiement: z.string().optional(),
+      idempotencyKey: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body || {});
@@ -1613,7 +1679,8 @@ router.post("/commandes/:id/annuler", requirePermission(PERMISSIONS.ANNULER_COMM
       idCaisseJour: parsed.data.idCaisseJour,
       utilisateur: acteur.utilisateur || parsed.data.utilisateur,
       modePaiement: parsed.data.modePaiement || "CASH",
-      policy: { commandes: policyMeta.policy }
+      policy: { commandes: policyMeta.policy },
+      idempotencyKey: parsed.data.idempotencyKey || null
     });
     await enregistrerEvenementCommande({
       atelierId: atelierIdFromReq(req),
@@ -1663,7 +1730,7 @@ router.post("/commandes/:id/annuler", requirePermission(PERMISSIONS.ANNULER_COMM
     });
     res.json(commande);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 

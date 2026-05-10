@@ -1,11 +1,13 @@
 <script setup>
+import { computed, ref, watch } from "vue";
 import CashierDashboardContent from "./CashierDashboardContent.vue";
 import OwnerDashboardContent from "./OwnerDashboardContent.vue";
 import TailorDashboardContent from "./TailorDashboardContent.vue";
+import DateNavigator from "../DateNavigator.vue";
 import MobilePageLayout from "../mobile/MobilePageLayout.vue";
 import MobilePrimaryActionBar from "../mobile/MobilePrimaryActionBar.vue";
 
-defineProps({
+const props = defineProps({
   dashboardRoleTone: { type: String, default: "owner" },
   isMobileViewport: { type: Boolean, default: false },
   isCashierDashboard: { type: Boolean, default: false },
@@ -17,7 +19,9 @@ defineProps({
   dashboardHeroSubtitle: { type: String, default: "" },
   dashboardHeroTags: { type: Array, default: () => [] },
   dashboardHeroHighlights: { type: Array, default: () => [] },
+  dailyDecisionPills: { type: Array, default: () => [] },
   dashboardClientsActifs: { type: Object, default: null },
+  selectedDate: { type: String, default: "" },
   dashboardPeriod: { type: String, default: "LAST_7" },
   dashboardPeriodOptions: { type: Array, default: () => [] },
   cashierDashboardCards: { type: Array, default: () => [] },
@@ -33,6 +37,7 @@ defineProps({
   dashboardSalesMobileCards: { type: Array, default: () => [] },
   dashboardCommandesCards: { type: Array, default: () => [] },
   dashboardRetouchesCards: { type: Array, default: () => [] },
+  dashboardArgentAttendu: { type: Number, default: 0 },
   recentWorkRows: { type: Array, default: () => [] },
   alerts: { type: Array, default: () => [] },
   canAccessContactFollowUpDashboard: { type: Boolean, default: false },
@@ -56,23 +61,66 @@ defineProps({
   iconPaths: { type: Object, default: () => ({}) }
 });
 
-const emit = defineEmits(["update:dashboardPeriod"]);
+const emit = defineEmits(["update:dashboardPeriod", "update:selectedDate"]);
 
-function updateDashboardPeriod(event) {
-  emit("update:dashboardPeriod", event?.target?.value || "LAST_7");
-}
+const activeDashboardFilter = ref("all");
+
+const dashboardFilterOptions = computed(() => {
+  if (props.isCashierDashboard) {
+    return [
+      { key: "all", label: "Tout" },
+      { key: "caisse", label: "Caisse" },
+      { key: "encaissements", label: "Encaisser" },
+      { key: "soldes", label: "Soldes" },
+      { key: "alertes", label: "Alertes" }
+    ];
+  }
+  if (props.isTailorDashboard) {
+    return [
+      { key: "all", label: "Tout" },
+      { key: "today", label: "Aujourd'hui" },
+      { key: "late", label: "Retards" },
+      { key: "ready", label: "Termines" },
+      { key: "activity", label: "Activite" }
+    ];
+  }
+  return [
+    { key: "all", label: "Tout" },
+    { key: "money", label: "Argent" },
+    { key: "clients", label: "Clients" },
+    { key: "work", label: "Travail" },
+    { key: "stock", label: "Stock" },
+    { key: "alerts", label: "Alertes" }
+  ];
+});
+
+watch(
+  () => props.dashboardRoleTone,
+  () => {
+    activeDashboardFilter.value = "all";
+  }
+);
 </script>
 
 <template>
   <section class="dashboard classic-dashboard" :class="`dashboard-role-${dashboardRoleTone}`">
-    <MobilePageLayout :has-action="isMobileViewport && (isCashierDashboard || isTailorDashboard || canCreateCommande || canCreateRetouche)">
+    <MobilePageLayout :has-action="isMobileViewport && (isCashierDashboard || isTailorDashboard)">
       <article class="panel dashboard-filter dashboard-hero">
         <div class="dashboard-hero-copy">
           <p class="mobile-overline dashboard-hero-eyebrow">{{ dashboardHeroEyebrow }}</p>
           <h3>{{ dashboardHeroTitle }}</h3>
           <p class="helper dashboard-hero-subtitle">{{ dashboardHeroSubtitle }}</p>
-          <div class="dashboard-hero-tags">
-            <span v-for="tag in dashboardHeroTags" :key="tag" class="dashboard-hero-tag">{{ tag }}</span>
+          <div class="dashboard-view-filter" aria-label="Filtrer le tableau de bord">
+            <button
+              v-for="filter in dashboardFilterOptions"
+              :key="filter.key"
+              class="dashboard-view-filter__chip"
+              :class="{ active: activeDashboardFilter === filter.key }"
+              type="button"
+              @click="activeDashboardFilter = filter.key"
+            >
+              {{ filter.label }}
+            </button>
           </div>
         </div>
         <div class="dashboard-hero-side">
@@ -83,15 +131,21 @@ function updateDashboardPeriod(event) {
             </article>
           </div>
           <div class="row-actions dashboard-hero-controls">
-            <p v-if="dashboardClientsActifs && !isCashierDashboard && !isTailorDashboard" class="helper"><strong>Clients actifs:</strong> {{ dashboardClientsActifs.value }}</p>
-            <select :value="dashboardPeriod" @change="updateDashboardPeriod">
-              <option v-for="option in dashboardPeriodOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
+            <DateNavigator
+              v-if="selectedDate"
+              :model-value="selectedDate"
+              @update:model-value="emit('update:selectedDate', $event)"
+            />
           </div>
         </div>
       </article>
+
+      <div v-if="dailyDecisionPills.length > 0" class="decision-strip" aria-label="Resume decisionnel du jour">
+        <article v-for="pill in dailyDecisionPills" :key="pill.label" class="decision-pill" :data-tone="pill.tone || 'neutral'">
+          <span>{{ pill.label }}</span>
+          <strong>{{ pill.value }}</strong>
+        </article>
+      </div>
 
       <CashierDashboardContent
         v-if="isCashierDashboard"
@@ -102,6 +156,7 @@ function updateDashboardPeriod(event) {
         :format-currency="formatCurrency"
         :cashier-alerts="cashierAlerts"
         :open-route="openRoute"
+        :active-filter="activeDashboardFilter"
       />
 
       <TailorDashboardContent
@@ -112,6 +167,7 @@ function updateDashboardPeriod(event) {
         :dashboard-production-recent-rows="dashboardProductionRecentRows"
         :format-currency="formatCurrency"
         :open-route="openRoute"
+        :active-filter="activeDashboardFilter"
       />
 
       <OwnerDashboardContent
@@ -135,6 +191,7 @@ function updateDashboardPeriod(event) {
         :dashboard-contact-board="dashboardContactBoard"
         :dashboard-commandes-cards="dashboardCommandesCards"
         :dashboard-retouches-cards="dashboardRetouchesCards"
+        :dashboard-argent-attendu="dashboardArgentAttendu"
         :format-currency="formatCurrency"
         :format-percent="formatPercent"
         :format-dashboard-client-follow-up-description="formatDashboardClientFollowUpDescription"
@@ -143,6 +200,7 @@ function updateDashboardPeriod(event) {
         :open-nouvelle-commande="openNouvelleCommande"
         :open-nouvelle-retouche="openNouvelleRetouche"
         :icon-paths="iconPaths"
+        :active-filter="activeDashboardFilter"
       />
 
       <template #action>
@@ -160,21 +218,130 @@ function updateDashboardPeriod(event) {
         >
           <button class="action-btn blue" @click="openRoute('commandes')">Voir commandes</button>
         </MobilePrimaryActionBar>
-        <MobilePrimaryActionBar
-          v-else-if="isMobileViewport && canCreateCommande"
-          title="Action principale"
-          subtitle="Commencez rapidement une nouvelle commande."
-        >
-          <button class="action-btn blue" @click="openNouvelleCommande">Nouvelle commande</button>
-        </MobilePrimaryActionBar>
-        <MobilePrimaryActionBar
-          v-else-if="isMobileViewport && canCreateRetouche"
-          title="Action principale"
-          subtitle="Commencez rapidement une nouvelle retouche."
-        >
-          <button class="action-btn green" @click="openNouvelleRetouche">Nouvelle retouche</button>
-        </MobilePrimaryActionBar>
       </template>
     </MobilePageLayout>
   </section>
 </template>
+
+<style scoped>
+.decision-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 1px 4px;
+  scrollbar-width: none;
+}
+
+.dashboard-view-filter {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.dashboard-view-filter__chip {
+  min-height: 38px;
+  border: 1px solid rgba(31, 90, 162, 0.14);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #475467;
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(31, 90, 162, 0.06);
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.dashboard-view-filter__chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(31, 90, 162, 0.25);
+}
+
+.dashboard-view-filter__chip.active {
+  border-color: rgba(31, 90, 162, 0.28);
+  background: linear-gradient(180deg, #2366b5 0%, #174f94 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(31, 90, 162, 0.18);
+}
+
+.decision-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.decision-pill {
+  flex: 1 0 160px;
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+  display: grid;
+  gap: 4px;
+}
+
+.decision-pill span {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.decision-pill strong {
+  color: #24364d;
+  font-size: 1rem;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.decision-pill[data-tone="in"] strong {
+  color: #17643d;
+}
+
+.decision-pill[data-tone="out"] strong {
+  color: #b74235;
+}
+
+@media (max-width: 767px) {
+  .decision-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .dashboard-view-filter {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 2px 1px 7px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dashboard-view-filter::-webkit-scrollbar {
+    display: none;
+  }
+
+  .dashboard-view-filter__chip {
+    flex: 0 0 auto;
+  }
+
+  .decision-pill {
+    flex: initial;
+  }
+
+  .decision-strip > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+    justify-items: center;
+    text-align: center;
+  }
+}
+</style>

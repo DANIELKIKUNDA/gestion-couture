@@ -95,16 +95,31 @@ function financeItems() {
 function resultItems() {
   return [
     {
+      key: "atelier",
+      label: "Total atelier",
+      value: props.formatCurrency(props.totals?.totalAtelier),
+      emphasis: true,
+      tone: "info"
+    },
+    {
+      key: "stock",
+      label: "Total stock",
+      value: props.formatCurrency(props.totals?.totalStock),
+      emphasis: true,
+      tone: "success"
+    },
+    {
       key: "sortiesQuotidiennes",
-      label: "Depenses quotidiennes",
-      value: props.formatCurrency(props.totals?.totalSortiesQuotidiennes)
+      label: "Total depenses",
+      value: props.formatCurrency(props.totals?.totalDepenses),
+      tone: "warning"
     },
     {
       key: "resultat",
-      label: "Resultat journalier",
-      value: props.formatCurrency(props.totals?.resultatJournalier),
+      label: "Net du jour",
+      value: props.formatCurrency(props.totals?.netJour),
       emphasis: true,
-      tone: "info"
+      tone: Number(props.totals?.netJour || 0) < 0 ? "warning" : "success"
     },
     {
       key: "clotureePar",

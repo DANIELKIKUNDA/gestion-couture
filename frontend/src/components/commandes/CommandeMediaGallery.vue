@@ -491,6 +491,7 @@ watch(
             <span v-else class="helper">Miniature indisponible</span>
           </button>
           <span v-if="item.isPrimary" class="commande-media-badge">Principale</span>
+          <span v-if="item.offlineAvailable" class="commande-media-offline-badge">Hors ligne</span>
         </div>
 
         <p class="commande-media-note" :class="{ 'is-empty': !truncateNote(item.note) }">
@@ -761,6 +762,22 @@ watch(
   color: #fff;
   font-size: 11px;
   font-weight: 700;
+}
+
+.commande-media-offline-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(9, 17, 29, 0.78);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: 0 8px 18px rgba(9, 17, 29, 0.18);
 }
 
 .commande-media-note {

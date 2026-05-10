@@ -1,7 +1,7 @@
 import { ArticleInexistant, VenteIntrouvable, VenteInvalide } from "../../domain/errors.js";
 import { generateVenteLigneId } from "../../../shared/domain/id-generator.js";
 
-export async function mettreAJourVente({ idVente, lignesVente, articleRepo, venteRepo }) {
+export async function mettreAJourVente({ idVente, lignesVente, acheteurNom = undefined, articleRepo, venteRepo }) {
   const vente = await venteRepo.getById(idVente);
   if (!vente) throw new VenteIntrouvable("Vente introuvable");
 
@@ -28,6 +28,7 @@ export async function mettreAJourVente({ idVente, lignesVente, articleRepo, vent
   }
 
   vente.setLignes(nouvellesLignes);
+  if (acheteurNom !== undefined) vente.setAcheteurNom(acheteurNom);
   await venteRepo.save(vente);
   return vente;
 }

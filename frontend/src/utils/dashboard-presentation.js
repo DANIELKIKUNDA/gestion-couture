@@ -20,10 +20,10 @@ export function useDashboardPresentation({
   ].filter(Boolean));
 
   const dashboardFinanceMobileCards = computed(() => [
-    { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse), tone: "blue" },
-    { label: "Encaissement", value: formatCurrency(financeMetrics.value.totalEncaissement), tone: "green" },
-    { label: "Depenses", value: formatCurrency(financeMetrics.value.depensesJour), tone: "amber" },
-    { label: "Acomptes", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" }
+    { label: "Argent en caisse", value: formatCurrency(financeMetrics.value.soldeCaisse), tone: "blue" },
+    { label: "Argent entre", value: formatCurrency(financeMetrics.value.totalEncaissement), tone: "green" },
+    { label: "Argent sorti", value: formatCurrency(financeMetrics.value.depensesJour), tone: "amber" },
+    { label: "Entrees atelier", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" }
   ]);
 
   const dashboardSalesMobileCards = computed(() => [
@@ -49,43 +49,43 @@ export function useDashboardPresentation({
   });
 
   const dashboardHeroTitle = computed(() => {
-    if (isCashierDashboard.value) return "Cockpit caissier";
-    if (isTailorDashboard.value) return "Cockpit couturier";
-    return "Dashboard atelier";
+    if (isCashierDashboard.value) return "Caisse du jour";
+    if (isTailorDashboard.value) return "Atelier couture";
+    return "Etat de l'atelier aujourd'hui";
   });
 
   const dashboardHeroSubtitle = computed(() => {
-    if (isCashierDashboard.value) return "Encaissements, soldes et livraisons pretes dans un flux simple, rapide et sans distraction.";
-    if (isTailorDashboard.value) return "Travaux du jour, retards et pieces pretes reunis dans une vue de production claire.";
-    return "Suivez rapidement l'activite, la caisse et les alertes.";
+    if (isCashierDashboard.value) return "Voyez si la caisse peut encaisser, qui doit payer maintenant et ce qu'il faut verifier.";
+    if (isTailorDashboard.value) return "Voyez quoi faire aujourd'hui, ce qui est en retard et ce qui est deja termine.";
+    return "Voyez ce qui va bien, ce qui demande votre attention et l'argent disponible pour piloter l'atelier sans chercher.";
   });
 
   const dashboardHeroHighlights = computed(() => {
     if (isCashierDashboard.value) {
       return [
-        { label: "A encaisser maintenant", value: cashierCollections.value.readyToCash.length },
-        { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse) },
-        { label: "Documents a solder", value: (dashboardCommandesCards.value[3]?.value || 0) + (dashboardRetouchesCards.value[3]?.value || 0) }
+        { label: "Clients a encaisser", value: cashierCollections.value.readyToCash.length },
+        { label: "Argent en caisse", value: formatCurrency(financeMetrics.value.soldeCaisse) },
+        { label: "Travaux avec solde", value: (dashboardCommandesCards.value[3]?.value || 0) + (dashboardRetouchesCards.value[3]?.value || 0) }
       ];
     }
     if (isTailorDashboard.value) {
       return [
-        { label: "Travaux du jour", value: tailorCollections.value.dueTodayCount || 0 },
+        { label: "A faire aujourd'hui", value: tailorCollections.value.dueTodayCount || 0 },
         { label: "En retard", value: tailorCollections.value.overdueCount || 0 },
-        { label: "Prets", value: tailorCollections.value.readyCount || 0 }
+        { label: "Termines", value: tailorCollections.value.readyCount || 0 }
       ];
     }
     return [
-      { label: "Clients actifs", value: dashboardClientsActifs.value?.value || 0 },
-      { label: "Commandes en cours", value: dashboardCommandesCards.value[1]?.value || 0 },
-      { label: "Retouches en cours", value: dashboardRetouchesCards.value[1]?.value || 0 }
+      { label: "Travaux en cours", value: (dashboardCommandesCards.value[1]?.value || 0) + (dashboardRetouchesCards.value[1]?.value || 0) },
+      { label: "Argent en caisse", value: formatCurrency(financeMetrics.value.soldeCaisse) },
+      { label: "Clients actifs", value: dashboardClientsActifs.value?.value || 0 }
     ];
   });
 
   const dashboardHeroTags = computed(() => {
-    if (isCashierDashboard.value) return ["Caisse", "Encaissement", "Soldes", "Livraison"];
-    if (isTailorDashboard.value) return ["Production", "Echeances", "Priorites", "Habits"];
-    return ["Atelier", "Vue globale", "Suivi", "Performance"];
+    if (isCashierDashboard.value) return ["Caisse", "Encaisser", "Soldes", "Verifier"];
+    if (isTailorDashboard.value) return ["Aujourd'hui", "Retards", "Termines", "Priorites"];
+    return ["Argent", "Clients", "Travail", "Alertes"];
   });
 
   return {

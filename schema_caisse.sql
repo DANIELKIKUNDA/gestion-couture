@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS caisse_operation (
   type_depense TEXT NULL CHECK (type_depense IN ('QUOTIDIENNE','EXCEPTIONNELLE')),
   justification TEXT NULL,
   impact_journalier BOOLEAN NULL,
-  impact_global BOOLEAN NULL
+  impact_global BOOLEAN NULL,
+  activite TEXT NOT NULL DEFAULT 'ATELIER' CHECK (activite IN ('ATELIER','STOCK'))
 );
 
 ALTER TABLE caisse_jour ADD COLUMN IF NOT EXISTS atelier_id TEXT;
@@ -58,6 +59,15 @@ ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS type_depense TEXT NULL;
 ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS justification TEXT NULL;
 ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS impact_journalier BOOLEAN NULL;
 ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS impact_global BOOLEAN NULL;
+ALTER TABLE caisse_operation ADD COLUMN IF NOT EXISTS activite TEXT;
+UPDATE caisse_operation
+SET activite = CASE
+  WHEN motif IN ('VENTE_STOCK','PAIEMENT_STOCK','ACHAT_STOCK') THEN 'STOCK'
+  ELSE 'ATELIER'
+END
+WHERE activite IS NULL OR BTRIM(activite) = '';
+ALTER TABLE caisse_operation ALTER COLUMN activite SET DEFAULT 'ATELIER';
+ALTER TABLE caisse_operation ALTER COLUMN activite SET NOT NULL;
 
 DO $$
 BEGIN
@@ -74,6 +84,22 @@ END $$;
 ALTER TABLE caisse_operation
   ADD CONSTRAINT caisse_operation_type_depense_check
   CHECK (type_depense IN ('QUOTIDIENNE','EXCEPTIONNELLE'));
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'caisse_operation'::regclass
+      AND conname = 'caisse_operation_activite_check'
+  ) THEN
+    ALTER TABLE caisse_operation DROP CONSTRAINT caisse_operation_activite_check;
+  END IF;
+END $$;
+
+ALTER TABLE caisse_operation
+  ADD CONSTRAINT caisse_operation_activite_check
+  CHECK (activite IN ('ATELIER','STOCK'));
 
 UPDATE caisse_operation
 SET

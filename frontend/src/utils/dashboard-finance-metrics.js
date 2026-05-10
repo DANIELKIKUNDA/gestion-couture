@@ -21,6 +21,10 @@ export function useDashboardFinanceMetrics({
     const ops = (caisseJour.value?.operations || []).filter((op) => op.statutOperation !== "ANNULEE");
     const totalEntrees = ops.filter((op) => op.typeOperation === "ENTREE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
     const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
+    const entreesAtelierCaisse = ops
+      .filter((op) => op.typeOperation === "ENTREE")
+      .filter((op) => String(op.activite || "ATELIER").trim().toUpperCase() !== "STOCK")
+      .reduce((sum, op) => sum + Number(op.montant || 0), 0);
     const isWithinDashboardPeriod = (dateRef) => {
       if (!dateRef) return true;
       if (dashboardPeriod.value === "TODAY") return dateRef === today;
@@ -39,7 +43,7 @@ export function useDashboardFinanceMetrics({
       soldeCaisse: Number(caisseJour.value?.soldeCourant || 0),
       totalEncaissement: totalEntrees,
       depensesJour: totalSorties,
-      acomptesEncaisses: acomptesCommandes + acomptesRetouches
+      acomptesEncaisses: ops.length > 0 ? entreesAtelierCaisse : acomptesCommandes + acomptesRetouches
     };
   });
 

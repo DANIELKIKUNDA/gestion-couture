@@ -36,3 +36,12 @@ frontend/vite.config.js.timestamp-*.mjs
 # OS
 .DS_Store
 Thumbs.db
+
+# Local IDE and generated screenshots
+.idea/
+atelier-screen*.png
+emulator-*.png
+docs/marketing-screenshots/
+docs/marketing-studio-videos/
+docs/marketing-studio-videos-audio/
+docs/marketing-videos/

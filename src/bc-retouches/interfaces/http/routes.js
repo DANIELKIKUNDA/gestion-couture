@@ -36,6 +36,14 @@ import {
 import { createRetoucheMesuresSnapshot } from "../../domain/mesures-retouche.js";
 import { RetoucheItem } from "../../domain/retouche-item.js";
 import { generateRetoucheItemId } from "../../../shared/domain/id-generator.js";
+import {
+  IdempotencyConflict,
+  assertSameNumber,
+  assertSameString,
+  idempotencyConflictResponse,
+  lockIdempotencyKey,
+  normalizeIdempotencyKey
+} from "../../../shared/application/idempotency.js";
 
 const router = express.Router();
 const RETOUCHE_LIBRE_TYPE_HABIT = "AUTRES";
@@ -353,6 +361,25 @@ async function lockRetoucheCreation(db, atelierId, idRetouche) {
   await db.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
 }
 
+function assertSameRetoucheCreation(existingRetouche, body) {
+  if (body?.descriptionRetouche) {
+    assertSameString(existingRetouche?.descriptionRetouche, body.descriptionRetouche, "Cette cle d'idempotence correspond deja a une autre description de retouche.");
+  }
+  assertSameNumber(existingRetouche?.montantTotal, body?.montantTotal, "Cette cle d'idempotence correspond deja a un autre montant de retouche.");
+  if (body?.idClient) {
+    assertSameString(existingRetouche?.idClient, body.idClient, "Cette cle d'idempotence correspond deja a un autre client de retouche.");
+  }
+  if (body?.idDossier) {
+    assertSameString(existingRetouche?.dossierId, body.idDossier, "Cette cle d'idempotence correspond deja a un autre dossier de retouche.");
+  }
+  if (body?.typeRetouche) {
+    assertSameString(existingRetouche?.typeRetouche, body.typeRetouche, "Cette cle d'idempotence correspond deja a un autre type de retouche.");
+  }
+  if (body?.typeHabit) {
+    assertSameString(existingRetouche?.typeHabit, body.typeHabit, "Cette cle d'idempotence correspond deja a un autre type d'habit de retouche.");
+  }
+}
+
 // List retouches
 router.get("/retouches", requireRetoucheReadAccess, async (req, res) => {
   try {
@@ -668,7 +695,17 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     .object({
       idRetouche: z.string().min(1).optional(),
       idDossier: z.string().min(1).optional(),
-      idClient: z.string().min(1),
+      idClient: z.string().min(1).optional(),
+      nouveauClient: z
+        .object({
+          idClient: z.string().min(1).optional(),
+          nom: z.string().min(1),
+          prenom: z.string().min(1),
+          telephone: z.string().optional().default("")
+        })
+        .passthrough()
+        .optional(),
+      doublonDecision: z.any().optional(),
       descriptionRetouche: z.string().optional(),
       typeRetouche: z.string().min(1).optional(),
       montantTotal: z.coerce.number().optional(),
@@ -685,14 +722,20 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
       typeHabit: z.string().min(1).optional(),
       mesuresHabit: z.any().optional(),
       datePrevue: z.string().optional(),
-      priorite: z.enum(["NORMALE", "URGENTE", "TRES_URGENTE"]).optional()
+      priorite: z.enum(["NORMALE", "URGENTE", "TRES_URGENTE"]).optional(),
+      idempotencyKey: z.string().min(1).optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
+  const hasExistingClient = Boolean(String(body.idClient || "").trim());
+  const hasNewClient = Boolean(body.nouveauClient);
+  if (hasExistingClient === hasNewClient) {
+    return res.status(400).json({ error: "Fournissez soit idClient, soit nouveauClient." });
+  }
   const hasItems = Array.isArray(body.items) && body.items.length > 0;
-  const r1 = requireFields(body, hasItems ? ["idClient"] : ["idClient", "montantTotal"]);
+  const r1 = requireFields(body, hasItems ? [] : ["montantTotal"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   try {
     assertRetoucheCreationAmounts(body);
@@ -705,10 +748,12 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     const acteur = resolveActeur(req);
     const policy = await loadRetouchePolicy({ req });
     const repo = scopedRetoucheRepo(req).withExecutor(dbClient);
+    const clients = scopedClientRepo(req).withExecutor(dbClient);
     const mesuresRepo = scopedSerieRepo(req).withExecutor(dbClient);
     const dossiers = scopedDossierRepo(req).withExecutor(dbClient);
     const requestedIdRetouche = String(body.idRetouche || "").trim();
     const requestedDossierId = String(body.idDossier || "").trim() || null;
+    const idempotencyKey = normalizeIdempotencyKey(body.idempotencyKey);
     if (requestedIdRetouche) {
       const existingRetouche = await repo.getById(requestedIdRetouche);
       if (existingRetouche) {
@@ -726,6 +771,35 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
       }
     }
     await dbClient.query("BEGIN");
+    if (idempotencyKey) {
+      await lockIdempotencyKey(dbClient, "retouche:create", atelierIdFromReq(req), idempotencyKey);
+      const existingByKey = await repo.findByIdempotencyKey(idempotencyKey);
+      if (existingByKey) {
+        assertSameRetoucheCreation(existingByKey, body);
+        const existingItems = await scopedRetoucheItemRepo(req).withExecutor(dbClient).listByRetouche(existingByKey.idRetouche);
+        const clientAssocie = await clients.getById(existingByKey.idClient);
+        await dbClient.query("COMMIT");
+        const retouchePayload = {
+          ...existingByKey,
+          idempotent: true,
+          items: hydrateRetoucheItems(existingItems, {
+            id_retouche: existingByKey.idRetouche,
+            type_retouche: existingByKey.typeRetouche,
+            description: existingByKey.descriptionRetouche,
+            montant_total: existingByKey.montantTotal,
+            date_depot: existingByKey.dateDepot
+          })
+        };
+        if (hasNewClient) {
+          return res.status(200).json({
+            retouche: retouchePayload,
+            client: clientAssocie || null,
+            idempotent: true
+          });
+        }
+        return res.status(200).json(retouchePayload);
+      }
+    }
     if (requestedDossierId) {
       const existingDossier = await dossiers.getById(requestedDossierId);
       if (!existingDossier) {
@@ -737,8 +811,17 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
       throw new Error("Ajoutez au moins un item de retouche.");
     }
     const { primaryItem, mesureTargets, measuresRequired } = deriveRetoucheContext({ body, items: retoucheItems, policy });
+    const clientResolution = hasNewClient
+      ? await resolveClientForCreation({
+          idClient: body.idClient,
+          nouveauClient: body.nouveauClient,
+          doublonDecision: body.doublonDecision,
+          clientRepo: clients
+        })
+      : { idClient: String(body.idClient || "").trim(), client: null, strategy: "EXISTING" };
     const retouche = deposerRetouche({
       ...body,
+      idClient: clientResolution.idClient,
       idRetouche: requestedIdRetouche || generateRetoucheId(),
       items: retoucheItems,
       typeRetouche: primaryItem?.typeRetouche || body.typeRetouche,
@@ -747,6 +830,7 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
     }, {
       policy: { retouches: policy }
     });
+    retouche.idempotencyKey = idempotencyKey;
     retouche.montantTotal = computeRetoucheTotalFromItems(retoucheItems, body.montantTotal);
     retouche.descriptionRetouche = String(body.descriptionRetouche || primaryItem?.description || "").trim();
     retouche.typeRetouche = primaryItem?.typeRetouche || retouche.typeRetouche;
@@ -795,13 +879,30 @@ router.post("/retouches", requireRetoucheCreateAccess, async (req, res) => {
         utilisateurNom: acteur.utilisateurNom
       }
     });
-    res.status(201).json({
+    const retoucheResponse = {
       ...retouche,
       dossierId: retouche.dossierId || null,
       items: retoucheItems
-    });
+    };
+    if (hasNewClient) {
+      return res.status(201).json({
+        retouche: retoucheResponse,
+        client: clientResolution.client,
+        clientResolution: clientResolution.strategy
+      });
+    }
+    res.status(201).json(retoucheResponse);
   } catch (err) {
     await dbClient.query("ROLLBACK").catch(() => {});
+    if (err instanceof IdempotencyConflict) {
+      return res.status(409).json(idempotencyConflictResponse(err));
+    }
+    if (Number(err?.status || 0) === 409) {
+      return res.status(409).json(serializeClientCreationConflict(err));
+    }
+    if (Number(err?.status || 0) === 404) {
+      return res.status(404).json({ code: String(err.code || "NOT_FOUND"), message: err.message });
+    }
     res.status(400).json({ error: err.message });
   } finally {
     dbClient.release();
@@ -1184,7 +1285,8 @@ router.post("/retouches/:id/paiements/caisse", async (req, res) => {
       idCaisseJour: z.string().min(1),
       utilisateur: z.string().min(1),
       modePaiement: z.string().optional(),
-      idItem: z.string().min(1).optional()
+      idItem: z.string().min(1).optional(),
+      idempotencyKey: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body);
@@ -1211,7 +1313,9 @@ router.post("/retouches/:id/paiements/caisse", async (req, res) => {
           retoucheRepo: repo,
           retoucheItemRepo: scopedRetoucheItemRepo(req),
           caisseRepo: scopedCaisseRepo(req),
-          policy: await loadRetouchePolicy({ req })
+          policy: await loadRetouchePolicy({ req }),
+          enforceDateDuJour: true,
+          idempotencyKey: body.idempotencyKey || null
         })
       : await enregistrerPaiementRetoucheViaCaisse({
           idRetouche: req.params.id,
@@ -1220,7 +1324,9 @@ router.post("/retouches/:id/paiements/caisse", async (req, res) => {
           utilisateur: acteur.utilisateur || body.utilisateur,
           modePaiement: body.modePaiement || "CASH",
           retoucheRepo: repo,
-          caisseRepo: scopedCaisseRepo(req)
+          caisseRepo: scopedCaisseRepo(req),
+          enforceDateDuJour: true,
+          idempotencyKey: body.idempotencyKey || null
         });
     await enregistrerEvenementRetouche({
       atelierId: atelierIdFromReq(req),
@@ -1255,7 +1361,7 @@ router.post("/retouches/:id/paiements/caisse", async (req, res) => {
     });
     res.json(retouche);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -1309,7 +1415,8 @@ router.post("/retouches/:id/annuler", requirePermission(PERMISSIONS.ANNULER_COMM
     .object({
       idCaisseJour: z.string().min(1).optional(),
       utilisateur: z.string().min(1).optional(),
-      modePaiement: z.string().optional()
+      modePaiement: z.string().optional(),
+      idempotencyKey: z.string().optional()
     })
     .passthrough();
   const parsed = validateSchema(schema, req.body || {});
@@ -1324,7 +1431,8 @@ router.post("/retouches/:id/annuler", requirePermission(PERMISSIONS.ANNULER_COMM
       utilisateur: acteur.utilisateur || parsed.data.utilisateur,
       modePaiement: parsed.data.modePaiement || "CASH",
       retoucheRepo: repo,
-      caisseRepo: scopedCaisseRepo(req)
+      caisseRepo: scopedCaisseRepo(req),
+      idempotencyKey: parsed.data.idempotencyKey || null
     });
     await enregistrerEvenementRetouche({
       atelierId: atelierIdFromReq(req),
@@ -1356,7 +1464,7 @@ router.post("/retouches/:id/annuler", requirePermission(PERMISSIONS.ANNULER_COMM
     });
     res.json(retouche);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
   }
 });
 

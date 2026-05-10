@@ -15,6 +15,14 @@ const props = defineProps({
     type: Function,
     required: true
   },
+  sourceLabel: {
+    type: Function,
+    required: true
+  },
+  sourceTone: {
+    type: Function,
+    required: true
+  },
   depenseTypeLabel: {
     type: Function,
     required: true
@@ -27,11 +35,22 @@ function toneFor(op) {
 }
 
 function titleFor(op) {
-  return String(op?.motif || "").trim() || String(op?.typeOperation || "").trim() || "Operation";
+  return `[${props.sourceLabel(op?.sourceFlux)}][${op?.activite || "ATELIER"}] ${signedAmount(op)}`;
 }
 
 function subtitleFor(op) {
-  return op?.justification || op?.referenceMetier || "Operation de caisse";
+  const motif = String(op?.motif || "").trim() || String(op?.typeOperation || "").trim() || "Operation";
+  const detail = op?.justification || op?.referenceMetier || op?.effectuePar || "";
+  return detail ? `${motif} - ${detail}` : motif;
+}
+
+function signedAmount(op) {
+  const amount = props.formatCurrency(op?.montant);
+  return String(op?.typeOperation || "").trim() === "SORTIE" ? `-${amount}` : `+${amount}`;
+}
+
+function amountTone(op) {
+  return String(op?.typeOperation || "").trim() === "SORTIE" ? "warning" : "success";
 }
 
 function metaItemsFor(op) {
@@ -43,15 +62,25 @@ function metaItemsFor(op) {
     },
     {
       key: "type",
-      label: "Type",
-      value: op?.typeOperation || "-"
+      label: "Lecture",
+      value: `[${props.sourceLabel(op?.sourceFlux)}][${op?.activite || "ATELIER"}]`
     },
     {
       key: "montant",
       label: "Montant",
-      value: props.formatCurrency(op?.montant),
+      value: signedAmount(op),
       emphasis: true,
-      tone: String(op?.typeOperation || "").trim() === "SORTIE" ? "warning" : "success"
+      tone: amountTone(op)
+    },
+    {
+      key: "source",
+      label: "Source",
+      value: props.sourceLabel(op?.sourceFlux)
+    },
+    {
+      key: "activite",
+      label: "Activite",
+      value: op?.activite || "ATELIER"
     },
     {
       key: "depense",
@@ -88,9 +117,20 @@ function metaItemsFor(op) {
       :tone="toneFor(op)"
     >
       <template #badge>
-        <span class="status-pill" :data-status="op.statutOperation || 'INCONNUE'">
-          {{ op.statutOperation || "-" }}
-        </span>
+        <div class="caisse-operation-badges">
+          <span class="caisse-operation-amount" :data-tone="amountTone(op)">
+            {{ signedAmount(op) }}
+          </span>
+          <span class="status-pill" :data-tone="props.sourceTone(op?.sourceFlux)">
+            {{ props.sourceLabel(op?.sourceFlux) }}
+          </span>
+          <span class="status-pill" data-tone="info">
+            {{ op.activite || "ATELIER" }}
+          </span>
+          <span class="status-pill" :data-status="op.statutOperation || 'INCONNUE'">
+            {{ op.statutOperation || "-" }}
+          </span>
+        </div>
       </template>
 
       <template #meta>
@@ -104,5 +144,32 @@ function metaItemsFor(op) {
 .caisse-operation-mobile-list {
   display: grid;
   gap: 12px;
+}
+
+.caisse-operation-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.caisse-operation-amount {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.caisse-operation-amount[data-tone="success"] {
+  color: #17643d;
+  background: #e4f7e9;
+}
+
+.caisse-operation-amount[data-tone="warning"] {
+  color: #9f2f24;
+  background: #fde7e4;
 }
 </style>

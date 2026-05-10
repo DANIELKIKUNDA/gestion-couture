@@ -222,7 +222,7 @@ async function testMinuitNeCloturePasLaCaisseDuJourLeMemeJour() {
   assert.equal(repo.saved, null, "aucune sauvegarde de cloture n'est attendue");
 }
 
-async function testLeSchedulerNeCloturePasUneCaisseOuverteDansLeMemeCycle() {
+async function testLeSchedulerCreeUneCaisseDuJourClotureeApresHeureCloture() {
   const saved = [];
   let currentDay = null;
   const repo = {
@@ -240,8 +240,11 @@ async function testLeSchedulerNeCloturePasUneCaisseOuverteDansLeMemeCycle() {
       };
     },
     async listBeforeDate(dateJour) {
-      assert.equal(dateJour, "2026-05-25");
+      assert.ok(String(dateJour || "").startsWith("2026-"));
       return [];
+    },
+    async listByDateRange() {
+      return currentDay ? [currentDay] : [];
     },
     async save(caisse) {
       currentDay = caisse;
@@ -265,6 +268,9 @@ async function testLeSchedulerNeCloturePasUneCaisseOuverteDansLeMemeCycle() {
     async getByTypeAndRange() {
       return null;
     },
+    async getByPeriod() {
+      return null;
+    },
     async save() {}
   };
 
@@ -277,9 +283,11 @@ async function testLeSchedulerNeCloturePasUneCaisseOuverteDansLeMemeCycle() {
     now: new Date("2026-05-25T06:30:00.000Z")
   });
 
-  assert.equal(saved.length, 1, "une seule sauvegarde d'ouverture est attendue");
-  assert.ok(currentDay, "la caisse du jour doit exister");
-  assert.equal(currentDay.statutCaisse, StatutCaisse.OUVERTE, "la caisse ne doit pas etre cloturee dans le meme cycle");
+  assert.equal(saved.length, 1, "une caisse du jour cloturee doit etre materialisee apres l'heure de cloture");
+  assert.ok(currentDay, "la caisse du jour doit exister pour l'historique");
+  assert.equal(currentDay.statutCaisse, StatutCaisse.CLOTUREE, "la caisse creee apres cloture reste en lecture seule");
+  assert.equal(currentDay.soldeOuverture, 120, "le solde precedent doit etre reporte");
+  assert.equal(currentDay.soldeCloture, 120, "une caisse sans operations cloture au solde reporte");
 }
 
 await testClotureLaDerniereCaisseOuverteJusquauJourCourant();
@@ -288,5 +296,5 @@ await testRattrapeCaisseVeilleAvant17hKinshasa();
 await testDesactiveClotureAutoNeFermeRien();
 await testHeureClotureAutoConfigurable();
 await testMinuitNeCloturePasLaCaisseDuJourLeMemeJour();
-await testLeSchedulerNeCloturePasUneCaisseOuverteDansLeMemeCycle();
+await testLeSchedulerCreeUneCaisseDuJourClotureeApresHeureCloture();
 console.log("OK: caisse automations");

@@ -60,11 +60,12 @@ async function run() {
   await articleRepo.save(article);
 
   const created = await creerVente({
-    input: { lignesVente: [{ idArticle: "ART-1", quantite: 3 }] },
+    input: { acheteurNom: "Maman Sarah", lignesVente: [{ idArticle: "ART-1", quantite: 3 }] },
     articleRepo,
     venteRepo
   });
   assert.equal(created.statut, StatutVente.BROUILLON);
+  assert.equal(created.acheteurNom, "Maman Sarah");
   assert.equal(created.total, 1500);
 
   const cancelled = await annulerVente({
@@ -112,6 +113,7 @@ async function run() {
   assert.equal(savedCaisse.operations.length, 1);
   assert.equal(savedCaisse.operations[0].montant, 1500);
   assert.equal(savedCaisse.operations[0].motif, "VENTE_STOCK");
+  assert.equal(savedCaisse.operations[0].activite, "STOCK");
 
   const vente = new Vente({
     idVente: "V-2",

@@ -1,4 +1,4 @@
-﻿import { pool } from "../../../shared/infrastructure/db.js";
+import { pool } from "../../../shared/infrastructure/db.js";
 import { CaisseJour } from "../../domain/caisse-jour.js";
 
 function normalizePgDateOnly(value) {
@@ -14,23 +14,24 @@ function normalizePgDateOnly(value) {
 }
 
 export class CaisseRepoPg {
-  constructor(atelierId = "ATELIER") {
+  constructor(atelierId = "ATELIER", db = pool) {
     this.atelierId = String(atelierId || "ATELIER");
+    this.db = db;
   }
 
   forAtelier(atelierId) {
-    return new CaisseRepoPg(atelierId);
+    return new CaisseRepoPg(atelierId, this.db);
   }
 
   async getById(idCaisseJour) {
-    const res = await pool.query(
-      "SELECT id_caisse_jour, date_jour, statut, solde_ouverture, solde_cloture, ouverte_par, cloturee_par, date_ouverture, date_cloture, ouverture_anticipee, motif_ouverture_anticipee, autorisee_par FROM caisse_jour WHERE id_caisse_jour = $1 AND atelier_id = $2",
+    const res = await this.db.query(
+      "SELECT id_caisse_jour, to_char(date_jour, 'YYYY-MM-DD') AS date_jour, statut, solde_ouverture, solde_cloture, ouverte_par, cloturee_par, date_ouverture, date_cloture, ouverture_anticipee, motif_ouverture_anticipee, autorisee_par FROM caisse_jour WHERE id_caisse_jour = $1 AND atelier_id = $2",
       [idCaisseJour, this.atelierId]
     );
     if (res.rowCount === 0) return null;
 
-    const opRes = await pool.query(
-      "SELECT id_operation, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation, type_depense, justification, impact_journalier, impact_global FROM caisse_operation WHERE id_caisse_jour = $1 AND atelier_id = $2",
+    const opRes = await this.db.query(
+      "SELECT id_operation, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation, type_depense, justification, impact_journalier, impact_global, activite, idempotency_key FROM caisse_operation WHERE id_caisse_jour = $1 AND atelier_id = $2",
       [idCaisseJour, this.atelierId]
     );
 
@@ -64,13 +65,34 @@ export class CaisseRepoPg {
         typeDepense: op.type_depense,
         justification: op.justification,
         impactJournalier: op.impact_journalier === null ? null : op.impact_journalier === true,
-        impactGlobal: op.impact_global === null ? null : op.impact_global === true
+        impactGlobal: op.impact_global === null ? null : op.impact_global === true,
+        activite: op.activite || "ATELIER",
+        idempotencyKey: op.idempotency_key || null
       }))
     });
   }
 
+  async findOperationByIdempotencyKey(idempotencyKey) {
+    const key = String(idempotencyKey || "").trim();
+    if (!key) return null;
+    const res = await this.db.query(
+      `SELECT id_operation, id_caisse_jour
+       FROM caisse_operation
+       WHERE atelier_id = $1 AND idempotency_key = $2
+       LIMIT 1`,
+      [this.atelierId, key]
+    );
+    return res.rowCount === 0 ? null : res.rows[0];
+  }
+
+  async getByOperationIdempotencyKey(idempotencyKey) {
+    const op = await this.findOperationByIdempotencyKey(idempotencyKey);
+    if (!op) return null;
+    return this.getById(op.id_caisse_jour);
+  }
+
   async getByDate(dateJour) {
-    const res = await pool.query(
+    const res = await this.db.query(
       "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour = $1 AND atelier_id = $2 LIMIT 1",
       [dateJour, this.atelierId]
     );
@@ -79,7 +101,7 @@ export class CaisseRepoPg {
   }
 
   async getLatestBeforeDate(dateJour) {
-    const res = await pool.query(
+    const res = await this.db.query(
       "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour < $1 AND atelier_id = $2 ORDER BY date_jour DESC LIMIT 1",
       [dateJour, this.atelierId]
     );
@@ -88,7 +110,7 @@ export class CaisseRepoPg {
   }
 
   async listBeforeDate(dateJour, limit = 60) {
-    const res = await pool.query(
+    const res = await this.db.query(
       "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour < $1 AND atelier_id = $2 ORDER BY date_jour DESC LIMIT $3",
       [dateJour, this.atelierId, limit]
     );
@@ -101,7 +123,7 @@ export class CaisseRepoPg {
   }
 
   async listByDateRange(dateDebut, dateFin) {
-    const res = await pool.query(
+    const res = await this.db.query(
       "SELECT id_caisse_jour FROM caisse_jour WHERE date_jour >= $1 AND date_jour <= $2 AND atelier_id = $3 ORDER BY date_jour ASC",
       [dateDebut, dateFin, this.atelierId]
     );
@@ -114,7 +136,7 @@ export class CaisseRepoPg {
   }
 
   async save(caisse) {
-    await pool.query(
+    await this.db.query(
       `INSERT INTO caisse_jour (id_caisse_jour, atelier_id, date_jour, statut, solde_ouverture, solde_cloture, ouverte_par, cloturee_par, date_ouverture, date_cloture, ouverture_anticipee, motif_ouverture_anticipee, autorisee_par)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (id_caisse_jour)
@@ -138,11 +160,11 @@ export class CaisseRepoPg {
 
     // Persist operations (upsert by id_operation)
     for (const op of caisse.operations) {
-      await pool.query(
-        `INSERT INTO caisse_operation (id_operation, atelier_id, id_caisse_jour, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation, type_depense, justification, impact_journalier, impact_global)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+      await this.db.query(
+        `INSERT INTO caisse_operation (id_operation, atelier_id, id_caisse_jour, type_operation, montant, mode_paiement, motif, reference_metier, date_operation, effectue_par, statut_operation, motif_annulation, annulee_par, date_annulation, type_depense, justification, impact_journalier, impact_global, activite, idempotency_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
          ON CONFLICT (id_operation)
-         DO UPDATE SET atelier_id=$2, type_operation=$4, montant=$5, mode_paiement=$6, motif=$7, reference_metier=$8, date_operation=$9, effectue_par=$10, statut_operation=$11, motif_annulation=$12, annulee_par=$13, date_annulation=$14, type_depense=$15, justification=$16, impact_journalier=$17, impact_global=$18`,
+         DO UPDATE SET atelier_id=$2, type_operation=$4, montant=$5, mode_paiement=$6, motif=$7, reference_metier=$8, date_operation=$9, effectue_par=$10, statut_operation=$11, motif_annulation=$12, annulee_par=$13, date_annulation=$14, type_depense=$15, justification=$16, impact_journalier=$17, impact_global=$18, activite=$19, idempotency_key=$20`,
         [
           op.idOperation,
           this.atelierId,
@@ -161,7 +183,9 @@ export class CaisseRepoPg {
           op.typeDepense || null,
           op.justification || null,
           op.impactJournalier === undefined ? null : op.impactJournalier === true,
-          op.impactGlobal === undefined ? null : op.impactGlobal === true
+          op.impactGlobal === undefined ? null : op.impactGlobal === true,
+          op.activite || "ATELIER",
+          op.idempotencyKey || null
         ]
       );
     }

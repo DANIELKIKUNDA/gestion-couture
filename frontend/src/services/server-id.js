@@ -24,6 +24,10 @@ export function createServerCommandeId() {
   return createServerEntityId("CMD");
 }
 
+export function createServerDossierId() {
+  return createServerEntityId("DOS");
+}
+
 export function createServerRetoucheId() {
   return createServerEntityId("RET");
 }

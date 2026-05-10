@@ -56,8 +56,8 @@ defineProps({
             <button
               v-if="!isMobileViewport && detailVente && detailVente.statut === 'BROUILLON'"
               class="action-btn blue"
-              :disabled="!caisseOuverte"
-              :title="!caisseOuverte ? 'Caisse cloturee' : ''"
+              :class="{ 'is-locked': !caisseOuverte }"
+              :title="!caisseOuverte ? 'Caisse fermee: ouvrez la caisse pour valider' : ''"
               @click="onValiderVente(detailVente)"
             >
               Valider
@@ -65,8 +65,8 @@ defineProps({
             <button
               class="mini-btn"
               v-if="detailVente && detailVente.statut === 'BROUILLON'"
-              :disabled="!caisseOuverte"
-              :title="!caisseOuverte ? 'Caisse cloturee' : ''"
+              :class="{ 'is-locked': !caisseOuverte }"
+              :title="!caisseOuverte ? 'Caisse fermee: ouvrez la caisse pour facturer' : ''"
               @click="onValiderVenteEtFacturer(detailVente)"
             >
               Valider + facture
@@ -119,6 +119,7 @@ defineProps({
             <article class="panel detail-grid">
               <div>
                 <h4>Informations vente</h4>
+                <p><strong>Acheteur:</strong> {{ detailVente.acheteurNom || "Non renseigne" }}</p>
                 <p><strong>Date:</strong> {{ formatDateTime(detailVente.date) }}</p>
                 <p><strong>Statut:</strong> {{ detailVente.statut }}</p>
                 <p><strong>Facture:</strong> {{ detailVenteFacture ? detailVenteFacture.numeroFacture : "Non emise" }}</p>
@@ -194,3 +195,11 @@ defineProps({
     </MobilePageLayout>
   </section>
 </template>
+
+<style scoped>
+.is-locked {
+  border-color: rgba(176, 111, 0, 0.2) !important;
+  background: #fff8e8 !important;
+  color: #7a5207 !important;
+}
+</style>

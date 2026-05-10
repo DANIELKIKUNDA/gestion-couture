@@ -4,6 +4,7 @@ import {
   commandePhotosStore,
   clientsStore,
   commandesStore,
+  dossiersStore,
   putScopedEntityRecord,
   retouchesStore
 } from "./local-db.js";
@@ -23,6 +24,35 @@ const ENTITY_DESCRIPTORS = Object.freeze({
         localId: localRecord.localId,
         serverId,
         idClient: serverId,
+        syncStatus: ENTITY_SYNC_STATUSES.SYNCED,
+        updatedAt: context.timestamp,
+        lastSyncedAt: context.timestamp
+      };
+    }
+  },
+  dossier: {
+    tableName: TABLE_NAMES.DOSSIERS,
+    store: dossiersStore,
+    extractServerId(payload) {
+      return normalizeString(payload?.idDossier || payload?.id_dossier || payload?.id);
+    },
+    buildRecord(localRecord, serverPayload, context) {
+      const serverId = context.serverId;
+      const responsableServerId =
+        normalizeString(context.references?.responsableServerId) ||
+        normalizeString(serverPayload?.idResponsableClient || serverPayload?.id_responsable_client) ||
+        normalizeString(serverPayload?.responsable?.idClient || serverPayload?.responsable?.id_client) ||
+        normalizeString(localRecord?.responsableServerId) ||
+        normalizeString(localRecord?.idResponsableClient);
+
+      return {
+        ...localRecord,
+        ...(serverPayload || {}),
+        localId: localRecord.localId,
+        serverId,
+        idDossier: serverId,
+        idResponsableClient: responsableServerId,
+        responsableServerId,
         syncStatus: ENTITY_SYNC_STATUSES.SYNCED,
         updatedAt: context.timestamp,
         lastSyncedAt: context.timestamp

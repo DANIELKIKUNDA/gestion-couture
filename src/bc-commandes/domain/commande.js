@@ -33,6 +33,7 @@ export class Commande {
     typeHabit,
     mesuresHabit,
     items = [],
+    idempotencyKey = null,
     policy = null,
     rehydrate = false
   }) {
@@ -56,6 +57,7 @@ export class Commande {
     this.idCommande = idCommande;
     this.idClient = idClient;
     this.dossierId = dossierId ? String(dossierId).trim() : null;
+    this.idempotencyKey = idempotencyKey || null;
     this.descriptionCommande = descriptionCommande;
     this.dateCreation = dateCreation;
     this.datePrevue = datePrevue;

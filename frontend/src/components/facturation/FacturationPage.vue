@@ -69,30 +69,45 @@ function setFactureMobileFiltersOpen(value) {
 
       <article v-show="factureSection === 'liste'" class="panel">
         <template v-if="isMobileViewport">
+          <article class="mobile-modern-filter-panel">
+            <input v-model="factureFilters.recherche" type="search" placeholder="Numero, client ou origine" />
+            <div class="mobile-filter-chip-row" aria-label="Statut des factures">
+              <button
+                v-for="status in factureStatusOptions"
+                :key="`fac-chip-${status}`"
+                class="mobile-filter-chip"
+                :class="{ active: factureFilters.statut === status }"
+                type="button"
+                @click="factureFilters.statut = status"
+              >
+                {{ status === "ALL" ? "Toutes" : status.replaceAll("_", " ") }}
+              </button>
+            </div>
+            <div class="mobile-filter-chip-row mobile-filter-chip-row-secondary" aria-label="Origine des factures">
+              <button class="mobile-filter-chip" :class="{ active: factureFilters.source === 'ALL' }" type="button" @click="factureFilters.source = 'ALL'">Toutes sources</button>
+              <button class="mobile-filter-chip" :class="{ active: factureFilters.source === 'COMMANDE' }" type="button" @click="factureFilters.source = 'COMMANDE'">Commandes</button>
+              <button class="mobile-filter-chip" :class="{ active: factureFilters.source === 'RETOUCHE' }" type="button" @click="factureFilters.source = 'RETOUCHE'">Retouches</button>
+              <button class="mobile-filter-chip" :class="{ active: factureFilters.source === 'VENTE' }" type="button" @click="factureFilters.source = 'VENTE'">Ventes</button>
+            </div>
+            <div class="mobile-filter-result-row">
+              <span>{{ facturesFiltered.length }} resultat(s)</span>
+              <button class="mini-btn mobile-filter-more-btn" type="button" @click="setFactureMobileFiltersOpen(!factureMobileFiltersOpen)">
+                {{ factureMobileFiltersOpen ? "Fermer" : "Plus de filtres" }}
+              </button>
+            </div>
+          </article>
           <MobileFilterBlock
-            title="Filtres factures"
+            title="Plus de filtres"
             :summary="factureFilterSummary"
             :open="factureMobileFiltersOpen"
             @toggle="setFactureMobileFiltersOpen(!factureMobileFiltersOpen)"
           >
             <div class="filters compact">
-              <select v-model="factureFilters.statut">
-                <option v-for="status in factureStatusOptions" :key="`fac-st-${status}`" :value="status">
-                  {{ status === "ALL" ? "Tous statuts" : status }}
-                </option>
-              </select>
-              <select v-model="factureFilters.source">
-                <option value="ALL">Toutes origines</option>
-                <option value="COMMANDE">Commande</option>
-                <option value="RETOUCHE">Retouche</option>
-                <option value="VENTE">Vente</option>
-              </select>
               <select v-model="factureFilters.soldeRestant">
                 <option v-for="option in soldeOptions" :key="`fac-solde-${option.value}`" :value="option.value">
                   {{ option.label }}
                 </option>
               </select>
-              <input v-model="factureFilters.recherche" type="text" placeholder="Recherche numero / client / origine" />
             </div>
             <div class="panel-footer">
               <button class="mini-btn" @click="resetFactureFilters">Reinitialiser filtres</button>
@@ -118,7 +133,7 @@ function setFactureMobileFiltersOpen(value) {
                 {{ option.label }}
               </option>
             </select>
-            <input v-model="factureFilters.recherche" type="text" placeholder="Recherche numero / client / origine" />
+            <input v-model="factureFilters.recherche" type="search" placeholder="Numero, client ou origine" />
           </div>
           <div class="panel-footer">
             <button class="mini-btn" @click="resetFactureFilters">Reinitialiser filtres</button>

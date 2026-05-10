@@ -5,20 +5,30 @@ function formatDashboardWorkDueDate(dateValue = "", formatDateShort) {
   return formatDateShort(`${dateValue}T00:00:00.000Z`);
 }
 
+function humanizeDashboardLabel(value, fallback = "ce travail") {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  if (/[a-zàâçéèêëîïôûùüÿñæœ]/.test(text)) return text.toLowerCase();
+  return text.replace(/_/g, " ").toLowerCase().trim() || fallback;
+}
+
+function dashboardClientName(value, fallback = "Ce client") {
+  return String(value || "").trim() || fallback;
+}
+
 function buildDashboardPaymentDescription(item, typeLabel, formatCurrency, formatDateShort) {
   const parts = [];
-  if (item?.clientNom) parts.push(item.clientNom);
-  if (Number(item?.soldeRestant || 0) > 0) parts.push(`Solde ${formatCurrency(item.soldeRestant)}`);
-  if (item?.datePrevue) parts.push(`Prevue ${formatDashboardWorkDueDate(item.datePrevue, formatDateShort)}`);
-  return `${typeLabel} - ${parts.join(" - ")}`;
+  if (Number(item?.soldeRestant || 0) > 0) parts.push(`Encaisser ${formatCurrency(item.soldeRestant)}.`);
+  if (item?.datePrevue) parts.push(`Prevu le ${formatDashboardWorkDueDate(item.datePrevue, formatDateShort)}.`);
+  return parts.join(" ") || `${typeLabel} a verifier avant encaissement.`;
 }
 
 function buildDashboardProductionDescription(item, typeLabel, formatStatusLabel, formatDateShort) {
-  const parts = [`Statut ${formatStatusLabel(item?.statut || "-")}`];
-  if (item?.clientNom) parts.push(item.clientNom);
-  if (item?.priorite && item.priorite !== "NORMALE") parts.push(`Priorite ${String(item.priorite).replaceAll("_", " ")}`);
-  if (item?.datePrevue) parts.push(`Prevue ${formatDashboardWorkDueDate(item.datePrevue, formatDateShort)}`);
-  return `${typeLabel} - ${parts.join(" - ")}`;
+  const parts = [];
+  if (item?.datePrevue) parts.push(`Prevu le ${formatDashboardWorkDueDate(item.datePrevue, formatDateShort)}.`);
+  if (item?.priorite && item.priorite !== "NORMALE") parts.push(`Priorite ${String(item.priorite).replaceAll("_", " ").toLowerCase()}.`);
+  parts.push(`Etat: ${formatStatusLabel(item?.statut || "-")}.`);
+  return parts.join(" ");
 }
 
 function normalizeDashboardPriorite(value = "") {
@@ -52,12 +62,10 @@ export function useDashboardRoleCollections({
   todayIso
 }) {
   const cashierDashboardCards = computed(() => [
-    { label: "Solde caisse", value: formatCurrency(financeMetrics.value.soldeCaisse), tone: "blue" },
-    { label: "Encaissements", value: formatCurrency(financeMetrics.value.totalEncaissement), tone: "green" },
-    { label: "Depenses", value: formatCurrency(financeMetrics.value.depensesJour), tone: "amber" },
-    { label: "Acomptes encaisses", value: formatCurrency(financeMetrics.value.acomptesEncaisses), tone: "slate" },
-    { label: "Commandes a solder", value: dashboardCommandesCards.value[3]?.value || 0, tone: "amber" },
-    { label: "Retouches a solder", value: dashboardRetouchesCards.value[3]?.value || 0, tone: "amber" }
+    { label: "Argent en caisse", value: formatCurrency(financeMetrics.value.soldeCaisse), tone: "blue" },
+    { label: "Argent encaisse", value: formatCurrency(financeMetrics.value.totalEncaissement), tone: "green" },
+    { label: "Argent sorti", value: formatCurrency(financeMetrics.value.depensesJour), tone: "amber" },
+    { label: "Travaux a encaisser", value: (dashboardCommandesCards.value[3]?.value || 0) + (dashboardRetouchesCards.value[3]?.value || 0), tone: "amber" }
   ]);
 
   const cashierCollections = computed(() => {
@@ -72,14 +80,14 @@ export function useDashboardRoleCollections({
         .filter((item) => item.statutCommande === "TERMINEE")
         .map((item) => ({
           id: `commande-${item.idCommande}`,
-          libelle: item.idCommande,
+          libelle: `${dashboardClientName(item.clientNom)} vient recuperer ${humanizeDashboardLabel(item.typeHabit, "sa commande")}.`,
           description: buildDashboardPaymentDescription(item, "Commande", formatCurrency, formatDateShort)
         })),
       ...retouchesRows
         .filter((item) => item.statutRetouche === "TERMINEE")
         .map((item) => ({
           id: `retouche-${item.idRetouche}`,
-          libelle: item.idRetouche,
+          libelle: `${dashboardClientName(item.clientNom || clientMap.value.get(item.idClient) || item.idClient)} vient recuperer ${humanizeDashboardLabel(item.typeRetouche || item.typeHabit, "sa retouche")}.`,
           description: buildDashboardPaymentDescription(item, "Retouche", formatCurrency, formatDateShort)
         }))
     ].slice(0, 6);
@@ -87,12 +95,12 @@ export function useDashboardRoleCollections({
     return {
       commandes: commandes.slice(0, 6).map((item) => ({
         id: item.idCommande,
-        libelle: item.idCommande,
+        libelle: `${dashboardClientName(item.clientNom)} doit encore payer pour ${humanizeDashboardLabel(item.typeHabit, "sa commande")}.`,
         description: buildDashboardPaymentDescription(item, "Commande", formatCurrency, formatDateShort)
       })),
       retouches: retouchesRows.slice(0, 6).map((item) => ({
         id: item.idRetouche,
-        libelle: item.idRetouche,
+        libelle: `${dashboardClientName(item.clientNom || clientMap.value.get(item.idClient) || item.idClient)} doit encore payer pour ${humanizeDashboardLabel(item.typeRetouche || item.typeHabit, "sa retouche")}.`,
         description: buildDashboardPaymentDescription(item, "Retouche", formatCurrency, formatDateShort)
       })),
       readyToCash
@@ -101,12 +109,12 @@ export function useDashboardRoleCollections({
 
   const cashierAlerts = computed(() => {
     const items = [];
-    if (!caisseOuverte.value) items.push({ id: "cash-closed", libelle: "Caisse cloturee", description: "Ouvrez ou verifiez la caisse avant d'encaisser." });
+    if (!caisseOuverte.value) items.push({ id: "cash-closed", libelle: "La caisse est fermee.", description: "Ouvrez la caisse avant de recevoir un paiement." });
     if ((dashboardCommandesCards.value[3]?.value || 0) > 0) {
-      items.push({ id: "commandes-due", libelle: "Commandes avec solde", description: `${dashboardCommandesCards.value[3].value} commande(s) attendent un encaissement.` });
+      items.push({ id: "commandes-due", libelle: `${dashboardCommandesCards.value[3].value} commande(s) ont encore un solde.`, description: "Verifiez les clients qui doivent encore payer." });
     }
     if ((dashboardRetouchesCards.value[3]?.value || 0) > 0) {
-      items.push({ id: "retouches-due", libelle: "Retouches avec solde", description: `${dashboardRetouchesCards.value[3].value} retouche(s) attendent un encaissement.` });
+      items.push({ id: "retouches-due", libelle: `${dashboardRetouchesCards.value[3].value} retouche(s) ont encore un solde.`, description: "Verifiez les retouches a encaisser." });
     }
     return items;
   });
@@ -127,10 +135,9 @@ export function useDashboardRoleCollections({
     return [
       { label: "Commandes en cours", value: dashboardCommandesCards.value[1]?.value || 0, tone: "blue" },
       { label: "Retouches en cours", value: dashboardRetouchesCards.value[1]?.value || 0, tone: "teal" },
-      { label: "Commandes pretes", value: dashboardCommandesCards.value[2]?.value || 0, tone: "green" },
-      { label: "Retouches pretes", value: dashboardRetouchesCards.value[2]?.value || 0, tone: "green" },
-      { label: "A livrer aujourd'hui", value: dueToday, tone: "amber" },
-      { label: "Travaux en retard", value: overdue, tone: "amber" }
+      { label: "A faire aujourd'hui", value: dueToday, tone: "amber" },
+      { label: "En retard", value: overdue, tone: "amber" },
+      { label: "Termines", value: productionRows.filter((item) => item.statut === "TERMINEE").length, tone: "green" }
     ];
   });
 
@@ -146,7 +153,8 @@ export function useDashboardRoleCollections({
           clientNom: item.clientNom,
           statut: item.statutCommande,
           datePrevue: item.datePrevue,
-          priorite: item.priorite
+          priorite: item.priorite,
+          workLabel: humanizeDashboardLabel(item.typeHabit, "sa commande")
         })),
       ...retouches.value
         .filter((item) => item.statutRetouche !== "LIVREE" && item.statutRetouche !== "ANNULEE")
@@ -157,7 +165,8 @@ export function useDashboardRoleCollections({
           clientNom: item.clientNom || clientMap.value.get(item.idClient) || item.idClient,
           statut: item.statutRetouche,
           datePrevue: item.datePrevue,
-          priorite: item.priorite
+          priorite: item.priorite,
+          workLabel: humanizeDashboardLabel(item.typeRetouche || item.typeHabit, "sa retouche")
         }))
     ].sort((a, b) => {
       const priorityDelta = getDashboardPrioriteWeight(b.priorite) - getDashboardPrioriteWeight(a.priorite);
@@ -174,7 +183,7 @@ export function useDashboardRoleCollections({
         .slice(0, 6)
         .map((item) => ({
           id: item.id,
-          libelle: item.ref,
+          libelle: `Faire ${item.workLabel} de ${dashboardClientName(item.clientNom)}.`,
           description: buildDashboardProductionDescription(item, item.type, formatStatusLabel, formatDateShort)
         })),
       overdue: workRows
@@ -182,7 +191,7 @@ export function useDashboardRoleCollections({
         .slice(0, 6)
         .map((item) => ({
           id: item.id,
-          libelle: item.ref,
+          libelle: `${item.workLabel} de ${dashboardClientName(item.clientNom)} est en retard.`,
           description: buildDashboardProductionDescription(item, item.type, formatStatusLabel, formatDateShort)
         })),
       ready: workRows
@@ -190,7 +199,7 @@ export function useDashboardRoleCollections({
         .slice(0, 6)
         .map((item) => ({
           id: item.id,
-          libelle: item.ref,
+          libelle: `${item.workLabel} de ${dashboardClientName(item.clientNom)} est termine.`,
           description: buildDashboardProductionDescription(item, item.type, formatStatusLabel, formatDateShort)
         }))
     };

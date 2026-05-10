@@ -208,6 +208,42 @@ export class UtilisateurRepoPg {
     return mapRow(result.rows[0] || null);
   }
 
+  async listByIdentifier(identifier) {
+    const raw = String(identifier || "").trim();
+    const emailValue = raw.toLowerCase();
+    const phoneValue = raw.replace(/\D/g, "");
+    await ensureSchema();
+    const result = await pool.query(
+      `SELECT id_utilisateur, nom, email, telephone, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+       FROM utilisateurs
+       WHERE LOWER(COALESCE(email, '')) = $1
+          OR ($2 <> '' AND REGEXP_REPLACE(COALESCE(telephone, ''), '[^0-9]+', '', 'g') = $2)
+       ORDER BY date_creation DESC`,
+      [emailValue, phoneValue]
+    );
+    return result.rows.map(mapRow);
+  }
+
+  async listByIdentifierInAtelier(identifier, atelierId = "ATELIER") {
+    const raw = String(identifier || "").trim();
+    const emailValue = raw.toLowerCase();
+    const phoneValue = raw.replace(/\D/g, "");
+    const atelierValue = String(atelierId || "ATELIER");
+    await ensureSchema();
+    const result = await pool.query(
+      `SELECT id_utilisateur, nom, email, telephone, role_id, atelier_id, actif, etat_compte, token_version, mot_de_passe_hash
+       FROM utilisateurs
+       WHERE atelier_id = $3
+         AND (
+           LOWER(COALESCE(email, '')) = $1
+           OR ($2 <> '' AND REGEXP_REPLACE(COALESCE(telephone, ''), '[^0-9]+', '', 'g') = $2)
+         )
+       ORDER BY date_creation DESC`,
+      [emailValue, phoneValue, atelierValue]
+    );
+    return result.rows.map(mapRow);
+  }
+
   async getById(id) {
     const value = String(id || "");
     await ensureSchema();

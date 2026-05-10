@@ -187,9 +187,52 @@ async function testPremiereCaisseResteManuelle() {
   assert.equal(saveCalled, false, "aucune sauvegarde automatique n'est attendue");
 }
 
+async function testNouverturePasApresHeureClotureDuJour() {
+  let latestBeforeCalled = false;
+  let saveCalled = false;
+  const repo = {
+    async getByDate(dateJour) {
+      assert.equal(dateJour, "2026-05-25");
+      return null;
+    },
+    async getLatestBeforeDate() {
+      latestBeforeCalled = true;
+      return null;
+    },
+    async save() {
+      saveCalled = true;
+    }
+  };
+  const parametresRepo = {
+    async getCurrent() {
+      return {
+        payload: {
+          caisse: {
+            ouvertureAuto: "07:30",
+            clotureAutoActive: true,
+            heureClotureAuto: "17:00"
+          }
+        }
+      };
+    }
+  };
+
+  const opened = await ouvrirCaisseAutomatique({
+    caisseRepo: repo,
+    parametresRepo,
+    utilisateur: "system-auto",
+    now: new Date("2026-05-25T16:05:00.000Z")
+  });
+
+  assert.equal(opened, null, "aucune ouverture automatique attendue apres l'heure de cloture");
+  assert.equal(latestBeforeCalled, false, "la precedente ne doit pas etre consultee apres l'heure de cloture");
+  assert.equal(saveCalled, false, "aucune sauvegarde attendue");
+}
+
 await testOuvreApresHeureConfigureeEtReporteLeSoldePrecedent();
 await testNouverturePasAvantHeureDuDimanche();
 await testNouverturePasSiCaisseDuJourExiste();
 await testNouverturePasSiPrecedenteNonCloturee();
 await testPremiereCaisseResteManuelle();
+await testNouverturePasApresHeureClotureDuJour();
 console.log("OK: caisse ouverture auto");

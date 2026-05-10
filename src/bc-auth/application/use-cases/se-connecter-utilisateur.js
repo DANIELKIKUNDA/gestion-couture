@@ -8,11 +8,14 @@ const DUMMY_PASSWORD_HASH =
   "scrypt:7d7f5823cb8ef4d39f4fdc8ed3305f91:09ec950f0d4af9769d1f9acb6549e44f8b5c90cc1f9fca1f7df5f4a9d9b141ef";
 const LEGACY_ATELIER_ID = "ATELIER";
 
-export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRepo, authSessionRepo, email, motDePasse, atelierId = null }) {
+export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRepo, authSessionRepo, email, motDePasse, atelierId = null, utilisateurId = "" }) {
   const user =
-    atelierId && typeof utilisateurRepo.findByEmailInAtelier === "function"
+    utilisateurId && typeof utilisateurRepo.getById === "function"
+      ? await utilisateurRepo.getById(utilisateurId)
+      : atelierId && typeof utilisateurRepo.findByEmailInAtelier === "function"
       ? await utilisateurRepo.findByEmailInAtelier(email, atelierId)
       : await utilisateurRepo.findByEmail(email);
+  if (utilisateurId && atelierId && user?.atelierId !== atelierId) throw new Error("Identifiants invalides");
   const passwordHash = user?.motDePasseHash || DUMMY_PASSWORD_HASH;
   const passwordValid = verifyPassword(motDePasse, passwordHash);
   if (!user || !passwordValid) throw new Error("Identifiants invalides");

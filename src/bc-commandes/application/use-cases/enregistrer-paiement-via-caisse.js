@@ -1,6 +1,12 @@
 ﻿import { CommandeRepoPg } from "../../infrastructure/repositories/commande-repo-pg.js";
 import { CaisseRepoPg } from "../../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
 import { generateOperationId } from "../../../shared/domain/id-generator.js";
+import { assertCaisseDateDuJour } from "../../../bc-caisse/application/services/caisse-date-guard.js";
+import {
+  findAndAssertIdempotentOperation,
+  normalizeIdempotencyKey,
+  saveCaisseIdempotently
+} from "../../../bc-caisse/application/services/idempotency.js";
 
 export async function enregistrerPaiementViaCaisse({
   idCommande,
@@ -10,13 +16,28 @@ export async function enregistrerPaiementViaCaisse({
   modePaiement = "CASH",
   policy = null,
   commandeRepo = new CommandeRepoPg(),
-  caisseRepo = new CaisseRepoPg()
+  caisseRepo = new CaisseRepoPg(),
+  enforceDateDuJour = false,
+  idempotencyKey = null,
+  now,
+  timeZone
 }) {
   const commande = await commandeRepo.getById(idCommande);
   if (!commande) throw new Error("Commande introuvable");
 
   const caisse = await caisseRepo.getById(idCaisseJour);
   if (!caisse) throw new Error("Caisse introuvable");
+  if (enforceDateDuJour) assertCaisseDateDuJour(caisse, { now, timeZone });
+  const normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
+  if (
+    findAndAssertIdempotentOperation(caisse, normalizedIdempotencyKey, {
+      typeOperation: "ENTREE",
+      montant,
+      motif: "PAIEMENT_COMMANDE",
+      referenceMetier: idCommande,
+      activite: "ATELIER"
+    })
+  ) return commande;
 
   caisse.enregistrerEntree({
     idOperation: generateOperationId(),
@@ -24,11 +45,14 @@ export async function enregistrerPaiementViaCaisse({
     modePaiement,
     motif: "PAIEMENT_COMMANDE",
     referenceMetier: idCommande,
-    utilisateur
+    activite: "ATELIER",
+    utilisateur,
+    idempotencyKey: normalizedIdempotencyKey
   });
   commande.appliquerPaiement(Number(montant || 0), { policy });
 
-  await caisseRepo.save(caisse);
+  const savedCaisse = await saveCaisseIdempotently(caisseRepo, caisse, normalizedIdempotencyKey);
+  if (savedCaisse !== caisse) return (await commandeRepo.getById(idCommande)) || commande;
   await commandeRepo.save(commande);
   return commande;
 }
