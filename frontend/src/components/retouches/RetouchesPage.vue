@@ -99,48 +99,69 @@ function updateRetoucheClientQuery(event) {
           </div>
         </article>
 
-        <MobileFilterBlock
-          v-if="isMobileViewport && retoucheSection === 'liste'"
-          title="Filtres retouches"
-          :summary="retoucheFilterSummary"
-          :open="retoucheMobileFiltersOpen"
-          @toggle="setRetoucheMobileFiltersOpen(!retoucheMobileFiltersOpen)"
-        >
-          <div class="filters compact">
-            <select v-model="retoucheFilters.statut">
-              <option v-for="status in retoucheStatusOptions" :key="status" :value="status">
-                {{ status === "ALL" ? "Tous statuts" : status }}
-              </option>
-            </select>
-            <div class="retouche-client-picker">
-              <input :value="retoucheClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" @input="updateRetoucheClientQuery" />
-              <select v-model="retoucheFilters.client">
-                <option value="ALL">Tous clients</option>
-                <option v-if="retoucheClientOptions.length === 0" value="">Aucun resultat</option>
-                <option v-for="client in retoucheClientOptions" :key="client.idClient" :value="client.idClient">
-                  {{ `${client.nom} ${client.prenom}`.trim() }}
+        <template v-if="isMobileViewport && retoucheSection === 'liste'">
+          <article class="panel mobile-modern-filter-panel">
+            <div class="mobile-search-shell">
+              <span class="mobile-search-shell__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+              </span>
+              <input v-model="retoucheFilters.recherche" type="search" placeholder="Client, numero ou statut" />
+            </div>
+            <div class="mobile-filter-chip-row" aria-label="Statut des retouches">
+              <button
+                v-for="status in retoucheStatusOptions"
+                :key="`ret-chip-${status}`"
+                class="mobile-filter-chip"
+                :class="{ active: retoucheFilters.statut === status }"
+                type="button"
+                @click="retoucheFilters.statut = status"
+              >
+                {{ status === "ALL" ? "Tous" : status.replaceAll("_", " ") }}
+              </button>
+            </div>
+            <div class="mobile-filter-result-row">
+              <span>{{ retouchesFiltered.length }} resultat(s)</span>
+              <button class="mini-btn mobile-filter-more-btn" type="button" @click="setRetoucheMobileFiltersOpen(!retoucheMobileFiltersOpen)">
+                {{ retoucheMobileFiltersOpen ? "Fermer" : "Plus de filtres" }}
+              </button>
+            </div>
+          </article>
+          <MobileFilterBlock
+            title="Plus de filtres"
+            :summary="retoucheFilterSummary"
+            :open="retoucheMobileFiltersOpen"
+            @toggle="setRetoucheMobileFiltersOpen(!retoucheMobileFiltersOpen)"
+          >
+            <div class="filters compact">
+              <div class="retouche-client-picker">
+                <input :value="retoucheClientQuery" type="search" placeholder="Nom ou telephone du client" @input="updateRetoucheClientQuery" />
+                <select v-model="retoucheFilters.client">
+                  <option value="ALL">Tous clients</option>
+                  <option v-if="retoucheClientOptions.length === 0" value="">Aucun resultat</option>
+                  <option v-for="client in retoucheClientOptions" :key="client.idClient" :value="client.idClient">
+                    {{ `${client.nom} ${client.prenom}`.trim() }}
+                  </option>
+                </select>
+              </div>
+              <select v-model="retoucheFilters.periode">
+                <option v-for="period in periodOptions" :key="period.value" :value="period.value">
+                  {{ period.label }}
+                </option>
+              </select>
+              <select v-model="retoucheFilters.soldeRestant">
+                <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
                 </option>
               </select>
             </div>
-            <select v-model="retoucheFilters.periode">
-              <option v-for="period in periodOptions" :key="period.value" :value="period.value">
-                {{ period.label }}
-              </option>
-            </select>
-            <select v-model="retoucheFilters.soldeRestant">
-              <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-            <input v-model="retoucheFilters.recherche" type="text" placeholder="Recherche client / id / statut" />
-          </div>
-          <div class="panel-footer">
-            <button class="mini-btn" @click="emit('reset-filters')">Reinitialiser filtres</button>
-          </div>
-          <p v-if="retoucheClientQuery.trim() || retoucheFilters.recherche.trim()" class="helper">
-            Recherche active - {{ retouchesFiltered.length }} resultat(s)
-          </p>
-        </MobileFilterBlock>
+            <div class="panel-footer">
+              <button class="mini-btn" @click="emit('reset-filters')">Reinitialiser filtres</button>
+            </div>
+          </MobileFilterBlock>
+        </template>
 
         <article v-else-if="retoucheSection === 'liste'" class="panel">
           <h3>Filtres retouches</h3>
@@ -151,7 +172,7 @@ function updateRetoucheClientQuery(event) {
               </option>
             </select>
             <div class="retouche-client-picker">
-              <input :value="retoucheClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" @input="updateRetoucheClientQuery" />
+              <input :value="retoucheClientQuery" type="search" placeholder="Nom ou telephone du client" @input="updateRetoucheClientQuery" />
               <select v-model="retoucheFilters.client">
                 <option value="ALL">Tous clients</option>
                 <option v-if="retoucheClientOptions.length === 0" value="">Aucun resultat</option>
@@ -170,7 +191,7 @@ function updateRetoucheClientQuery(event) {
                 {{ option.label }}
               </option>
             </select>
-            <input v-model="retoucheFilters.recherche" type="text" placeholder="Recherche client / id / statut" />
+            <input v-model="retoucheFilters.recherche" type="search" placeholder="Client, numero ou statut" />
           </div>
           <div class="panel-footer">
             <button class="mini-btn" @click="emit('reset-filters')">Reinitialiser filtres</button>

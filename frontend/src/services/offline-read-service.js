@@ -3,6 +3,7 @@ import {
   ENTITY_SYNC_STATUSES,
   clientsStore,
   commandesStore,
+  dossiersStore,
   metaStore,
   retouchesStore
 } from "./local-db.js";
@@ -67,6 +68,20 @@ const ENTITY_DESCRIPTORS = Object.freeze({
         const rightLabel = `${right?.nom || ""} ${right?.prenom || ""}`.trim();
         return leftLabel.localeCompare(rightLabel, "fr", { sensitivity: "base" });
       });
+    }
+  },
+  dossiers: {
+    store: dossiersStore,
+    localPrefix: "dos",
+    extractServerId(row) {
+      return normalizeString(row?.idDossier || row?.id_dossier || row?.id);
+    },
+    sort(rows = []) {
+      return [...rows].sort((left, right) =>
+        normalizeString(right?.dateDerniereActivite || right?.date_derniere_activite || right?.dateCreation || right?.date_creation || right?.updatedAt).localeCompare(
+          normalizeString(left?.dateDerniereActivite || left?.date_derniere_activite || left?.dateCreation || left?.date_creation || left?.updatedAt)
+        )
+      );
     }
   },
   commandes: {
@@ -277,17 +292,20 @@ async function cacheServerRow(atelierId, entityKey, row) {
 
 async function refreshMainListsFromServer({
   atelierId,
+  loadDossiers = false,
   loadClients = false,
   loadCommandes = false,
   loadRetouches = false
 } = {}) {
   const tasks = [];
+  if (loadDossiers) tasks.push({ key: "dossiers", run: () => atelierApi.listDossiers() });
   if (loadClients) tasks.push({ key: "clients", run: () => atelierApi.listClients() });
   if (loadCommandes) tasks.push({ key: "commandes", run: () => atelierApi.listCommandes() });
   if (loadRetouches) tasks.push({ key: "retouches", run: () => atelierApi.listRetouches() });
 
   const settled = await Promise.allSettled(tasks.map((task) => task.run()));
   const refreshed = {
+    dossiers: null,
     clients: null,
     commandes: null,
     retouches: null,
@@ -372,11 +390,19 @@ async function refreshEntityDetailFromServer({ atelierId, entityKey, identifier,
 
 export async function loadMainListsLocalFirst({
   atelierId,
+  loadDossiers = false,
   loadClients = false,
   loadCommandes = false,
   loadRetouches = false
 } = {}) {
   const scopedAtelierId = ensureAtelierId(atelierId);
+  let cachedDossiers = loadDossiers ? await getCachedRowsByEntity(scopedAtelierId, "dossiers") : [];
+  if (loadDossiers && cachedDossiers.length === 0) {
+    const legacyDossierRows = await getReadonlyListCache(scopedAtelierId, READONLY_CACHE_KEYS.DOSSIERS);
+    if (legacyDossierRows.length > 0) {
+      cachedDossiers = await cacheServerRows(scopedAtelierId, "dossiers", legacyDossierRows);
+    }
+  }
   const cachedClients = loadClients ? await getCachedRowsByEntity(scopedAtelierId, "clients") : [];
   const cachedCommandes = loadCommandes ? await getCachedRowsByEntity(scopedAtelierId, "commandes") : [];
   const cachedRetouches = loadRetouches ? await getCachedRowsByEntity(scopedAtelierId, "retouches") : [];
@@ -385,17 +411,39 @@ export async function loadMainListsLocalFirst({
   return {
     online,
     cached: {
+      dossiers: cachedDossiers,
       clients: cachedClients,
       commandes: cachedCommandes,
       retouches: cachedRetouches
     },
-    hasCachedData: cachedClients.length > 0 || cachedCommandes.length > 0 || cachedRetouches.length > 0,
+    hasCachedData: cachedDossiers.length > 0 || cachedClients.length > 0 || cachedCommandes.length > 0 || cachedRetouches.length > 0,
     refreshPromise: online
       ? refreshMainListsFromServer({
           atelierId: scopedAtelierId,
+          loadDossiers,
           loadClients,
           loadCommandes,
           loadRetouches
+        })
+      : Promise.resolve(null)
+  };
+}
+
+export async function loadDossierDetailLocalFirst({ atelierId, idDossier } = {}) {
+  const scopedAtelierId = ensureAtelierId(atelierId);
+  const cached = await getCachedRowByIdentifier(scopedAtelierId, "dossiers", idDossier);
+  const online = isOnline();
+
+  return {
+    online,
+    cached,
+    hasCachedData: Boolean(cached),
+    refreshPromise: online
+      ? refreshEntityDetailFromServer({
+          atelierId: scopedAtelierId,
+          entityKey: "dossiers",
+          identifier: idDossier,
+          loader: (serverId) => atelierApi.getDossier(serverId)
         })
       : Promise.resolve(null)
   };

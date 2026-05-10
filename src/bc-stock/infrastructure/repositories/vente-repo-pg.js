@@ -2,27 +2,28 @@ import { pool } from "../../../shared/infrastructure/db.js";
 import { Vente } from "../../domain/vente.js";
 
 export class VenteRepoPg {
-  constructor(atelierId = "ATELIER") {
+  constructor(atelierId = "ATELIER", db = pool) {
     this.atelierId = String(atelierId || "ATELIER");
+    this.db = db;
   }
 
   forAtelier(atelierId) {
-    return new VenteRepoPg(atelierId);
+    return new VenteRepoPg(atelierId, this.db);
   }
 
   async ensureAcheteurColumns() {
-    await pool.query("ALTER TABLE ventes ADD COLUMN IF NOT EXISTS acheteur_nom TEXT");
+    await this.db.query("ALTER TABLE ventes ADD COLUMN IF NOT EXISTS acheteur_nom TEXT");
   }
 
   async getById(idVente) {
     await this.ensureAcheteurColumns();
-    const res = await pool.query(
+    const res = await this.db.query(
       "SELECT id_vente, date_vente, acheteur_nom, total, total_prix_achat, benefice_total, statut, reference_caisse, motif_annulation FROM ventes WHERE id_vente = $1 AND atelier_id = $2",
       [idVente, this.atelierId]
     );
     if (res.rowCount === 0) return null;
 
-    const lignesRes = await pool.query(
+    const lignesRes = await this.db.query(
       `SELECT id_ligne, id_article, libelle_article, quantite, prix_unitaire, prix_achat_unitaire, benefice_unitaire, benefice_total
        FROM vente_lignes
        WHERE id_vente = $1 AND atelier_id = $2
@@ -56,7 +57,7 @@ export class VenteRepoPg {
 
   async save(vente) {
     await this.ensureAcheteurColumns();
-    await pool.query(
+    await this.db.query(
       `INSERT INTO ventes (id_vente, atelier_id, date_vente, acheteur_nom, total, total_prix_achat, benefice_total, statut, reference_caisse, motif_annulation)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (id_vente)
@@ -75,10 +76,10 @@ export class VenteRepoPg {
       ]
     );
 
-    await pool.query("DELETE FROM vente_lignes WHERE id_vente = $1 AND atelier_id = $2", [vente.idVente, this.atelierId]);
+    await this.db.query("DELETE FROM vente_lignes WHERE id_vente = $1 AND atelier_id = $2", [vente.idVente, this.atelierId]);
 
     for (const ligne of vente.lignesVente) {
-      await pool.query(
+      await this.db.query(
         `INSERT INTO vente_lignes (
            id_ligne, atelier_id, id_vente, id_article, libelle_article, quantite, prix_unitaire, prix_achat_unitaire, benefice_unitaire, benefice_total
          )

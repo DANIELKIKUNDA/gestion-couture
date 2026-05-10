@@ -10,6 +10,14 @@ const props = defineProps({
   articleLabel: {
     type: Function,
     required: true
+  },
+  lineTotal: {
+    type: Function,
+    required: true
+  },
+  formatCurrency: {
+    type: Function,
+    required: true
   }
 });
 
@@ -23,6 +31,13 @@ function metaItemsFor(ligne) {
       value: ligne?.quantite ?? 0,
       emphasis: true,
       tone: "info"
+    },
+    {
+      key: "total",
+      label: "Total",
+      value: props.formatCurrency(props.lineTotal(ligne)),
+      emphasis: true,
+      tone: "success"
     }
   ];
 }
@@ -33,9 +48,9 @@ function metaItemsFor(ligne) {
     <MobileEntityCard
       v-for="(ligne, index) in items"
       :key="`${ligne.idArticle}-${index}`"
-      eyebrow="Brouillon"
+      eyebrow="Panier"
       :title="articleLabel(ligne.idArticle)"
-      subtitle="Ligne de vente en attente"
+      subtitle="Ligne prete a encaisser"
       tone="info"
     >
       <template #meta>

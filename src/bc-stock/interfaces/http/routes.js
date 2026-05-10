@@ -418,6 +418,7 @@ router.post("/stock/articles/:id/entrees", requireStockPurchaseAccess, async (re
       fournisseur: z.string().optional(),
       referenceAchat: z.string().optional(),
       prixAchatUnitaire: z.coerce.number().optional(),
+      sourceFinancement: z.string().optional(),
       idempotencyKey: z.string().optional()
     })
     .passthrough();
@@ -448,6 +449,7 @@ router.post("/stock/articles/:id/entrees", requireStockPurchaseAccess, async (re
         fournisseur: body.fournisseur || null,
         referenceAchat: body.referenceAchat || null,
         prixAchatUnitaire: body.prixAchatUnitaire === undefined ? null : body.prixAchatUnitaire,
+        sourceFinancement: body.sourceFinancement || null,
         idempotencyKey: body.idempotencyKey || null
       },
       articleRepo: scopedArticleRepo(req),
@@ -614,6 +616,86 @@ router.post("/ventes", requireVenteAccess, async (req, res) => {
     res.status(201).json(vente);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/ventes/encaisser", requireVenteAccess, async (req, res) => {
+  const schema = z
+    .object({
+      lignesVente: z.array(z.any()),
+      acheteurNom: z.string().max(160).optional(),
+      idCaisseJour: z.string().min(1),
+      utilisateur: z.string().min(1).optional(),
+      modePaiement: z.string().optional(),
+      idempotencyKey: z.string().optional()
+    })
+    .passthrough();
+  const parsed = validateSchema(schema, req.body);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+  const body = parsed.data;
+  const r1 = requireFields(body, ["lignesVente", "idCaisseJour"]);
+  if (!r1.ok) return res.status(400).json({ error: r1.error });
+
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query("BEGIN");
+    const atelierId = atelierIdFromReq(req);
+    const acteur = resolveActeur(req, body.utilisateur);
+    const txArticleRepo = new ArticleRepoPg(atelierId, dbClient);
+    const txVenteRepo = new VenteRepoPg(atelierId, dbClient);
+    const txCaisseRepo = new CaisseRepoPg(atelierId, dbClient);
+    const txFactureRepo = new FactureRepoPg(atelierId, dbClient);
+    const txOrigineReader = new OrigineFactureReaderPg(atelierId, dbClient);
+    const idempotencyKey = String(body.idempotencyKey || "").trim();
+    if (idempotencyKey) {
+      const existingCaisse = await txCaisseRepo.getByOperationIdempotencyKey(idempotencyKey);
+      const existingOperation = (existingCaisse?.operations || []).find(
+        (op) => String(op?.idempotencyKey || "").trim() === idempotencyKey && op?.motif === "VENTE_STOCK"
+      );
+      if (existingOperation?.referenceMetier) {
+        const existingVente = await txVenteRepo.getById(existingOperation.referenceMetier);
+        const existingFacture = await txFactureRepo.getByOrigine("VENTE", existingOperation.referenceMetier);
+        const detailFacture = existingFacture
+          ? await obtenirFacture({ idFacture: existingFacture.idFacture, factureRepo: txFactureRepo })
+          : null;
+        await dbClient.query("COMMIT");
+        return res.status(200).json({ vente: existingVente, facture: detailFacture });
+      }
+    }
+
+    const venteBrouillon = await creerVente({
+      input: body,
+      articleRepo: txArticleRepo,
+      venteRepo: txVenteRepo
+    });
+    const vente = await validerVente({
+      idVente: venteBrouillon.idVente,
+      idCaisseJour: body.idCaisseJour,
+      modePaiement: body.modePaiement || "CASH",
+      utilisateur: acteur.utilisateur || body.utilisateur,
+      venteRepo: txVenteRepo,
+      articleRepo: txArticleRepo,
+      caisseRepo: txCaisseRepo,
+      enforceDateDuJour: true,
+      idempotencyKey: idempotencyKey || null
+    });
+    const facture = await emettreFacture({
+      input: {
+        typeOrigine: "VENTE",
+        idOrigine: vente.idVente,
+        prefixeNumero: await resolveFacturationPrefix(req)
+      },
+      factureRepo: txFactureRepo,
+      origineReader: txOrigineReader
+    });
+    const detailFacture = await obtenirFacture({ idFacture: facture.idFacture, factureRepo: txFactureRepo });
+    await dbClient.query("COMMIT");
+    res.status(201).json({ vente, facture: detailFacture });
+  } catch (err) {
+    await dbClient.query("ROLLBACK").catch(() => {});
+    res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
+  } finally {
+    dbClient.release();
   }
 });
 

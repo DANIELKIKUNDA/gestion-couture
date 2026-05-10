@@ -168,6 +168,39 @@ function operationQuickLabel(op) {
 
             <article class="panel">
               <MobileSectionHeader
+                title="Repartition des encaissements"
+                subtitle="Lecture nette de la caisse par source."
+              />
+              <div class="caisse-source-cards">
+                <article class="caisse-source-card" data-tone="blue">
+                  <span>Commandes</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalCommandes) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="amber">
+                  <span>Retouches</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalRetouches) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="teal">
+                  <span>Ventes</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalVentes) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="violet">
+                  <span>Entrees manuelles</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="green">
+                  <span>Total global</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="red">
+                  <span>Depenses</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
+                </article>
+              </div>
+            </article>
+
+            <article class="panel">
+              <MobileSectionHeader
                 title="Historique des operations"
                 :subtitle="`${caisseOperations.length} operation(s) enregistree(s)`"
               />
@@ -574,5 +607,23 @@ function operationQuickLabel(op) {
 
 .caisse-decision-pill[data-tone="out"] strong {
   color: #b74235;
+}
+
+@media (max-width: 767px) {
+  .caisse-decision-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .caisse-decision-pill {
+    flex: initial;
+  }
+
+  .caisse-decision-strip > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+    justify-items: center;
+    text-align: center;
+  }
 }
 </style>

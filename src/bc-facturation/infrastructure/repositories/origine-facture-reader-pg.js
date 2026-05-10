@@ -13,20 +13,21 @@ function clientSnapshot(row) {
 }
 
 export class OrigineFactureReaderPg {
-  constructor(atelierId = "ATELIER") {
+  constructor(atelierId = "ATELIER", db = pool) {
     this.atelierId = String(atelierId || "ATELIER");
+    this.db = db;
   }
 
   forAtelier(atelierId) {
-    return new OrigineFactureReaderPg(atelierId);
+    return new OrigineFactureReaderPg(atelierId, this.db);
   }
 
   async ensureVenteAcheteurColumns() {
-    await pool.query("ALTER TABLE ventes ADD COLUMN IF NOT EXISTS acheteur_nom TEXT");
+    await this.db.query("ALTER TABLE ventes ADD COLUMN IF NOT EXISTS acheteur_nom TEXT");
   }
 
   async readCommande(idCommande) {
-    const res = await pool.query(
+    const res = await this.db.query(
       `SELECT c.id_commande,
               c.description,
               c.montant_total,
@@ -40,8 +41,8 @@ export class OrigineFactureReaderPg {
     );
     if (res.rowCount === 0) return null;
     const row = res.rows[0];
-    const lignesRes = (await hasCommandeLignesTable(pool))
-      ? await pool.query(
+    const lignesRes = (await hasCommandeLignesTable(this.db))
+      ? await this.db.query(
           `SELECT nom_affiche, prenom_affiche, type_habit
            FROM commande_lignes
            WHERE id_commande = $1 AND atelier_id = $2
@@ -83,7 +84,7 @@ export class OrigineFactureReaderPg {
   }
 
   async readRetouche(idRetouche) {
-    const res = await pool.query(
+    const res = await this.db.query(
       `SELECT r.id_retouche,
               r.description,
               r.montant_total,
@@ -114,14 +115,14 @@ export class OrigineFactureReaderPg {
 
   async readVente(idVente) {
     await this.ensureVenteAcheteurColumns();
-    const venteRes = await pool.query(
+    const venteRes = await this.db.query(
       `SELECT id_vente, acheteur_nom, total, reference_caisse
        FROM ventes
        WHERE id_vente = $1 AND atelier_id = $2`,
       [idVente, this.atelierId]
     );
     if (venteRes.rowCount === 0) return null;
-    const lignesRes = await pool.query(
+    const lignesRes = await this.db.query(
       `SELECT libelle_article, quantite, prix_unitaire
        FROM vente_lignes
        WHERE id_vente = $1 AND atelier_id = $2

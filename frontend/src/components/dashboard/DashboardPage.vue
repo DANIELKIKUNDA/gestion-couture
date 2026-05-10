@@ -1,4 +1,5 @@
 <script setup>
+import { computed, ref, watch } from "vue";
 import CashierDashboardContent from "./CashierDashboardContent.vue";
 import OwnerDashboardContent from "./OwnerDashboardContent.vue";
 import TailorDashboardContent from "./TailorDashboardContent.vue";
@@ -6,7 +7,7 @@ import DateNavigator from "../DateNavigator.vue";
 import MobilePageLayout from "../mobile/MobilePageLayout.vue";
 import MobilePrimaryActionBar from "../mobile/MobilePrimaryActionBar.vue";
 
-defineProps({
+const props = defineProps({
   dashboardRoleTone: { type: String, default: "owner" },
   isMobileViewport: { type: Boolean, default: false },
   isCashierDashboard: { type: Boolean, default: false },
@@ -61,6 +62,44 @@ defineProps({
 });
 
 const emit = defineEmits(["update:dashboardPeriod", "update:selectedDate"]);
+
+const activeDashboardFilter = ref("all");
+
+const dashboardFilterOptions = computed(() => {
+  if (props.isCashierDashboard) {
+    return [
+      { key: "all", label: "Tout" },
+      { key: "caisse", label: "Caisse" },
+      { key: "encaissements", label: "Encaisser" },
+      { key: "soldes", label: "Soldes" },
+      { key: "alertes", label: "Alertes" }
+    ];
+  }
+  if (props.isTailorDashboard) {
+    return [
+      { key: "all", label: "Tout" },
+      { key: "today", label: "Aujourd'hui" },
+      { key: "late", label: "Retards" },
+      { key: "ready", label: "Termines" },
+      { key: "activity", label: "Activite" }
+    ];
+  }
+  return [
+    { key: "all", label: "Tout" },
+    { key: "money", label: "Argent" },
+    { key: "clients", label: "Clients" },
+    { key: "work", label: "Travail" },
+    { key: "stock", label: "Stock" },
+    { key: "alerts", label: "Alertes" }
+  ];
+});
+
+watch(
+  () => props.dashboardRoleTone,
+  () => {
+    activeDashboardFilter.value = "all";
+  }
+);
 </script>
 
 <template>
@@ -71,8 +110,17 @@ const emit = defineEmits(["update:dashboardPeriod", "update:selectedDate"]);
           <p class="mobile-overline dashboard-hero-eyebrow">{{ dashboardHeroEyebrow }}</p>
           <h3>{{ dashboardHeroTitle }}</h3>
           <p class="helper dashboard-hero-subtitle">{{ dashboardHeroSubtitle }}</p>
-          <div class="dashboard-hero-tags">
-            <span v-for="tag in dashboardHeroTags" :key="tag" class="dashboard-hero-tag">{{ tag }}</span>
+          <div class="dashboard-view-filter" aria-label="Filtrer le tableau de bord">
+            <button
+              v-for="filter in dashboardFilterOptions"
+              :key="filter.key"
+              class="dashboard-view-filter__chip"
+              :class="{ active: activeDashboardFilter === filter.key }"
+              type="button"
+              @click="activeDashboardFilter = filter.key"
+            >
+              {{ filter.label }}
+            </button>
           </div>
         </div>
         <div class="dashboard-hero-side">
@@ -108,6 +156,7 @@ const emit = defineEmits(["update:dashboardPeriod", "update:selectedDate"]);
         :format-currency="formatCurrency"
         :cashier-alerts="cashierAlerts"
         :open-route="openRoute"
+        :active-filter="activeDashboardFilter"
       />
 
       <TailorDashboardContent
@@ -118,6 +167,7 @@ const emit = defineEmits(["update:dashboardPeriod", "update:selectedDate"]);
         :dashboard-production-recent-rows="dashboardProductionRecentRows"
         :format-currency="formatCurrency"
         :open-route="openRoute"
+        :active-filter="activeDashboardFilter"
       />
 
       <OwnerDashboardContent
@@ -150,6 +200,7 @@ const emit = defineEmits(["update:dashboardPeriod", "update:selectedDate"]);
         :open-nouvelle-commande="openNouvelleCommande"
         :open-nouvelle-retouche="openNouvelleRetouche"
         :icon-paths="iconPaths"
+        :active-filter="activeDashboardFilter"
       />
 
       <template #action>
@@ -179,6 +230,46 @@ const emit = defineEmits(["update:dashboardPeriod", "update:selectedDate"]);
   overflow-x: auto;
   padding: 2px 1px 4px;
   scrollbar-width: none;
+}
+
+.dashboard-view-filter {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.dashboard-view-filter__chip {
+  min-height: 38px;
+  border: 1px solid rgba(31, 90, 162, 0.14);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #475467;
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(31, 90, 162, 0.06);
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.dashboard-view-filter__chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(31, 90, 162, 0.25);
+}
+
+.dashboard-view-filter__chip.active {
+  border-color: rgba(31, 90, 162, 0.28);
+  background: linear-gradient(180deg, #2366b5 0%, #174f94 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(31, 90, 162, 0.18);
 }
 
 .decision-strip::-webkit-scrollbar {
@@ -218,5 +309,39 @@ const emit = defineEmits(["update:dashboardPeriod", "update:selectedDate"]);
 
 .decision-pill[data-tone="out"] strong {
   color: #b74235;
+}
+
+@media (max-width: 767px) {
+  .decision-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .dashboard-view-filter {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 2px 1px 7px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dashboard-view-filter::-webkit-scrollbar {
+    display: none;
+  }
+
+  .dashboard-view-filter__chip {
+    flex: 0 0 auto;
+  }
+
+  .decision-pill {
+    flex: initial;
+  }
+
+  .decision-strip > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+    justify-items: center;
+    text-align: center;
+  }
 }
 </style>

@@ -1,6 +1,7 @@
 import { ApiError, atelierApi } from "./api.js";
 import { getEntityByLocalId, getEntityTableName, getServerIdByLocalId, persistSyncedEntityRecord } from "./id-mapper.js";
 import { SYNC_QUEUE_STATUSES, TABLE_NAMES, offlineDb, runOfflineTransaction } from "./local-db.js";
+import { cacheSyncedCommandePhotoBlob } from "./commande-media-cache-service.js";
 import { OFFLINE_MEDIA_ACTIONS } from "./media-local-store.js";
 import { isOfflineEntityId } from "./local-id.js";
 import { getQueueEntry, listPending } from "./sync-queue.js";
@@ -18,6 +19,7 @@ const MAX_RETRY_DELAY_MS = 5 * 60 * 1000;
 const listeners = new Set();
 const supportedActionTypes = new Set([
   OFFLINE_WRITE_ACTIONS.CREATE_CLIENT,
+  OFFLINE_WRITE_ACTIONS.CREATE_DOSSIER,
   OFFLINE_WRITE_ACTIONS.CREATE_COMMANDE,
   OFFLINE_WRITE_ACTIONS.CREATE_RETOUCHE,
   OFFLINE_MEDIA_ACTIONS.ADD_COMMANDE_PHOTO,
@@ -505,6 +507,54 @@ async function resolveCommandeServerId(atelierId, payload = {}, localRecord = nu
   return mappedServerId;
 }
 
+async function resolveDossierServerId(atelierId, payload = {}, localRecord = null) {
+  const directServerId =
+    normalizeString(payload.dossierServerId) ||
+    normalizeString(payload.idDossierServerId) ||
+    normalizeString(localRecord?.dossierServerId) ||
+    (!isOfflineEntityId(normalizeString(payload.idDossier)) ? normalizeString(payload.idDossier) : "") ||
+    (!isOfflineEntityId(normalizeString(localRecord?.dossierId)) ? normalizeString(localRecord?.dossierId) : "");
+  if (directServerId) return directServerId;
+
+  const candidateLocalId =
+    normalizeString(payload.dossierLocalId) ||
+    normalizeString(payload.idDossierLocalId) ||
+    normalizeString(payload.idDossier) ||
+    normalizeString(localRecord?.dossierLocalId) ||
+    normalizeString(localRecord?.dossierId);
+  if (!candidateLocalId) return "";
+
+  const mappedServerId = await getServerIdByLocalId(atelierId, "dossier", candidateLocalId);
+  if (!mappedServerId) {
+    throw new SyncDependencyBlockedError("Le dossier parent n'est pas encore synchronise.");
+  }
+
+  return mappedServerId;
+}
+
+async function buildDossierApiPayload(atelierId, payload = {}, localRecord = {}) {
+  const requestPayload = {
+    idDossier: normalizeString(payload.idDossier || localRecord?.requestedServerId || localRecord?.idDossier || localRecord?.localId),
+    typeDossier: normalizeString(payload.typeDossier || localRecord?.typeDossier).toUpperCase() || "INDIVIDUEL",
+    notes: normalizeString(payload.notes || localRecord?.notes),
+    idempotencyKey: normalizeString(payload.idempotencyKey || localRecord?.idempotencyKey)
+  };
+  if (payload.nouveauResponsable && typeof payload.nouveauResponsable === "object") {
+    requestPayload.nouveauResponsable = payload.nouveauResponsable;
+  } else {
+    requestPayload.idResponsableClient = await resolveClientServerId(atelierId, {
+      idClient: payload.idResponsableClient,
+      clientLocalId: payload.responsableLocalId,
+      clientServerId: payload.responsableServerId
+    }, {
+      idClient: localRecord?.idResponsableClient,
+      clientLocalId: localRecord?.responsableLocalId,
+      clientServerId: localRecord?.responsableServerId
+    });
+  }
+  return requestPayload;
+}
+
 async function buildCommandeApiPayload(atelierId, payload = {}, localRecord = {}, clientServerId = "") {
   const items = Array.isArray(payload.items)
     ? payload.items
@@ -520,6 +570,10 @@ async function buildCommandeApiPayload(atelierId, payload = {}, localRecord = {}
     items,
     idempotencyKey: normalizeString(payload.idempotencyKey || localRecord?.idempotencyKey)
   };
+  const dossierServerId = await resolveDossierServerId(atelierId, payload, localRecord);
+  if (dossierServerId) {
+    requestPayload.idDossier = dossierServerId;
+  }
   if (payload.nouveauClient && typeof payload.nouveauClient === "object") {
     requestPayload.nouveauClient = payload.nouveauClient;
   } else {
@@ -543,7 +597,7 @@ function buildCommandePhotoUpdatePayload(localRecord = {}) {
   };
 }
 
-function buildRetoucheApiPayload(payload = {}, clientServerId, localRecord = {}) {
+async function buildRetoucheApiPayload(atelierId, payload = {}, clientServerId, localRecord = {}) {
   const requestPayload = {
     descriptionRetouche: normalizeString(payload.descriptionRetouche),
     typeRetouche: normalizeString(payload.typeRetouche),
@@ -557,6 +611,10 @@ function buildRetoucheApiPayload(payload = {}, clientServerId, localRecord = {})
         ? localRecord.items
         : []
   };
+  const dossierServerId = await resolveDossierServerId(atelierId, payload, localRecord);
+  if (dossierServerId) {
+    requestPayload.idDossier = dossierServerId;
+  }
   if (payload.nouveauClient && typeof payload.nouveauClient === "object") {
     requestPayload.nouveauClient = payload.nouveauClient;
   } else {
@@ -596,6 +654,16 @@ function buildRetoucheEmbeddedClientResults(payload = {}, localRecord = {}, resp
   ];
 }
 
+function buildDossierEmbeddedClientResults(payload = {}, localRecord = {}, response = {}) {
+  if (!(payload?.nouveauResponsable && normalizeString(localRecord?.responsableLocalId) && response?.responsable)) return [];
+  return [
+    {
+      localId: normalizeString(localRecord.responsableLocalId),
+      serverPayload: response.responsable
+    }
+  ];
+}
+
 async function executeQueueEntry(atelierId, entry) {
   const actionType = normalizeString(entry.actionType);
 
@@ -611,6 +679,24 @@ async function executeQueueEntry(atelierId, entry) {
       localRecord,
       serverPayload: response?.client || response,
       references: {}
+    };
+  }
+
+  if (actionType === OFFLINE_WRITE_ACTIONS.CREATE_DOSSIER) {
+    const localRecord = await getEntityByLocalId(atelierId, "dossier", entry.entityLocalId);
+    if (!localRecord) {
+      throw new SyncPermanentError("Dossier local introuvable pour la synchronisation.");
+    }
+
+    const response = await atelierApi.createDossier(await buildDossierApiPayload(atelierId, entry.payload || {}, localRecord));
+    return {
+      entityType: "dossier",
+      localRecord,
+      serverPayload: response?.dossier || response,
+      references: {
+        responsableServerId: normalizeString(response?.responsable?.idClient || response?.dossier?.idResponsableClient || response?.dossier?.id_responsable_client)
+      },
+      relatedClients: buildDossierEmbeddedClientResults(entry.payload || {}, localRecord, response || {})
     };
   }
 
@@ -640,7 +726,7 @@ async function executeQueueEntry(atelierId, entry) {
     }
 
     const clientServerId = entry.payload?.nouveauClient ? "" : await resolveClientServerId(atelierId, entry.payload, localRecord);
-    const response = await atelierApi.createRetouche(buildRetoucheApiPayload(entry.payload || {}, clientServerId, localRecord));
+    const response = await atelierApi.createRetouche(await buildRetoucheApiPayload(atelierId, entry.payload || {}, clientServerId, localRecord));
     return {
       entityType: "retouche",
       localRecord,
@@ -792,6 +878,19 @@ async function commitSuccessfulJob(atelierId, entry, result) {
     });
     await queueTable().put(updatedQueueEntry);
   });
+
+  if (result.entityType === "commande_photo" && entry.actionType === OFFLINE_MEDIA_ACTIONS.ADD_COMMANDE_PHOTO) {
+    try {
+      await cacheSyncedCommandePhotoBlob({
+        atelierId,
+        localRecord: result.localRecord,
+        serverPayload: result.serverPayload,
+        references: result.references
+      });
+    } catch {
+      // Le cache image ne doit jamais bloquer la finalisation d'une synchronisation financiere/metier.
+    }
+  }
 
   emitSyncEvent({
     type: "job-synced",

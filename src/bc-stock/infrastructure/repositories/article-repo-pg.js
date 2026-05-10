@@ -1,23 +1,24 @@
-﻿import { pool } from "../../../shared/infrastructure/db.js";
+import { pool } from "../../../shared/infrastructure/db.js";
 import { Article } from "../../domain/article.js";
 
 export class ArticleRepoPg {
-  constructor(atelierId = "ATELIER") {
+  constructor(atelierId = "ATELIER", db = pool) {
     this.atelierId = String(atelierId || "ATELIER");
+    this.db = db;
   }
 
   forAtelier(atelierId) {
-    return new ArticleRepoPg(atelierId);
+    return new ArticleRepoPg(atelierId, this.db);
   }
 
   async getById(idArticle) {
-    const res = await pool.query(
+    const res = await this.db.query(
       "SELECT id_article, nom_article, categorie_article, unite_stock, quantite_disponible, prix_achat_moyen, prix_vente_unitaire, seuil_alerte, actif FROM articles WHERE id_article = $1 AND atelier_id = $2",
       [idArticle, this.atelierId]
     );
     if (res.rowCount === 0) return null;
 
-    const movRes = await pool.query(
+    const movRes = await this.db.query(
       "SELECT id_mouvement, type_mouvement, quantite, motif, date_mouvement, effectue_par, reference_metier, fournisseur_id, fournisseur, reference_achat, prix_achat_unitaire, montant_achat_total FROM mouvements_stock WHERE id_article = $1 AND atelier_id = $2",
       [idArticle, this.atelierId]
     );
@@ -51,7 +52,7 @@ export class ArticleRepoPg {
   }
 
   async save(article) {
-    await pool.query(
+    await this.db.query(
       `INSERT INTO articles (id_article, atelier_id, nom_article, categorie_article, unite_stock, quantite_disponible, prix_achat_moyen, prix_vente_unitaire, seuil_alerte, actif)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (id_article)
@@ -72,7 +73,7 @@ export class ArticleRepoPg {
     );
 
     for (const m of article.mouvements) {
-      await pool.query(
+      await this.db.query(
         `INSERT INTO mouvements_stock (
            id_mouvement, atelier_id, id_article, type_mouvement, quantite, motif, date_mouvement, effectue_par,
            reference_metier, fournisseur_id, fournisseur, reference_achat, prix_achat_unitaire, montant_achat_total

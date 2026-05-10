@@ -1,0 +1,12 @@
+{
+  "appId": "com.volcanotech.atelierpro",
+  "appName": "Atelier Pro",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "http"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

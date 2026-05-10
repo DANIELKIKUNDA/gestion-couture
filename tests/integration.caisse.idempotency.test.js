@@ -108,6 +108,24 @@ async function run() {
   assert.equal(ventePay2.status, 200);
   assert.equal(await countOperations({ atelierId: session.atelierId, idCaisseJour, idempotencyKey: venteKey }), 1);
 
+  const encaisserKey = `idem-vente-encaisser-${Date.now()}`;
+  const encaisserPayload = {
+    lignesVente: [{ idArticle: article.idArticle, quantite: 1 }],
+    acheteurNom: "Acheteur integration",
+    idCaisseJour,
+    modePaiement: "CASH",
+    utilisateur: "integration",
+    idempotencyKey: encaisserKey
+  };
+  const encaisser1 = await withAuth(session.client.post("/api/ventes/encaisser"), session.token).send(encaisserPayload);
+  assert.equal(encaisser1.status, 201);
+  assert.ok(encaisser1.body?.vente?.idVente);
+  assert.ok(encaisser1.body?.facture?.idFacture);
+  const encaisser2 = await withAuth(session.client.post("/api/ventes/encaisser"), session.token).send(encaisserPayload);
+  assert.equal(encaisser2.status, 200);
+  assert.equal(encaisser2.body?.vente?.idVente, encaisser1.body?.vente?.idVente);
+  assert.equal(await countOperations({ atelierId: session.atelierId, idCaisseJour, idempotencyKey: encaisserKey }), 1);
+
   const sortieKey = `idem-sortie-${Date.now()}`;
   const sortiePayload = {
     montant: 10,

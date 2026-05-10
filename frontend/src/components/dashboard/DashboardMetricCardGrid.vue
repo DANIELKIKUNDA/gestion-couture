@@ -1,5 +1,5 @@
 <script setup>
-defineProps({
+const props = defineProps({
   items: {
     type: Array,
     default: () => []
@@ -13,6 +13,10 @@ defineProps({
     default: false
   }
 });
+
+function isMobileFull(index) {
+  return props.items.length % 2 === 1 && index === props.items.length - 1;
+}
 </script>
 
 <template>
@@ -22,9 +26,10 @@ defineProps({
     :style="{ '--dashboard-metric-columns': Math.max(1, Number(columns) || 2) }"
   >
     <article
-      v-for="item in items"
+      v-for="(item, index) in items"
       :key="item.label"
       class="dashboard-metric-card-grid__card"
+      :class="{ 'dashboard-metric-card-grid__card--mobile-full': isMobileFull(index) }"
       :data-tone="item.tone || 'blue'"
     >
       <p>{{ item.label }}</p>
@@ -98,6 +103,14 @@ defineProps({
 @media (max-width: 1260px) {
   .dashboard-metric-card-grid--compact {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .dashboard-metric-card-grid__card--mobile-full {
+    grid-column: 1 / -1;
+    justify-items: center;
+    text-align: center;
   }
 }
 </style>

@@ -335,12 +335,25 @@ async function resolveCaisseJourId(preferredId = "") {
 }
 
 export const atelierApi = {
-  async login({ email, motDePasse, atelierSlug = "" }) {
-    const payload = { email, motDePasse };
+  async login({ email = "", identifiant = "", motDePasse, atelierSlug = "" }) {
+    const payload = { motDePasse };
+    assignIfPresent(payload, "identifiant", identifiant || email);
+    assignIfPresent(payload, "email", email && !identifiant ? email : "");
     assignIfPresent(payload, "atelierSlug", atelierSlug);
     const response = await request("/auth/login", {
       method: "POST",
       body: JSON.stringify(payload)
+    });
+    if (response?.token) {
+      setAccessToken(response.token, { markMutation: true });
+    }
+    return response;
+  },
+
+  async selectLoginAtelier({ challengeToken, atelierId, motDePasse }) {
+    const response = await request("/auth/login/select-atelier", {
+      method: "POST",
+      body: JSON.stringify({ challengeToken, atelierId, motDePasse })
     });
     if (response?.token) {
       setAccessToken(response.token, { markMutation: true });
@@ -866,6 +879,7 @@ export const atelierApi = {
       fournisseur = null,
       referenceAchat = null,
       prixAchatUnitaire = null,
+      sourceFinancement = null,
       idempotencyKey = createIdempotencyKey()
     } = {}
   ) {
@@ -877,6 +891,7 @@ export const atelierApi = {
     assignIfPresent(payload, "fournisseurId", fournisseurId);
     assignIfPresent(payload, "referenceAchat", referenceAchat);
     assignIfPresent(payload, "prixAchatUnitaire", prixAchatUnitaire);
+    assignIfPresent(payload, "sourceFinancement", sourceFinancement);
     assignIfPresent(payload, "idempotencyKey", idempotencyKey);
     return request(`/stock/articles/${idArticle}/entrees`, {
       method: "POST",
@@ -916,6 +931,16 @@ export const atelierApi = {
     return request("/ventes", {
       method: "POST",
       body: JSON.stringify({ lignesVente, acheteurNom })
+    });
+  },
+
+  async encaisserVente(lignesVente, { acheteurNom = "", utilisateur = null, idCaisseJour = "", modePaiement = CAISSE_MODE_PAIEMENT, idempotencyKey = createIdempotencyKey() } = {}) {
+    const caisseJourId = await resolveCaisseJourId(idCaisseJour);
+    const payload = { lignesVente, acheteurNom, idCaisseJour: caisseJourId, modePaiement, idempotencyKey };
+    assignIfPresent(payload, "utilisateur", utilisateur);
+    return request("/ventes/encaisser", {
+      method: "POST",
+      body: JSON.stringify(payload)
     });
   },
 

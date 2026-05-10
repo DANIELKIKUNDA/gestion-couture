@@ -10,7 +10,8 @@ const props = defineProps({
   tailorCollections: { type: Object, default: () => ({ dueToday: [], overdue: [], ready: [] }) },
   dashboardProductionRecentRows: { type: Array, default: () => [] },
   formatCurrency: { type: Function, required: true },
-  openRoute: { type: Function, required: true }
+  openRoute: { type: Function, required: true },
+  activeFilter: { type: String, default: "all" }
 });
 
 function card(label) {
@@ -48,19 +49,28 @@ const mainStatus = computed(() => {
     tone: "success"
   };
 });
+
+function showTailorSection(section) {
+  if (props.activeFilter === "all") return true;
+  if (props.activeFilter === "today") return ["today"].includes(section);
+  if (props.activeFilter === "late") return ["late"].includes(section);
+  if (props.activeFilter === "ready") return ["ready"].includes(section);
+  if (props.activeFilter === "activity") return ["recent"].includes(section);
+  return true;
+}
 </script>
 
 <template>
   <div class="tailor-cockpit" :class="{ 'tailor-cockpit--mobile': isMobileViewport }">
-    <section class="tailor-section tailor-section--state" aria-labelledby="tailor-state-title">
+    <section v-if="showTailorSection('state')" class="tailor-section tailor-section--state" aria-labelledby="tailor-state-title">
       <div class="tailor-section-head">
         <div>
           <p class="tailor-overline">Atelier couture</p>
           <h3 id="tailor-state-title">Travail a faire</h3>
         </div>
-        <div class="tailor-actions">
-          <button class="action-btn blue" type="button" @click="openRoute('commandes')">Commandes</button>
-          <button class="action-btn green" type="button" @click="openRoute('retouches')">Retouches</button>
+        <div class="tailor-actions tailor-actions--mobile-hidden">
+          <button class="action-btn blue tailor-mobile-hidden-action" type="button" @click="openRoute('commandes')">Commandes</button>
+          <button class="action-btn green tailor-mobile-hidden-action" type="button" @click="openRoute('retouches')">Retouches</button>
         </div>
       </div>
 
@@ -78,7 +88,7 @@ const mainStatus = computed(() => {
       </div>
     </section>
 
-    <section class="tailor-section tailor-section--today" aria-labelledby="tailor-today-title">
+    <section v-if="showTailorSection('today')" class="tailor-section tailor-section--today" aria-labelledby="tailor-today-title">
       <div class="tailor-section-head">
         <div>
           <p class="tailor-overline">Aujourd'hui</p>
@@ -94,7 +104,7 @@ const mainStatus = computed(() => {
       />
     </section>
 
-    <section class="tailor-section tailor-section--late" aria-labelledby="tailor-late-title">
+    <section v-if="showTailorSection('late')" class="tailor-section tailor-section--late" aria-labelledby="tailor-late-title">
       <div class="tailor-section-head">
         <div>
           <p class="tailor-overline">Urgent</p>
@@ -110,7 +120,7 @@ const mainStatus = computed(() => {
       />
     </section>
 
-    <section class="tailor-section" aria-labelledby="tailor-ready-title">
+    <section v-if="showTailorSection('ready')" class="tailor-section" aria-labelledby="tailor-ready-title">
       <div class="tailor-section-head">
         <div>
           <p class="tailor-overline">Termine</p>
@@ -126,7 +136,7 @@ const mainStatus = computed(() => {
       />
     </section>
 
-    <section class="tailor-section" aria-labelledby="tailor-recent-title">
+    <section v-if="showTailorSection('recent')" class="tailor-section" aria-labelledby="tailor-recent-title">
       <div class="tailor-section-head">
         <div>
           <p class="tailor-overline">Activite</p>
@@ -318,11 +328,25 @@ const mainStatus = computed(() => {
   }
 
   .tailor-metric-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tailor-metric-grid > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+    justify-items: center;
+    text-align: center;
   }
 
   .tailor-actions .action-btn {
     width: 100%;
+  }
+
+  .tailor-actions--mobile-hidden {
+    display: none;
+  }
+
+  .tailor-mobile-hidden-action {
+    display: none;
   }
 }
 </style>

@@ -9,7 +9,8 @@ const props = defineProps({
   recentCaisseActivity: { type: Array, default: () => [] },
   formatCurrency: { type: Function, required: true },
   cashierAlerts: { type: Array, default: () => [] },
-  openRoute: { type: Function, required: true }
+  openRoute: { type: Function, required: true },
+  activeFilter: { type: String, default: "all" }
 });
 
 function card(label) {
@@ -53,19 +54,28 @@ const cashSections = computed(() => [
     empty: "Aucune retouche avec solde"
   }
 ]);
+
+function showCashierSection(section) {
+  if (props.activeFilter === "all") return true;
+  if (props.activeFilter === "caisse") return ["state"].includes(section);
+  if (props.activeFilter === "encaissements") return ["cash"].includes(section);
+  if (props.activeFilter === "soldes") return ["balance"].includes(section);
+  if (props.activeFilter === "alertes") return ["warn"].includes(section);
+  return true;
+}
 </script>
 
 <template>
   <div class="cashier-cockpit" :class="{ 'cashier-cockpit--mobile': isMobileViewport }">
-    <section class="cashier-section cashier-section--state" aria-labelledby="cashier-state-title">
+    <section v-if="showCashierSection('state')" class="cashier-section cashier-section--state" aria-labelledby="cashier-state-title">
       <div class="cashier-section-head">
         <div>
           <p class="cashier-overline">Caisse du jour</p>
           <h3 id="cashier-state-title">Etat de la caisse</h3>
         </div>
-        <div class="cashier-actions">
-          <button class="action-btn blue" type="button" @click="openRoute('caisse')">Ouvrir la caisse</button>
-          <button class="action-btn green" type="button" @click="openRoute('facturation')">Facturation</button>
+        <div class="cashier-actions cashier-actions--mobile-hidden">
+          <button class="action-btn blue cashier-mobile-hidden-action" type="button" @click="openRoute('caisse')">Ouvrir la caisse</button>
+          <button class="action-btn green cashier-mobile-hidden-action" type="button" @click="openRoute('facturation')">Facturation</button>
         </div>
       </div>
 
@@ -83,7 +93,7 @@ const cashSections = computed(() => [
       </div>
     </section>
 
-    <section class="cashier-section cashier-section--cash" aria-labelledby="cashier-now-title">
+    <section v-if="showCashierSection('cash')" class="cashier-section cashier-section--cash" aria-labelledby="cashier-now-title">
       <div class="cashier-section-head">
         <div>
           <p class="cashier-overline">Encaissement</p>
@@ -100,7 +110,7 @@ const cashSections = computed(() => [
       />
     </section>
 
-    <section class="cashier-section" aria-labelledby="cashier-balance-title">
+    <section v-if="showCashierSection('balance')" class="cashier-section" aria-labelledby="cashier-balance-title">
       <div class="cashier-section-head">
         <div>
           <p class="cashier-overline">Soldes</p>
@@ -121,7 +131,7 @@ const cashSections = computed(() => [
       </div>
     </section>
 
-    <section class="cashier-section" aria-labelledby="cashier-control-title">
+    <section v-if="showCashierSection('control')" class="cashier-section" aria-labelledby="cashier-control-title">
       <div class="cashier-section-head">
         <div>
           <p class="cashier-overline">Controle</p>
@@ -137,7 +147,7 @@ const cashSections = computed(() => [
       />
     </section>
 
-    <section class="cashier-section cashier-section--warn" aria-labelledby="cashier-warn-title">
+    <section v-if="showCashierSection('warn')" class="cashier-section cashier-section--warn" aria-labelledby="cashier-warn-title">
       <div class="cashier-section-head">
         <div>
           <p class="cashier-overline">A verifier</p>
@@ -340,11 +350,29 @@ const cashSections = computed(() => [
 
   .cashier-metric-grid,
   .cashier-balance-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cashier-metric-grid > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .cashier-balance-grid {
     grid-template-columns: 1fr;
   }
 
   .cashier-actions .action-btn {
     width: 100%;
+  }
+
+  .cashier-actions--mobile-hidden {
+    display: none;
+  }
+
+  .cashier-mobile-hidden-action {
+    display: none;
   }
 }
 </style>

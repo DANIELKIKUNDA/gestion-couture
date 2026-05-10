@@ -2,15 +2,17 @@ import {
   ENTITY_SYNC_STATUSES,
   TABLE_NAMES,
   clientsStore,
+  dossiersStore,
   putScopedEntityRecord,
   runOfflineTransaction
 } from "./local-db.js";
-import { createLocalClientId, createLocalCommandeId, createLocalRetoucheId, isOfflineEntityId } from "./local-id.js";
-import { createServerClientId } from "./server-id.js";
+import { createLocalClientId, createLocalCommandeId, createLocalDossierId, createLocalRetoucheId, isOfflineEntityId } from "./local-id.js";
+import { createServerClientId, createServerDossierId } from "./server-id.js";
 import { enqueueInTransaction, findLatestActiveEntryByEntityLocalId } from "./sync-queue.js";
 
 export const OFFLINE_WRITE_ACTIONS = Object.freeze({
   CREATE_CLIENT: "CREATE_CLIENT",
+  CREATE_DOSSIER: "CREATE_DOSSIER",
   CREATE_COMMANDE: "CREATE_COMMANDE",
   CREATE_RETOUCHE: "CREATE_RETOUCHE"
 });
@@ -77,6 +79,14 @@ async function resolveClientRecord(atelierId, identifier) {
   return clientsStore.getByAtelierAndServerId(atelierId, normalizedIdentifier);
 }
 
+async function resolveDossierRecord(atelierId, identifier) {
+  const normalizedIdentifier = normalizeString(identifier);
+  if (!normalizedIdentifier) return null;
+  const byLocalId = await dossiersStore.getByAtelierAndLocalId(atelierId, normalizedIdentifier);
+  if (byLocalId) return byLocalId;
+  return dossiersStore.getByAtelierAndServerId(atelierId, normalizedIdentifier);
+}
+
 async function resolveClientDependencyQueueIds(atelierId, clientRecord, explicitQueueEntry = null) {
   if (explicitQueueEntry?.queueId) {
     return [explicitQueueEntry.queueId];
@@ -109,6 +119,25 @@ function buildPendingEntityBase(localId, timestamp, idempotencyKey = createOffli
     updatedAt: timestamp,
     lastSyncedAt: null
   };
+}
+
+async function resolveDossierDependencyQueueIds(atelierId, dossierId) {
+  const normalizedDossierId = normalizeString(dossierId);
+  if (!normalizedDossierId) return [];
+
+  const dossierRecord = await resolveDossierRecord(atelierId, normalizedDossierId);
+  const dossierServerId = normalizeString(dossierRecord?.serverId);
+  if (dossierServerId) return [];
+
+  const dossierLocalId = normalizeString(dossierRecord?.localId || dossierRecord?.idDossier || normalizedDossierId);
+  if (!dossierLocalId) return [];
+  if (!isOfflineEntityId(dossierLocalId)) return [];
+
+  const entry = await findLatestActiveEntryByEntityLocalId(atelierId, dossierLocalId, {
+    entityType: "dossier",
+    actionType: OFFLINE_WRITE_ACTIONS.CREATE_DOSSIER
+  });
+  return entry?.queueId ? [entry.queueId] : [];
 }
 
 function buildClientRecord(input, timestamp) {
@@ -147,6 +176,55 @@ function buildClientReferenceDraft(clientRecord) {
     nom: normalizeString(clientRecord?.nom),
     prenom: normalizeString(clientRecord?.prenom),
     telephone: normalizeString(clientRecord?.telephone)
+  };
+}
+
+function buildDossierRecord(input, responsableRecord, timestamp, options = {}) {
+  const localId = createLocalDossierId();
+  const responsableLocalId = normalizeString(responsableRecord?.localId);
+  const responsableServerId = normalizeString(responsableRecord?.serverId);
+  const resolvedResponsableId = responsableServerId || responsableLocalId || normalizeString(responsableRecord?.idClient);
+  const responsable = {
+    idClient: resolvedResponsableId,
+    localId: responsableLocalId,
+    serverId: responsableServerId,
+    nom: normalizeString(responsableRecord?.nom),
+    prenom: normalizeString(responsableRecord?.prenom),
+    telephone: normalizeString(responsableRecord?.telephone),
+    nomComplet: buildClientDisplayName(responsableRecord)
+  };
+
+  return {
+    ...buildPendingEntityBase(localId, timestamp),
+    idDossier: localId,
+    requestedServerId: normalizeString(input?.idDossier) || createServerDossierId(),
+    idResponsableClient: resolvedResponsableId,
+    responsableLocalId,
+    responsableServerId,
+    responsable,
+    typeDossier: normalizeString(input?.typeDossier).toUpperCase() || "INDIVIDUEL",
+    statutDossier: "ACTIF",
+    notes: normalizeString(input?.notes),
+    dateCreation: timestamp,
+    dateDerniereActivite: timestamp,
+    totalCommandes: 0,
+    totalRetouches: 0,
+    totalMontant: 0,
+    totalPaye: 0,
+    soldeRestant: 0,
+    synthese: {
+      totalBeneficiaires: 1,
+      documentsAvecSolde: 0,
+      commandesEnCours: 0,
+      retouchesEnCours: 0,
+      totalMontant: 0,
+      totalPaye: 0,
+      soldeRestant: 0,
+      derniereActivite: timestamp
+    },
+    commandes: [],
+    retouches: [],
+    nouveauResponsable: options.isNewClient ? buildClientReferenceDraft(responsableRecord) : null
   };
 }
 
@@ -338,6 +416,37 @@ async function collectCommandeDependencyQueueIds(scopedAtelierId, payerRecord) {
   return Array.from(dependencyIds);
 }
 
+async function collectDossierAwareDependencyQueueIds(scopedAtelierId, clientRecord, dossierId = "") {
+  const dependencyIds = new Set(await resolveClientDependencyQueueIds(scopedAtelierId, clientRecord));
+  for (const queueId of await resolveDossierDependencyQueueIds(scopedAtelierId, dossierId)) {
+    dependencyIds.add(queueId);
+  }
+  return Array.from(dependencyIds);
+}
+
+function buildCreateDossierPayload(dossierRecord) {
+  const payload = {
+    idDossier: normalizeString(dossierRecord?.idDossier),
+    idDossierLocalId: normalizeString(dossierRecord?.localId),
+    dossierLocalId: normalizeString(dossierRecord?.localId),
+    typeDossier: normalizeString(dossierRecord?.typeDossier).toUpperCase() || "INDIVIDUEL",
+    notes: normalizeString(dossierRecord?.notes),
+    idempotencyKey: normalizeString(dossierRecord?.idempotencyKey)
+  };
+  payload.idDossier = normalizeString(dossierRecord?.requestedServerId) || normalizeString(dossierRecord?.idDossier);
+  if (dossierRecord?.nouveauResponsable && typeof dossierRecord.nouveauResponsable === "object") {
+    payload.nouveauResponsable = cloneSerializable(dossierRecord.nouveauResponsable);
+  } else {
+    payload.idResponsableClient =
+      normalizeString(dossierRecord?.responsableServerId) ||
+      normalizeString(dossierRecord?.responsableLocalId) ||
+      normalizeString(dossierRecord?.idResponsableClient);
+    payload.responsableLocalId = normalizeString(dossierRecord?.responsableLocalId);
+    payload.responsableServerId = normalizeString(dossierRecord?.responsableServerId);
+  }
+  return payload;
+}
+
 export async function createOfflineClient({ atelierId, client } = {}) {
   const scopedAtelierId = ensureAtelierId(atelierId);
   const timestamp = nowIso();
@@ -359,6 +468,48 @@ export async function createOfflineClient({ atelierId, client } = {}) {
 
   return {
     client: createdClient,
+    queueEntry
+  };
+}
+
+export async function createOfflineDossier({ atelierId, clientId, newClient, dossier } = {}) {
+  const scopedAtelierId = ensureAtelierId(atelierId);
+  const timestamp = nowIso();
+  let resolvedClient = null;
+  let createdDossier = null;
+  let queueEntry = null;
+
+  await runOfflineTransaction("rw", [TABLE_NAMES.CLIENTS, TABLE_NAMES.DOSSIERS, TABLE_NAMES.SYNC_QUEUE], async () => {
+    if (newClient) {
+      resolvedClient = await createEmbeddedOfflineClient(scopedAtelierId, newClient, timestamp);
+    } else {
+      resolvedClient = await resolveClientRecord(scopedAtelierId, clientId);
+      if (!resolvedClient) {
+        throw new Error("Responsable introuvable pour la creation offline de dossier.");
+      }
+    }
+
+    createdDossier = await putScopedEntityRecord(
+      TABLE_NAMES.DOSSIERS,
+      scopedAtelierId,
+      buildDossierRecord(dossier, resolvedClient, timestamp, { isNewClient: Boolean(newClient) })
+    );
+
+    const dependsOn = newClient ? [] : await resolveClientDependencyQueueIds(scopedAtelierId, resolvedClient);
+    queueEntry = await enqueueInTransaction(scopedAtelierId, {
+      status: "pending",
+      entityType: "dossier",
+      actionType: OFFLINE_WRITE_ACTIONS.CREATE_DOSSIER,
+      entityLocalId: createdDossier.localId,
+      entityServerId: "",
+      dependsOn,
+      payload: buildCreateDossierPayload(createdDossier)
+    });
+  });
+
+  return {
+    client: resolvedClient,
+    dossier: createdDossier,
     queueEntry
   };
 }
@@ -388,7 +539,7 @@ export async function createOfflineCommande({ atelierId, clientId, newClient, co
       buildCommandeRecord(commande, resolvedClient, timestamp, { isNewClient: Boolean(newClient) })
     );
 
-    const dependsOn = await collectCommandeDependencyQueueIds(scopedAtelierId, resolvedClient);
+    const dependsOn = await collectDossierAwareDependencyQueueIds(scopedAtelierId, resolvedClient, commande?.idDossier);
     queueEntry = await enqueueInTransaction(scopedAtelierId, {
       status: "pending",
       entityType: "commande",
@@ -431,14 +582,17 @@ export async function createOfflineRetouche({ atelierId, clientId, newClient, re
       buildRetoucheRecord(retouche, resolvedClient, timestamp, { isNewClient: Boolean(newClient) })
     );
 
-    const dependsOn = newClient ? [] : await resolveClientDependencyQueueIds(scopedAtelierId, resolvedClient);
+    const dependsOn = new Set(newClient ? [] : await resolveClientDependencyQueueIds(scopedAtelierId, resolvedClient));
+    for (const queueId of await resolveDossierDependencyQueueIds(scopedAtelierId, retouche?.idDossier)) {
+      dependsOn.add(queueId);
+    }
     queueEntry = await enqueueInTransaction(scopedAtelierId, {
       status: "pending",
       entityType: "retouche",
       actionType: OFFLINE_WRITE_ACTIONS.CREATE_RETOUCHE,
       entityLocalId: createdRetouche.localId,
       entityServerId: "",
-      dependsOn,
+      dependsOn: Array.from(dependsOn),
       payload: buildCreateRetouchePayload(createdRetouche)
     });
   });

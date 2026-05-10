@@ -10,8 +10,8 @@ import { ACCOUNT_STATES, normalizeAccountState } from "../../domain/account-stat
 import { resolveGrantedPermissions } from "../../domain/granted-permissions.js";
 import { validatePasswordPolicy } from "../../domain/password-policy.js";
 import { Utilisateur } from "../../domain/utilisateur.js";
-import { hashPassword } from "../../infrastructure/security/password-hasher.js";
-import { signAccessToken, createOpaqueToken } from "../../infrastructure/security/jwt-service.js";
+import { hashPassword, verifyPassword } from "../../infrastructure/security/password-hasher.js";
+import { signAccessToken, verifyAccessToken, createOpaqueToken } from "../../infrastructure/security/jwt-service.js";
 import { sendPasswordResetNotification } from "../../infrastructure/notifications/reset-notification-service.js";
 
 import { UtilisateurRepoPg } from "../../infrastructure/repositories/utilisateur-repo-pg.js";
@@ -47,6 +47,10 @@ const LEGACY_ATELIER_ID = "ATELIER";
 const LEGACY_ATELIER_SLUG = "atelier-historique";
 const SYSTEM_ATELIER_ID = "SYSTEME";
 const SYSTEM_ATELIER_SLUG = "systeme-interne";
+const LOGIN_SELECTION_TTL_MS = 5 * 60 * 1000;
+const LOGIN_SELECTION_PURPOSE = "login_atelier_selection";
+const DUMMY_PASSWORD_HASH =
+  "scrypt:7d7f5823cb8ef4d39f4fdc8ed3305f91:09ec950f0d4af9769d1f9acb6549e44f8b5c90cc1f9fca1f7df5f4a9d9b141ef";
 
 const REFRESH_COOKIE = process.env.AUTH_REFRESH_COOKIE_NAME || "atelier_refresh_token";
 const IS_PROD = String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
@@ -141,6 +145,79 @@ function summarizeAtelier(atelier) {
     createdAt: atelier.createdAt || null,
     updatedAt: atelier.updatedAt || null
   };
+}
+
+function normalizeLoginIdentifier(value) {
+  return String(value || "").trim();
+}
+
+function isActiveUser(user) {
+  const etatCompte = normalizeAccountState(user?.etatCompte || (user?.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
+  return Boolean(user) && etatCompte === ACCOUNT_STATES.ACTIVE;
+}
+
+async function summarizeLoginAtelier(user) {
+  const role = String(user?.roleId || "").trim().toUpperCase();
+  if (role === ROLES.MANAGER_SYSTEME) {
+    await ensureSystemAtelier();
+    return {
+      idAtelier: SYSTEM_ATELIER_ID,
+      nom: "Administration systeme",
+      slug: SYSTEM_ATELIER_SLUG,
+      logoUrl: "",
+      actif: true,
+      roleId: role
+    };
+  }
+  const atelier = await atelierRepo.getById(user?.atelierId || LEGACY_ATELIER_ID);
+  if (!atelier || atelier.actif === false || isSystemAtelier(atelier)) return null;
+  return { ...summarizeAtelier(atelier), roleId: role };
+}
+
+function buildLoginSelectionToken(users = []) {
+  const now = Date.now();
+  const candidates = users.map((user) => ({
+    utilisateurId: user.id,
+    atelierId: user.atelierId || LEGACY_ATELIER_ID,
+    roleId: String(user.roleId || "").trim().toUpperCase()
+  }));
+  return signAccessToken({
+    purpose: LOGIN_SELECTION_PURPOSE,
+    iat: now,
+    exp: now + LOGIN_SELECTION_TTL_MS,
+    candidates
+  });
+}
+
+function readLoginSelectionToken(token) {
+  const payload = verifyAccessToken(token);
+  if (payload?.purpose !== LOGIN_SELECTION_PURPOSE) throw new Error("Selection invalide");
+  if (!payload?.exp || Number(payload.exp) < Date.now()) throw new Error("Selection expiree");
+  if (!Array.isArray(payload.candidates) || payload.candidates.length === 0) throw new Error("Selection invalide");
+  return payload;
+}
+
+async function resolveValidLoginCandidates({ identifier, motDePasse, atelierId = "" }) {
+  const normalizedIdentifier = normalizeLoginIdentifier(identifier);
+  const lookup =
+    atelierId && typeof utilisateurRepo.listByIdentifierInAtelier === "function"
+      ? await utilisateurRepo.listByIdentifierInAtelier(normalizedIdentifier, atelierId)
+      : typeof utilisateurRepo.listByIdentifier === "function"
+      ? await utilisateurRepo.listByIdentifier(normalizedIdentifier)
+      : [];
+  if (lookup.length === 0) {
+    verifyPassword(motDePasse, DUMMY_PASSWORD_HASH);
+  }
+
+  const validUsers = [];
+  for (const user of lookup) {
+    const passwordValid = verifyPassword(motDePasse, user?.motDePasseHash || DUMMY_PASSWORD_HASH);
+    if (!passwordValid) continue;
+    const atelier = await summarizeLoginAtelier(user);
+    if (!atelier?.actif) continue;
+    validUsers.push({ user, atelier, active: isActiveUser(user) });
+  }
+  return validUsers;
 }
 
 function mapSystemAtelierRow(row) {
@@ -1767,9 +1844,18 @@ router.get("/auth/bootstrap-owner/status", async (req, res) => {
 
 router.post("/auth/login", loginRateLimit, async (req, res) => {
   try {
-    const schema = z.object({ email: z.string().email(), motDePasse: z.string().min(1), atelierSlug: z.string().optional() }).passthrough();
+    const schema = z
+      .object({
+        identifiant: z.string().trim().min(1).optional(),
+        email: z.string().email().optional(),
+        motDePasse: z.string().min(1),
+        atelierSlug: z.string().optional()
+      })
+      .passthrough();
     const parsed = validateSchema(schema, req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    const identifier = normalizeLoginIdentifier(parsed.data.identifiant || parsed.data.email || "");
+    if (!identifier) return res.status(400).json({ error: "Identifiant requis" });
 
     const requestedSlug = extractAtelierSlug(req, parsed.data);
     const requestedAtelier = requestedSlug ? await atelierRepo.getBySlug(requestedSlug) : null;
@@ -1777,26 +1863,78 @@ router.post("/auth/login", loginRateLimit, async (req, res) => {
       throw new Error("Identifiants invalides");
     }
 
-    const loginUser = requestedAtelier
-      ? await utilisateurRepo.findByEmailInAtelier(parsed.data.email, requestedAtelier.idAtelier)
-      : await utilisateurRepo.findByEmail(parsed.data.email);
+    const candidates = await resolveValidLoginCandidates({
+      identifier,
+      motDePasse: parsed.data.motDePasse,
+      atelierId: requestedAtelier?.idAtelier || ""
+    });
+    if (candidates.length === 0) throw new Error("Identifiants invalides");
+    const activeCandidates = candidates.filter((candidate) => candidate.active);
+    if (activeCandidates.length === 0) throw new Error("Compte inactif: connexion refusee");
 
-    if (requestedAtelier && loginUser && loginUser.atelierId !== requestedAtelier.idAtelier) {
-      throw new Error("Identifiants invalides");
+    if (!requestedAtelier && activeCandidates.length > 1) {
+      return res.json({
+        selectionRequired: true,
+        challengeToken: buildLoginSelectionToken(activeCandidates.map((candidate) => candidate.user)),
+        ateliers: activeCandidates.map((candidate) => candidate.atelier)
+      });
     }
 
-    if (String(loginUser?.roleId || "").trim().toUpperCase() === ROLES.MANAGER_SYSTEME) {
+    const loginUser = activeCandidates[0].user;
+    if (String(loginUser.roleId || "").trim().toUpperCase() === ROLES.MANAGER_SYSTEME) {
       await ensureSystemRolePermissions();
     } else {
-      await ensureRolePermissionsForAtelier(requestedAtelier?.idAtelier || loginUser?.atelierId || LEGACY_ATELIER_ID);
+      await ensureRolePermissionsForAtelier(loginUser.atelierId || LEGACY_ATELIER_ID);
     }
     const out = await seConnecterUtilisateur({
       utilisateurRepo,
       rolePermissionRepo,
       authSessionRepo,
-      email: parsed.data.email,
+      email: loginUser.email,
       motDePasse: parsed.data.motDePasse,
-      atelierId: requestedAtelier?.idAtelier || null
+      atelierId: loginUser.atelierId || null,
+      utilisateurId: loginUser.id
+    });
+
+    setRefreshCookie(res, out.refreshToken);
+    res.json({ token: out.token, utilisateur: out.utilisateur });
+  } catch (err) {
+    if (err?.message === "Compte inactif: connexion refusee") {
+      return res.status(401).json({ error: err.message });
+    }
+    res.status(401).json({ error: "Identifiants invalides" });
+  }
+});
+
+router.post("/auth/login/select-atelier", loginRateLimit, async (req, res) => {
+  try {
+    const schema = z.object({ challengeToken: z.string().min(1), atelierId: z.string().min(1), motDePasse: z.string().min(1) }).passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const payload = readLoginSelectionToken(parsed.data.challengeToken);
+    const requestedAtelierId = String(parsed.data.atelierId || "").trim();
+    const candidate = payload.candidates.find((item) => String(item?.atelierId || "").trim() === requestedAtelierId);
+    if (!candidate?.utilisateurId) throw new Error("Selection invalide");
+
+    const user = await utilisateurRepo.getById(candidate.utilisateurId);
+    if (!user || user.atelierId !== requestedAtelierId || !isActiveUser(user)) throw new Error("Selection invalide");
+    const atelier = await summarizeLoginAtelier(user);
+    if (!atelier?.actif) throw new Error("Selection invalide");
+
+    if (String(user.roleId || "").trim().toUpperCase() === ROLES.MANAGER_SYSTEME) {
+      await ensureSystemRolePermissions();
+    } else {
+      await ensureRolePermissionsForAtelier(user.atelierId || LEGACY_ATELIER_ID);
+    }
+    const out = await seConnecterUtilisateur({
+      utilisateurRepo,
+      rolePermissionRepo,
+      authSessionRepo,
+      email: user.email,
+      motDePasse: parsed.data.motDePasse,
+      atelierId: user.atelierId || null,
+      utilisateurId: user.id
     });
 
     setRefreshCookie(res, out.refreshToken);

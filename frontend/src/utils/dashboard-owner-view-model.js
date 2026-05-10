@@ -191,7 +191,7 @@ export function useDashboardOwnerViewModel({
 
     const venteRows = ventes.value.map((v) => ({
       id: v.idVente,
-      clientNom: "Acheteur non renseigne",
+      clientNom: String(v.acheteurNom || "").trim() || "Acheteur non renseigne",
       type: "Vente",
       statut: v.statut,
       montantTotal: Number(v.total || 0),
@@ -217,9 +217,10 @@ export function useDashboardOwnerViewModel({
 
   const recentCaisseActivity = computed(() => {
     const ops = [...(caisseJour.value?.operations || [])].sort((a, b) => String(b.dateOperation).localeCompare(String(a.dateOperation)));
-    return ops.slice(0, 4).map((op) => ({
+    const venteById = new Map(ventes.value.map((vente) => [String(vente.idVente || "").trim(), vente]));
+    return ops.slice(0, 5).map((op) => ({
       id: op.idOperation,
-      libelle: op.motif || op.typeOperation,
+      libelle: formatCaisseActivityLabel(op, venteById),
       montant: op.typeOperation === "SORTIE" ? -Number(op.montant || 0) : Number(op.montant || 0)
     }));
   });
@@ -240,4 +241,14 @@ export function useDashboardOwnerViewModel({
     dashboardProductionRecentRows,
     recentCaisseActivity
   };
+}
+
+function formatCaisseActivityLabel(op, venteById) {
+  const motif = String(op?.motif || "").trim();
+  if (motif === "VENTE_STOCK") {
+    const vente = venteById.get(String(op?.referenceMetier || "").trim());
+    const acheteur = String(vente?.acheteurNom || "").trim();
+    return acheteur ? `Vente - ${acheteur}` : "Vente stock";
+  }
+  return motif || op?.typeOperation || "Operation caisse";
 }

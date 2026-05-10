@@ -1,5 +1,6 @@
 const LOCAL_ID_PREFIXES = Object.freeze({
   CLIENT: "loc_cli",
+  DOSSIER: "loc_dos",
   COMMANDE: "loc_cmd",
   RETOUCHE: "loc_ret",
   IMAGE: "loc_img"
@@ -29,6 +30,10 @@ function createLocalId(prefix) {
 
 export function createLocalClientId() {
   return createLocalId(LOCAL_ID_PREFIXES.CLIENT);
+}
+
+export function createLocalDossierId() {
+  return createLocalId(LOCAL_ID_PREFIXES.DOSSIER);
 }
 
 export function createLocalCommandeId() {

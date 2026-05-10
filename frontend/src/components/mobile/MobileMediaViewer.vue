@@ -18,6 +18,10 @@ const props = defineProps({
     type: String,
     default: ""
   },
+  emptyMessage: {
+    type: String,
+    default: "Impossible d'afficher cette photo pour le moment."
+  },
   canPrev: {
     type: Boolean,
     default: false
@@ -136,7 +140,7 @@ watch(
             </div>
             <div v-else class="mobile-media-viewer__empty">
               <strong>Image indisponible</strong>
-              <p class="helper">Impossible d'afficher cette photo pour le moment.</p>
+              <p class="helper">{{ emptyMessage }}</p>
             </div>
           </div>
 

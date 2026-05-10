@@ -35,7 +35,8 @@ const props = defineProps({
   formatDashboardPendingRetoucheDescription: { type: Function, required: true },
   openNouvelleCommande: { type: Function, required: true },
   openNouvelleRetouche: { type: Function, required: true },
-  iconPaths: { type: Object, default: () => ({}) }
+  iconPaths: { type: Object, default: () => ({}) },
+  activeFilter: { type: String, default: "all" }
 });
 
 function cardValue(cards, label) {
@@ -85,43 +86,72 @@ const decisionCards = computed(() => [
 
 const attentionItems = computed(() => {
   const rows = [];
-  for (const alert of props.alerts) {
-    rows.push({
-      id: `alert-${alert.label}`,
-      type: alert.type || "A ne pas oublier",
-      title: alert.title || alert.label,
-      description: alert.description || "A verifier avant de terminer la journee.",
-      tone: "danger"
-    });
+  if (props.activeFilter !== "clients") {
+    for (const alert of props.alerts) {
+      rows.push({
+        id: `alert-${alert.label}`,
+        type: alert.type || "Alerte atelier",
+        title: alert.title || alert.label,
+        description: alert.description || "A verifier avant de terminer la journee.",
+        tone: "danger"
+      });
+    }
   }
-  for (const item of props.dashboardClientsToFollowUpMobileItems) {
-    rows.push({
-      id: `client-${item.id}`,
-      type: item.type || "Client a relancer",
-      title: item.title || item.libelle,
-      description: item.description,
-      tone: "warning"
-    });
-  }
-  for (const item of props.dashboardCommandesToNotifyMobileItems) {
-    rows.push({
-      id: `commande-${item.id}`,
-      type: item.type || "Client a prevenir",
-      title: item.title || item.libelle,
-      description: item.description,
-      tone: "blue"
-    });
-  }
-  for (const item of props.dashboardRetouchesToNotifyMobileItems) {
-    rows.push({
-      id: `retouche-${item.id}`,
-      type: item.type || "Client a prevenir",
-      title: item.title || item.libelle,
-      description: item.description,
-      tone: "teal"
-    });
+  if (props.activeFilter !== "alerts") {
+    for (const item of props.dashboardClientsToFollowUpMobileItems) {
+      rows.push({
+        id: `client-${item.id}`,
+        type: item.type || "Client a relancer",
+        title: item.title || item.libelle,
+        description: item.description,
+        tone: "warning"
+      });
+    }
+    for (const item of props.dashboardCommandesToNotifyMobileItems) {
+      rows.push({
+        id: `commande-${item.id}`,
+        type: item.type || "Client a prevenir",
+        title: item.title || item.libelle,
+        description: item.description,
+        tone: "blue"
+      });
+    }
+    for (const item of props.dashboardRetouchesToNotifyMobileItems) {
+      rows.push({
+        id: `retouche-${item.id}`,
+        type: item.type || "Client a prevenir",
+        title: item.title || item.libelle,
+        description: item.description,
+        tone: "teal"
+      });
+    }
   }
   return rows.slice(0, 8);
+});
+
+const attentionTitle = computed(() => {
+  if (props.activeFilter === "clients") return "Clients a suivre";
+  if (props.activeFilter === "alerts") return "Alertes atelier";
+  return "A ne pas oublier";
+});
+
+const attentionEmptyState = computed(() => {
+  if (props.activeFilter === "clients") {
+    return {
+      title: "Aucun client a relancer",
+      description: "Aucun client a prevenir ou a relancer pour la date affichee."
+    };
+  }
+  if (props.activeFilter === "alerts") {
+    return {
+      title: "Aucune alerte",
+      description: "Aucune alerte active pour la date affichee."
+    };
+  }
+  return {
+    title: "Rien d'urgent pour le moment",
+    description: "Aucune relance, aucun signalement et aucune alerte active pour la date affichee."
+  };
 });
 
 const moneyCards = computed(() => [
@@ -147,11 +177,21 @@ const stockCards = computed(() => [
   { label: "Benefice estime", value: props.formatCurrency(props.dashboardSalesMetrics.beneficeBrut), tone: "success" },
   { label: "Marge moyenne", value: props.formatPercent(props.dashboardSalesMetrics.margeMoyenne), tone: "teal" }
 ]);
+
+function showOwnerSection(section) {
+  if (props.activeFilter === "all") return true;
+  if (props.activeFilter === "money") return ["money"].includes(section);
+  if (props.activeFilter === "clients") return ["attention"].includes(section);
+  if (props.activeFilter === "work") return ["work"].includes(section);
+  if (props.activeFilter === "stock") return ["stock"].includes(section);
+  if (props.activeFilter === "alerts") return ["attention"].includes(section);
+  return true;
+}
 </script>
 
 <template>
   <div class="owner-cockpit" :class="{ 'owner-cockpit--mobile': isMobileViewport }">
-    <section class="owner-section owner-section--decision" aria-labelledby="owner-decision-title">
+    <section v-if="showOwnerSection('decision')" class="owner-section owner-section--decision" aria-labelledby="owner-decision-title">
       <div class="owner-section-head">
         <div>
           <p class="owner-overline">Resume proprietaire</p>
@@ -171,11 +211,11 @@ const stockCards = computed(() => [
       </div>
     </section>
 
-    <section class="owner-section owner-section--attention" aria-labelledby="owner-attention-title">
+    <section v-if="showOwnerSection('attention')" class="owner-section owner-section--attention" aria-labelledby="owner-attention-title">
       <div class="owner-section-head">
         <div>
           <p class="owner-overline">Priorites</p>
-          <h3 id="owner-attention-title">A ne pas oublier</h3>
+          <h3 id="owner-attention-title">{{ attentionTitle }}</h3>
         </div>
         <span class="owner-count-pill" :data-tone="attentionItems.length > 0 ? 'warning' : 'success'">{{ attentionItems.length }} message(s)</span>
       </div>
@@ -191,12 +231,12 @@ const stockCards = computed(() => [
       </div>
       <MobileStateEmpty
         v-else
-        title="Rien d'urgent pour le moment"
-        description="Aucune relance, aucun signalement et aucune alerte active pour la date affichee."
+        :title="attentionEmptyState.title"
+        :description="attentionEmptyState.description"
       />
     </section>
 
-    <section class="owner-section" aria-labelledby="owner-money-title">
+    <section v-if="showOwnerSection('money')" class="owner-section" aria-labelledby="owner-money-title">
       <div class="owner-section-head">
         <div>
           <p class="owner-overline">Argent</p>
@@ -211,7 +251,7 @@ const stockCards = computed(() => [
       </div>
     </section>
 
-    <section class="owner-section" aria-labelledby="owner-work-title">
+    <section v-if="showOwnerSection('work')" class="owner-section" aria-labelledby="owner-work-title">
       <div class="owner-section-head">
         <div>
           <p class="owner-overline">Production</p>
@@ -226,11 +266,12 @@ const stockCards = computed(() => [
       </div>
     </section>
 
-    <section class="owner-section owner-section--activity" aria-labelledby="owner-activity-title">
+    <section v-if="showOwnerSection('activity')" class="owner-section owner-section--activity" aria-labelledby="owner-activity-title">
       <div class="owner-section-head">
         <div>
           <p class="owner-overline">Activite</p>
           <h3 id="owner-activity-title">Ce qui vient de se passer</h3>
+          <p class="owner-section-note">Les 5 dernieres activites atelier et les 5 dernieres operations de caisse.</p>
         </div>
       </div>
       <div class="owner-activity-grid">
@@ -260,7 +301,7 @@ const stockCards = computed(() => [
       </div>
     </section>
 
-    <section class="owner-section owner-section--stock" aria-labelledby="owner-stock-title">
+    <section v-if="showOwnerSection('stock')" class="owner-section owner-section--stock" aria-labelledby="owner-stock-title">
       <div class="owner-section-head">
         <div>
           <p class="owner-overline">Stock</p>
@@ -331,6 +372,13 @@ const stockCards = computed(() => [
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.owner-section-note {
+  margin: 6px 0 0;
+  color: #5b728d;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .owner-actions {
@@ -569,7 +617,16 @@ const stockCards = computed(() => [
   .owner-money-grid,
   .owner-work-grid,
   .owner-work-grid--stock {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .owner-decision-grid > :last-child:nth-child(odd),
+  .owner-money-grid > :last-child:nth-child(odd),
+  .owner-work-grid > :last-child:nth-child(odd),
+  .owner-work-grid--stock > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+    justify-items: center;
+    text-align: center;
   }
 
   .owner-attention-item {

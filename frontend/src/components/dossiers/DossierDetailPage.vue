@@ -43,12 +43,12 @@ defineProps({
             :subtitle="detailDossier ? `${detailDossier.idDossier} - ${detailDossier.responsable.nomComplet || 'Responsable'}` : 'Vue consolidee du dossier atelier.'"
           />
           <div class="row-actions dossier-workspace-actions">
-            <button class="mini-btn" @click="openRoute('dossiers')">Retour</button>
-            <button class="mini-btn" @click="openCommandeWizardFromDossier">+ Commande</button>
-            <button class="mini-btn" @click="openRetoucheWizardFromDossier">+ Retouche</button>
+            <button class="mini-btn dossier-btn dossier-btn-back" @click="openRoute('dossiers')">Retour</button>
+            <button class="mini-btn dossier-btn dossier-btn-command" @click="openCommandeWizardFromDossier">+ Commande</button>
+            <button class="mini-btn dossier-btn dossier-btn-retouche" @click="openRetoucheWizardFromDossier">+ Retouche</button>
             <button
               v-if="canAccessRoute('caisse') && detailDossier?.synthese?.documentsAvecSolde > 0"
-              class="mini-btn"
+              class="mini-btn dossier-btn dossier-btn-cash"
               @click="onDetailDossierCash"
             >
               Encaisser
@@ -138,12 +138,12 @@ defineProps({
                     <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
                   </div>
                   <div class="row-actions dossier-card-actions">
-                    <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
+                    <button class="mini-btn dossier-action-btn dossier-btn dossier-btn-view" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
                       Voir
                     </button>
                     <button
                       v-if="canAccessRoute('caisse') && document.canCash"
-                      class="mini-btn dossier-action-btn dossier-action-btn-cash"
+                      class="mini-btn dossier-action-btn dossier-action-btn-cash dossier-btn dossier-btn-cash"
                       :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
                       @click="onDossierWorkspaceCash(document)"
                     >
@@ -185,12 +185,12 @@ defineProps({
                     <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
                   </div>
                   <div class="row-actions dossier-card-actions">
-                    <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
+                    <button class="mini-btn dossier-action-btn dossier-btn dossier-btn-view" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
                       Voir
                     </button>
                     <button
                       v-if="canAccessRoute('caisse') && document.canCash"
-                      class="mini-btn dossier-action-btn dossier-action-btn-cash"
+                      class="mini-btn dossier-action-btn dossier-action-btn-cash dossier-btn dossier-btn-cash"
                       :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
                       @click="onDossierWorkspaceCash(document)"
                     >
@@ -226,12 +226,12 @@ defineProps({
             </div>
           </div>
           <div class="row-actions dossier-workspace-actions">
-            <button class="mini-btn" @click="openRoute('dossiers')">Retour</button>
-            <button class="action-btn blue" @click="openCommandeWizardFromDossier">Ajouter une commande</button>
-            <button class="action-btn blue" @click="openRetoucheWizardFromDossier">Ajouter une retouche</button>
+            <button class="mini-btn dossier-btn dossier-btn-back" @click="openRoute('dossiers')">Retour</button>
+            <button class="action-btn blue dossier-btn dossier-btn-command" @click="openCommandeWizardFromDossier">Ajouter une commande</button>
+            <button class="action-btn blue dossier-btn dossier-btn-retouche" @click="openRetoucheWizardFromDossier">Ajouter une retouche</button>
             <button
               v-if="canAccessRoute('caisse') && detailDossier?.synthese?.documentsAvecSolde > 0"
-              class="action-btn green"
+              class="action-btn green dossier-btn dossier-btn-cash"
               @click="onDetailDossierCash"
             >
               Encaisser
@@ -341,12 +341,12 @@ defineProps({
                     <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
                   </div>
                   <div class="row-actions dossier-card-actions">
-                    <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
+                    <button class="mini-btn dossier-action-btn dossier-btn dossier-btn-view" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
                       Voir
                     </button>
                     <button
                       v-if="canAccessRoute('caisse') && document.canCash"
-                      class="mini-btn dossier-action-btn dossier-action-btn-cash"
+                      class="mini-btn dossier-action-btn dossier-action-btn-cash dossier-btn dossier-btn-cash"
                       :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
                       @click="onDossierWorkspaceCash(document)"
                     >
@@ -388,12 +388,12 @@ defineProps({
                     <span>Reste a payer : <strong class="dossier-value-red">{{ formatCurrency(document.remaining) }}</strong></span>
                   </div>
                   <div class="row-actions dossier-card-actions">
-                    <button class="mini-btn dossier-action-btn" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
+                    <button class="mini-btn dossier-action-btn dossier-btn dossier-btn-view" :disabled="isDossierWorkspaceActionPending(`${document.key}:open`) || isDossierWorkspaceActionPending(`${document.key}:cash`)" @click="onDossierWorkspaceOpen(document)">
                       Voir
                     </button>
                     <button
                       v-if="canAccessRoute('caisse') && document.canCash"
-                      class="mini-btn dossier-action-btn dossier-action-btn-cash"
+                      class="mini-btn dossier-action-btn dossier-action-btn-cash dossier-btn dossier-btn-cash"
                       :disabled="isDossierWorkspaceActionPending(`${document.key}:cash`) || isDossierWorkspaceActionPending(`${document.key}:open`)"
                       @click="onDossierWorkspaceCash(document)"
                     >

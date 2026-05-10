@@ -61,16 +61,17 @@ function toFacture(row) {
 }
 
 export class FactureRepoPg {
-  constructor(atelierId = "ATELIER") {
+  constructor(atelierId = "ATELIER", db = pool) {
     this.atelierId = String(atelierId || "ATELIER");
+    this.db = db;
   }
 
   forAtelier(atelierId) {
-    return new FactureRepoPg(atelierId);
+    return new FactureRepoPg(atelierId, this.db);
   }
 
   async ensureNumeroSequence() {
-    await pool.query("CREATE SEQUENCE IF NOT EXISTS facture_numero_seq START WITH 1 INCREMENT BY 1");
+    await this.db.query("CREATE SEQUENCE IF NOT EXISTS facture_numero_seq START WITH 1 INCREMENT BY 1");
   }
 
   async nextFactureId() {
@@ -78,7 +79,7 @@ export class FactureRepoPg {
   }
 
   async migrateLegacyClientSnapshots() {
-    await pool.query(
+    await this.db.query(
       `UPDATE factures
        SET client_snapshot = jsonb_set(COALESCE(client_snapshot, '{}'::jsonb), '{nom}', to_jsonb('Acheteur non renseigne'::text), true)
        WHERE atelier_id = $1
@@ -89,7 +90,7 @@ export class FactureRepoPg {
 
   async nextNumeroFacture(date = new Date(), prefixe = "FAC") {
     await this.ensureNumeroSequence();
-    const res = await pool.query(
+    const res = await this.db.query(
       "SELECT to_char($1::timestamp, 'YYYY') AS year, lpad(nextval('facture_numero_seq')::text, 6, '0') AS seq",
       [date.toISOString()]
     );
@@ -103,7 +104,7 @@ export class FactureRepoPg {
 
   async getByOrigine(typeOrigine, idOrigine) {
     await this.migrateLegacyClientSnapshots();
-    const res = await pool.query(
+    const res = await this.db.query(
       `SELECT f.id_facture,
               f.numero_facture,
               f.type_origine,
@@ -128,7 +129,7 @@ export class FactureRepoPg {
 
   async getByIdWithPaiements(idFacture) {
     await this.migrateLegacyClientSnapshots();
-    const res = await pool.query(
+    const res = await this.db.query(
       `SELECT f.id_facture,
               f.numero_facture,
               f.type_origine,
@@ -152,7 +153,7 @@ export class FactureRepoPg {
 
   async listWithPaiements() {
     await this.migrateLegacyClientSnapshots();
-    const res = await pool.query(
+    const res = await this.db.query(
       `SELECT f.id_facture,
               f.numero_facture,
               f.type_origine,
@@ -184,7 +185,7 @@ export class FactureRepoPg {
   }
 
   async save(facture) {
-    await pool.query(
+    await this.db.query(
       `INSERT INTO factures (
         id_facture, atelier_id, numero_facture, type_origine, id_origine, client_snapshot,
         date_emission, montant_total, reference_caisse, lignes_json

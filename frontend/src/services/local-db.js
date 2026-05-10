@@ -23,9 +23,11 @@ const META_SCOPE_SEPARATOR = "::";
 export const TABLE_NAMES = Object.freeze({
   COMMANDES: "commandes",
   RETOUCHES: "retouches",
+  DOSSIERS: "dossiers",
   CLIENTS: "clients",
   UTILISATEURS: "utilisateurs",
   COMMANDE_PHOTOS: "commande_photos",
+  COMMANDE_MEDIA_CACHE: "commande_media_cache",
   SYNC_QUEUE: "sync_queue",
   META: "meta"
 });
@@ -33,6 +35,7 @@ export const TABLE_NAMES = Object.freeze({
 const ENTITY_TABLES = new Set([
   TABLE_NAMES.COMMANDES,
   TABLE_NAMES.RETOUCHES,
+  TABLE_NAMES.DOSSIERS,
   TABLE_NAMES.CLIENTS,
   TABLE_NAMES.UTILISATEURS,
   TABLE_NAMES.COMMANDE_PHOTOS
@@ -116,6 +119,44 @@ offlineDb
       });
     }
   });
+
+offlineDb.version(4).stores({
+  commandes:
+    "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+  retouches:
+    "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+  dossiers:
+    "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+  clients:
+    "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+  utilisateurs:
+    "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+  commande_photos:
+    "&localId, atelierId, serverId, idCommandeLocalId, idCommandeServerId, idItem, syncStatus, updatedAt, lastSyncedAt, pendingDelete, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus], [atelierId+idCommandeLocalId], [atelierId+idCommandeServerId], [atelierId+idItem]",
+  sync_queue:
+    "&queueId, atelierId, status, attemptCount, retryAt, createdAt, startedAt, finishedAt, entityType, actionType, entityLocalId, entityServerId, [atelierId+status], [atelierId+retryAt], [atelierId+entityLocalId], [atelierId+entityServerId]",
+  meta: "&scopeKey, atelierId, key, updatedAt, [atelierId+key]"
+});
+
+offlineDb.version(5).stores({
+  commandes:
+    "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+  retouches:
+    "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+  dossiers:
+    "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+  clients:
+    "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+  utilisateurs:
+    "&localId, atelierId, serverId, syncStatus, updatedAt, lastSyncedAt, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus]",
+  commande_photos:
+    "&localId, atelierId, serverId, idCommandeLocalId, idCommandeServerId, idItem, syncStatus, updatedAt, lastSyncedAt, pendingDelete, [atelierId+localId], [atelierId+serverId], [atelierId+syncStatus], [atelierId+idCommandeLocalId], [atelierId+idCommandeServerId], [atelierId+idItem]",
+  commande_media_cache:
+    "&cacheKey, atelierId, idCommande, idMedia, variant, cachedAt, lastAccessedAt, byteSize, [atelierId+idCommande], [atelierId+idMedia], [atelierId+lastAccessedAt]",
+  sync_queue:
+    "&queueId, atelierId, status, attemptCount, retryAt, createdAt, startedAt, finishedAt, entityType, actionType, entityLocalId, entityServerId, [atelierId+status], [atelierId+retryAt], [atelierId+entityLocalId], [atelierId+entityServerId]",
+  meta: "&scopeKey, atelierId, key, updatedAt, [atelierId+key]"
+});
 
 let openPromise = null;
 
@@ -288,6 +329,7 @@ export function createScopedEntityStore(tableName) {
 
 export const commandesStore = createScopedEntityStore(TABLE_NAMES.COMMANDES);
 export const retouchesStore = createScopedEntityStore(TABLE_NAMES.RETOUCHES);
+export const dossiersStore = createScopedEntityStore(TABLE_NAMES.DOSSIERS);
 export const clientsStore = createScopedEntityStore(TABLE_NAMES.CLIENTS);
 export const utilisateursStore = createScopedEntityStore(TABLE_NAMES.UTILISATEURS);
 export const commandePhotosStore = createScopedEntityStore(TABLE_NAMES.COMMANDE_PHOTOS);

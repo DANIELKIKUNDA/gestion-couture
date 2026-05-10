@@ -99,48 +99,69 @@ function updateCommandeClientQuery(event) {
           </div>
         </article>
 
-        <MobileFilterBlock
-          v-if="isMobileViewport && commandeSection === 'liste'"
-          title="Filtres commandes"
-          :summary="commandesFilterSummary"
-          :open="commandeMobileFiltersOpen"
-          @toggle="setCommandeMobileFiltersOpen(!commandeMobileFiltersOpen)"
-        >
-          <div class="filters compact">
-            <select v-model="filters.statut">
-              <option v-for="status in statusOptions" :key="status" :value="status">
-                {{ status === "ALL" ? "Tous statuts" : status }}
-              </option>
-            </select>
-            <div class="commande-client-picker">
-              <input :value="commandeClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" @input="updateCommandeClientQuery" />
-              <select v-model="filters.client">
-                <option value="ALL">Tous clients</option>
-                <option v-if="commandeClientOptions.length === 0" value="">Aucun resultat</option>
-                <option v-for="client in commandeClientOptions" :key="client.idClient" :value="client.idClient">
-                  {{ `${client.nom} ${client.prenom}`.trim() }}
+        <template v-if="isMobileViewport && commandeSection === 'liste'">
+          <article class="panel mobile-modern-filter-panel">
+            <div class="mobile-search-shell">
+              <span class="mobile-search-shell__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+              </span>
+              <input v-model="filters.recherche" type="search" placeholder="Client, numero ou statut" />
+            </div>
+            <div class="mobile-filter-chip-row" aria-label="Statut des commandes">
+              <button
+                v-for="status in statusOptions"
+                :key="`cmd-chip-${status}`"
+                class="mobile-filter-chip"
+                :class="{ active: filters.statut === status }"
+                type="button"
+                @click="filters.statut = status"
+              >
+                {{ status === "ALL" ? "Tous" : status.replaceAll("_", " ") }}
+              </button>
+            </div>
+            <div class="mobile-filter-result-row">
+              <span>{{ commandesFiltered.length }} resultat(s)</span>
+              <button class="mini-btn mobile-filter-more-btn" type="button" @click="setCommandeMobileFiltersOpen(!commandeMobileFiltersOpen)">
+                {{ commandeMobileFiltersOpen ? "Fermer" : "Plus de filtres" }}
+              </button>
+            </div>
+          </article>
+          <MobileFilterBlock
+            title="Plus de filtres"
+            :summary="commandesFilterSummary"
+            :open="commandeMobileFiltersOpen"
+            @toggle="setCommandeMobileFiltersOpen(!commandeMobileFiltersOpen)"
+          >
+            <div class="filters compact">
+              <div class="commande-client-picker">
+                <input :value="commandeClientQuery" type="search" placeholder="Nom ou telephone du client" @input="updateCommandeClientQuery" />
+                <select v-model="filters.client">
+                  <option value="ALL">Tous clients</option>
+                  <option v-if="commandeClientOptions.length === 0" value="">Aucun resultat</option>
+                  <option v-for="client in commandeClientOptions" :key="client.idClient" :value="client.idClient">
+                    {{ `${client.nom} ${client.prenom}`.trim() }}
+                  </option>
+                </select>
+              </div>
+              <select v-model="filters.periode">
+                <option v-for="period in periodOptions" :key="period.value" :value="period.value">
+                  {{ period.label }}
+                </option>
+              </select>
+              <select v-model="filters.soldeRestant">
+                <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
                 </option>
               </select>
             </div>
-            <select v-model="filters.periode">
-              <option v-for="period in periodOptions" :key="period.value" :value="period.value">
-                {{ period.label }}
-              </option>
-            </select>
-            <select v-model="filters.soldeRestant">
-              <option v-for="option in soldeOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-            <input v-model="filters.recherche" type="text" placeholder="Recherche client / id / statut" />
-          </div>
-          <div class="panel-footer">
-            <button class="mini-btn" @click="emit('reset-filters')">Reinitialiser filtres</button>
-          </div>
-          <p v-if="commandeClientQuery.trim() || filters.recherche.trim()" class="helper">
-            Recherche active - {{ commandesFiltered.length }} resultat(s)
-          </p>
-        </MobileFilterBlock>
+            <div class="panel-footer">
+              <button class="mini-btn" @click="emit('reset-filters')">Reinitialiser filtres</button>
+            </div>
+          </MobileFilterBlock>
+        </template>
 
         <article v-else-if="commandeSection === 'liste'" class="panel">
           <h3>Filtres commandes</h3>
@@ -151,7 +172,7 @@ function updateCommandeClientQuery(event) {
               </option>
             </select>
             <div class="commande-client-picker">
-              <input :value="commandeClientQuery" type="text" placeholder="Rechercher client (nom, telephone...)" @input="updateCommandeClientQuery" />
+              <input :value="commandeClientQuery" type="search" placeholder="Nom ou telephone du client" @input="updateCommandeClientQuery" />
               <select v-model="filters.client">
                 <option value="ALL">Tous clients</option>
                 <option v-if="commandeClientOptions.length === 0" value="">Aucun resultat</option>
@@ -170,7 +191,7 @@ function updateCommandeClientQuery(event) {
                 {{ option.label }}
               </option>
             </select>
-            <input v-model="filters.recherche" type="text" placeholder="Recherche client / id / statut" />
+            <input v-model="filters.recherche" type="search" placeholder="Client, numero ou statut" />
           </div>
           <div class="panel-footer">
             <button class="mini-btn" @click="emit('reset-filters')">Reinitialiser filtres</button>

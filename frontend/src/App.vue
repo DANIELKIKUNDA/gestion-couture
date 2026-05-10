@@ -5,6 +5,7 @@ import {
   OFFLINE_READ_MESSAGES,
   READONLY_CACHE_KEYS,
   cacheReadonlyList,
+  loadDossierDetailLocalFirst,
   loadCommandeDetailLocalFirst,
   loadMainListsLocalFirst,
   loadReadonlyDetailLocalFirst,
@@ -19,7 +20,13 @@ import {
   saveCommandePhotoNoteOffline,
   setCommandePhotoPrimaryOffline
 } from "./services/media-local-store.js";
-import { createOfflineCommande, createOfflineRetouche } from "./services/offline-write-service.js";
+import {
+  COMMANDE_MEDIA_CACHE_VARIANTS,
+  cacheCommandeMediaBlob,
+  deleteCommandeMediaCache,
+  getOrFetchCommandeMediaBlob
+} from "./services/commande-media-cache-service.js";
+import { createOfflineCommande, createOfflineDossier, createOfflineRetouche } from "./services/offline-write-service.js";
 import { getNetworkState, subscribeToNetworkState, useNetwork } from "./services/network-service.js";
 import {
   OFFLINE_SESSION_MESSAGES,
@@ -103,6 +110,34 @@ const SystemAtelierDetailPage = defineAsyncComponent(() => import("./components/
 const SystemDashboardPage = defineAsyncComponent(() => import("./components/system/SystemDashboardPage.vue"));
 const SystemAteliersPage = defineAsyncComponent(() => import("./components/system/SystemAteliersPage.vue"));
 const SystemNotificationsPage = defineAsyncComponent(() => import("./components/system/SystemNotificationsPage.vue"));
+
+const authenticatedPagePreloaders = {
+  dashboard: () => import("./components/dashboard/DashboardPage.vue"),
+  commandes: () => import("./components/commandes/CommandesPage.vue"),
+  commandeDetail: () => import("./components/commandes/CommandeDetailPage.vue"),
+  commandeMobileList: () => import("./components/commandes/CommandeMobileList.vue"),
+  commandeMediaGallery: () => import("./components/commandes/CommandeMediaGallery.vue"),
+  retouches: () => import("./components/retouches/RetouchesPage.vue"),
+  retoucheDetail: () => import("./components/retouches/RetoucheDetailPage.vue"),
+  caisse: () => import("./components/caisse/CaissePage.vue"),
+  facturation: () => import("./components/facturation/FacturationPage.vue"),
+  factureDetailLines: () => import("./components/facturation/FactureDetailLinesMobileList.vue"),
+  factureDetailOverview: () => import("./components/facturation/FactureDetailOverviewCards.vue"),
+  dossiers: () => import("./components/dossiers/DossiersPage.vue"),
+  dossierDetail: () => import("./components/dossiers/DossierDetailPage.vue"),
+  venteDetail: () => import("./components/stock/VenteDetailPage.vue"),
+  stockArticleMobileList: () => import("./components/stock/StockArticleMobileList.vue"),
+  venteDraftMobileList: () => import("./components/stock/VenteDraftMobileList.vue"),
+  venteMobileList: () => import("./components/stock/VenteMobileList.vue"),
+  notifications: () => import("./components/notifications/AtelierNotificationsPage.vue"),
+  systemDashboard: () => import("./components/system/SystemDashboardPage.vue"),
+  systemAteliers: () => import("./components/system/SystemAteliersPage.vue"),
+  systemAtelierDetail: () => import("./components/system/SystemAtelierDetailPage.vue"),
+  systemNotifications: () => import("./components/system/SystemNotificationsPage.vue")
+};
+
+const preloadedAuthenticatedPages = new Set();
+let authenticatedPagePreloadTimer = null;
 
 function createPagination(pageSize = 10) {
   return reactive({
@@ -208,6 +243,11 @@ const sessionSource = ref("");
 const authPortal = ref(typeof window !== "undefined" && window.localStorage.getItem(AUTH_PORTAL_STORAGE_KEY) === "system" ? "system" : "atelier");
 const authAtelierSlug = ref(typeof window !== "undefined" ? window.localStorage.getItem(AUTH_ATELIER_SLUG_STORAGE_KEY) || "" : "");
 const authAtelierContext = ref(null);
+const loginSelection = reactive({
+  required: false,
+  challengeToken: "",
+  ateliers: []
+});
 const forbiddenMessage = ref("Acces refuse: permissions insuffisantes.");
 const loginForm = reactive({
   email: "",
@@ -305,7 +345,9 @@ const caisseJour = ref(null);
 const selectedBusinessDate = ref(todayIso());
 
 const stockVentesTab = ref("stock");
+const venteActiveTab = ref("vendre");
 const venteSubmitting = ref(false);
+const venteActionFeedback = ref("");
 const SIMPLE_STOCK_ENTRY_DEFAULT_MOTIF = "ENTREE";
 const venteDraft = reactive({
   acheteurNom: "",
@@ -432,6 +474,10 @@ const ventesPagination = reactive({
 const ventesVisibleCount = ref(ventesPagination.pageSize);
 const ventesLoadingMore = ref(false);
 const venteInfiniteSentinel = ref(null);
+const venteCartRef = ref(null);
+const venteHistorySearch = ref("");
+const venteHistoryStatus = ref("ALL");
+const venteArticleSearch = ref("");
 let venteInfiniteObserver = null;
 const caisseOperationsPagination = reactive({
   page: 1,
@@ -666,8 +712,12 @@ function normalizeDossierBeneficiaire(raw = {}) {
 }
 
 function normalizeDossier(raw = {}) {
+  const idDossier = raw.idDossier || raw.id_dossier || raw.id || raw.localId || raw.local_id || "";
   return {
-    idDossier: raw.idDossier || raw.id_dossier || "",
+    localId: raw.localId || raw.local_id || (isRemoteEntityId(idDossier) ? "" : idDossier),
+    serverId: raw.serverId || raw.server_id || (isRemoteEntityId(idDossier) ? idDossier : ""),
+    syncStatus: raw.syncStatus || raw.sync_status || "synced",
+    idDossier,
     idResponsableClient: raw.idResponsableClient || raw.id_responsable_client || "",
     responsable: {
       idClient: raw.responsable?.idClient || raw.idResponsableClient || raw.id_responsable_client || "",
@@ -1211,7 +1261,8 @@ const commandeMediaViewer = reactive({
   items: [],
   index: -1,
   currentMediaId: "",
-  currentBlobUrl: ""
+  currentBlobUrl: "",
+  emptyMessage: "Impossible d'afficher cette photo pour le moment."
 });
 const detailPaiementsPagination = createPagination(10);
 const detailCommandeEventsPagination = createPagination(10);
@@ -2340,18 +2391,14 @@ const atelierNomAffichage = computed(() => {
 const isSystemManager = computed(() => currentRole.value === "MANAGER_SYSTEME");
 const authPortalLabel = computed(() => (authPortal.value === "system" ? "Administration systeme" : "Connexion atelier"));
 const authCardTitle = computed(() => {
-  if (authPortal.value === "system") return "Administration systeme";
-  const nomAtelier = String(authAtelierContext.value?.nom || "").trim();
-  return nomAtelier || "Connexion atelier";
+  return "ATELIER PRO";
 });
 const authCardSubtitle = computed(() => {
-  if (authPortal.value === "system") return "Console multi-tenant securisee";
-  if (authAtelierContext.value?.slug) return `Slug actif: ${authAtelierContext.value.slug}`;
-  return "Connexion securisee a votre atelier";
+  return "La solution complete pour gerer votre atelier de couture";
 });
 const workspaceName = computed(() => (isSystemManager.value ? "Administration systeme" : atelierNomAffichage.value));
 const workspaceSubtitle = computed(() => (isSystemManager.value ? "Console multi-tenant" : "Gestion metier"));
-const workspaceLogoText = computed(() => (isSystemManager.value || authPortal.value === "system" ? "MS" : "AT"));
+const workspaceLogoText = computed(() => (isSystemManager.value ? "MS" : "AT"));
 const { isOnline: networkIsOnline } = useNetwork();
 const syncStatusLabel = computed(() => {
   if (syncInProgress.value) return "🔄 Synchronisation...";
@@ -3969,6 +4016,81 @@ function resolveAccessibleRoute(preferredRoute = "dashboard") {
   return visibleMenuItems.value[0]?.id || (isSystemManager.value ? "systemAteliers" : "dashboard");
 }
 
+function uniquePreloadKeys(keys = []) {
+  return Array.from(new Set(keys.filter((key) => typeof authenticatedPagePreloaders[key] === "function")));
+}
+
+function getAuthenticatedPagePreloadKeys() {
+  if (!isAuthenticated.value) return [];
+  if (isSystemManager.value) {
+    return uniquePreloadKeys(["systemDashboard", "systemAteliers", "systemAtelierDetail", "systemNotifications"]);
+  }
+
+  const role = currentRole.value;
+  const keys = ["dashboard"];
+  if (role === "COUTURIER") {
+    keys.push("commandes", "commandeDetail", "commandeMobileList", "commandeMediaGallery", "retouches", "retoucheDetail");
+    return uniquePreloadKeys(keys);
+  }
+  if (role === "CAISSIER") {
+    keys.push("caisse", "facturation", "venteDetail", "venteMobileList", "stockArticleMobileList");
+    return uniquePreloadKeys(keys);
+  }
+
+  keys.push(
+    "dossiers",
+    "dossierDetail",
+    "commandes",
+    "commandeDetail",
+    "commandeMobileList",
+    "commandeMediaGallery",
+    "retouches",
+    "retoucheDetail",
+    "caisse",
+    "stockArticleMobileList",
+    "venteDraftMobileList",
+    "venteMobileList",
+    "venteDetail",
+    "facturation",
+    "factureDetailLines",
+    "factureDetailOverview",
+    "notifications"
+  );
+  return uniquePreloadKeys(keys);
+}
+
+async function preloadAuthenticatedPageChunks(keys = getAuthenticatedPagePreloadKeys()) {
+  const pending = keys.filter((key) => !preloadedAuthenticatedPages.has(key));
+  for (let index = 0; index < pending.length; index += 2) {
+    const batch = pending.slice(index, index + 2);
+    await Promise.allSettled(
+      batch.map(async (key) => {
+        preloadedAuthenticatedPages.add(key);
+        await authenticatedPagePreloaders[key]();
+      })
+    );
+  }
+}
+
+function scheduleAuthenticatedPagePreload(delayMs = 1200) {
+  if (authenticatedPagePreloadTimer) {
+    window.clearTimeout(authenticatedPagePreloadTimer);
+    authenticatedPagePreloadTimer = null;
+  }
+  if (!isAuthenticated.value) return;
+  authenticatedPagePreloadTimer = window.setTimeout(() => {
+    authenticatedPagePreloadTimer = null;
+    const run = () => {
+      void preloadAuthenticatedPageChunks();
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(run, { timeout: 3000 });
+      return;
+    }
+    window.setTimeout(run, 0);
+  }, delayMs);
+}
+
 const mobileNavItems = computed(() => {
   if (isSystemManager.value) {
     return [
@@ -5247,8 +5369,42 @@ const stockArticleMap = computed(() => {
   return map;
 });
 
+const stockArticleById = computed(() => {
+  const map = new Map();
+  for (const article of stockArticles.value) {
+    map.set(article.idArticle, article);
+  }
+  return map;
+});
+
 function stockArticleLabel(idArticle) {
   return stockArticleMap.value.get(idArticle) || idArticle || "-";
+}
+
+function venteLinePrice(ligne) {
+  const article = stockArticleById.value.get(ligne?.idArticle);
+  return Number(article?.prixVenteUnitaire || 0);
+}
+
+function venteLineTotal(ligne) {
+  return venteLinePrice(ligne) * Number(ligne?.quantite || 0);
+}
+
+const venteDraftTotal = computed(() => venteDraft.lignes.reduce((sum, ligne) => sum + venteLineTotal(ligne), 0));
+const venteDraftItemsCount = computed(() => venteDraft.lignes.reduce((sum, ligne) => sum + Number(ligne?.quantite || 0), 0));
+const venteArticleOptions = computed(() => {
+  const query = String(venteArticleSearch.value || "").trim().toLowerCase();
+  return stockArticles.value
+    .filter((article) => article.actif !== false && Number(article.quantiteDisponible || 0) > 0)
+    .filter((article) => {
+      if (!query) return true;
+      return `${article.nomArticle || ""} ${article.categorieArticle || ""} ${article.uniteStock || ""}`.toLowerCase().includes(query);
+    })
+    .slice(0, isMobileViewport.value ? 8 : 12);
+});
+
+function selectVenteArticle(idArticle) {
+  venteDraft.current.idArticle = idArticle || "";
 }
 
 const currentTitle = computed(() => {
@@ -5463,9 +5619,9 @@ const venteDetailPrimaryAction = computed(() => {
       label: "Valider",
       subtitle: caisseOuverte.value
         ? "Validez la vente pour finaliser l'encaissement."
-        : "La caisse doit etre ouverte pour valider la vente.",
-      tone: "blue",
-      disabled: !caisseOuverte.value,
+        : "Caisse fermee: la vente reste en brouillon jusqu'a l'ouverture.",
+      tone: caisseOuverte.value ? "blue" : "amber",
+      disabled: false,
       handler: () => onValiderVente(detailVente.value)
     };
   }
@@ -5513,8 +5669,26 @@ const ventesView = computed(() =>
     total: Number(vente.total || 0)
   }))
 );
-const ventesPaged = computed(() => ventesView.value.slice(0, ventesVisibleCount.value));
-const ventesInfiniteEndReached = computed(() => ventesView.value.length > 0 && ventesPaged.value.length >= ventesView.value.length);
+const venteHistoryStatusOptions = computed(() => {
+  const statuses = Array.from(new Set(ventesView.value.map((vente) => String(vente.statut || "").trim()).filter(Boolean)));
+  return ["ALL", ...statuses];
+});
+const ventesFiltered = computed(() => {
+  const query = String(venteHistorySearch.value || "").trim().toLowerCase();
+  return ventesView.value.filter((vente) => {
+    if (venteHistoryStatus.value !== "ALL" && vente.statut !== venteHistoryStatus.value) return false;
+    if (!query) return true;
+    const haystack = `${vente.idVente || ""} ${vente.acheteurNom || ""} ${vente.statut || ""} ${vente.referenceCaisse || ""}`.toLowerCase();
+    return haystack.includes(query);
+  });
+});
+const ventesPaged = computed(() => ventesFiltered.value.slice(0, ventesVisibleCount.value));
+const ventesInfiniteEndReached = computed(() => ventesFiltered.value.length > 0 && ventesPaged.value.length >= ventesFiltered.value.length);
+const venteCashBlockedMessage = computed(() =>
+  caisseOuverte.value
+    ? ""
+    : "La caisse est fermee. Vous pouvez preparer une vente en brouillon, mais il faut ouvrir la caisse du jour pour valider, encaisser ou emettre la facture."
+);
 
 const facturesView = computed(() =>
   factures.value.map((facture) => ({
@@ -7013,6 +7187,11 @@ function onBeforeUnload(event) {
 
 function applyAuthSession(session) {
   if (!session) {
+    if (authenticatedPagePreloadTimer) {
+      window.clearTimeout(authenticatedPagePreloadTimer);
+      authenticatedPagePreloadTimer = null;
+    }
+    preloadedAuthenticatedPages.clear();
     authUser.value = null;
     authPermissions.value = [];
     sessionSource.value = "";
@@ -7193,72 +7372,78 @@ async function detectAuthMode() {
     return;
   }
   authError.value = "";
-  authMode.value = "checking";
-  if (authPortal.value === "system") {
-    authAtelierContext.value = null;
-    try {
-      const payload = await atelierApi.getSystemBootstrapStatus();
-      authMode.value = payload?.initialized ? "login" : "system-bootstrap";
-    } catch {
-      authMode.value = "login";
-    }
-    return;
-  }
-
-  authAtelierSlug.value = normalizeAtelierSlugInput(authAtelierSlug.value);
-  persistAuthAtelierSlug();
-  if (!authAtelierSlug.value) {
-    authAtelierContext.value = null;
-    authMode.value = "slug-required";
-    return;
-  }
-  try {
-    const status = await atelierApi.getOwnerBootstrapStatus({ atelierSlug: authAtelierSlug.value });
-    authAtelierContext.value = status?.atelier || null;
-    if (status?.atelierExists === false) {
-      authMode.value = "atelier-not-found";
-      return;
-    }
-    if (status?.atelier?.actif === false) {
-      authMode.value = "atelier-inactive";
-      return;
-    }
-    authMode.value = status?.initialized ? "login" : "bootstrap";
-  } catch {
-    authMode.value = "login";
-  }
+  authAtelierContext.value = null;
+  authMode.value = "login";
 }
 
-async function submitLogin() {
-  if (authenticating.value) return;
-  if (authPortal.value === "atelier" && !authAtelierSlug.value) {
-    authMode.value = "slug-required";
-    authError.value = "Renseigne d'abord le slug de l'atelier.";
-    return;
-  }
-  if (authPortal.value === "atelier" && (authMode.value === "atelier-inactive" || authAtelierContext.value?.actif === false)) {
-    authError.value = AUTH_DISABLED_ATELIER_MESSAGE;
-    return;
-  }
-  authError.value = "";
-  authenticating.value = true;
-  try {
-    await atelierApi.login({
-      email: loginForm.email.trim(),
-      motDePasse: loginForm.motDePasse,
-      atelierSlug: authPortal.value === "atelier" ? authAtelierSlug.value : ""
-    });
+function resetLoginSelection() {
+  loginSelection.required = false;
+  loginSelection.challengeToken = "";
+  loginSelection.ateliers = [];
+}
+
+async function completeLoginSession() {
     const session = normalizeSessionPayload(await atelierApi.me());
     applyAuthSession(session);
     sessionSource.value = "online";
     await persistVerifiedOfflineSession(session);
     authMode.value = "login";
+    resetLoginSelection();
     loginForm.motDePasse = "";
     await loadAtelierSettings();
     await loadAtelierRuntimeSettings();
     await persistCurrentVerifiedOfflineSession();
     await reloadAll();
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute(currentRoute.value);
+    scheduleAuthenticatedPagePreload();
+}
+
+async function submitLogin() {
+  if (authenticating.value) return;
+  const identifiant = loginForm.email.trim();
+  if (!identifiant) {
+    authError.value = "Renseigne ton email ou ton telephone.";
+    return;
+  }
+  if (!loginForm.motDePasse) {
+    authError.value = "Renseigne ton mot de passe.";
+    return;
+  }
+  authError.value = "";
+  resetLoginSelection();
+  authenticating.value = true;
+  try {
+    const response = await atelierApi.login({
+      identifiant,
+      motDePasse: loginForm.motDePasse
+    });
+    if (response?.selectionRequired) {
+      loginSelection.required = true;
+      loginSelection.challengeToken = response.challengeToken || "";
+      loginSelection.ateliers = Array.isArray(response.ateliers) ? response.ateliers : [];
+      authError.value = "";
+      return;
+    }
+    await completeLoginSession();
+  } catch (err) {
+    applyAuthSession(null);
+    authError.value = loginErrorMessage(err);
+  } finally {
+    authenticating.value = false;
+  }
+}
+
+async function selectLoginAtelier(atelierId) {
+  if (authenticating.value || !loginSelection.challengeToken) return;
+  authError.value = "";
+  authenticating.value = true;
+  try {
+    await atelierApi.selectLoginAtelier({
+      challengeToken: loginSelection.challengeToken,
+      atelierId,
+      motDePasse: loginForm.motDePasse
+    });
+    await completeLoginSession();
   } catch (err) {
     applyAuthSession(null);
     authError.value = loginErrorMessage(err);
@@ -7399,6 +7584,7 @@ async function loadInitialAuthenticatedWorkspace() {
     await reloadAll();
     if (currentRoute.value === "audit" && canAccessRoute("audit")) loadAuditPage(auditSubRoute.value);
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute();
+    scheduleAuthenticatedPagePreload();
   } catch (err) {
     errorMessage.value = readableError(err);
   } finally {
@@ -7493,6 +7679,7 @@ onUnmounted(() => {
   }
   if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
   if (syncUiRefreshTimer) window.clearTimeout(syncUiRefreshTimer);
+  if (authenticatedPagePreloadTimer) window.clearTimeout(authenticatedPagePreloadTimer);
   clearCrossDeviceRefreshTimer();
   clearGlobalErrorMessage();
   clearSystemAteliersSearchDebounce();
@@ -7531,6 +7718,7 @@ watch(currentRoute, (routeName) => {
 
 watch([() => isAuthenticated.value, () => currentAtelierId.value, networkIsOnline], () => {
   scheduleCrossDeviceRefresh();
+  if (isAuthenticated.value) scheduleAuthenticatedPagePreload(1800);
 });
 
 watch(contentScrollRef, () => {
@@ -9124,12 +9312,12 @@ async function reloadAll() {
 
   const localFirst = await loadMainListsLocalFirst({
     atelierId,
+    loadDossiers: shouldLoadDossiers,
     loadClients: shouldLoadClients,
     loadCommandes: shouldLoadCommandes,
     loadRetouches: shouldLoadRetouches
   });
   const readonlyKeys = [
-    shouldLoadDossiers ? READONLY_CACHE_KEYS.DOSSIERS : "",
     shouldLoadRetoucheTypes ? READONLY_CACHE_KEYS.RETOUCHE_TYPES : "",
     shouldLoadStock ? READONLY_CACHE_KEYS.STOCK_ARTICLES : "",
     shouldLoadVentes ? READONLY_CACHE_KEYS.VENTES : "",
@@ -9144,7 +9332,7 @@ async function reloadAll() {
   if (shouldLoadClients) applyClientsRows(localFirst.cached.clients);
   if (shouldLoadCommandes) applyCommandesRows(localFirst.cached.commandes);
   if (shouldLoadRetouches) applyRetouchesRows(localFirst.cached.retouches);
-  if (shouldLoadDossiers) applyDossiersRows(readonlyLocalFirst.cached[READONLY_CACHE_KEYS.DOSSIERS] || []);
+  if (shouldLoadDossiers) applyDossiersRows(localFirst.cached.dossiers);
   if (shouldLoadRetoucheTypes) {
     retoucheTypeDefinitions.value = (readonlyLocalFirst.cached[READONLY_CACHE_KEYS.RETOUCHE_TYPES] || [])
       .map(normalizeRetoucheTypeDefinition)
@@ -9212,21 +9400,18 @@ async function reloadAll() {
     if (refreshedMain?.retouches) applyRetouchesRows(refreshedMain.retouches);
     else if (refreshedMain?.errors?.retouches) appendError(refreshedMain.errors.retouches);
   }
+  if (shouldLoadDossiers) {
+    if (refreshedMain?.dossiers) applyDossiersRows(refreshedMain.dossiers);
+    else if (refreshedMain?.errors?.dossiers) appendError(refreshedMain.errors.dossiers);
+  }
 
-  const [dossiersResult, retoucheTypesResult, stockResult, ventesResult, facturesResult, caisseDaysResult] = await Promise.allSettled([
-    shouldLoadDossiers ? atelierApi.listDossiers() : Promise.resolve([]),
+  const [retoucheTypesResult, stockResult, ventesResult, facturesResult, caisseDaysResult] = await Promise.allSettled([
     shouldLoadRetoucheTypes ? atelierApi.listRetoucheTypes() : Promise.resolve([]),
     shouldLoadStock ? atelierApi.listStockArticles() : Promise.resolve([]),
     shouldLoadVentes ? atelierApi.listVentes() : Promise.resolve([]),
     shouldLoadFactures ? atelierApi.listFactures() : Promise.resolve([]),
     shouldLoadCaisse ? atelierApi.listCaisseJours() : Promise.resolve([])
   ]);
-
-  if (dossiersResult.status === "fulfilled") {
-    await cacheReadonlyList(atelierId, READONLY_CACHE_KEYS.DOSSIERS, dossiersResult.value || []);
-    applyDossiersRows(dossiersResult.value || []);
-  }
-  else if (shouldLoadDossiers) appendError(dossiersResult.reason);
 
   if (retoucheTypesResult.status === "fulfilled") {
     await cacheReadonlyList(atelierId, READONLY_CACHE_KEYS.RETOUCHE_TYPES, retoucheTypesResult.value || []);
@@ -9381,11 +9566,9 @@ async function loadDossierDetail(idDossier, { preserveExisting = true } = {}) {
       detailDossierError.value = "";
     }
     try {
-      const localFirst = await loadReadonlyDetailLocalFirst({
+      const localFirst = await loadDossierDetailLocalFirst({
         atelierId: currentAtelierId.value,
-        cacheKey: READONLY_CACHE_KEYS.DOSSIERS,
-        identifier: requestedId,
-        loader: (id) => atelierApi.getDossier(id)
+        idDossier: requestedId
       });
       if (requestId !== dossierDetailLoadRequestId) return null;
       if (localFirst.cached) {
@@ -9505,11 +9688,28 @@ async function submitDossierCreate() {
         };
       }
     }
-    const created = await atelierApi.createDossier(payload);
-    const normalized = normalizeDossier(created?.dossier || created);
+    let normalized = null;
+    if (!getNetworkState().online) {
+      const atelierId = currentAtelierId.value;
+      if (!atelierId) throw new Error("Atelier offline introuvable.");
+      const created = await createOfflineDossier({
+        atelierId,
+        clientId: payload.idResponsableClient || "",
+        newClient: payload.nouveauResponsable || null,
+        dossier: payload
+      });
+      if (created?.client) {
+        upsertClientRow(normalizeClient(created.client));
+      }
+      normalized = normalizeDossier(created.dossier);
+      void requestSync(atelierId);
+    } else {
+      const created = await atelierApi.createDossier(payload);
+      normalized = normalizeDossier(created?.dossier || created);
+    }
     applyDossiersRows([normalized, ...dossiers.value]);
     closeDossierModal();
-    notify(`Dossier cree: ${normalized.idDossier}`);
+    notify(getNetworkState().online ? `Dossier cree: ${normalized.idDossier}` : "Dossier cree hors ligne. Il sera synchronise automatiquement.");
     await openDossierDetail(normalized.idDossier);
   } catch (err) {
     notify(readableError(err));
@@ -9991,6 +10191,15 @@ function upsertClientRow(row) {
   clients.value = [...clients.value.filter((item) => item.idClient !== normalized.idClient), normalized];
 }
 
+function upsertFacture(row) {
+  const normalized = normalizeFacture(row);
+  if (!normalized.idFacture) return;
+  factures.value = [normalized, ...factures.value.filter((item) => item.idFacture !== normalized.idFacture)];
+  if (detailFacture.value?.idFacture === normalized.idFacture) {
+    detailFacture.value = normalized;
+  }
+}
+
 function prependCommandeRow(row) {
   const normalized = normalizeCommande(row);
   commandes.value = [normalized, ...commandes.value.filter((item) => item.idCommande !== normalized.idCommande)];
@@ -10009,6 +10218,7 @@ async function buildCommandeMediaUiRows(rows = [], commande = detailCommande.val
   const commandeServerId = String(
     commande?.serverId || commande?.idCommandeServerId || (isRemoteEntityId(commande?.idCommande) ? commande.idCommande : "")
   ).trim();
+  const atelierId = String(currentAtelierId.value || "").trim();
   const canHydrateRemoteMedia = getNetworkState().online && Boolean(commandeServerId);
   const nextRows = [];
 
@@ -10016,7 +10226,8 @@ async function buildCommandeMediaUiRows(rows = [], commande = detailCommande.val
     const nextItem = {
       ...item,
       thumbnailBlobUrl: "",
-      fileBlobUrl: ""
+      fileBlobUrl: "",
+      offlineAvailable: Boolean(item?.blob instanceof Blob)
     };
 
     if (item?.blob instanceof Blob) {
@@ -10028,10 +10239,20 @@ async function buildCommandeMediaUiRows(rows = [], commande = detailCommande.val
     }
 
     const mediaServerId = String(item?.serverId || item?.idMedia || "").trim();
-    if (canHydrateRemoteMedia && mediaServerId) {
+    if (atelierId && commandeServerId && mediaServerId) {
       try {
-        const thumbnailBlob = await atelierApi.getCommandeMediaThumbnailBlob(commandeServerId, mediaServerId);
-        nextItem.thumbnailBlobUrl = URL.createObjectURL(thumbnailBlob);
+        const result = await getOrFetchCommandeMediaBlob({
+          atelierId,
+          idCommande: commandeServerId,
+          idMedia: mediaServerId,
+          variant: COMMANDE_MEDIA_CACHE_VARIANTS.THUMBNAIL,
+          canFetch: canHydrateRemoteMedia,
+          fetchBlob: () => atelierApi.getCommandeMediaThumbnailBlob(commandeServerId, mediaServerId)
+        });
+        if (result?.blob instanceof Blob) {
+          nextItem.thumbnailBlobUrl = URL.createObjectURL(result.blob);
+          nextItem.offlineAvailable = true;
+        }
       } catch {
         nextItem.thumbnailBlobUrl = "";
       }
@@ -10229,13 +10450,14 @@ function clearCrossDeviceRefreshTimer() {
   }
 }
 
-async function refreshMainListsInBackground({ loadClients = false, loadCommandes = false, loadRetouches = false } = {}) {
+async function refreshMainListsInBackground({ loadDossiers = false, loadClients = false, loadCommandes = false, loadRetouches = false } = {}) {
   const atelierId = currentAtelierId.value;
   if (!atelierId || !getNetworkState().online) return false;
 
   try {
     const localFirst = await loadMainListsLocalFirst({
       atelierId,
+      loadDossiers,
       loadClients,
       loadCommandes,
       loadRetouches
@@ -10244,6 +10466,7 @@ async function refreshMainListsInBackground({ loadClients = false, loadCommandes
     if (!localFirst.online || !localFirst.refreshPromise) return false;
 
     const refreshedMain = await localFirst.refreshPromise;
+    if (loadDossiers && refreshedMain?.dossiers) applyDossiersRows(refreshedMain.dossiers);
     if (loadClients && refreshedMain?.clients) applyClientsRows(refreshedMain.clients);
     if (loadCommandes && refreshedMain?.commandes) applyCommandesRows(refreshedMain.commandes);
     if (loadRetouches && refreshedMain?.retouches) applyRetouchesRows(refreshedMain.retouches);
@@ -10305,11 +10528,7 @@ async function refreshVisibleRouteInBackground({ force = false } = {}) {
 
     if (routeName === "dossiers") {
       await loadAtelierRuntimeSettings();
-      try {
-        applyDossiersRows(await atelierApi.listDossiers());
-      } catch {
-        // Keep the current dossier list if the background refresh fails.
-      }
+      await refreshMainListsInBackground({ loadDossiers: true });
       return true;
     }
 
@@ -10322,6 +10541,7 @@ async function refreshVisibleRouteInBackground({ force = false } = {}) {
     if (routeName === "dashboard") {
       await loadAtelierRuntimeSettings();
       await refreshMainListsInBackground({
+        loadDossiers: canAccessModule("dossiers"),
         loadClients: canReadClients.value,
         loadCommandes: canReadCommandes.value,
         loadRetouches: canReadRetouches.value
@@ -11595,6 +11815,13 @@ function isCaisseInsufficientMessage(message) {
   return lower.includes("solde insuffisant") || lower.includes("solde journalier insuffisant");
 }
 
+function currentCaisseAvailableAmount() {
+  const direct = Number(caisseJour.value?.soldeCourant);
+  if (Number.isFinite(direct)) return Math.max(0, direct);
+  const fallback = Number(caisseTotals.value?.soldeCourant);
+  return Number.isFinite(fallback) ? Math.max(0, fallback) : 0;
+}
+
 function buildCancellationConfirmationMessage(entityLabel, entityId, montantPaye = 0) {
   const label = String(entityLabel || "element").trim();
   const id = String(entityId || "").trim();
@@ -12813,7 +13040,9 @@ async function onWizardStep4() {
     wizard.requestCommandeId = payload.idCommande;
 
     const useOfflinePath =
-      !getNetworkState().online || (wizard.mode === "existing" && !isRemoteEntityId(wizard.resolvedClientId));
+      !getNetworkState().online ||
+      (wizard.mode === "existing" && !isRemoteEntityId(wizard.resolvedClientId)) ||
+      (payload.idDossier && !isRemoteEntityId(payload.idDossier));
     let normalized = null;
     if (useOfflinePath) {
       const created = await createOfflineCommande({
@@ -13064,7 +13293,9 @@ async function onRetoucheWizardStep4() {
     retoucheWizard.requestRetoucheId = payload.idRetouche;
 
     const useOfflinePath =
-      !getNetworkState().online || (retoucheWizard.mode === "existing" && !isRemoteEntityId(retoucheWizard.resolvedClientId));
+      !getNetworkState().online ||
+      (retoucheWizard.mode === "existing" && !isRemoteEntityId(retoucheWizard.resolvedClientId)) ||
+      (payload.idDossier && !isRemoteEntityId(payload.idDossier));
 
     let normalized = null;
     if (useOfflinePath) {
@@ -13255,6 +13486,12 @@ function addVenteLigne() {
   venteDraft.lignes.push({ idArticle, quantite });
   venteDraft.current.idArticle = "";
   venteDraft.current.quantite = "";
+  venteArticleSearch.value = "";
+  nextTick(() => {
+    if (venteCartRef.value && isMobileViewport.value) {
+      venteCartRef.value.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
 }
 
 function removeVenteLigne(index) {
@@ -13272,7 +13509,11 @@ async function onCreerVente() {
     const normalized = normalizeVente(created);
     ventes.value.unshift(normalized);
     resetVenteDraft();
-    notify(`Vente creee: ${normalized.idVente}`);
+    const message = caisseOuverte.value
+      ? `Vente creee: ${normalized.idVente}`
+      : `Brouillon cree: ${normalized.idVente}. Ouvrez la caisse pour valider et facturer.`;
+    venteActionFeedback.value = message;
+    notify(message);
   } catch (err) {
     notify(readableError(err));
   } finally {
@@ -13282,6 +13523,10 @@ async function onCreerVente() {
 
 async function onValiderVente(vente, { emettreFacture = false } = {}) {
   if (!vente || vente.statut === "VALIDEE") return;
+  if (!caisseOuverte.value) {
+    notifyVenteCaisseFermee();
+    return;
+  }
   try {
     if (emettreFacture) {
       const result = await atelierApi.validerVenteEtFacturer({ idVente: vente.idVente });
@@ -13292,6 +13537,7 @@ async function onValiderVente(vente, { emettreFacture = false } = {}) {
       if (currentRoute.value === "vente-detail" && detailVente.value?.idVente === vente.idVente) {
         await loadVenteDetail(vente.idVente);
       }
+      venteActionFeedback.value = "";
       notify(`Vente validee + facture emise: ${vente.idVente}`);
       return;
     }
@@ -13300,6 +13546,7 @@ async function onValiderVente(vente, { emettreFacture = false } = {}) {
     if (currentRoute.value === "vente-detail" && detailVente.value?.idVente === vente.idVente) {
       await loadVenteDetail(vente.idVente);
     }
+    venteActionFeedback.value = "";
     notify(`Vente validee: ${vente.idVente}`);
   } catch (err) {
     const message = readableError(err);
@@ -13317,6 +13564,12 @@ async function onValiderVente(vente, { emettreFacture = false } = {}) {
 
 async function onValiderVenteEtFacturer(vente) {
   await onValiderVente(vente, { emettreFacture: true });
+}
+
+function notifyVenteCaisseFermee() {
+  const message = "La caisse est fermee. Cette vente reste en brouillon; ouvrez la caisse du jour pour valider et facturer.";
+  venteActionFeedback.value = message;
+  notify(message);
 }
 
 async function onAnnulerVente(vente) {
@@ -13427,6 +13680,18 @@ async function onAcheterStock(article) {
     fields: [
       { key: "quantite", label: "Quantite", type: "number", required: true, min: 1, defaultValue: 1 },
       { key: "prixAchatUnitaire", label: "Prix d'achat unitaire", type: "number", required: true, min: 0, defaultValue: 0 },
+      {
+        key: "sourceFinancement",
+        label: "Argent a utiliser",
+        type: "select",
+        required: true,
+        defaultValue: "SOLDE_CAISSE",
+        options: [
+          { value: "SOLDE_CAISSE", label: "Solde disponible de la caisse" },
+          { value: "STOCK", label: "Budget stock" },
+          { value: "ATELIER", label: "Budget atelier" }
+        ]
+      },
       { key: "fournisseur", label: "Fournisseur (optionnel)", type: "text", defaultValue: "" },
       { key: "referenceAchat", label: "Reference achat (optionnel)", type: "text", defaultValue: "" }
     ]
@@ -13443,12 +13708,19 @@ async function onAcheterStock(article) {
     notify("Prix d'achat invalide.");
     return;
   }
+  const montantAchat = quantite * prixAchatUnitaire;
+  const soldeDisponible = currentCaisseAvailableAmount();
+  if (montantAchat > soldeDisponible) {
+    notify(`Achat impossible : la caisse disponible est de ${formatCurrency(soldeDisponible)} alors que l'achat demande ${formatCurrency(montantAchat)}.`);
+    return;
+  }
 
   try {
     await atelierApi.entrerStockArticle(article.idArticle, {
       quantite,
       motif: "ACHAT",
       prixAchatUnitaire,
+      sourceFinancement: String(payload.sourceFinancement || "SOLDE_CAISSE").trim().toUpperCase(),
       fournisseur: String(payload.fournisseur || "").trim() || null,
       referenceAchat: String(payload.referenceAchat || "").trim() || null
     });
@@ -13460,7 +13732,40 @@ async function onAcheterStock(article) {
       notify("Impossible d'enregistrer cet achat : la caisse est cloturee.");
       return;
     }
+    if (isCaisseInsufficientMessage(message)) {
+      notify("Achat impossible : le solde de la caisse est insuffisant.");
+      return;
+    }
     notify(message);
+  }
+}
+
+async function onCreerVenteEtFacturer() {
+  if (venteDraft.lignes.length === 0) {
+    notify("Ajoutez au moins une ligne.");
+    return;
+  }
+  if (!caisseOuverte.value) {
+    notifyVenteCaisseFermee();
+    return;
+  }
+  venteSubmitting.value = true;
+  try {
+    const result = await atelierApi.encaisserVente(venteDraft.lignes, { acheteurNom: venteDraft.acheteurNom });
+    const normalized = normalizeVente(result?.vente);
+    if (normalized.idVente) {
+      ventes.value.unshift(normalized);
+    }
+    if (result?.facture) {
+      upsertFacture(normalizeFacture(result.facture));
+    }
+    resetVenteDraft();
+    await reloadAll();
+    notify(`Vente encaissee + facture emise: ${normalized.idVente}`);
+  } catch (err) {
+    notify(readableError(err));
+  } finally {
+    venteSubmitting.value = false;
   }
 }
 
@@ -14477,6 +14782,32 @@ function closeCommandeMediaViewer() {
   commandeMediaViewer.index = -1;
   commandeMediaViewer.currentMediaId = "";
   commandeMediaViewer.currentBlobUrl = "";
+  commandeMediaViewer.emptyMessage = "Impossible d'afficher cette photo pour le moment.";
+}
+
+async function loadCommandeMediaOriginalBlob(item) {
+  const idCommande = String(detailCommande.value?.idCommande || "").trim();
+  const idCommandeServer = String(
+    detailCommande.value?.serverId || detailCommande.value?.idCommandeServerId || (isRemoteEntityId(idCommande) ? idCommande : "")
+  ).trim();
+  const atelierId = String(currentAtelierId.value || "").trim();
+  const mediaServerId = String(item?.serverId || item?.idMedia || "").trim();
+
+  if (!atelierId || !idCommandeServer || !mediaServerId) {
+    return {
+      blob: null,
+      source: "missing"
+    };
+  }
+
+  return getOrFetchCommandeMediaBlob({
+    atelierId,
+    idCommande: idCommandeServer,
+    idMedia: mediaServerId,
+    variant: COMMANDE_MEDIA_CACHE_VARIANTS.ORIGINAL,
+    canFetch: getNetworkState().online && isRemoteEntityId(idCommande),
+    fetchBlob: () => atelierApi.getCommandeMediaFileBlob(idCommandeServer, mediaServerId)
+  });
 }
 
 async function ensureCommandeMediaViewerBlobForItem(item) {
@@ -14492,22 +14823,18 @@ async function ensureCommandeMediaViewerBlobForItem(item) {
     return;
   }
 
-  if (!detailCommande.value?.idCommande || !getNetworkState().online || !isRemoteEntityId(detailCommande.value.idCommande)) {
-    commandeMediaViewer.currentBlobUrl = "";
-    return;
-  }
-
-  const mediaServerId = String(viewerItem.serverId || viewerItem.idMedia || "").trim();
-  if (!mediaServerId) {
-    commandeMediaViewer.currentBlobUrl = "";
-    return;
-  }
-
   const requestId = ++commandeMediaViewerRequestId;
   detailCommandeMediaActionId.value = viewerMediaId;
   try {
-    const fileBlob = await atelierApi.getCommandeMediaFileBlob(detailCommande.value.idCommande, mediaServerId);
-    const blobUrl = URL.createObjectURL(fileBlob);
+    const result = await loadCommandeMediaOriginalBlob(viewerItem);
+    if (!(result?.blob instanceof Blob)) {
+      commandeMediaViewer.currentBlobUrl = "";
+      commandeMediaViewer.emptyMessage = getNetworkState().online
+        ? "Impossible d'afficher cette photo pour le moment."
+        : "Image indisponible hors connexion.";
+      return;
+    }
+    const blobUrl = URL.createObjectURL(result.blob);
     const isStillCurrent =
       requestId === commandeMediaViewerRequestId &&
       commandeMediaViewer.open &&
@@ -14522,10 +14849,12 @@ async function ensureCommandeMediaViewerBlobForItem(item) {
     if (index >= 0) {
       detailCommandeMedia.value[index] = {
         ...detailCommandeMedia.value[index],
-        fileBlobUrl: blobUrl
+        fileBlobUrl: blobUrl,
+        offlineAvailable: true
       };
     }
     commandeMediaViewer.currentBlobUrl = blobUrl;
+    commandeMediaViewer.emptyMessage = "Impossible d'afficher cette photo pour le moment.";
   } catch (err) {
     if (requestId === commandeMediaViewerRequestId && commandeMediaViewer.currentMediaId === viewerMediaId) {
       commandeMediaViewer.currentBlobUrl = "";
@@ -14542,6 +14871,7 @@ function showPreviousCommandeMediaInViewer() {
   if (!commandeMediaViewerCanPrev.value) return;
   commandeMediaViewer.index -= 1;
   commandeMediaViewer.currentBlobUrl = "";
+  commandeMediaViewer.emptyMessage = "Impossible d'afficher cette photo pour le moment.";
   const nextItem = commandeMediaViewer.items[commandeMediaViewer.index] || null;
   commandeMediaViewer.currentMediaId = nextItem ? mediaActionKey(nextItem) : "";
   void ensureCommandeMediaViewerBlobForItem(nextItem);
@@ -14551,6 +14881,7 @@ function showNextCommandeMediaInViewer() {
   if (!commandeMediaViewerCanNext.value) return;
   commandeMediaViewer.index += 1;
   commandeMediaViewer.currentBlobUrl = "";
+  commandeMediaViewer.emptyMessage = "Impossible d'afficher cette photo pour le moment.";
   const nextItem = commandeMediaViewer.items[commandeMediaViewer.index] || null;
   commandeMediaViewer.currentMediaId = nextItem ? mediaActionKey(nextItem) : "";
   void ensureCommandeMediaViewerBlobForItem(nextItem);
@@ -14575,6 +14906,7 @@ function openCommandeMediaInViewer(item, blobUrl = "") {
   commandeMediaViewer.index = nextIndex >= 0 ? nextIndex : 0;
   commandeMediaViewer.currentMediaId = mediaActionKey(item);
   commandeMediaViewer.currentBlobUrl = blobUrl || item?.fileBlobUrl || "";
+  commandeMediaViewer.emptyMessage = "Impossible d'afficher cette photo pour le moment.";
   commandeMediaViewer.open = true;
   if (!commandeMediaViewer.currentBlobUrl) {
     void ensureCommandeMediaViewerBlobForItem(item);
@@ -14592,22 +14924,22 @@ async function openCommandeMedia(item) {
     return;
   }
 
-  if (!getNetworkState().online || !isRemoteEntityId(detailCommande.value.idCommande) || !String(item?.serverId || item?.idMedia || "").trim()) {
-    notify("Cette photo sera disponible une fois la connexion retablie.");
-    return;
-  }
-
   let blobUrl = item.fileBlobUrl || "";
   try {
     if (!blobUrl) {
       detailCommandeMediaActionId.value = mediaActionKey(item);
-      const fileBlob = await atelierApi.getCommandeMediaFileBlob(detailCommande.value.idCommande, item.serverId || item.idMedia);
-      blobUrl = URL.createObjectURL(fileBlob);
+      const result = await loadCommandeMediaOriginalBlob(item);
+      if (!(result?.blob instanceof Blob)) {
+        notify(getNetworkState().online ? "Impossible d'afficher cette photo pour le moment." : "Image indisponible hors connexion.");
+        return;
+      }
+      blobUrl = URL.createObjectURL(result.blob);
       const index = detailCommandeMedia.value.findIndex((row) => mediaActionKey(row) === mediaActionKey(item));
       if (index >= 0) {
         detailCommandeMedia.value[index] = {
           ...detailCommandeMedia.value[index],
-          fileBlobUrl: blobUrl
+          fileBlobUrl: blobUrl,
+          offlineAvailable: true
         };
       }
     }
@@ -14660,7 +14992,19 @@ async function uploadCommandeMedia({ file, note = "", sourceType = "UPLOAD", idI
     if (note) formData.append("note", note);
     if (idItem) formData.append("idItem", idItem);
     if (sourceType) formData.append("sourceType", sourceType);
-    await atelierApi.uploadCommandeMedia(detailCommande.value.idCommande, formData);
+    const uploadResponse = await atelierApi.uploadCommandeMedia(detailCommande.value.idCommande, formData);
+    const uploadedMediaId = String(uploadResponse?.media?.idMedia || uploadResponse?.media?.id_media || uploadResponse?.idMedia || "").trim();
+    if (uploadedMediaId && currentAtelierId.value) {
+      await cacheCommandeMediaBlob({
+        atelierId: currentAtelierId.value,
+        idCommande: detailCommande.value.idCommande,
+        idMedia: uploadedMediaId,
+        variant: COMMANDE_MEDIA_CACHE_VARIANTS.ORIGINAL,
+        blob: file,
+        mimeType: file?.type,
+        source: "offline-upload"
+      });
+    }
     await refreshCommandeMediaForDetail({
       commande: detailCommande.value,
       idCommande: detailCommande.value.idCommande,
@@ -14842,6 +15186,11 @@ async function deleteCommandeMedia(item) {
         commande: detailCommande.value,
         media: item
       });
+      await deleteCommandeMediaCache({
+        atelierId,
+        idCommande: detailCommande.value.idCommande,
+        idMedia: item.serverId || item.idMedia
+      });
       await setDetailCommandeMediaRows(items || [], detailCommande.value);
       detailCommandeMediaError.value = "";
       void requestSync(atelierId);
@@ -14850,6 +15199,11 @@ async function deleteCommandeMedia(item) {
     }
 
     await atelierApi.deleteCommandeMedia(detailCommande.value.idCommande, item.serverId || item.idMedia);
+    await deleteCommandeMediaCache({
+      atelierId: currentAtelierId.value,
+      idCommande: detailCommande.value.idCommande,
+      idMedia: item.serverId || item.idMedia
+    });
     await refreshCommandeMediaForDetail({
       commande: detailCommande.value,
       idCommande: detailCommande.value.idCommande,
@@ -15038,80 +15392,85 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
   <div v-else-if="!isAuthenticated" class="auth-shell">
     <article class="auth-card">
       <header class="auth-card-head">
-        <div class="auth-logo">
-          <img v-if="atelierLogoUrl && authPortal === 'atelier'" :src="atelierLogoUrl" alt="Logo atelier" />
-          <span v-else>{{ workspaceLogoText }}</span>
+        <div class="auth-logo auth-logo-sewing" aria-hidden="true">
+          <svg viewBox="0 0 96 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M15 42h58M20 42V22h34c8 0 15 7 15 15v5" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M24 22h-7M64 22h10v20M54 22v-8M49 14h13" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+            <circle cx="62" cy="31" r="4" stroke="currentColor" stroke-width="4" />
+            <path d="M38 42c1-7 6-12 13-12" stroke="currentColor" stroke-width="5" stroke-linecap="round" />
+            <path d="M9 51h73" stroke="currentColor" stroke-width="5" stroke-linecap="round" />
+          </svg>
         </div>
         <h2>{{ atelierNomConnexion }}</h2>
+        <span class="auth-title-mark" aria-hidden="true"></span>
         <p>{{ authCardSubtitle }}</p>
       </header>
-      <div class="segmented auth-portal-switch" role="tablist" aria-label="Type de connexion">
-        <button class="mini-btn auth-portal-btn" :class="{ active: authPortal === 'atelier' }" type="button" @click="setAuthPortal('atelier')">
-          Atelier
-        </button>
-        <button class="mini-btn auth-portal-btn" :class="{ active: authPortal === 'system' }" type="button" @click="setAuthPortal('system')">
-          Administration systeme
-        </button>
-      </div>
-      <div v-if="authPortal === 'atelier'" class="auth-form auth-slug-form">
-        <label for="login-atelier-slug">Slug atelier</label>
-        <input
-          id="login-atelier-slug"
-          v-model.trim="authAtelierSlug"
-          type="text"
-          inputmode="text"
-          autocomplete="organization"
-          placeholder="ex: atelier-kintambo"
-        />
-        <p v-if="authAtelierContext?.nom" class="helper auth-helper">
-          Atelier detecte: <strong>{{ authAtelierContext.nom }}</strong>
-          <span v-if="authAtelierContext.slug"> · {{ authAtelierContext.slug }}</span>
-        </p>
-      </div>
       <p v-if="authError" class="auth-error">{{ authError }}</p>
-      <div v-if="authMode === 'checking'" class="auth-message">
-        <p>{{ authPortal === 'system' ? "Verification de la console systeme..." : "Verification de la configuration de l'atelier..." }}</p>
-      </div>
-      <div v-else-if="authMode === 'slug-required'" class="auth-message">
-        <p>Renseigne le slug de l'atelier pour charger la bonne instance.</p>
-      </div>
-      <div v-else-if="authMode === 'atelier-not-found'" class="auth-message">
-        <p>Aucun atelier ne correspond a ce slug.</p>
-      </div>
-      <div v-else-if="authMode === 'atelier-inactive'" class="auth-message">
-        <p>{{ AUTH_DISABLED_ATELIER_MESSAGE }}</p>
-      </div>
-      <div v-else-if="authMode === 'bootstrap'" class="auth-message">
-        <p>Aucun compte proprietaire n'existe encore pour cet atelier.</p>
-        <button class="action-btn blue auth-submit" type="button" :disabled="bootstrapInitializing" @click="bootstrapAtelier">
-          {{ bootstrapInitializing ? "Initialisation..." : "Initialiser l'atelier" }}
+      <div v-if="loginSelection.required" class="auth-selection">
+        <div class="auth-selection-head">
+          <h3>Choisir mon atelier</h3>
+          <p>Selectionne l'espace dans lequel tu veux travailler.</p>
+        </div>
+        <button
+          v-for="atelier in loginSelection.ateliers"
+          :key="atelier.idAtelier"
+          class="auth-selection-item"
+          type="button"
+          :disabled="authenticating"
+          @click="selectLoginAtelier(atelier.idAtelier)"
+        >
+          <span>
+            <strong>{{ atelier.nom }}</strong>
+            <small>{{ atelier.roleId === 'MANAGER_SYSTEME' ? 'Administration systeme' : atelier.slug }}</small>
+          </span>
+          <span aria-hidden="true">›</span>
+        </button>
+        <button class="auth-link-btn auth-link-inline" type="button" :disabled="authenticating" @click="resetLoginSelection">
+          Revenir a la connexion
         </button>
       </div>
-      <div v-else-if="authMode === 'system-bootstrap'" class="auth-message">
-        <p>Aucun manager systeme n'existe encore pour cette application.</p>
-        <button class="action-btn blue auth-submit" type="button" :disabled="bootstrapInitializing" @click="bootstrapSystemManager">
-          {{ bootstrapInitializing ? "Initialisation..." : "Initialiser le manager systeme" }}
-        </button>
-      </div>
-      <form v-else class="auth-form" @submit.prevent="submitLogin">
-        <label for="login-email">Email</label>
-        <input id="login-email" v-model="loginForm.email" type="email" required autocomplete="username" />
-        <label for="login-password">Mot de passe</label>
-        <div class="auth-password-field">
+      <form v-else class="auth-form auth-premium-form" novalidate @submit.prevent="submitLogin">
+        <label class="auth-field" for="login-email">
+          <span class="auth-field-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M4 6h16v12H4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+              <path d="m4 7 8 6 8-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <input id="login-email" v-model="loginForm.email" type="text" autocomplete="username" placeholder="Email ou telephone" />
+        </label>
+        <div class="auth-field auth-password-field">
+          <span class="auth-field-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M6 10h12v10H6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+              <path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </span>
           <input
             id="login-password"
             v-model="loginForm.motDePasse"
             :type="showPassword ? 'text' : 'password'"
-            required
             autocomplete="current-password"
+            placeholder="Mot de passe"
           />
-          <button class="auth-password-toggle" type="button" @click="showPassword = !showPassword">{{ showPassword ? "Masquer" : "Voir" }}</button>
+          <button class="auth-password-toggle" type="button" :aria-label="showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'" @click="showPassword = !showPassword">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M2.8 12s3.4-6 9.2-6 9.2 6 9.2 6-3.4 6-9.2 6-9.2-6-9.2-6Z" stroke="currentColor" stroke-width="1.8" />
+              <circle cx="12" cy="12" r="2.6" stroke="currentColor" stroke-width="1.8" />
+            </svg>
+          </button>
         </div>
+        <button type="button" class="auth-link-btn auth-link-inline" @click="sendForgotPassword">Mot de passe oublie ?</button>
         <button class="action-btn blue auth-submit" type="submit" :disabled="authenticating">
           {{ authenticating ? "Connexion..." : "Se connecter" }}
         </button>
-        <button type="button" class="auth-link-btn auth-link-inline" @click="sendForgotPassword">Mot de passe oublie ?</button>
       </form>
+      <div class="auth-tailor-scene" aria-hidden="true">
+        <span class="auth-thread"></span>
+        <span class="auth-tape"></span>
+        <span class="auth-scissors"></span>
+        <span class="auth-pins"></span>
+      </div>
     </article>
   </div>
 
@@ -15644,44 +16003,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             </template>
 
             <template #desktop>
-          <article class="panel">
-            <h3>Identite client</h3>
-            <p><strong>Nom complet:</strong> {{ clientConsultationClient.nomComplet || "-" }}</p>
-            <p><strong>Contact:</strong> {{ clientConsultationClient.telephone || "-" }}</p>
-            <p><strong>Premier passage:</strong> {{ formatDateShort(clientConsultationClient.datePremierPassage) }}</p>
-            <p><strong>Dernier passage:</strong> {{ formatDateShort(clientConsultationClient.dateDernierPassage || clientConsultationSynthese.dateDerniereActivite) }}</p>
-            <p>
-              <strong>Statut:</strong>
-              <span
-                class="status-pill"
-                :data-tone="clientConsultationClient.statutVisuel === 'Client fidele' ? 'ok' : (clientConsultationClient.statutVisuel === 'Client regulier' ? 'blue' : 'slate')"
-              >
-                {{ clientConsultationClient.statutVisuel }}
-              </span>
-            </p>
-          </article>
-
-          <article class="panel">
-            <h3>Synthese client</h3>
-            <div class="kpi-grid legacy-kpi-grid">
-              <div class="kpi-card legacy-kpi" data-tone="blue">
-                <div class="kpi-head"><span>Commandes</span></div>
-                <strong>{{ clientConsultationSynthese.totalCommandes }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="teal">
-                <div class="kpi-head"><span>Retouches</span></div>
-                <strong>{{ clientConsultationSynthese.totalRetouches }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="slate">
-                <div class="kpi-head"><span>Derniere activite</span></div>
-                <strong>{{ formatDateShort(clientConsultationSynthese.dateDerniereActivite) }}</strong>
-              </div>
-              <div class="kpi-card legacy-kpi" data-tone="amber">
-                <div class="kpi-head"><span>Total depense</span></div>
-                <strong>{{ formatCurrency(clientConsultationSynthese.montantTotalDepense) }}</strong>
-              </div>
-            </div>
-          </article>
+          <ClientConsultationOverviewCards
+            :client="clientConsultationClient"
+            :synthese="clientConsultationSynthese"
+            :format-date="formatDateShort"
+            :format-currency="formatCurrency"
+          />
 
           <article class="panel">
             <div class="panel-header">
@@ -16034,51 +16361,100 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </template>
 
         <template v-else>
-          <article v-if="canCreateVente" class="panel">
+          <article class="panel vente-view-switch">
+            <div class="mobile-filter-chip-row" aria-label="Vue vente">
+              <button class="mobile-filter-chip" :class="{ active: venteActiveTab === 'vendre' }" type="button" @click="venteActiveTab = 'vendre'">Vendre</button>
+              <button class="mobile-filter-chip" :class="{ active: venteActiveTab === 'historique' }" type="button" @click="venteActiveTab = 'historique'">Historique</button>
+            </div>
+          </article>
+
+          <article v-if="canCreateVente && venteActiveTab === 'vendre'" class="panel vente-pos-panel">
             <MobileSectionHeader
-              title="Nouvelle vente"
-              subtitle="Ajoutez des lignes au brouillon avant de creer la vente."
+              title="Caisse vente"
+              subtitle="Ajoutez les articles au panier, puis encaissez en une action."
             />
-
-            <div class="stack-form vente-buyer-form">
-              <label for="vente-acheteur-nom">Nom du client sur la facture <span class="helper">(optionnel)</span></label>
-              <input
-                id="vente-acheteur-nom"
-                v-model="venteDraft.acheteurNom"
-                type="text"
-                maxlength="160"
-                autocomplete="off"
-                placeholder="Ex: Maman Sarah"
-              />
-              <p class="helper vente-buyer-form__hint">Ce nom sert seulement pour la facture. Il ne sera pas ajoute a la liste des clients.</p>
-
-              <label>Article</label>
-              <select v-model="venteDraft.current.idArticle">
-                <option value="">Choisir un article</option>
-                <option v-for="article in stockArticles" :key="article.idArticle" :value="article.idArticle">
-                  {{ article.nomArticle }}
-                </option>
-              </select>
-              <label>Quantite</label>
-              <input v-model="venteDraft.current.quantite" type="number" min="0" />
-              <button class="mini-btn" @click="addVenteLigne">Ajouter ligne</button>
+            <div v-if="venteCashBlockedMessage" class="vente-cash-notice" role="status">
+              <strong>Caisse fermee</strong>
+              <p>{{ venteCashBlockedMessage }}</p>
             </div>
 
-            <ResponsiveDataContainer :mobile="isMobileViewport">
-              <template #mobile>
-                <MobileStateEmpty
-                  v-if="venteDraft.lignes.length === 0"
-                  title="Aucune ligne ajoutee"
-                  description="Selectionnez un article et une quantite pour commencer la vente."
-                />
+            <div class="vente-pos-layout">
+              <div class="vente-pos-entry stack-form">
+                <div class="mobile-search-shell vente-article-search">
+                  <span class="mobile-search-shell__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <path d="m21 21-4.3-4.3" />
+                    </svg>
+                  </span>
+                  <input v-model="venteArticleSearch" type="search" placeholder="Rechercher un article" />
+                </div>
+                <div class="vente-article-chip-grid">
+                  <button
+                    v-for="article in venteArticleOptions"
+                    :key="`vente-article-${article.idArticle}`"
+                    class="vente-article-chip"
+                    :class="{ active: venteDraft.current.idArticle === article.idArticle }"
+                    type="button"
+                    @click="selectVenteArticle(article.idArticle)"
+                  >
+                    <span>{{ article.nomArticle }}</span>
+                    <strong>{{ formatCurrency(article.prixVenteUnitaire) }}</strong>
+                    <small>Stock: {{ article.quantiteDisponible }}</small>
+                  </button>
+                </div>
+                <label class="vente-pos-field">
+                  <span>Article</span>
+                  <select v-model="venteDraft.current.idArticle">
+                    <option value="">Choisir un article</option>
+                    <option v-for="article in venteArticleOptions" :key="article.idArticle" :value="article.idArticle">
+                      {{ article.nomArticle }} - {{ formatCurrency(article.prixVenteUnitaire) }}
+                    </option>
+                  </select>
+                </label>
+                <label class="vente-pos-field">
+                  <span>Quantite</span>
+                  <input v-model="venteDraft.current.quantite" type="number" min="0" inputmode="decimal" />
+                </label>
+                <button class="action-btn blue vente-pos-add-btn" @click="addVenteLigne">Ajouter au panier</button>
+              </div>
 
-                <VenteDraftMobileList
-                  v-else
-                  :items="venteDraft.lignes"
-                  :article-label="stockArticleLabel"
-                  @remove="removeVenteLigne"
-                />
-              </template>
+              <aside class="vente-pos-summary">
+                <div>
+                  <span>Panier</span>
+                  <strong>{{ formatCurrency(venteDraftTotal) }}</strong>
+                  <p>{{ venteDraft.lignes.length }} ligne(s) - {{ venteDraftItemsCount }} article(s)</p>
+                </div>
+                <span class="status-pill" :data-status="caisseStatus">{{ caisseStatus }}</span>
+              </aside>
+            </div>
+
+            <article ref="venteCartRef" class="vente-cart-panel">
+              <div class="panel-header vente-cart-header">
+                <div>
+                  <h3>Panier en cours</h3>
+                  <p class="helper">Verifiez les articles avant validation.</p>
+                </div>
+                <strong>{{ formatCurrency(venteDraftTotal) }}</strong>
+              </div>
+
+              <ResponsiveDataContainer :mobile="isMobileViewport">
+                <template #mobile>
+                  <MobileStateEmpty
+                    v-if="venteDraft.lignes.length === 0"
+                    title="Panier vide"
+                    description="Choisissez un article et une quantite pour commencer."
+                  />
+
+                  <VenteDraftMobileList
+                    v-else
+                    :items="venteDraft.lignes"
+                    :article-label="stockArticleLabel"
+                    :line-total="venteLineTotal"
+                    :format-currency="formatCurrency"
+                    @remove="removeVenteLigne"
+                  />
+                </template>
 
               <template #desktop>
                 <table class="data-table mobile-stack-table">
@@ -16086,6 +16462,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <tr>
                       <th>Article</th>
                       <th>Quantite</th>
+                      <th>Total</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -16093,33 +16470,82 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <tr v-for="(ligne, index) in venteDraft.lignes" :key="`${ligne.idArticle}-${index}`">
                       <td data-label="Article">{{ stockArticleMap.get(ligne.idArticle) || ligne.idArticle }}</td>
                       <td data-label="Quantite">{{ ligne.quantite }}</td>
+                      <td data-label="Total">{{ formatCurrency(venteLineTotal(ligne)) }}</td>
                       <td class="row-actions">
-                        <button class="mini-btn" @click="removeVenteLigne(index)">Retirer</button>
+                        <button class="mini-btn red-soft" @click="removeVenteLigne(index)">Retirer</button>
                       </td>
                     </tr>
                     <tr v-if="venteDraft.lignes.length === 0">
-                      <td colspan="3">Aucune ligne ajoutee.</td>
+                      <td colspan="4">Aucune ligne ajoutee.</td>
                     </tr>
                   </tbody>
                 </table>
               </template>
             </ResponsiveDataContainer>
 
-            <div v-if="!isMobileViewport" class="panel-footer">
-              <button class="action-btn blue" @click="onCreerVente" :disabled="venteSubmitting">Creer la vente</button>
-            </div>
+              <div class="stack-form vente-buyer-form">
+                <label for="vente-acheteur-nom">Nom du client sur la facture <span class="helper">(optionnel)</span></label>
+                <input
+                  id="vente-acheteur-nom"
+                  v-model="venteDraft.acheteurNom"
+                  type="text"
+                  maxlength="160"
+                  autocomplete="off"
+                  placeholder="Ex: Maman Sarah"
+                />
+                <p class="helper vente-buyer-form__hint">Ce nom sert seulement pour la facture. Il ne sera pas ajoute a la liste des clients.</p>
+              </div>
+
+              <div v-if="!isMobileViewport" class="panel-footer vente-pos-actions">
+                <button class="action-btn green" @click="onCreerVenteEtFacturer" :disabled="venteSubmitting || venteDraft.lignes.length === 0">
+                  Valider + facture
+                </button>
+                <button class="mini-btn vente-pos-draft-btn" @click="onCreerVente" :disabled="venteSubmitting || venteDraft.lignes.length === 0">Enregistrer brouillon</button>
+              </div>
+            </article>
           </article>
 
-          <article class="panel">
+          <article v-if="venteActiveTab === 'historique' || !canCreateVente" class="panel">
             <div class="panel-header">
               <h3>Historique des ventes</h3>
               <span class="status-pill" :data-status="caisseStatus">{{ caisseStatus }}</span>
+            </div>
+            <div v-if="venteActionFeedback || venteCashBlockedMessage" class="vente-cash-notice compact" role="status">
+              <strong>{{ caisseOuverte ? "Information vente" : "Caisse fermee" }}</strong>
+              <p>{{ venteActionFeedback || "Les ventes brouillon restent modifiables. Ouvrez la caisse pour les valider ou les facturer." }}</p>
+            </div>
+            <div class="mobile-modern-filter-panel vente-history-filter">
+              <div class="mobile-search-shell">
+                <span class="mobile-search-shell__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="m21 21-4.3-4.3" />
+                  </svg>
+                </span>
+                <input v-model="venteHistorySearch" type="search" placeholder="Vente, acheteur ou statut" />
+              </div>
+              <div class="mobile-filter-chip-row" aria-label="Statut des ventes">
+                <button
+                  v-for="status in venteHistoryStatusOptions"
+                  :key="`vente-history-${status}`"
+                  class="mobile-filter-chip"
+                  :class="{ active: venteHistoryStatus === status }"
+                  type="button"
+                  @click="venteHistoryStatus = status"
+                >
+                  {{ status === "ALL" ? "Toutes" : status.replaceAll("_", " ") }}
+                </button>
+              </div>
+              <div class="mobile-filter-result-row">
+                <span>{{ ventesFiltered.length }} vente(s)</span>
+                <button class="mini-btn mobile-filter-more-btn" type="button" @click="venteHistorySearch = ''; venteHistoryStatus = 'ALL'">Reinitialiser</button>
+              </div>
             </div>
 
             <ResponsiveDataContainer :mobile="isMobileViewport">
               <template #mobile>
                 <MobileStateEmpty
-                  v-if="ventesView.length === 0"
+                  v-if="ventesFiltered.length === 0"
                   title="Aucune vente"
                   description="Aucune vente disponible pour le moment."
                 />
@@ -16129,7 +16555,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   :items="ventesPaged"
                   :format-currency="formatCurrency"
                   :format-date-time="formatDateTime"
+                  :caisse-ouverte="caisseOuverte"
                   @view="onVoirVente"
+                  @validate="onValiderVente"
+                  @validate-invoice="onValiderVenteEtFacturer"
                 />
               </template>
 
@@ -16166,8 +16595,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                         <button
                           class="mini-btn"
                           v-if="vente.statut === 'BROUILLON'"
-                          :disabled="!caisseOuverte"
-                          :title="!caisseOuverte ? 'Caisse cloturee' : ''"
+                          :class="{ 'is-locked': !caisseOuverte }"
+                          :title="!caisseOuverte ? 'Caisse fermee: ouvrez la caisse pour valider' : ''"
                           @click="onValiderVente(vente)"
                         >
                           <svg class="icon mini" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -16178,8 +16607,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                         <button
                           class="mini-btn"
                           v-if="vente.statut === 'BROUILLON'"
-                          :disabled="!caisseOuverte"
-                          :title="!caisseOuverte ? 'Caisse cloturee' : ''"
+                          :class="{ 'is-locked': !caisseOuverte }"
+                          :title="!caisseOuverte ? 'Caisse fermee: ouvrez la caisse pour facturer' : ''"
                           @click="onValiderVenteEtFacturer(vente)"
                         >
                           Valider + facture
@@ -16189,7 +16618,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                         </button>
                       </td>
                     </tr>
-                    <tr v-if="ventesView.length === 0">
+                    <tr v-if="ventesFiltered.length === 0">
                       <td colspan="6">Aucune vente disponible.</td>
                     </tr>
                   </tbody>
@@ -16223,9 +16652,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </MobilePrimaryActionBar>
 
           <MobilePrimaryActionBar
-            v-else-if="isMobileViewport && stockVentesTab === 'ventes' && canCreateVente && venteDraft.lignes.length > 0"
-            title="Action principale"
-            subtitle="Confirmez le nom a afficher sur la facture avant de creer la vente."
+            v-else-if="isMobileViewport && stockVentesTab === 'ventes' && venteActiveTab === 'vendre' && canCreateVente && venteDraft.lignes.length > 0"
+            title="Encaisser"
+            :subtitle="`${formatCurrency(venteDraftTotal)} - ${venteDraft.lignes.length} ligne(s)`"
           >
             <label class="mobile-sale-buyer-field" for="vente-acheteur-nom-mobile">
               <span>Nom sur facture</span>
@@ -16238,8 +16667,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 placeholder="Ex: Maman Sarah"
               />
             </label>
-            <button class="action-btn blue" @click="onCreerVente" :disabled="venteSubmitting">
-              Creer la vente
+            <button class="action-btn green" :class="{ 'is-locked': !caisseOuverte }" @click="onCreerVenteEtFacturer" :disabled="venteSubmitting">
+              Valider + facture
+            </button>
+            <button class="mini-btn vente-pos-mobile-draft" @click="onCreerVente" :disabled="venteSubmitting">
+              Brouillon
             </button>
           </MobilePrimaryActionBar>
         </template>
@@ -18515,6 +18947,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
       :image-url="commandeMediaViewerImageUrl"
       :title="commandeMediaViewerTitle"
       :subtitle="commandeMediaViewerSubtitle"
+      :empty-message="commandeMediaViewer.emptyMessage"
       :loading="commandeMediaViewerLoading"
       :can-prev="commandeMediaViewerCanPrev"
       :can-next="commandeMediaViewerCanNext"
@@ -20142,6 +20575,204 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
   background: #f8fbff;
 }
 
+.vente-pos-panel {
+  display: grid;
+  gap: 16px;
+  background:
+    radial-gradient(circle at top right, rgba(12, 166, 120, 0.1), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.vente-pos-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.6fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.vente-pos-entry {
+  padding: 14px;
+  border: 1px solid rgba(31, 90, 162, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.vente-view-switch {
+  padding: 10px 12px;
+}
+
+.vente-history-filter {
+  margin-bottom: 14px;
+}
+
+.vente-cash-notice {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid rgba(176, 111, 0, 0.22);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fffaf0 0%, #fff4d9 100%);
+  color: #704800;
+}
+
+.vente-cash-notice.compact {
+  margin-bottom: 12px;
+}
+
+.vente-cash-notice strong {
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.vente-cash-notice p {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.is-locked {
+  border-color: rgba(176, 111, 0, 0.2) !important;
+  background: #fff8e8 !important;
+  color: #7a5207 !important;
+}
+
+.vente-article-search {
+  border-radius: 16px;
+}
+
+.vente-article-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 9px;
+}
+
+.vente-article-chip {
+  min-height: 78px;
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  border: 1px solid rgba(31, 90, 162, 0.12);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #17324d;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 10px 20px rgba(31, 90, 162, 0.06);
+}
+
+.vente-article-chip.active {
+  border-color: rgba(12, 166, 120, 0.3);
+  background: linear-gradient(180deg, #f5fff9 0%, #ecfdf3 100%);
+  box-shadow: 0 14px 26px rgba(12, 166, 120, 0.14);
+}
+
+.vente-article-chip span,
+.vente-article-chip strong,
+.vente-article-chip small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.vente-article-chip span {
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.vente-article-chip strong {
+  color: #0f5132;
+  font-size: 0.92rem;
+}
+
+.vente-article-chip small {
+  color: #667085;
+  font-weight: 700;
+}
+
+.vente-pos-field {
+  display: grid;
+  gap: 6px;
+  color: #17324d;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.vente-pos-add-btn {
+  min-height: 46px;
+  justify-content: center;
+}
+
+.vente-pos-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(12, 166, 120, 0.16);
+  background: linear-gradient(180deg, #f5fff9 0%, #ecfdf3 100%);
+  box-shadow: 0 16px 28px rgba(12, 166, 120, 0.1);
+}
+
+.vente-pos-summary span {
+  color: #237246;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.vente-pos-summary strong {
+  display: block;
+  margin-top: 6px;
+  color: #0f5132;
+  font-size: 1.7rem;
+  line-height: 1.05;
+}
+
+.vente-pos-summary p {
+  margin: 6px 0 0;
+  color: #436b54;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.vente-cart-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.vente-cart-header strong {
+  color: #0f5132;
+  font-size: 1.35rem;
+}
+
+.vente-pos-actions {
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.vente-pos-actions .action-btn {
+  min-width: 190px;
+}
+
+.vente-pos-draft-btn,
+.vente-pos-mobile-draft {
+  border-color: rgba(71, 84, 103, 0.16);
+  background: #f8fafc;
+  color: #475467;
+  font-weight: 800;
+}
+
+.red-soft {
+  border-color: rgba(198, 61, 47, 0.16);
+  background: #fff7f5;
+  color: #9f1239;
+}
+
 .vente-buyer-form__hint {
   margin: -4px 0 4px;
 }
@@ -20164,6 +20795,67 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
   color: #16324d;
   font: inherit;
   font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .vente-pos-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .vente-pos-panel {
+    gap: 12px;
+  }
+
+  .vente-pos-entry,
+  .vente-cart-panel {
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .vente-pos-entry select,
+  .vente-pos-entry input {
+    min-height: 46px;
+    border-radius: 12px;
+  }
+
+  .vente-article-chip-grid {
+    display: flex;
+    overflow-x: auto;
+    padding: 2px 1px 8px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .vente-article-chip-grid::-webkit-scrollbar {
+    display: none;
+  }
+
+  .vente-article-chip {
+    flex: 0 0 164px;
+  }
+
+  .vente-pos-summary {
+    padding: 14px;
+    align-items: center;
+  }
+
+  .vente-pos-summary strong {
+    font-size: 1.45rem;
+  }
+
+  .vente-cart-header {
+    align-items: flex-start;
+  }
+
+  .vente-cart-header strong {
+    font-size: 1.12rem;
+  }
+
+  .vente-buyer-form {
+    border-radius: 16px;
+  }
 }
 
 .audit-page {

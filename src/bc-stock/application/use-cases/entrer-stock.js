@@ -12,6 +12,8 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
 
   const motif = String(input?.motif || "").toUpperCase();
   const isAchat = motif === "ACHAT";
+  const sourceFinancement = normalizeAchatStockSource(input?.sourceFinancement);
+  const activiteAchat = sourceFinancement === "ATELIER" ? "ATELIER" : "STOCK";
   let fournisseurNom = String(input?.fournisseur || "").trim() || null;
   if (input?.fournisseurId) {
     if (!fournisseurRepo || typeof fournisseurRepo.getActiveById !== "function") {
@@ -70,7 +72,7 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
         montant: Number(mouvementInput.quantite || 0) * prixAchatUnitaire,
         motif: "ACHAT_STOCK",
         referenceMetier: mouvementInput.idMouvement || null,
-        activite: "STOCK"
+        activite: activiteAchat
       })
     ) return article;
     try {
@@ -89,8 +91,8 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
       utilisateur: mouvementInput.utilisateur,
       // Achat stock is operational spend that should not be blocked by daily result.
       typeDepense: "EXCEPTIONNELLE",
-      justification: "Achat stock",
-      activite: "STOCK",
+      justification: `Achat stock - ${formatAchatStockSource(sourceFinancement)}`,
+      activite: activiteAchat,
       role: "ADMIN",
       idempotencyKey
     });
@@ -104,4 +106,17 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
   }
 
   return article;
+}
+
+function normalizeAchatStockSource(value) {
+  const source = String(value || "SOLDE_CAISSE").trim().toUpperCase();
+  if (source === "ATELIER") return "ATELIER";
+  if (source === "STOCK") return "STOCK";
+  return "SOLDE_CAISSE";
+}
+
+function formatAchatStockSource(value) {
+  if (value === "ATELIER") return "budget atelier";
+  if (value === "STOCK") return "budget stock";
+  return "solde caisse";
 }

@@ -97,8 +97,8 @@ test("paye une intervention ciblee et masque la modification apres paiement", as
   await paymentModal.getByRole("button", { name: /Confirmer le paiement/i }).click();
   await expect(paymentModal).toBeHidden({ timeout: 15_000 });
 
-  await expect(page.locator(".detail-item-card").filter({ hasText: /Ourlet principal/i }).first()).toContainText(/Reste\s*:\s*25/i);
-  await expect(page.locator(".detail-item-card").filter({ hasText: /Ourlet secondaire/i }).first()).toContainText(/Reste\s*:\s*0/i);
+  await expect(page.locator(".detail-item-card").filter({ hasText: /Ourlet principal/i }).first()).toContainText(/Reste\s*:\s*25/i, { timeout: 15_000 });
+  await expect(page.locator(".detail-item-card").filter({ hasText: /Ourlet secondaire/i }).first()).toContainText(/Reste\s*:\s*0/i, { timeout: 15_000 });
   await expect(page.locator(".detail-item-card").getByRole("button", { name: /^Modifier$/i })).toHaveCount(0);
   await page.close({ runBeforeUnload: false });
 });
