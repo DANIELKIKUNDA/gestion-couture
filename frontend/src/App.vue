@@ -226,8 +226,10 @@ function getInitialRoute() {
 
 const currentRoute = ref(getInitialRoute());
 const CRITICAL_FORM_HISTORY_KEY = "__atelierCriticalForm";
+const APP_ROUTE_HISTORY_KEY = "__atelierAppRoute";
 let criticalFormHistoryEntryActive = false;
 let ignoreNextBrowserNavigation = false;
+let applyingAppHistoryNavigation = false;
 const contentScrollRef = ref(null);
 const mobileScrollButtonMode = ref("none");
 const isMobileViewport = ref(typeof window !== "undefined" ? window.innerWidth < MOBILE_BREAKPOINT : false);
@@ -7113,14 +7115,130 @@ function navigateAudit(path, replace = false) {
   auditSubRoute.value = target;
 
   if (window.location.pathname !== target) {
-    if (replace) window.history.replaceState({}, "", target);
-    else window.history.pushState({}, "", target);
+    const nextState = buildAppRouteHistoryState("audit");
+    if (replace) window.history.replaceState(nextState, "", target);
+    else window.history.pushState(nextState, "", target);
   }
 
   loadAuditPage(target);
 }
 
-async function onBrowserNavigation() {
+function buildAppRouteHistoryState(routeId = currentRoute.value) {
+  const route = String(routeId || currentRoute.value || "dashboard").trim();
+  const detailIdByRoute = {
+    systemAtelierDetail: systemAtelierDetailId.value,
+    "dossier-detail": selectedDossierId.value,
+    "commande-detail": selectedCommandeId.value,
+    "retouche-detail": selectedRetoucheId.value,
+    "vente-detail": selectedVenteId.value,
+    "facture-detail": selectedFactureId.value
+  };
+  return {
+    ...(window.history.state && typeof window.history.state === "object" ? window.history.state : {}),
+    [APP_ROUTE_HISTORY_KEY]: {
+      route,
+      detailId: String(detailIdByRoute[route] || "").trim(),
+      stockVentesTab: stockVentesTab.value || "stock",
+      venteActiveTab: venteActiveTab.value || "vendre"
+    }
+  };
+}
+
+function rememberAppRouteHistory(routeId = currentRoute.value, { replace = false } = {}) {
+  if (typeof window === "undefined" || applyingAppHistoryNavigation) return;
+  const route = String(routeId || currentRoute.value || "").trim();
+  if (!route || route === "audit") return;
+  const nextState = buildAppRouteHistoryState(route);
+  const currentState = window.history.state?.[APP_ROUTE_HISTORY_KEY] || null;
+  const nextAppState = nextState[APP_ROUTE_HISTORY_KEY];
+  const sameState =
+    currentState &&
+    currentState.route === nextAppState.route &&
+    String(currentState.detailId || "") === String(nextAppState.detailId || "") &&
+    String(currentState.stockVentesTab || "") === String(nextAppState.stockVentesTab || "") &&
+    String(currentState.venteActiveTab || "") === String(nextAppState.venteActiveTab || "");
+  if (replace || sameState) {
+    window.history.replaceState(nextState, "", "/");
+    return;
+  }
+  window.history.pushState(nextState, "", "/");
+}
+
+async function prepareAppRouteSwitch(routeId) {
+  if (currentRoute.value === "systemAtelierDetail" && routeId !== "systemAtelierDetail") {
+    closeSystemAtelierDetail();
+  }
+  if (currentRoute.value === "commande-detail" && routeId !== "commande-detail") {
+    await setDetailCommandeMediaRows([]);
+    detailCommandeMediaError.value = "";
+  }
+}
+
+async function applyAppRouteHistoryState(appState) {
+  if (!appState || typeof appState !== "object") return false;
+  const routeId = String(appState.route || "").trim();
+  if (!routeId || routeId === "audit") return false;
+  const canLeave = await canLeaveSettings();
+  if (!canLeave) {
+    rememberAppRouteHistory(currentRoute.value);
+    return true;
+  }
+  applyingAppHistoryNavigation = true;
+  try {
+    const targetRoute = canAccessRoute(routeId) ? routeId : resolveAccessibleRoute(currentRoute.value);
+    await prepareAppRouteSwitch(targetRoute);
+    if (targetRoute === "stockVentes") {
+      stockVentesTab.value = appState.stockVentesTab || stockVentesTab.value || "stock";
+      venteActiveTab.value = appState.venteActiveTab || venteActiveTab.value || "vendre";
+    }
+    const detailId = String(appState.detailId || "").trim();
+    if (targetRoute === "systemAtelierDetail" && detailId) {
+      currentRoute.value = targetRoute;
+      if (systemAtelierDetailId.value !== detailId) void loadSystemAtelierDetail(detailId);
+      return true;
+    }
+    if (targetRoute === "dossier-detail" && detailId) {
+      selectedDossierId.value = detailId;
+      currentRoute.value = targetRoute;
+      await loadDossierDetail(detailId);
+      return true;
+    }
+    if (targetRoute === "commande-detail" && detailId) {
+      selectedCommandeId.value = detailId;
+      currentRoute.value = targetRoute;
+      await loadCommandeDetail(detailId);
+      return true;
+    }
+    if (targetRoute === "retouche-detail" && detailId) {
+      selectedRetoucheId.value = detailId;
+      currentRoute.value = targetRoute;
+      await loadRetoucheDetail(detailId);
+      return true;
+    }
+    if (targetRoute === "vente-detail" && detailId) {
+      selectedVenteId.value = detailId;
+      currentRoute.value = targetRoute;
+      await loadVenteDetail(detailId);
+      return true;
+    }
+    if (targetRoute === "facture-detail" && detailId) {
+      selectedFactureId.value = detailId;
+      currentRoute.value = targetRoute;
+      await loadFactureDetail(detailId);
+      return true;
+    }
+    currentRoute.value = targetRoute;
+    if (targetRoute === "clientsMesures" && selectedClientConsultationId.value) {
+      loadClientConsultation(selectedClientConsultationId.value);
+    }
+    scrollMainContentToTop();
+    return true;
+  } finally {
+    applyingAppHistoryNavigation = false;
+  }
+}
+
+async function onBrowserNavigation(event) {
   if (!isAuthenticated.value) return;
   if (ignoreNextBrowserNavigation) {
     ignoreNextBrowserNavigation = false;
@@ -7154,6 +7272,7 @@ async function onBrowserNavigation() {
     if (retoucheWizard.open) ensureCriticalFormHistoryEntry("retouche-create");
     return;
   }
+  if (await applyAppRouteHistoryState(event?.state?.[APP_ROUTE_HISTORY_KEY])) return;
   if (isSystemManager.value) {
     if (window.location.pathname.startsWith("/audit")) {
       window.history.replaceState({}, "", "/");
@@ -7167,7 +7286,13 @@ async function onBrowserNavigation() {
     return;
   }
   const auditPath = normalizeAuditPath(window.location.pathname);
-  if (!auditPath) return;
+  if (!auditPath) {
+    if (currentRoute.value !== "dashboard" && canAccessRoute("dashboard")) {
+      currentRoute.value = "dashboard";
+      rememberAppRouteHistory("dashboard", { replace: true });
+    }
+    return;
+  }
   if (!canAccessAuditPath(auditPath)) {
     currentRoute.value = resolveAccessibleRoute(currentRoute.value);
     window.history.replaceState({}, "", "/");
@@ -7395,6 +7520,7 @@ async function completeLoginSession() {
     await persistCurrentVerifiedOfflineSession();
     await reloadAll();
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute(currentRoute.value);
+    rememberAppRouteHistory(currentRoute.value, { replace: true });
     scheduleAuthenticatedPagePreload();
 }
 
@@ -7584,6 +7710,7 @@ async function loadInitialAuthenticatedWorkspace() {
     await reloadAll();
     if (currentRoute.value === "audit" && canAccessRoute("audit")) loadAuditPage(auditSubRoute.value);
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute();
+    rememberAppRouteHistory(currentRoute.value, { replace: true });
     scheduleAuthenticatedPagePreload();
   } catch (err) {
     errorMessage.value = readableError(err);
@@ -8375,6 +8502,7 @@ async function openRoute(routeId) {
     detailCommandeMediaError.value = "";
   }
   currentRoute.value = routeId;
+  rememberAppRouteHistory(routeId);
   if (routeId === "clientsMesures" && selectedClientConsultationId.value) {
     loadClientConsultation(selectedClientConsultationId.value);
   }
@@ -8776,16 +8904,20 @@ function openSystemAtelierDetail(atelier) {
       ""
   ).trim();
   if (!targetId) return;
+  const previousTargetId = systemAtelierDetailId.value;
   systemAtelierDetailSeed.value = normalizedAtelier;
+  systemAtelierDetailId.value = targetId;
   currentRoute.value = "systemAtelierDetail";
+  rememberAppRouteHistory("systemAtelierDetail");
   scrollMainContentToTop();
-  if (systemAtelierDetailId.value === targetId && (systemAtelierDetail.value || systemAtelierDetailLoading.value)) return;
+  if (previousTargetId === targetId && (systemAtelierDetail.value || systemAtelierDetailLoading.value)) return;
   void loadSystemAtelierDetail(targetId);
 }
 
 function returnToSystemAteliers() {
   closeSystemAtelierDetail();
   currentRoute.value = "systemAteliers";
+  rememberAppRouteHistory("systemAteliers");
   scrollMainContentToTop();
 }
 
@@ -9191,7 +9323,7 @@ async function revokeSystemAtelierOwnerSessions() {
   }
 }
 
-async function loadCaisseForBusinessDate(businessDate, daysInput = null) {
+async function loadCaisseForBusinessDate(businessDate, daysInput = null, { awaitOnlineDetail = true } = {}) {
   if (!canAccessModule("caisse")) {
     caisseJour.value = null;
     return;
@@ -9237,6 +9369,16 @@ async function loadCaisseForBusinessDate(businessDate, daysInput = null) {
   }
 
   if (localFirst.online && localFirst.refreshPromise) {
+    if (!awaitOnlineDetail) {
+      localFirst.refreshPromise
+        .then((refreshed) => {
+          if (refreshed?.row && dateOnly(refreshed.row.date || refreshed.row.date_jour) === selected) {
+            caisseJour.value = normalizeCaisse(refreshed.row);
+          }
+        })
+        .catch(appendError);
+      return;
+    }
     const refreshed = await localFirst.refreshPromise;
     if (refreshed?.row) {
       caisseJour.value = normalizeCaisse(refreshed.row);
@@ -9348,7 +9490,9 @@ async function reloadAll() {
   if (shouldLoadVentes) ventes.value = (readonlyLocalFirst.cached[READONLY_CACHE_KEYS.VENTES] || []).map(normalizeVente);
   if (shouldLoadFactures) factures.value = (readonlyLocalFirst.cached[READONLY_CACHE_KEYS.FACTURES] || []).map(normalizeFacture);
   if (shouldLoadCaisse) {
-    await loadCaisseForSelectedDate(readonlyLocalFirst.cached[READONLY_CACHE_KEYS.CAISSE_JOURS] || []);
+    await loadCaisseForBusinessDate(selectedBusinessDateIso(), readonlyLocalFirst.cached[READONLY_CACHE_KEYS.CAISSE_JOURS] || [], {
+      awaitOnlineDetail: false
+    });
   }
 
   if (!localFirst.online) {
@@ -9617,6 +9761,7 @@ async function openDossierDetail(idDossier) {
   if (!(await canLeaveSettings())) return;
   selectedDossierId.value = idDossier;
   currentRoute.value = "dossier-detail";
+  rememberAppRouteHistory("dossier-detail");
   await loadDossierDetail(idDossier);
 }
 
@@ -13599,6 +13744,7 @@ async function openVenteDetail(idVente) {
   if (!(await canLeaveSettings())) return;
   selectedVenteId.value = idVente;
   currentRoute.value = "vente-detail";
+  rememberAppRouteHistory("vente-detail");
   await loadVenteDetail(idVente);
 }
 
@@ -14390,6 +14536,7 @@ async function openCommandeDetail(idCommande) {
   if (!(await canLeaveSettings())) return;
   selectedCommandeId.value = idCommande;
   currentRoute.value = "commande-detail";
+  rememberAppRouteHistory("commande-detail");
   await loadCommandeDetail(idCommande);
   notify(`Detail ouvert: ${idCommande}`);
 }
@@ -14403,6 +14550,7 @@ async function openRetoucheDetail(idRetouche) {
   if (!(await canLeaveSettings())) return;
   selectedRetoucheId.value = idRetouche;
   currentRoute.value = "retouche-detail";
+  rememberAppRouteHistory("retouche-detail");
   await loadRetoucheDetail(idRetouche);
   notify(`Detail retouche ouvert: ${idRetouche}`);
 }
@@ -14416,6 +14564,7 @@ async function openFactureDetail(idFacture) {
   if (!(await canLeaveSettings())) return;
   selectedFactureId.value = idFacture;
   currentRoute.value = "facture-detail";
+  rememberAppRouteHistory("facture-detail");
   await loadFactureDetail(idFacture);
   notify(`Detail facture ouvert: ${idFacture}`);
 }
@@ -15378,13 +15527,13 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
   <OfflineBanner />
   <GlobalToastHost :message="toast" :offset-for-offline-banner="!networkIsOnline" />
 
-  <div v-if="!authReady" class="auth-shell">
+  <div v-if="!authReady" class="auth-shell auth-shell-loading">
     <article class="auth-card auth-loading-card">
       <header class="auth-card-head">
         <div class="auth-logo auth-logo-app">AP</div>
-        <h2>AtelierPro</h2>
+        <h2>Atelier Pro</h2>
         <div class="auth-loading-spinner" aria-hidden="true"></div>
-        <p>Chargement...</p>
+        <p>Preparation de votre espace atelier...</p>
       </header>
     </article>
   </div>
@@ -15392,15 +15541,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
   <div v-else-if="!isAuthenticated" class="auth-shell">
     <article class="auth-card">
       <header class="auth-card-head">
-        <div class="auth-logo auth-logo-sewing" aria-hidden="true">
-          <svg viewBox="0 0 96 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M15 42h58M20 42V22h34c8 0 15 7 15 15v5" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M24 22h-7M64 22h10v20M54 22v-8M49 14h13" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
-            <circle cx="62" cy="31" r="4" stroke="currentColor" stroke-width="4" />
-            <path d="M38 42c1-7 6-12 13-12" stroke="currentColor" stroke-width="5" stroke-linecap="round" />
-            <path d="M9 51h73" stroke="currentColor" stroke-width="5" stroke-linecap="round" />
-          </svg>
-        </div>
+        <div class="auth-logo auth-logo-sewing auth-photo-logo" aria-hidden="true"></div>
         <h2>{{ atelierNomConnexion }}</h2>
         <span class="auth-title-mark" aria-hidden="true"></span>
         <p>{{ authCardSubtitle }}</p>
@@ -15465,12 +15606,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           {{ authenticating ? "Connexion..." : "Se connecter" }}
         </button>
       </form>
-      <div class="auth-tailor-scene" aria-hidden="true">
-        <span class="auth-thread"></span>
-        <span class="auth-tape"></span>
-        <span class="auth-scissors"></span>
-        <span class="auth-pins"></span>
-      </div>
+      <div class="auth-tailor-scene" aria-hidden="true"></div>
     </article>
   </div>
 

@@ -69,8 +69,16 @@ function setFactureMobileFiltersOpen(value) {
 
       <article v-show="factureSection === 'liste'" class="panel">
         <template v-if="isMobileViewport">
-          <article class="mobile-modern-filter-panel">
-            <input v-model="factureFilters.recherche" type="search" placeholder="Numero, client ou origine" />
+          <article class="mobile-modern-filter-panel facture-filter-panel">
+            <div class="mobile-search-shell">
+              <span class="mobile-search-shell__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M10.8 18.2a7.4 7.4 0 1 1 0-14.8 7.4 7.4 0 0 1 0 14.8Z" stroke="currentColor" stroke-width="1.8" />
+                  <path d="m16.4 16.4 4.1 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+              </span>
+              <input v-model="factureFilters.recherche" type="search" placeholder="Numero, client ou origine" />
+            </div>
             <div class="mobile-filter-chip-row" aria-label="Statut des factures">
               <button
                 v-for="status in factureStatusOptions"
@@ -116,25 +124,35 @@ function setFactureMobileFiltersOpen(value) {
         </template>
         <template v-else>
           <h3>Filtres factures</h3>
-          <div class="filters compact">
-            <select v-model="factureFilters.statut">
-              <option v-for="status in factureStatusOptions" :key="`fac-st-${status}`" :value="status">
-                {{ status === "ALL" ? "Tous statuts" : status }}
-              </option>
-            </select>
-            <select v-model="factureFilters.source">
-              <option value="ALL">Toutes origines</option>
-              <option value="COMMANDE">Commande</option>
-              <option value="RETOUCHE">Retouche</option>
-              <option value="VENTE">Vente</option>
-            </select>
-            <select v-model="factureFilters.soldeRestant">
-              <option v-for="option in soldeOptions" :key="`fac-solde-${option.value}`" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-            <input v-model="factureFilters.recherche" type="search" placeholder="Numero, client ou origine" />
-          </div>
+          <article class="mobile-modern-filter-panel facture-filter-panel facture-filter-panel--desktop">
+            <div class="mobile-search-shell facture-search-shell">
+              <span class="mobile-search-shell__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M10.8 18.2a7.4 7.4 0 1 1 0-14.8 7.4 7.4 0 0 1 0 14.8Z" stroke="currentColor" stroke-width="1.8" />
+                  <path d="m16.4 16.4 4.1 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+              </span>
+              <input v-model="factureFilters.recherche" type="search" placeholder="Numero, client ou origine" />
+            </div>
+            <div class="facture-filter-panel__selects">
+              <select v-model="factureFilters.statut">
+                <option v-for="status in factureStatusOptions" :key="`fac-st-${status}`" :value="status">
+                  {{ status === "ALL" ? "Tous statuts" : status }}
+                </option>
+              </select>
+              <select v-model="factureFilters.source">
+                <option value="ALL">Toutes origines</option>
+                <option value="COMMANDE">Commande</option>
+                <option value="RETOUCHE">Retouche</option>
+                <option value="VENTE">Vente</option>
+              </select>
+              <select v-model="factureFilters.soldeRestant">
+                <option v-for="option in soldeOptions" :key="`fac-solde-${option.value}`" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
+          </article>
           <div class="panel-footer">
             <button class="mini-btn" @click="resetFactureFilters">Reinitialiser filtres</button>
           </div>
@@ -258,3 +276,42 @@ function setFactureMobileFiltersOpen(value) {
     </MobilePageLayout>
   </section>
 </template>
+
+<style scoped>
+.facture-filter-panel {
+  gap: 12px;
+}
+
+.facture-filter-panel--desktop {
+  margin-top: 10px;
+}
+
+.facture-search-shell {
+  max-width: 100%;
+}
+
+.facture-filter-panel__selects {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.facture-filter-panel__selects select {
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid rgba(205, 217, 230, 0.95);
+  border-radius: 14px;
+  background: #fff;
+  color: #263c5d;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 12px;
+}
+
+@media (max-width: 767px) {
+  .facture-filter-panel__selects {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

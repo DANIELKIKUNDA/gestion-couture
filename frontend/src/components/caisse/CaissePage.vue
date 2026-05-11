@@ -89,7 +89,7 @@ function operationQuickLabel(op) {
           <button v-if="!isMobileViewport && caisseOuverte && canRecordCaisseManualEntry" class="action-btn blue" @click="emit('entree-manuelle-caisse')">+ Ajouter une entree</button>
           <button v-if="!isMobileViewport && caisseOuverte && canRecordCaisseExpense" class="action-btn amber" @click="emit('depense-caisse')">Enregistrer depense</button>
           <button v-if="!isMobileViewport && caisseOuverte && canCloseCaisse" class="action-btn red" @click="emit('cloturer-caisse')">Cloturer la caisse</button>
-          <button v-if="isMobileViewport && caisseOuverte && canCloseCaisse" class="mini-btn" @click="emit('cloturer-caisse')">Cloturer</button>
+          <button v-if="isMobileViewport && caisseOuverte && canCloseCaisse" class="mini-btn red" @click="emit('cloturer-caisse')">Cloturer</button>
         </div>
       </article>
 
@@ -451,19 +451,15 @@ function operationQuickLabel(op) {
         </MobilePrimaryActionBar>
 
         <MobilePrimaryActionBar
-          v-else-if="isMobileViewport && caisseOuverte && canRecordCaisseManualEntry"
-          title="Action principale"
-          subtitle="Ajoutez une entree manuelle controlee sans quitter la caisse."
+          v-else-if="isMobileViewport && caisseOuverte && (canRecordCaisseManualEntry || canRecordCaisseExpense || canCloseCaisse)"
+          title="Actions caisse"
+          subtitle="Enregistrez l'entree ou la depense sans quitter la caisse."
         >
-          <button class="action-btn blue" @click="emit('entree-manuelle-caisse')">+ Ajouter une entree</button>
-        </MobilePrimaryActionBar>
-
-        <MobilePrimaryActionBar
-          v-else-if="isMobileViewport && caisseOuverte && canRecordCaisseExpense"
-          title="Action principale"
-          subtitle="Enregistrez rapidement une depense sur la caisse ouverte."
-        >
-          <button class="action-btn amber" @click="emit('depense-caisse')">Enregistrer depense</button>
+          <div class="caisse-mobile-actions">
+            <button v-if="canRecordCaisseManualEntry" class="action-btn blue" @click="emit('entree-manuelle-caisse')">+ Ajouter une entree</button>
+            <button v-if="canRecordCaisseExpense" class="action-btn amber" @click="emit('depense-caisse')">Enregistrer depense</button>
+            <button v-if="canCloseCaisse" class="action-btn red caisse-mobile-actions__close" @click="emit('cloturer-caisse')">Cloturer la caisse</button>
+          </div>
         </MobilePrimaryActionBar>
 
         <MobilePrimaryActionBar
@@ -518,6 +514,33 @@ function operationQuickLabel(op) {
 .caisse-signed-amount {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.caisse-mobile-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.caisse-mobile-actions .action-btn {
+  width: 100%;
+  min-height: 44px;
+  justify-content: center;
+  text-align: center;
+}
+
+.caisse-mobile-actions__close {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 380px) {
+  .caisse-mobile-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .caisse-mobile-actions__close {
+    grid-column: auto;
+  }
 }
 
 .caisse-journal-line strong[data-tone="in"],
