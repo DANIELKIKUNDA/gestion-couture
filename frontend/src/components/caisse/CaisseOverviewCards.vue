@@ -77,7 +77,7 @@ function financeItems() {
     },
     {
       key: "sorties",
-      label: "Total sorties",
+      label: "Sorties caisse",
       value: props.formatCurrency(props.totals?.totalSorties),
       emphasis: true,
       tone: "warning"
@@ -110,16 +110,15 @@ function resultItems() {
     },
     {
       key: "sortiesQuotidiennes",
-      label: "Total depenses",
-      value: props.formatCurrency(props.totals?.totalDepenses),
+      label: "Depenses quotidiennes",
+      value: props.formatCurrency(props.totals?.totalSortiesQuotidiennes),
       tone: "warning"
     },
     {
       key: "resultat",
-      label: "Net du jour",
-      value: props.formatCurrency(props.totals?.netJour),
-      emphasis: true,
-      tone: Number(props.totals?.netJour || 0) < 0 ? "warning" : "success"
+      label: "Depenses exceptionnelles",
+      value: props.formatCurrency(props.totals?.totalSortiesExceptionnelles),
+      tone: "warning"
     },
     {
       key: "clotureePar",
@@ -130,6 +129,13 @@ function resultItems() {
       key: "dateCloture",
       label: "Date de cloture",
       value: props.formatDateTime(props.caisse?.dateCloture)
+    },
+    {
+      key: "totalGlobal",
+      label: "Resultat du jour",
+      value: props.formatCurrency(props.totals?.totalGlobal),
+      emphasis: true,
+      tone: Number(props.totals?.totalGlobal || 0) < 0 ? "warning" : "success"
     }
   ];
 }
@@ -168,7 +174,7 @@ function resultItems() {
     <MobileEntityCard
       eyebrow="Resultat du jour"
       title="Synthese journaliere"
-      subtitle="Lecture rapide de la journee comptable"
+      subtitle="Entrees du jour moins depenses quotidiennes"
       tone="info"
     >
       <template #meta>

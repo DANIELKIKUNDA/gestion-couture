@@ -17,6 +17,8 @@ const props = defineProps({
   canRecordCaisseExpense: { type: Boolean, default: false },
   canCloseCaisse: { type: Boolean, default: false },
   caisseJour: { type: Object, default: null },
+  caisseLoadState: { type: String, default: "IDLE" },
+  caisseLoadError: { type: String, default: "" },
   selectedDate: { type: String, default: "" },
   caisseStatus: { type: String, default: "" },
   iconPaths: { type: Object, default: () => ({}) },
@@ -62,6 +64,25 @@ function signedOperationAmount(op) {
 function operationQuickLabel(op) {
   return `[${props.caisseSourceLabel(op?.sourceFlux)}][${op?.activite || "ATELIER"}]`;
 }
+
+function isCaisseChecking() {
+  return ["LOADING", "VERIFYING", "REFRESHING"].includes(String(props.caisseLoadState || "").trim().toUpperCase());
+}
+
+function caisseUnavailableTitle() {
+  const state = String(props.caisseLoadState || "").trim().toUpperCase();
+  if (isCaisseChecking()) return "Verification de la caisse";
+  if (state === "NOT_FOUND") return "Aucune caisse pour cette date";
+  return "Caisse indisponible";
+}
+
+function caisseUnavailableDescription() {
+  const state = String(props.caisseLoadState || "").trim().toUpperCase();
+  if (isCaisseChecking()) return "Nous verifions la caisse avec le serveur. Les donnees vont apparaitre automatiquement.";
+  if (!props.networkIsOnline) return "Aucune caisse disponible hors ligne.";
+  if (state === "NOT_FOUND") return "La verification est terminee et aucune caisse n'existe pour cette date.";
+  return props.caisseLoadError || "Aucune caisse du jour n'a ete chargee.";
+}
 </script>
 
 <template>
@@ -71,7 +92,7 @@ function operationQuickLabel(op) {
         <div>
           <h3>Caisse du jour</h3>
           <p v-if="caisseJour" class="helper">ID: {{ caisseJour.idCaisseJour }} - Date: {{ caisseJour.date }}</p>
-          <p v-else-if="selectedDate" class="helper">Aucune caisse chargee pour cette date.</p>
+          <p v-else-if="selectedDate" class="helper">{{ caisseUnavailableDescription() }}</p>
         </div>
         <div class="row-actions">
           <DateNavigator
@@ -108,14 +129,14 @@ function operationQuickLabel(op) {
       <ResponsiveDataContainer v-if="!caisseJour" :mobile="isMobileViewport">
         <template #mobile>
           <MobileStateError
-            title="Caisse indisponible"
-            :description="networkIsOnline ? `Aucune caisse du jour n'a ete chargee.` : 'Aucune caisse disponible hors ligne.'"
+            :title="caisseUnavailableTitle()"
+            :description="caisseUnavailableDescription()"
           />
         </template>
         <template #desktop>
           <article class="panel error-panel">
-            <strong>Caisse</strong>
-            <p>{{ networkIsOnline ? "Aucune caisse du jour n'a ete chargee." : "Aucune caisse disponible hors ligne." }}</p>
+            <strong>{{ caisseUnavailableTitle() }}</strong>
+            <p>{{ caisseUnavailableDescription() }}</p>
           </article>
         </template>
       </ResponsiveDataContainer>
@@ -143,25 +164,37 @@ function operationQuickLabel(op) {
                   <span>Total atelier</span>
                   <strong>{{ formatCurrency(caisseTotals.totalAtelier) }}</strong>
                 </article>
+                <article class="caisse-source-card" :data-tone="Number(caisseTotals.netAtelier || 0) < 0 ? 'red' : 'blue'">
+                  <span>Atelier net</span>
+                  <strong>{{ formatCurrency(caisseTotals.netAtelier) }}</strong>
+                </article>
                 <article class="caisse-source-card" data-tone="teal">
                   <span>Total stock</span>
                   <strong>{{ formatCurrency(caisseTotals.totalStock) }}</strong>
                 </article>
-                <article class="caisse-source-card" data-tone="green">
-                  <span>Total global</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
+                <article class="caisse-source-card" :data-tone="Number(caisseTotals.netStock || 0) < 0 ? 'red' : 'teal'">
+                  <span>Stock net</span>
+                  <strong>{{ formatCurrency(caisseTotals.netStock) }}</strong>
                 </article>
                 <article class="caisse-source-card" data-tone="red">
-                  <span>Depenses</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
+                  <span>Depenses quotidiennes</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</strong>
                 </article>
-                <article class="caisse-source-card" :data-tone="Number(caisseTotals.netJour || 0) < 0 ? 'red' : 'green'">
-                  <span>Net du jour</span>
-                  <strong>{{ formatCurrency(caisseTotals.netJour) }}</strong>
+                <article class="caisse-source-card" data-tone="red">
+                  <span>Depenses exceptionnelles</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalSortiesExceptionnelles) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="red">
+                  <span>Depenses toutes sorties</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
                 </article>
                 <article class="caisse-source-card" data-tone="violet">
                   <span>Entrees manuelles</span>
                   <strong>{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="green">
+                  <span>Resultat du jour</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
                 </article>
               </div>
             </article>
@@ -189,11 +222,11 @@ function operationQuickLabel(op) {
                   <strong>{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</strong>
                 </article>
                 <article class="caisse-source-card" data-tone="green">
-                  <span>Total global</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
+                  <span>Total encaissements</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalEncaissements) }}</strong>
                 </article>
                 <article class="caisse-source-card" data-tone="red">
-                  <span>Depenses</span>
+                  <span>Depenses caisse</span>
                   <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
                 </article>
               </div>
@@ -262,16 +295,16 @@ function operationQuickLabel(op) {
               <div class="caisse-summary-col">
                 <h4>Resume financier</h4>
                 <p class="caisse-row"><strong>Total entrees:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
-                <p class="caisse-row"><strong>Total sorties:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSorties) }}</span></p>
+                <p class="caisse-row"><strong>Sorties caisse:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSorties) }}</span></p>
                 <p class="caisse-row"><strong>Solde:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
               </div>
               <div class="caisse-summary-col">
                 <h4>Resultat du jour</h4>
                 <p class="caisse-row"><strong>Total atelier:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalAtelier) }}</span></p>
                 <p class="caisse-row"><strong>Total stock:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalStock) }}</span></p>
-                <p class="caisse-row"><strong>Total global:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalGlobal) }}</span></p>
-                <p class="caisse-row"><strong>Total depenses:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalDepenses) }}</span></p>
-                <p class="caisse-row"><strong>Net du jour:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.netJour) }}</span></p>
+                <p class="caisse-row"><strong>Depenses quotidiennes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</span></p>
+                <p class="caisse-row"><strong>Depenses exceptionnelles:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSortiesExceptionnelles) }}</span></p>
+                <p class="caisse-row"><strong>Resultat du jour:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalGlobal) }}</span></p>
               </div>
             </article>
 
@@ -288,25 +321,37 @@ function operationQuickLabel(op) {
                   <span>Total atelier</span>
                   <strong>{{ formatCurrency(caisseTotals.totalAtelier) }}</strong>
                 </article>
+                <article class="caisse-source-card" :data-tone="Number(caisseTotals.netAtelier || 0) < 0 ? 'red' : 'blue'">
+                  <span>Atelier net</span>
+                  <strong>{{ formatCurrency(caisseTotals.netAtelier) }}</strong>
+                </article>
                 <article class="caisse-source-card" data-tone="teal">
                   <span>Total stock</span>
                   <strong>{{ formatCurrency(caisseTotals.totalStock) }}</strong>
                 </article>
-                <article class="caisse-source-card" data-tone="green">
-                  <span>Total global</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
+                <article class="caisse-source-card" :data-tone="Number(caisseTotals.netStock || 0) < 0 ? 'red' : 'teal'">
+                  <span>Stock net</span>
+                  <strong>{{ formatCurrency(caisseTotals.netStock) }}</strong>
                 </article>
                 <article class="caisse-source-card" data-tone="red">
-                  <span>Depenses</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
+                  <span>Depenses quotidiennes</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</strong>
                 </article>
-                <article class="caisse-source-card" :data-tone="Number(caisseTotals.netJour || 0) < 0 ? 'red' : 'green'">
-                  <span>Net du jour</span>
-                  <strong>{{ formatCurrency(caisseTotals.netJour) }}</strong>
+                <article class="caisse-source-card" data-tone="red">
+                  <span>Depenses exceptionnelles</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalSortiesExceptionnelles) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="red">
+                  <span>Depenses toutes sorties</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
                 </article>
                 <article class="caisse-source-card" data-tone="violet">
                   <span>Entrees manuelles</span>
                   <strong>{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</strong>
+                </article>
+                <article class="caisse-source-card" data-tone="green">
+                  <span>Resultat du jour</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
                 </article>
               </div>
             </article>
@@ -337,11 +382,11 @@ function operationQuickLabel(op) {
                   <strong>{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</strong>
                 </article>
                 <article class="caisse-source-card" data-tone="green">
-                  <span>Total global</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
+                  <span>Total encaissements</span>
+                  <strong>{{ formatCurrency(caisseTotals.totalEncaissements) }}</strong>
                 </article>
                 <article class="caisse-source-card" data-tone="red">
-                  <span>Depenses</span>
+                  <span>Depenses caisse</span>
                   <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
                 </article>
               </div>

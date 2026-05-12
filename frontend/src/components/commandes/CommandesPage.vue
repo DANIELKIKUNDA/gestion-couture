@@ -8,6 +8,7 @@ import MobileStateEmpty from "../mobile/MobileStateEmpty.vue";
 import MobileStateError from "../mobile/MobileStateError.vue";
 import MobileStateLoading from "../mobile/MobileStateLoading.vue";
 import ResponsiveDataContainer from "../mobile/ResponsiveDataContainer.vue";
+import VoiceButton from "../voice/VoiceButton.vue";
 
 defineProps({
   isMobileViewport: { type: Boolean, default: false },
@@ -47,6 +48,7 @@ const emit = defineEmits([
   "update:commandeMobileFiltersOpen",
   "update:commandeClientQuery",
   "open-nouvelle-commande",
+  "voice-search",
   "reset-filters",
   "voir-commande",
   "paiement-commande",
@@ -109,6 +111,7 @@ function updateCommandeClientQuery(event) {
                 </svg>
               </span>
               <input v-model="filters.recherche" type="search" placeholder="Client, numero ou statut" />
+              <VoiceButton compact label="Rechercher" title="Recherche vocale" @result="emit('voice-search', $event)" />
             </div>
             <div class="mobile-filter-chip-row" aria-label="Statut des commandes">
               <button
@@ -163,14 +166,30 @@ function updateCommandeClientQuery(event) {
           </MobileFilterBlock>
         </template>
 
-        <article v-else-if="commandeSection === 'liste'" class="panel">
-          <h3>Filtres commandes</h3>
-          <div class="filters compact">
-            <select v-model="filters.statut">
-              <option v-for="status in statusOptions" :key="status" :value="status">
-                {{ status === "ALL" ? "Tous statuts" : status }}
-              </option>
-            </select>
+        <article v-else-if="commandeSection === 'liste'" class="panel mobile-modern-filter-panel commande-desktop-filter-panel">
+          <div class="mobile-search-shell commande-desktop-search-shell">
+            <span class="mobile-search-shell__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+            </span>
+            <input v-model="filters.recherche" type="search" placeholder="Rechercher une commande, un client ou un statut" />
+            <VoiceButton compact label="Rechercher" title="Recherche vocale" @result="emit('voice-search', $event)" />
+          </div>
+          <div class="mobile-filter-chip-row" aria-label="Statut des commandes">
+            <button
+              v-for="status in statusOptions"
+              :key="`cmd-desktop-chip-${status}`"
+              class="mobile-filter-chip"
+              :class="{ active: filters.statut === status }"
+              type="button"
+              @click="filters.statut = status"
+            >
+              {{ status === "ALL" ? "Tous" : status.replaceAll("_", " ") }}
+            </button>
+          </div>
+          <div class="commande-desktop-filter-grid">
             <div class="commande-client-picker">
               <input :value="commandeClientQuery" type="search" placeholder="Nom ou telephone du client" @input="updateCommandeClientQuery" />
               <select v-model="filters.client">
@@ -191,14 +210,11 @@ function updateCommandeClientQuery(event) {
                 {{ option.label }}
               </option>
             </select>
-            <input v-model="filters.recherche" type="search" placeholder="Client, numero ou statut" />
           </div>
-          <div class="panel-footer">
+          <div class="row-between commande-filter-summary">
+            <p class="helper">{{ commandesFiltered.length }} commande(s) visible(s)</p>
             <button class="mini-btn" @click="emit('reset-filters')">Reinitialiser filtres</button>
           </div>
-          <p v-if="commandeClientQuery.trim() || filters.recherche.trim()" class="helper">
-            Recherche active - {{ commandesFiltered.length }} resultat(s)
-          </p>
         </article>
       </template>
 
@@ -383,3 +399,36 @@ function updateCommandeClientQuery(event) {
     </MobilePageLayout>
   </section>
 </template>
+
+<style scoped>
+.commande-desktop-filter-panel {
+  gap: 12px;
+}
+
+.commande-desktop-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.35fr) repeat(2, minmax(170px, 0.85fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+.commande-desktop-filter-grid select,
+.commande-client-picker input,
+.commande-client-picker select {
+  min-height: 44px;
+}
+
+.commande-filter-summary {
+  margin-top: 2px;
+}
+
+@media (max-width: 1100px) {
+  .commande-desktop-filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .commande-client-picker {
+    grid-column: 1 / -1;
+  }
+}
+</style>

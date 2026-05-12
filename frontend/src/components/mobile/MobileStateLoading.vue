@@ -37,7 +37,8 @@ const safeBlocks = Math.max(1, Math.min(6, Number(props.blocks || 3)));
 <style scoped>
 .mobile-state-loading {
   display: grid;
-  gap: 12px;
+  gap: 14px;
+  padding: 2px;
 }
 
 .mobile-state-loading__copy {
@@ -46,13 +47,14 @@ const safeBlocks = Math.max(1, Math.min(6, Number(props.blocks || 3)));
 }
 
 .mobile-state-loading__copy strong {
-  color: #17324d;
-  font-size: 15px;
+  color: #102a43;
+  font-size: 16px;
+  line-height: 1.25;
 }
 
 .mobile-state-loading__copy p {
   margin: 0;
-  color: #5a7391;
+  color: #5d718a;
   font-size: 13px;
 }
 
@@ -63,18 +65,21 @@ const safeBlocks = Math.max(1, Math.min(6, Number(props.blocks || 3)));
 
 .mobile-state-loading__block {
   display: grid;
-  gap: 8px;
-  padding: 14px;
-  border: 1px solid #e6edf5;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid rgba(31, 90, 162, 0.1);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top right, rgba(31, 90, 162, 0.06), transparent 42%),
+    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 12px 28px rgba(31, 90, 162, 0.07);
 }
 
 .mobile-state-loading__line {
   display: block;
-  height: 10px;
+  height: 11px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #e9f0f7 25%, #f5f8fc 37%, #e9f0f7 63%);
+  background: linear-gradient(90deg, #e3edf8 25%, #f8fbff 37%, #e3edf8 63%);
   background-size: 400% 100%;
   animation: mobile-loading-pulse 1.6s ease-in-out infinite;
 }
