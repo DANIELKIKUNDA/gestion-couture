@@ -20,9 +20,13 @@ export function useCaisseViewModel({
   const caisseStatus = computed(() => caisseJour.value?.statutCaisse || "INCONNUE");
   const caisseOuverte = computed(() => caisseStatus.value === "OUVERTE");
 
+  const allCaisseOperations = computed(() =>
+    [...(caisseJour.value?.operations || [])].sort((a, b) => String(b.dateOperation || "").localeCompare(String(a.dateOperation || "")))
+  );
+
   const caisseOperations = computed(() => {
     const filter = String(caisseQuickFilter?.value || "ALL").trim().toUpperCase();
-    return [...(caisseJour.value?.operations || [])]
+    return allCaisseOperations.value
       .filter((op) => {
         const typeOperation = String(op?.typeOperation || "").trim().toUpperCase();
         const activite = String(op?.activite || "ATELIER").trim().toUpperCase();
@@ -34,8 +38,7 @@ export function useCaisseViewModel({
         if (filter === "MANUEL") return sourceFlux === "MANUEL";
         if (filter === "DEPENSES") return sourceFlux === "DEPENSE";
         return true;
-      })
-      .sort((a, b) => String(b.dateOperation || "").localeCompare(String(a.dateOperation || "")));
+      });
   });
 
   const caisseOperationsPaged = computed(() => caisseOperations.value.slice(0, caisseOperationsVisibleCount.value));
@@ -44,12 +47,21 @@ export function useCaisseViewModel({
   );
 
   const caisseTotals = computed(() => {
-    const totalEntrees = Number(caisseJour.value?.totalEntreesJour ?? 0);
-    const totalSortiesQuotidiennes = Number(caisseJour.value?.totalSortiesQuotidiennesJour ?? 0);
+    const ops = allCaisseOperations.value.filter((op) => op.statutOperation !== "ANNULEE");
+    const fallbackTotalEntrees = ops.filter((op) => op.typeOperation === "ENTREE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
+    const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
+    const fallbackSortiesQuotidiennes = ops
+      .filter((op) => op.typeOperation === "SORTIE" && String(op?.typeDepense || "QUOTIDIENNE").trim().toUpperCase() !== "EXCEPTIONNELLE")
+      .reduce((sum, op) => sum + Number(op.montant || 0), 0);
+    const fallbackSortiesExceptionnelles = ops
+      .filter((op) => op.typeOperation === "SORTIE" && String(op?.typeDepense || "").trim().toUpperCase() === "EXCEPTIONNELLE")
+      .reduce((sum, op) => sum + Number(op.montant || 0), 0);
+    const rawTotalEntrees = Number(caisseJour.value?.totalEntreesJour ?? 0);
+    const rawSortiesQuotidiennes = Number(caisseJour.value?.totalSortiesQuotidiennesJour ?? 0);
+    const totalEntrees = rawTotalEntrees > 0 ? rawTotalEntrees : fallbackTotalEntrees;
+    const totalSortiesQuotidiennes = rawSortiesQuotidiennes > 0 ? rawSortiesQuotidiennes : fallbackSortiesQuotidiennes;
     const resultatJournalier = Number(caisseJour.value?.resultatJournalier ?? (totalEntrees - totalSortiesQuotidiennes));
     const soldeJournalierRestant = Number(caisseJour.value?.soldeJournalierRestant ?? resultatJournalier);
-    const ops = caisseOperations.value.filter((op) => op.statutOperation !== "ANNULEE");
-    const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
     const sourceTotals = caisseJour.value?.totauxParSource || {};
     const activityTotals = caisseJour.value?.totauxParActivite || {};
     const fallbackSourceTotals = ops.reduce(
@@ -112,12 +124,18 @@ export function useCaisseViewModel({
     const totalStock = Number(activityTotals.totalStock ?? fallbackActivityTotals.totalStock);
     const depensesAtelier = Number(activityTotals.depensesAtelier ?? fallbackActivityTotals.depensesAtelier);
     const depensesStock = Number(activityTotals.depensesStock ?? fallbackActivityTotals.depensesStock);
-    const netAtelier = Number(activityTotals.netAtelier ?? fallbackActivityTotals.netAtelier);
-    const netStock = Number(activityTotals.netStock ?? fallbackActivityTotals.netStock);
+    const netAtelier = totalAtelier - depensesAtelier;
+    const netStock = totalStock - depensesStock;
+    const netJour = totalEntrees - totalSortiesQuotidiennes;
+    const totalSortiesExceptionnelles = Math.max(
+      0,
+      Number(caisseJour.value?.totalSortiesExceptionnellesJour ?? caisseJour.value?.total_sorties_exceptionnelles_jour ?? fallbackSortiesExceptionnelles)
+    );
     return {
       totalEntrees,
       totalSorties,
       totalSortiesQuotidiennes,
+      totalSortiesExceptionnelles,
       resultatJournalier,
       soldeJournalierRestant,
       totalAtelier,
@@ -126,13 +144,14 @@ export function useCaisseViewModel({
       depensesStock,
       netAtelier,
       netStock,
-      netJour: Number(activityTotals.netJour ?? (netAtelier + netStock)),
+      netJour,
       totalCommandes: Number(sourceTotals.totalCommandes ?? fallbackSourceTotals.totalCommandes),
       totalRetouches: Number(sourceTotals.totalRetouches ?? fallbackSourceTotals.totalRetouches),
       totalVentes: Number(sourceTotals.totalVentes ?? fallbackSourceTotals.totalVentes),
       totalEntreesManuelles: Number(sourceTotals.totalEntreesManuelles ?? fallbackSourceTotals.totalEntreesManuelles),
       totalDepenses: Number(sourceTotals.totalDepenses ?? fallbackSourceTotals.totalDepenses),
-      totalGlobal: Number(sourceTotals.totalGlobal ?? fallbackTotalGlobal)
+      totalEncaissements: Number(sourceTotals.totalGlobal ?? fallbackTotalGlobal),
+      totalGlobal: netJour
     };
   });
 

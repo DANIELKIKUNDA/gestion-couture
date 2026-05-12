@@ -1,6 +1,7 @@
 <script setup>
 import MobileSectionHeader from "../mobile/MobileSectionHeader.vue";
 import ResponsiveDataContainer from "../mobile/ResponsiveDataContainer.vue";
+import VoiceButton from "../voice/VoiceButton.vue";
 
 defineProps({
   isMobileViewport: { type: Boolean, default: false },
@@ -18,6 +19,8 @@ defineProps({
   openDossierDetail: { type: Function, required: true },
   dossierInfiniteSentinelRef: { type: Function, required: true }
 });
+
+const emit = defineEmits(["voice-search"]);
 
 function dossierStatusTone(statut) {
   const value = String(statut || "").trim().toUpperCase();
@@ -70,6 +73,7 @@ function dossierKpiTone(key, dossier) {
               </svg>
             </span>
             <input v-model="dossierFilters.recherche" type="search" placeholder="Nom, telephone ou dossier" />
+            <VoiceButton compact label="Rechercher" title="Recherche vocale" @result="emit('voice-search', $event)" />
           </div>
           <div class="mobile-filter-chip-row" aria-label="Statut du dossier">
             <button class="mobile-filter-chip" :class="{ active: dossierFilters.statut === 'ALL' }" type="button" @click="dossierFilters.statut = 'ALL'">Tous</button>
@@ -166,6 +170,7 @@ function dossierKpiTone(key, dossier) {
               </svg>
             </span>
             <input v-model="dossierFilters.recherche" type="search" placeholder="Rechercher un responsable, un telephone ou un dossier" />
+            <VoiceButton compact label="Rechercher" title="Recherche vocale" @result="emit('voice-search', $event)" />
           </div>
           <div class="dossier-desktop-filter-rows">
             <div class="mobile-filter-chip-row" aria-label="Statut du dossier">

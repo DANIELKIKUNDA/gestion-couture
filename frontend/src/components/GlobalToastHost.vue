@@ -26,7 +26,12 @@ const isVisible = computed(() => Boolean(String(props.message || "").trim()));
       aria-atomic="true"
     >
       <div class="global-toast-host__pill">
-        {{ message }}
+        <span class="global-toast-host__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        </span>
+        <span class="global-toast-host__message">{{ message }}</span>
       </div>
     </div>
   </transition>
@@ -48,23 +53,46 @@ const isVisible = computed(() => Boolean(String(props.message || "").trim()));
 }
 
 .global-toast-host__pill {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 10px;
   width: 100%;
-  min-height: 46px;
-  padding: 12px 16px;
-  border: 1px solid rgba(153, 228, 186, 0.9);
-  border-radius: 16px;
-  background: rgba(47, 130, 84, 0.96);
-  color: #f8fffb;
+  min-height: 52px;
+  padding: 12px 14px;
+  border: 1px solid rgba(198, 174, 134, 0.28);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(16, 25, 54, 0.96) 0%, rgba(8, 18, 48, 0.97) 100%);
+  color: #fffdf8;
   font: inherit;
   font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
-  text-align: center;
-  box-shadow: 0 16px 36px rgba(17, 44, 26, 0.2);
-  backdrop-filter: blur(12px);
+  text-align: left;
+  box-shadow: 0 18px 42px rgba(8, 18, 48, 0.24);
+  backdrop-filter: blur(14px);
+}
+
+.global-toast-host__icon {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  color: #102a43;
+  background: linear-gradient(180deg, #f8dfaa 0%, #c69b55 100%);
+  box-shadow: 0 8px 18px rgba(198, 155, 85, 0.24);
+}
+
+.global-toast-host__icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.global-toast-host__message {
+  min-width: 0;
 }
 
 .global-toast-host-fade-enter-active,

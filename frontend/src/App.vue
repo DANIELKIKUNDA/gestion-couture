@@ -63,6 +63,7 @@ import ScrollTopButton from "./components/mobile/ScrollTopButton.vue";
 import OfflineBanner from "./components/OfflineBanner.vue";
 import Sidebar from "./components/Sidebar.vue";
 import SystemAtelierCreateModal from "./components/system/SystemAtelierCreateModal.vue";
+import VoiceButton from "./components/voice/VoiceButton.vue";
 import { useCaisseViewModel } from "./utils/caisse-view-model.js";
 import { useCommandeDetailViewModel } from "./utils/commande-detail-view-model.js";
 import { useCommandesListViewModel } from "./utils/commandes-list-view-model.js";
@@ -74,6 +75,13 @@ import { hasActionEntry, readActionEntry, useEntityActions } from "./utils/list-
 import { useRetoucheDetailViewModel } from "./utils/retouche-detail-view-model.js";
 import { useRetouchesListViewModel } from "./utils/retouches-list-view-model.js";
 import { getPasswordPolicyError } from "./utils/password-policy.js";
+import {
+  parseDossierVoiceDraft,
+  parseCommandeVoiceDraft,
+  parseRetoucheVoiceDraft,
+  parseVoiceMeasures,
+  parseVoiceSearch
+} from "./services/voice-service.js";
 
 const CommandesPage = defineAsyncComponent(() => import("./components/commandes/CommandesPage.vue"));
 const CommandeDetailPage = defineAsyncComponent(() => import("./components/commandes/CommandeDetailPage.vue"));
@@ -344,6 +352,9 @@ const stockArticles = ref([]);
 const ventes = ref([]);
 const factures = ref([]);
 const caisseJour = ref(null);
+const caisseLoadState = ref("IDLE");
+const caisseLoadError = ref("");
+let caisseLoadRequestId = 0;
 const selectedBusinessDate = ref(todayIso());
 
 const stockVentesTab = ref("stock");
@@ -4718,6 +4729,117 @@ function recalculateRetoucheTotalFromItems() {
   retoucheWizard.retouche.montantTotal = total > 0 ? String(total) : "";
 }
 
+function applyVoiceSearchToCommandes(transcript) {
+  const parsed = parseVoiceSearch(transcript);
+  filters.recherche = parsed.query;
+  if (parsed.status) filters.statut = parsed.status;
+  commandeSection.value = "liste";
+  notify(parsed.status ? "Recherche vocale appliquee avec statut." : "Recherche vocale appliquee.");
+}
+
+function applyVoiceSearchToRetouches(transcript) {
+  const parsed = parseVoiceSearch(transcript);
+  retoucheFilters.recherche = parsed.query;
+  if (parsed.status) retoucheFilters.statut = parsed.status;
+  retoucheSection.value = "liste";
+  notify(parsed.status ? "Recherche vocale appliquee avec statut." : "Recherche vocale appliquee.");
+}
+
+function applyVoiceSearchToDossiers(transcript) {
+  const parsed = parseVoiceSearch(transcript);
+  dossierFilters.recherche = parsed.query;
+  notify("Recherche vocale appliquee.");
+}
+
+function findOptionByVoiceLabel(options = [], label = "") {
+  const normalizeVoiceLabel = (value) =>
+    String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  const normalized = normalizeVoiceLabel(label);
+  if (!normalized) return null;
+  return (options || []).find((option) => {
+    const haystack = normalizeVoiceLabel(`${option?.label || ""} ${option?.value || ""}`);
+    return haystack.includes(normalized) || normalized.includes(haystack);
+  }) || null;
+}
+
+function applyCommandeVoiceDraft(transcript) {
+  const parsed = parseCommandeVoiceDraft(transcript);
+  if (parsed.description) {
+    wizard.commande.descriptionCommande = parsed.description;
+    commandeDirectErrors.description = "";
+  }
+  const targetItem = wizard.commande.items[activeCommandeItemIndex.value] || wizard.commande.items[0] || null;
+  if (targetItem) {
+    const option = findOptionByVoiceLabel(wizardAvailableHabitTypeOptions.value, parsed.typeLabel);
+    if (option?.value && !targetItem.typeHabit) {
+      targetItem.typeHabit = option.value;
+      onCommandeItemTypeChange(targetItem);
+    }
+    if (parsed.description && !targetItem.description) targetItem.description = parsed.description;
+    if (parsed.montant && !targetItem.prix) {
+      targetItem.prix = parsed.montant;
+      recalculateCommandeTotalFromItems();
+    }
+  }
+  notify("Commande pre-remplie par la voix. Verifiez avant d'enregistrer.");
+}
+
+function applyRetoucheVoiceDraft(transcript) {
+  const parsed = parseRetoucheVoiceDraft(transcript);
+  if (parsed.description) retoucheWizard.retouche.descriptionRetouche = parsed.description;
+  const targetItem = retoucheWizard.retouche.items[activeRetoucheItemIndex.value] || retoucheWizard.retouche.items[0] || null;
+  if (targetItem) {
+    const option = findOptionByVoiceLabel(availableRetoucheTypeDefinitions.value.map((row) => ({ label: row.label || row.code, value: row.code })), parsed.typeLabel);
+    if (option?.value && !targetItem.typeRetouche) {
+      targetItem.typeRetouche = option.value;
+      onRetoucheItemTypeChange(targetItem);
+    }
+    if (parsed.description && !targetItem.description) targetItem.description = parsed.description;
+    if (parsed.montant && !targetItem.prix) {
+      targetItem.prix = parsed.montant;
+      recalculateRetoucheTotalFromItems();
+    }
+  }
+  notify("Retouche pre-remplie par la voix. Verifiez avant d'enregistrer.");
+}
+
+function applyCommandeVoiceMeasures(transcript, item = null) {
+  const targetItem = item || wizardCommandeMeasureActiveItem.value || wizard.commande.items[activeCommandeItemIndex.value] || null;
+  if (!targetItem) return notify("Aucun habit actif pour appliquer les mesures.");
+  const parsed = parseVoiceMeasures(transcript, getCommandeItemMeasureFields(targetItem));
+  if (parsed.count <= 0) return notify("Aucune mesure reconnue. Reessayez avec: poitrine 96, taille 88.");
+  targetItem.mesures = { ...(targetItem.mesures || {}), ...parsed.values };
+  notify(`${parsed.count} mesure(s) appliquee(s). Verifiez avant d'enregistrer.`);
+}
+
+function applyRetoucheVoiceMeasures(transcript, item = null) {
+  const targetItem = item || wizardRetoucheMeasureActiveItem.value || retoucheWizard.retouche.items[activeRetoucheItemIndex.value] || null;
+  if (!targetItem) return notify("Aucune retouche active pour appliquer les mesures.");
+  const parsed = parseVoiceMeasures(transcript, getRetoucheItemMeasureFields(targetItem));
+  if (parsed.count <= 0) return notify("Aucune mesure reconnue. Reessayez avec: poitrine 96, taille 88.");
+  targetItem.mesures = { ...(targetItem.mesures || {}), ...parsed.values };
+  syncRetouchePrimaryTypeFromItems();
+  notify(`${parsed.count} mesure(s) appliquee(s). Verifiez avant d'enregistrer.`);
+}
+
+function applyDossierVoiceDraft(transcript) {
+  const parsed = parseDossierVoiceDraft(transcript);
+  dossierDraft.typeDossier = parsed.typeDossier;
+  dossierDraft.notes = parsed.notes;
+  if (parsed.nom || parsed.prenom || parsed.telephone) {
+    dossierDraft.mode = "new";
+    if (parsed.nom) dossierDraft.newClient.nom = parsed.nom;
+    if (parsed.prenom) dossierDraft.newClient.prenom = parsed.prenom;
+    if (parsed.telephone) dossierDraft.newClient.telephone = parsed.telephone;
+  }
+  notify("Dossier pre-rempli par la voix. Verifiez avant de creer.");
+}
+
 const commandeSelectedClientLabel = computed(() => {
   const query = String(wizardClientSearchQuery.value || "").trim();
   if (query) return query;
@@ -6892,18 +7014,23 @@ const {
 
 const dailyDecisionPills = computed(() => {
   if (!caisseJour.value) return [];
-  const validOps = (caisseJour.value.operations || []).filter((op) => op.statutOperation !== "ANNULEE");
-  const biggestExpense = validOps
-    .filter((op) => op.typeOperation === "SORTIE")
-    .reduce((max, op) => (Number(op.montant || 0) > Number(max?.montant || 0) ? op : max), null);
-  const netJour = Number(caisseTotals.value.netJour || 0);
   const netAtelier = Number(caisseTotals.value.netAtelier || 0);
   const netStock = Number(caisseTotals.value.netStock || 0);
   return [
     {
-      label: "Net jour",
-      value: formatCurrency(netJour),
-      tone: netJour < 0 ? "out" : "in"
+      label: "Entrees jour",
+      value: formatCurrency(caisseTotals.value.totalEntrees),
+      tone: "in"
+    },
+    {
+      label: "Depenses quotidiennes",
+      value: formatCurrency(caisseTotals.value.totalSortiesQuotidiennes),
+      tone: Number(caisseTotals.value.totalSortiesQuotidiennes || 0) > 0 ? "out" : "neutral"
+    },
+    {
+      label: "Depenses exceptionnelles",
+      value: formatCurrency(caisseTotals.value.totalSortiesExceptionnelles),
+      tone: Number(caisseTotals.value.totalSortiesExceptionnelles || 0) > 0 ? "out" : "neutral"
     },
     {
       label: "Atelier net",
@@ -6916,9 +7043,9 @@ const dailyDecisionPills = computed(() => {
       tone: netStock < 0 ? "out" : "neutral"
     },
     {
-      label: "Plus grosse sortie",
-      value: biggestExpense ? formatCurrency(biggestExpense.montant) : "-",
-      tone: biggestExpense ? "out" : "neutral"
+      label: "Resultat du jour",
+      value: formatCurrency(caisseTotals.value.totalGlobal),
+      tone: "in"
     }
   ];
 });
@@ -9323,66 +9450,111 @@ async function revokeSystemAtelierOwnerSessions() {
   }
 }
 
-async function loadCaisseForBusinessDate(businessDate, daysInput = null, { awaitOnlineDetail = true } = {}) {
+async function loadCaisseForBusinessDate(businessDate, daysInput = null, { awaitOnlineDetail = true, daysVerifiedOnline = null } = {}) {
+  const requestId = ++caisseLoadRequestId;
+  const selected = String(businessDate || selectedBusinessDateIso()).slice(0, 10);
+  const hadValidCaisseForDate = Boolean(caisseJour.value && dateOnly(caisseJour.value.date) === selected);
+  caisseLoadState.value = hadValidCaisseForDate ? "REFRESHING" : "LOADING";
+  caisseLoadError.value = "";
+  const isCurrentRequest = () => requestId === caisseLoadRequestId;
+
   if (!canAccessModule("caisse")) {
-    caisseJour.value = null;
+    if (isCurrentRequest()) {
+      caisseJour.value = null;
+      caisseLoadState.value = "IDLE";
+    }
     return;
   }
   const atelierId = currentAtelierId.value;
   let days = [];
-  if (Array.isArray(daysInput)) {
-    days = daysInput;
-  } else if (atelierId) {
-    const listLocalFirst = await loadReadonlyListsLocalFirst({ atelierId, keys: [READONLY_CACHE_KEYS.CAISSE_JOURS] });
-    days = listLocalFirst.cached[READONLY_CACHE_KEYS.CAISSE_JOURS] || [];
-    if (listLocalFirst.online && listLocalFirst.refreshPromise) {
-      const refreshed = await listLocalFirst.refreshPromise;
-      days = refreshed?.values?.[READONLY_CACHE_KEYS.CAISSE_JOURS] || days;
+  try {
+    let daysWereVerifiedOnline = false;
+    if (Array.isArray(daysInput)) {
+      days = daysInput;
+      daysWereVerifiedOnline = daysVerifiedOnline !== false;
+    } else if (atelierId) {
+      const listLocalFirst = await loadReadonlyListsLocalFirst({ atelierId, keys: [READONLY_CACHE_KEYS.CAISSE_JOURS] });
+      days = listLocalFirst.cached[READONLY_CACHE_KEYS.CAISSE_JOURS] || [];
+      if (listLocalFirst.online && listLocalFirst.refreshPromise) {
+        const refreshed = await listLocalFirst.refreshPromise;
+        if (!isCurrentRequest()) return;
+        days = refreshed?.values?.[READONLY_CACHE_KEYS.CAISSE_JOURS] || days;
+        daysWereVerifiedOnline = true;
+      }
+    } else {
+      days = await atelierApi.listCaisseJours();
+      daysWereVerifiedOnline = true;
     }
-  } else {
-    days = await atelierApi.listCaisseJours();
-  }
-  const selected = String(businessDate || selectedBusinessDateIso()).slice(0, 10);
-  const match = days.find((day) => dateOnly(day.date || day.date_jour) === selected);
-  if (!match) {
-    caisseJour.value = null;
-    return;
-  }
-  const idCaisseJour = match.idCaisseJour || match.id_caisse_jour;
-  if (!atelierId) {
-    const detail = await atelierApi.getCaisseJour(idCaisseJour);
-    caisseJour.value = normalizeCaisse(detail);
-    return;
-  }
 
-  const localFirst = await loadReadonlyDetailLocalFirst({
-    atelierId,
-    cacheKey: READONLY_CACHE_KEYS.CAISSE_JOURS,
-    identifier: idCaisseJour,
-    loader: (id) => atelierApi.getCaisseJour(id)
-  });
-
-  if (localFirst.cached) {
-    caisseJour.value = normalizeCaisse(localFirst.cached);
-  } else {
-    caisseJour.value = normalizeCaisse(match);
-  }
-
-  if (localFirst.online && localFirst.refreshPromise) {
-    if (!awaitOnlineDetail) {
-      localFirst.refreshPromise
-        .then((refreshed) => {
-          if (refreshed?.row && dateOnly(refreshed.row.date || refreshed.row.date_jour) === selected) {
-            caisseJour.value = normalizeCaisse(refreshed.row);
-          }
-        })
-        .catch(appendError);
+    if (!isCurrentRequest()) return;
+    const match = days.find((day) => dateOnly(day.date || day.date_jour) === selected);
+    if (!match) {
+      if (daysWereVerifiedOnline) {
+        if (!hadValidCaisseForDate) caisseJour.value = null;
+        caisseLoadState.value = "NOT_FOUND";
+      } else {
+        caisseLoadState.value = hadValidCaisseForDate ? "READY" : "VERIFYING";
+      }
       return;
     }
-    const refreshed = await localFirst.refreshPromise;
-    if (refreshed?.row) {
-      caisseJour.value = normalizeCaisse(refreshed.row);
+    caisseLoadState.value = hadValidCaisseForDate ? "REFRESHING" : "VERIFYING";
+    const idCaisseJour = match.idCaisseJour || match.id_caisse_jour;
+    if (!atelierId) {
+      const detail = await atelierApi.getCaisseJour(idCaisseJour);
+      if (!isCurrentRequest()) return;
+      caisseJour.value = normalizeCaisse(detail);
+      caisseLoadState.value = "READY";
+      return;
     }
+
+    const localFirst = await loadReadonlyDetailLocalFirst({
+      atelierId,
+      cacheKey: READONLY_CACHE_KEYS.CAISSE_JOURS,
+      identifier: idCaisseJour,
+      loader: (id) => atelierApi.getCaisseJour(id)
+    });
+
+    if (!isCurrentRequest()) return;
+    if (localFirst.cached) {
+      caisseJour.value = normalizeCaisse(localFirst.cached);
+    } else {
+      caisseJour.value = normalizeCaisse(match);
+    }
+    caisseLoadState.value = "READY";
+
+    if (localFirst.online && localFirst.refreshPromise) {
+      if (!awaitOnlineDetail) {
+        localFirst.refreshPromise
+          .then((refreshed) => {
+            if (requestId !== caisseLoadRequestId) return;
+            if (refreshed?.row && dateOnly(refreshed.row.date || refreshed.row.date_jour) === selected) {
+              caisseJour.value = normalizeCaisse(refreshed.row);
+              caisseLoadState.value = "READY";
+              caisseLoadError.value = "";
+            }
+          })
+          .catch((err) => {
+            if (requestId !== caisseLoadRequestId) return;
+            caisseLoadState.value = caisseJour.value ? "READY" : "NETWORK_ERROR";
+            caisseLoadError.value = readableError(err);
+          });
+        return;
+      }
+      const refreshed = await localFirst.refreshPromise;
+      if (!isCurrentRequest()) return;
+      if (refreshed?.row) {
+        caisseJour.value = normalizeCaisse(refreshed.row);
+      }
+      caisseLoadState.value = caisseJour.value ? "READY" : "NOT_FOUND";
+    }
+  } catch (err) {
+    if (!isCurrentRequest()) return;
+    caisseLoadError.value = readableError(err);
+    caisseLoadState.value = getNetworkState().online ? "SERVER_ERROR" : "NETWORK_ERROR";
+    if (!caisseJour.value || (!hadValidCaisseForDate && dateOnly(caisseJour.value.date) !== selected)) {
+      caisseJour.value = null;
+    }
+    throw err;
   }
 }
 
@@ -9396,7 +9568,7 @@ watch(selectedBusinessDate, async () => {
   try {
     await loadCaisseForSelectedDate();
   } catch (err) {
-    appendError(err);
+    if (currentRoute.value === "caisse") caisseLoadError.value = readableError(err);
   }
 });
 
@@ -9491,7 +9663,8 @@ async function reloadAll() {
   if (shouldLoadFactures) factures.value = (readonlyLocalFirst.cached[READONLY_CACHE_KEYS.FACTURES] || []).map(normalizeFacture);
   if (shouldLoadCaisse) {
     await loadCaisseForBusinessDate(selectedBusinessDateIso(), readonlyLocalFirst.cached[READONLY_CACHE_KEYS.CAISSE_JOURS] || [], {
-      awaitOnlineDetail: false
+      awaitOnlineDetail: false,
+      daysVerifiedOnline: false
     });
   }
 
@@ -9593,10 +9766,11 @@ async function reloadAll() {
     try {
       await loadCaisseForSelectedDate(caisseDaysResult.value || []);
     } catch (err) {
-      appendError(err);
+      caisseLoadError.value = readableError(err);
     }
   } else if (shouldLoadCaisse) {
-    appendError(caisseDaysResult.reason);
+    caisseLoadError.value = readableError(caisseDaysResult.reason);
+    if (!caisseJour.value) caisseLoadState.value = getNetworkState().online ? "SERVER_ERROR" : "NETWORK_ERROR";
   }
 
   if (shouldLoadClients && currentRoute.value === "clientsMesures" && selectedClientConsultationId.value) {
@@ -10708,6 +10882,8 @@ async function refreshVisibleRouteInBackground({ force = false } = {}) {
 
   try {
     return await crossDeviceRefreshPromise;
+  } catch {
+    return false;
   } finally {
     crossDeviceRefreshPromise = null;
   }
@@ -11680,6 +11856,7 @@ function normalizeCaisse(raw) {
     soldeCourant: Number(raw.soldeCourant ?? raw.solde_courant ?? 0),
     totalEntreesJour: Number(raw.totalEntreesJour ?? raw.total_entrees_jour ?? 0),
     totalSortiesQuotidiennesJour: Number(raw.totalSortiesQuotidiennesJour ?? raw.total_sorties_quotidiennes_jour ?? 0),
+    totalSortiesExceptionnellesJour: Number(raw.totalSortiesExceptionnellesJour ?? raw.total_sorties_exceptionnelles_jour ?? 0),
     resultatJournalier: Number(raw.resultatJournalier ?? raw.resultat_journalier ?? 0),
     soldeJournalierRestant: Number(raw.soldeJournalierRestant ?? raw.solde_journalier_restant ?? 0),
     ouvertePar: raw.ouvertePar || raw.ouverte_par || "",
@@ -15844,6 +16021,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :reset-dossier-filters="resetDossierFilters"
           :open-dossier-detail="openDossierDetail"
           :dossier-infinite-sentinel-ref="setDossierInfiniteSentinel"
+          @voice-search="applyVoiceSearchToDossiers"
         />
 
         <CommandesPage
@@ -15882,6 +16060,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           @update:commande-mobile-filters-open="commandeMobileFiltersOpen = $event"
           @update:commande-client-query="commandeClientQuery = $event"
           @open-nouvelle-commande="openNouvelleCommande"
+          @voice-search="applyVoiceSearchToCommandes"
           @reset-filters="resetCommandeFilters"
           @voir-commande="onVoirCommande"
           @paiement-commande="onPaiementCommande"
@@ -15926,6 +16105,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           @update:retouche-mobile-filters-open="retoucheMobileFiltersOpen = $event"
           @update:retouche-client-query="retoucheClientQuery = $event"
           @open-nouvelle-retouche="openNouvelleRetouche"
+          @voice-search="applyVoiceSearchToRetouches"
           @reset-filters="resetRetoucheFilters"
           @voir-retouche="onVoirRetouche"
           @paiement-retouche="onPaiementRetouche"
@@ -16506,12 +16686,29 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
           <article v-if="canCreateVente && venteActiveTab === 'vendre'" class="panel vente-pos-panel">
             <MobileSectionHeader
-              title="Caisse vente"
-              subtitle="Ajoutez les articles au panier, puis encaissez en une action."
+              title="Vente comptoir"
+              subtitle="Selectionnez les articles, verifiez le panier, puis validez avec facture."
             />
             <div v-if="venteCashBlockedMessage" class="vente-cash-notice" role="status">
               <strong>Caisse fermee</strong>
               <p>{{ venteCashBlockedMessage }}</p>
+            </div>
+            <div class="vente-checkout-steps" aria-label="Progression de la vente">
+              <div class="vente-checkout-step" :class="{ complete: venteDraft.lignes.length > 0, active: venteDraft.lignes.length === 0 }">
+                <span>1</span>
+                <strong>Articles</strong>
+                <small>{{ venteDraft.lignes.length > 0 ? `${venteDraft.lignes.length} ligne(s)` : "A choisir" }}</small>
+              </div>
+              <div class="vente-checkout-step" :class="{ complete: venteDraft.acheteurNom.trim(), active: venteDraft.lignes.length > 0 && !venteDraft.acheteurNom.trim() }">
+                <span>2</span>
+                <strong>Client</strong>
+                <small>{{ venteDraft.acheteurNom.trim() ? "Nom facture pret" : "Optionnel" }}</small>
+              </div>
+              <div class="vente-checkout-step" :class="{ active: venteDraft.lignes.length > 0 && caisseOuverte, locked: !caisseOuverte }">
+                <span>3</span>
+                <strong>Validation</strong>
+                <small>{{ caisseOuverte ? "Caisse ouverte" : "Caisse fermee" }}</small>
+              </div>
             </div>
 
             <div class="vente-pos-layout">
@@ -16523,7 +16720,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                       <path d="m21 21-4.3-4.3" />
                     </svg>
                   </span>
-                  <input v-model="venteArticleSearch" type="search" placeholder="Rechercher un article" />
+                  <input v-model="venteArticleSearch" type="search" placeholder="Article, categorie ou unite" />
+                </div>
+                <div class="vente-pos-toolbar">
+                  <p class="helper">{{ venteArticleOptions.length }} article(s) disponible(s) pour cette recherche</p>
+                  <button v-if="venteArticleSearch" type="button" class="mini-btn" @click="venteArticleSearch = ''">Effacer</button>
                 </div>
                 <div class="vente-article-chip-grid">
                   <button
@@ -16539,6 +16740,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <small>Stock: {{ article.quantiteDisponible }}</small>
                   </button>
                 </div>
+                <MobileStateEmpty
+                  v-if="venteArticleOptions.length === 0"
+                  title="Aucun article disponible"
+                  description="Modifiez la recherche ou approvisionnez le stock avant de vendre."
+                />
                 <label class="vente-pos-field">
                   <span>Article</span>
                   <select v-model="venteDraft.current.idArticle">
@@ -16552,7 +16758,9 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <span>Quantite</span>
                   <input v-model="venteDraft.current.quantite" type="number" min="0" inputmode="decimal" />
                 </label>
-                <button class="action-btn blue vente-pos-add-btn" @click="addVenteLigne">Ajouter au panier</button>
+                <button class="action-btn blue vente-pos-add-btn" @click="addVenteLigne">
+                  {{ venteDraft.current.idArticle ? "Ajouter au panier" : "Choisir un article" }}
+                </button>
               </div>
 
               <aside class="vente-pos-summary">
@@ -16561,7 +16769,12 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <strong>{{ formatCurrency(venteDraftTotal) }}</strong>
                   <p>{{ venteDraft.lignes.length }} ligne(s) - {{ venteDraftItemsCount }} article(s)</p>
                 </div>
-                <span class="status-pill" :data-status="caisseStatus">{{ caisseStatus }}</span>
+                <div class="vente-pos-summary__badges">
+                  <span class="status-pill" :data-status="caisseStatus">{{ caisseStatus }}</span>
+                  <span class="status-pill" :data-tone="venteDraft.lignes.length > 0 ? 'ok' : 'due'">
+                    {{ venteDraft.lignes.length > 0 ? "Pret a verifier" : "Panier vide" }}
+                  </span>
+                </div>
               </aside>
             </div>
 
@@ -16572,6 +16785,15 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <p class="helper">Verifiez les articles avant validation.</p>
                 </div>
                 <strong>{{ formatCurrency(venteDraftTotal) }}</strong>
+              </div>
+              <div v-if="venteDraft.lignes.length > 0" class="vente-cart-readiness">
+                <span class="status-pill" data-tone="ok">{{ venteDraftItemsCount }} article(s)</span>
+                <span class="status-pill" :data-tone="venteDraft.acheteurNom.trim() ? 'ok' : 'neutral'">
+                  {{ venteDraft.acheteurNom.trim() ? "Nom facture renseigne" : "Nom facture optionnel" }}
+                </span>
+                <span class="status-pill" :data-tone="caisseOuverte ? 'ok' : 'due'">
+                  {{ caisseOuverte ? "Encaissement possible" : "Validation bloquee" }}
+                </span>
               </div>
 
               <ResponsiveDataContainer :mobile="isMobileViewport">
@@ -16637,6 +16859,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   Valider + facture
                 </button>
                 <button class="mini-btn vente-pos-draft-btn" @click="onCreerVente" :disabled="venteSubmitting || venteDraft.lignes.length === 0">Enregistrer brouillon</button>
+                <button class="mini-btn red-soft" @click="resetVenteDraft" :disabled="venteSubmitting || venteDraft.lignes.length === 0">Vider panier</button>
               </div>
             </article>
           </article>
@@ -16683,7 +16906,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <MobileStateEmpty
                   v-if="ventesFiltered.length === 0"
                   title="Aucune vente"
-                  description="Aucune vente disponible pour le moment."
+                  :description="venteHistorySearch || venteHistoryStatus !== 'ALL' ? 'Aucune vente ne correspond aux filtres actuels.' : 'Les ventes validees et les brouillons apparaitront ici.'"
                 />
 
                 <VenteMobileList
@@ -16763,7 +16986,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             </ResponsiveDataContainer>
 
             <div
-              v-if="ventesPaged.length > 0 && ventesPaged.length < ventesView.length"
+              v-if="ventesPaged.length > 0 && ventesPaged.length < ventesFiltered.length"
               ref="venteInfiniteSentinel"
               class="dossier-infinite-sentinel infinite-list-status"
             >
@@ -16804,10 +17027,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               />
             </label>
             <button class="action-btn green" :class="{ 'is-locked': !caisseOuverte }" @click="onCreerVenteEtFacturer" :disabled="venteSubmitting">
-              Valider + facture
+              {{ caisseOuverte ? "Valider + facture" : "Garder en brouillon" }}
             </button>
             <button class="mini-btn vente-pos-mobile-draft" @click="onCreerVente" :disabled="venteSubmitting">
-              Brouillon
+              Enregistrer brouillon
             </button>
           </MobilePrimaryActionBar>
         </template>
@@ -18092,6 +18315,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :can-record-caisse-expense="canRecordCaisseExpense && selectedBusinessDateIsToday"
           :can-close-caisse="canCloseCaisse && selectedBusinessDateIsToday"
           :caisse-jour="caisseJour"
+          :caisse-load-state="caisseLoadState"
+          :caisse-load-error="caisseLoadError"
           :selected-date="selectedBusinessDate"
           :caisse-status="caisseStatus"
           :icon-paths="iconPaths"
@@ -19175,6 +19400,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             <h4>Choisir la personne qui porte le dossier</h4>
             <p class="helper">Reprenez un client existant ou creez une fiche minimale sans quitter le flux.</p>
           </div>
+          <VoiceButton label="Dicter" title="Dicter le dossier" tone="gold" @result="applyDossierVoiceDraft" />
         </div>
         <div class="segmented">
           <button class="mini-btn" :class="{ active: dossierDraft.mode === 'existing' }" @click="dossierDraft.mode = 'existing'">Responsable existant</button>
@@ -19417,7 +19643,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <p class="mobile-overline">Commande</p>
                 <h5>Informations générales</h5>
               </div>
-              <span class="status-chip">{{ wizard.commande.items.length }} habit(s)</span>
+              <div class="inline-actions">
+                <VoiceButton label="Dicter" title="Dicter la commande" tone="gold" @result="applyCommandeVoiceDraft" />
+                <span class="status-chip">{{ wizard.commande.items.length }} habit(s)</span>
+              </div>
             </div>
             <label>Description commande <span>*</span></label>
             <input v-model="wizard.commande.descriptionCommande" type="text" placeholder="Ex: 2 chemises pour cérémonie, retrait vendredi" @input="commandeDirectErrors.description = ''" />
@@ -19488,7 +19717,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </div>
 
                   <div class="stack-form wizard-item-measures-block">
-                    <label>Mesures de l'habit</label>
+                    <div class="wizard-voice-row">
+                      <label>Mesures de l'habit</label>
+                      <VoiceButton compact title="Dicter les mesures" tone="gold" @result="(text) => applyCommandeVoiceMeasures(text, item)" />
+                    </div>
                     <p class="helper">Remplis uniquement les mesures nécessaires. Les champs vides ne seront pas enregistrés.</p>
                     <div class="form-grid" v-if="getCommandeItemMeasureFields(item).length > 0">
                       <div v-for="field in getCommandeItemMeasureFields(item)" :key="`cmd-direct-mes-${item.idItem}-${field.key}`" class="form-row">
@@ -19635,7 +19867,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 <p class="mobile-overline">Commande</p>
                 <h5>Informations generales</h5>
               </div>
-              <span class="status-chip">{{ humanizeContactLabel(wizard.commande.typeHabit) || wizard.commande.typeHabit || "A definir" }}</span>
+              <div class="inline-actions">
+                <VoiceButton label="Dicter" title="Dicter la commande" tone="gold" @result="applyCommandeVoiceDraft" />
+                <span class="status-chip">{{ humanizeContactLabel(wizard.commande.typeHabit) || wizard.commande.typeHabit || "A definir" }}</span>
+              </div>
             </div>
             <label>Description commande</label>
             <input v-model="wizard.commande.descriptionCommande" type="text" placeholder="Ex: Commande mariage" />
@@ -19774,7 +20009,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   </article>
                 </div>
                 <div class="stack-form wizard-item-measures-block">
-                  <label>Mesures {{ wizardCommandeMeasureIndex === 0 ? "(habit principal)" : "" }}</label>
+                  <div class="wizard-voice-row">
+                    <label>Mesures {{ wizardCommandeMeasureIndex === 0 ? "(habit principal)" : "" }}</label>
+                    <VoiceButton compact title="Dicter les mesures" tone="gold" @result="applyCommandeVoiceMeasures" />
+                  </div>
                   <p class="helper">
                     {{ wizardCommandeMeasureIndex === 0 ? "Le pre-remplissage s'applique sur ce premier habit quand un historique existe." : "Renseignez les mesures propres a cet habit." }}
                   </p>
@@ -20098,7 +20336,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               <p class="mobile-overline">Retouche</p>
               <h5>Demande du client</h5>
             </div>
-            <span class="status-chip">Simple</span>
+            <div class="inline-actions">
+              <VoiceButton label="Dicter" title="Dicter la retouche" tone="gold" @result="applyRetoucheVoiceDraft" />
+              <span class="status-chip">Simple</span>
+            </div>
           </div>
           <label>Description retouche <span>*</span></label>
           <input v-model="retoucheWizard.retouche.descriptionRetouche" type="text" placeholder="Ex: raccourcir manche, changer fermeture, ajuster robe" @input="retoucheDirectErrors.description = ''" />
@@ -20159,7 +20400,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                 </div>
 
                 <div class="stack-form wizard-item-measures-block">
-                  <label>Mesures de l'habit</label>
+                  <div class="wizard-voice-row">
+                    <label>Mesures de l'habit</label>
+                    <VoiceButton compact title="Dicter les mesures" tone="gold" @result="(text) => applyRetoucheVoiceMeasures(text, item)" />
+                  </div>
                   <p class="helper">Remplis uniquement les mesures nécessaires. Les champs vides ne seront pas enregistrés.</p>
                   <div v-if="!item.freeMeasureOpen" class="wizard-free-measure-actions">
                     <button class="mini-btn blue" type="button" @click="openFreeMeasureForItem(item)">+ Ajouter une mesure personnalisée</button>
@@ -20383,7 +20627,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             </div>
 
             <div v-if="String(wizardRetoucheMeasureActiveItem.typeHabit || '').trim()" class="stack-form wizard-item-measures-block">
-              <label>Mesures</label>
+              <div class="wizard-voice-row">
+                <label>Mesures</label>
+                <VoiceButton compact title="Dicter les mesures" tone="gold" @result="applyRetoucheVoiceMeasures" />
+              </div>
               <p class="helper">
                 <span v-if="retoucheMeasuresRequired">Renseignez les mesures necessaires pour cette retouche.</span>
                 <span v-else>Aucune mesure n'est requise pour cette retouche.</span>
@@ -20457,12 +20704,15 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </div>
 
         <section class="wizard-form-section">
-          <div class="wizard-section-head">
-            <div>
-              <p class="mobile-overline">Informations</p>
-              <h5>Details de la retouche</h5>
+            <div class="wizard-section-head">
+              <div>
+                <p class="mobile-overline">Informations</p>
+                <h5>Details de la retouche</h5>
+              </div>
+            <div class="inline-actions">
+              <VoiceButton label="Dicter" title="Dicter la retouche" tone="gold" @result="applyRetoucheVoiceDraft" />
+              <span class="status-chip">{{ wizardRetoucheDescriptionRequired ? "Description requise" : "Description optionnelle" }}</span>
             </div>
-            <span class="status-chip">{{ wizardRetoucheDescriptionRequired ? "Description requise" : "Description optionnelle" }}</span>
           </div>
           <label>Description retouche</label>
           <input v-model="retoucheWizard.retouche.descriptionRetouche" type="text" />

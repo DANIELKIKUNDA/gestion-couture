@@ -2320,6 +2320,17 @@ body {
   margin: 4px 0 0;
 }
 
+.wizard-voice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.wizard-voice-row > label {
+  margin: 0;
+}
+
 .wizard-inline-client-card {
   margin-top: 0;
   border-radius: 14px;
@@ -4933,6 +4944,8 @@ textarea:focus-visible {
 }
 
 .mobile-search-shell input[type="search"] {
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 46px;
   border: 0;
   padding: 0;
@@ -5476,6 +5489,258 @@ textarea:focus-visible {
   color: #0f5132;
 }
 
+.vente-view-switch,
+.vente-pos-panel,
+.vente-cart-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.vente-checkout-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.vente-checkout-step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid rgba(31, 90, 162, 0.1);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+  box-shadow: 0 12px 28px rgba(31, 90, 162, 0.07);
+}
+
+.vente-checkout-step span {
+  grid-row: 1 / span 2;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  color: #1f5aa2;
+  background: #eaf3ff;
+  font-weight: 800;
+}
+
+.vente-checkout-step strong {
+  color: #102a43;
+  font-size: 0.92rem;
+  line-height: 1.2;
+}
+
+.vente-checkout-step small {
+  color: #667085;
+  font-size: 0.76rem;
+  line-height: 1.25;
+}
+
+.vente-checkout-step.complete {
+  border-color: rgba(12, 166, 120, 0.2);
+  background: linear-gradient(180deg, #ffffff 0%, #f0fff6 100%);
+}
+
+.vente-checkout-step.complete span {
+  color: #ffffff;
+  background: linear-gradient(180deg, #159767 0%, #0f704f 100%);
+}
+
+.vente-checkout-step.active {
+  border-color: rgba(31, 90, 162, 0.24);
+  box-shadow: 0 14px 32px rgba(31, 90, 162, 0.12);
+}
+
+.vente-checkout-step.locked {
+  border-color: rgba(190, 67, 54, 0.18);
+  background: linear-gradient(180deg, #ffffff 0%, #fff5f2 100%);
+}
+
+.vente-checkout-step.locked span {
+  color: #9f2f26;
+  background: #ffe3dd;
+}
+
+.vente-pos-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.6fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.vente-pos-entry {
+  min-width: 0;
+}
+
+.vente-pos-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.vente-article-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.vente-article-chip {
+  min-height: 92px;
+  border: 1px solid rgba(31, 90, 162, 0.12);
+  border-radius: 18px;
+  padding: 12px;
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  color: #17324d;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.vente-article-chip:hover,
+.vente-article-chip.active {
+  transform: translateY(-1px);
+  border-color: rgba(31, 90, 162, 0.3);
+  box-shadow: 0 12px 24px rgba(31, 90, 162, 0.12);
+}
+
+.vente-article-chip strong {
+  color: #0f704f;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.vente-article-chip small {
+  color: #667085;
+  font-weight: 700;
+}
+
+.vente-pos-field {
+  display: grid;
+  gap: 6px;
+  color: #344054;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.vente-pos-summary {
+  position: sticky;
+  top: 10px;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(12, 166, 120, 0.16);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(12, 166, 120, 0.1), transparent 42%),
+    linear-gradient(180deg, #ffffff 0%, #f3fff8 100%);
+  box-shadow: 0 18px 38px rgba(12, 166, 120, 0.12);
+}
+
+.vente-pos-summary span:first-child {
+  color: #667085;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.vente-pos-summary strong {
+  display: block;
+  margin-top: 4px;
+  color: #0f5132;
+  font-size: clamp(1.65rem, 4vw, 2.35rem);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.vente-pos-summary p {
+  margin: 8px 0 0;
+  color: #667085;
+  font-size: 0.86rem;
+}
+
+.vente-pos-summary__badges,
+.vente-cart-readiness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vente-cash-notice {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid rgba(190, 67, 54, 0.16);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fffaf9 0%, #fff1ed 100%);
+  color: #8f2f24;
+}
+
+.vente-cash-notice.compact {
+  padding: 12px 14px;
+}
+
+.vente-cash-notice p {
+  margin: 0;
+  color: #9a4a3f;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.vente-cart-header strong {
+  color: #0f5132;
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.vente-buyer-form {
+  padding: 14px;
+  border: 1px solid rgba(31, 90, 162, 0.1);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.vente-pos-actions {
+  gap: 8px;
+}
+
+.vente-history-filter {
+  margin-bottom: 12px;
+}
+
+.mobile-sale-buyer-field {
+  display: grid;
+  gap: 5px;
+  color: #344054;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.mobile-sale-buyer-field input {
+  min-height: 44px;
+  border: 1px solid rgba(31, 90, 162, 0.13);
+  border-radius: 14px;
+  padding: 0 12px;
+  font: inherit;
+}
+
+.vente-pos-mobile-draft {
+  width: 100%;
+  justify-content: center;
+}
+
+.is-locked {
+  border-color: rgba(190, 67, 54, 0.18) !important;
+  background: linear-gradient(180deg, #fff8f6 0%, #fff0ec 100%) !important;
+  color: #9f2f26 !important;
+}
+
 @media (max-width: 900px) {
   .detail-summary-columns,
   .detail-items-list,
@@ -5635,5 +5900,74 @@ textarea:focus-visible {
 
   .commande-media-grid {
     grid-template-columns: 1fr;
+  }
+
+  .vente-pos-layout,
+  .vente-checkout-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .vente-checkout-step {
+    min-height: 68px;
+  }
+
+  .vente-pos-summary {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .vente-checkout-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .vente-checkout-step {
+    min-height: 92px;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    padding: 10px 8px;
+  }
+
+  .vente-checkout-step span {
+    grid-row: auto;
+    width: 30px;
+    height: 30px;
+  }
+
+  .vente-checkout-step strong {
+    font-size: 0.78rem;
+  }
+
+  .vente-checkout-step small {
+    font-size: 0.68rem;
+  }
+
+  .vente-pos-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .vente-pos-toolbar .mini-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .vente-article-chip-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .vente-article-chip {
+    min-height: 104px;
+    border-radius: 16px;
+  }
+
+  .vente-pos-summary {
+    padding: 16px;
+  }
+
+  .vente-pos-summary strong {
+    font-size: 1.7rem;
   }
 }
