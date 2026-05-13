@@ -49,6 +49,7 @@ import { showToast, toastState } from "./services/toast-service.js";
 import BottomNav from "./components/BottomNav.vue";
 import GlobalToastHost from "./components/GlobalToastHost.vue";
 import MobileHeader from "./components/MobileHeader.vue";
+import MobileFloatingCreateButton from "./components/mobile/MobileFloatingCreateButton.vue";
 import MobileFilterBlock from "./components/mobile/MobileFilterBlock.vue";
 import MobileMediaViewer from "./components/mobile/MobileMediaViewer.vue";
 import MobilePageLayout from "./components/mobile/MobilePageLayout.vue";
@@ -16503,7 +16504,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </MobilePageLayout>
       </section>
         <section v-else-if="currentRoute === 'stockVentes'" class="commandes-page">
-        <MobilePageLayout :has-action="isMobileViewport && ((stockVentesTab === 'stock' && canManageStockArticles) || (stockVentesTab === 'ventes' && canCreateVente && venteDraft.lignes.length > 0))">
+        <MobilePageLayout :has-action="isMobileViewport && stockVentesTab === 'ventes' && canCreateVente && venteDraft.lignes.length > 0">
         <article class="panel panel-header">
           <MobileSectionHeader
             eyebrow="Stock atelier"
@@ -16674,6 +16675,13 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
               </template>
             </ResponsiveDataContainer>
           </article>
+
+          <MobileFloatingCreateButton
+            v-if="isMobileViewport && canManageStockArticles && !showNewArticle"
+            label="Article"
+            aria-label="Ajouter article"
+            @click="showNewArticle = true"
+          />
         </template>
 
         <template v-else>
@@ -17001,17 +17009,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 
         <template #action>
           <MobilePrimaryActionBar
-            v-if="isMobileViewport && stockVentesTab === 'stock' && canManageStockArticles"
-            title="Action principale"
-            subtitle="Ajoutez rapidement un nouvel article au stock."
-          >
-            <button class="action-btn blue" @click="showNewArticle = !showNewArticle">
-              {{ showNewArticle ? "Fermer le formulaire" : "Ajouter article" }}
-            </button>
-          </MobilePrimaryActionBar>
-
-          <MobilePrimaryActionBar
-            v-else-if="isMobileViewport && stockVentesTab === 'ventes' && venteActiveTab === 'vendre' && canCreateVente && venteDraft.lignes.length > 0"
+            v-if="isMobileViewport && stockVentesTab === 'ventes' && venteActiveTab === 'vendre' && canCreateVente && venteDraft.lignes.length > 0"
             title="Encaisser"
             :subtitle="`${formatCurrency(venteDraftTotal)} - ${venteDraft.lignes.length} ligne(s)`"
           >
@@ -19383,7 +19381,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
     </div>
 
     <div v-if="dossierModalOpen" class="modal-backdrop" @click.self="closeDossierModal">
-      <div class="modal-card modal-card-wizard dossier-modal-card">
+      <div class="modal-card modal-card-wizard atelier-form-modal dossier-modal-card">
         <header class="modal-header">
           <div>
             <p class="mobile-overline">Dossier</p>
@@ -19393,7 +19391,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           <button class="mini-btn" @click="closeDossierModal">Fermer</button>
         </header>
 
-      <section class="modal-body modal-body-wizard stack-form">
+      <section class="modal-body modal-body-wizard stack-form wizard-form-shell atelier-premium-form">
         <div class="wizard-stage-head">
           <div>
             <p class="mobile-overline">Responsable</p>
@@ -19487,13 +19485,13 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
   </div>
 
   <div v-if="wizard.open" class="modal-backdrop" @click.self="requestCloseWizard">
-      <div class="modal-card modal-card-wizard">
+      <div class="modal-card modal-card-wizard atelier-form-modal">
         <header class="modal-header">
           <h3>Nouvelle commande</h3>
           <p>Client, habits et prix en une seule vue.</p>
         </header>
 
-        <section v-if="commandeDirectFormEnabled" class="modal-body modal-body-wizard stack-form wizard-form-shell">
+        <section v-if="commandeDirectFormEnabled" class="modal-body modal-body-wizard stack-form wizard-form-shell atelier-premium-form">
           <div class="wizard-stage-head">
             <div>
               <p class="mobile-overline">Client</p>
@@ -19787,7 +19785,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </div>
         </section>
 
-        <section v-else-if="wizard.step === 2" class="modal-body modal-body-wizard stack-form wizard-form-shell">
+        <section v-else-if="wizard.step === 2" class="modal-body modal-body-wizard stack-form wizard-form-shell atelier-premium-form">
           <div class="wizard-stage-head">
             <div>
               <p class="mobile-overline">Articles</p>
@@ -19909,7 +19907,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         <section
           v-else-if="wizard.step === 3"
           ref="wizardMeasureStepRef"
-          class="modal-body modal-body-wizard stack-form wizard-form-shell measure-scroll-shell"
+          class="modal-body modal-body-wizard stack-form wizard-form-shell atelier-premium-form measure-scroll-shell"
           @focusin.capture="onWizardMeasureFieldFocusIn"
           @focusout.capture="onWizardMeasureFieldFocusOut"
         >
@@ -20071,7 +20069,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           </div>
         </section>
 
-        <section v-else class="modal-body modal-body-wizard stack-form wizard-form-shell">
+        <section v-else class="modal-body modal-body-wizard stack-form wizard-form-shell atelier-premium-form">
           <div class="wizard-stage-head">
             <div>
               <p class="mobile-overline">Resume</p>
@@ -20189,13 +20187,13 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
   </div>
 
   <div v-if="retoucheWizard.open" class="modal-backdrop" @click.self="requestCloseRetoucheWizard">
-    <div class="modal-card modal-card-wizard">
+    <div class="modal-card modal-card-wizard atelier-form-modal">
       <header class="modal-header">
         <h3>Nouvelle retouche</h3>
         <p>Décris le travail à faire, habit par habit.</p>
       </header>
 
-      <section v-if="retoucheDirectFormEnabled" class="modal-body modal-body-wizard stack-form wizard-form-shell">
+      <section v-if="retoucheDirectFormEnabled" class="modal-body modal-body-wizard stack-form wizard-form-shell atelier-premium-form">
         <div class="wizard-stage-head">
           <div>
             <p class="mobile-overline">Client</p>
@@ -20452,7 +20450,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </div>
       </section>
 
-      <section v-else-if="retoucheWizard.step === 2" class="modal-body modal-body-wizard stack-form wizard-form-shell">
+      <section v-else-if="retoucheWizard.step === 2" class="modal-body modal-body-wizard stack-form wizard-form-shell atelier-premium-form">
         <div class="wizard-stage-head">
           <div>
             <p class="mobile-overline">Interventions</p>
@@ -20547,7 +20545,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
       <section
         v-else-if="retoucheWizard.step === 3"
         ref="retoucheMeasureStepRef"
-        class="modal-body modal-body-wizard stack-form wizard-form-shell measure-scroll-shell"
+        class="modal-body modal-body-wizard stack-form wizard-form-shell atelier-premium-form measure-scroll-shell"
         @focusin.capture="onRetoucheMeasureFieldFocusIn"
         @focusout.capture="onRetoucheMeasureFieldFocusOut"
       >
@@ -20736,7 +20734,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </div>
       </section>
 
-      <section v-else class="modal-body modal-body-wizard stack-form wizard-form-shell">
+      <section v-else class="modal-body modal-body-wizard stack-form wizard-form-shell atelier-premium-form">
         <div class="wizard-stage-head">
           <div>
             <p class="mobile-overline">Resume</p>

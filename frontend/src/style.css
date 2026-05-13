@@ -2292,6 +2292,104 @@ body {
   align-content: start;
 }
 
+.atelier-form-modal {
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 253, 0.98) 100%),
+    #ffffff;
+}
+
+.atelier-form-modal .modal-header {
+  position: relative;
+  overflow: hidden;
+  border-bottom-color: rgba(198, 212, 229, 0.8);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 250, 241, 0.94) 58%, rgba(240, 246, 253, 0.96) 100%);
+}
+
+.atelier-form-modal .modal-header::after {
+  content: "";
+  position: absolute;
+  right: 18px;
+  bottom: -42px;
+  width: 190px;
+  height: 145px;
+  background: url("/images/auth-sewing-machine.png") center / cover no-repeat;
+  opacity: 0.13;
+  pointer-events: none;
+}
+
+.atelier-form-modal .modal-header h3 {
+  letter-spacing: 0;
+}
+
+.atelier-premium-form {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(247, 250, 254, 0.96) 100%),
+    url("/images/auth-sewing-machine.png") right 16px top 20px / min(250px, 52vw) auto no-repeat;
+}
+
+.atelier-premium-form::before {
+  content: "";
+  position: sticky;
+  top: 0;
+  z-index: -1;
+  display: block;
+  height: 0;
+  opacity: 0;
+}
+
+.atelier-premium-form .wizard-stage-head,
+.atelier-premium-form .client-smart-card,
+.atelier-premium-form .wizard-form-section,
+.atelier-premium-form .beneficiary-card,
+.atelier-premium-form .order-line-card,
+.atelier-premium-form .client-insight-card {
+  border-color: rgba(196, 213, 231, 0.92);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(249, 252, 255, 0.94) 100%);
+  box-shadow: 0 16px 38px rgba(18, 44, 76, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.atelier-premium-form .wizard-stage-head {
+  padding: 16px;
+  border: 1px solid rgba(210, 190, 151, 0.52);
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 249, 237, 0.92) 54%, rgba(243, 248, 253, 0.92) 100%);
+}
+
+.atelier-premium-form .mobile-overline {
+  color: #9b6a28;
+}
+
+.atelier-premium-form input,
+.atelier-premium-form select,
+.atelier-premium-form textarea {
+  border-color: rgba(198, 212, 229, 0.95);
+  border-radius: 14px;
+  background-color: rgba(255, 255, 255, 0.94);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.atelier-premium-form input:focus,
+.atelier-premium-form select:focus,
+.atelier-premium-form textarea:focus {
+  background-color: #ffffff;
+  border-color: #b79255;
+  box-shadow:
+    0 0 0 3px rgba(183, 146, 85, 0.16),
+    0 10px 22px rgba(23, 57, 95, 0.08);
+}
+
+.atelier-premium-form .segmented {
+  background: rgba(245, 239, 229, 0.84);
+  border-color: rgba(210, 190, 151, 0.58);
+}
+
 .wizard-form-section {
   display: grid;
   gap: 12px;
@@ -3621,6 +3719,11 @@ textarea:focus-visible {
   width: min(480px, 100%);
 }
 
+.modal-card > .modal-actions,
+.modal-card-sm > .modal-actions {
+  padding: 0 14px 14px;
+}
+
 .dossier-modal-card {
   background:
     radial-gradient(circle at top right, rgba(18, 120, 202, 0.08), transparent 36%),
@@ -4487,24 +4590,77 @@ textarea:focus-visible {
     -webkit-overflow-scrolling: touch;
   }
 
-  .modal-card,
-  .modal-card-sm {
+  .modal-card {
     width: 100%;
     max-width: none;
-    max-height: 100vh;
-    min-height: 100vh;
-    height: 100vh;
-    max-height: 100dvh;
-    min-height: 100dvh;
-    height: 100dvh;
+    max-height: min(86svh, 720px);
+    min-height: 0;
+    height: auto;
     border-radius: 18px 18px 0 0;
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.98) 100%);
+    box-shadow: 0 -18px 46px rgba(13, 35, 68, 0.24);
+    animation: mobile-sheet-in 0.2s ease;
+  }
+
+  .modal-card-sm {
+    max-height: min(78svh, 620px);
   }
 
   .modal-header,
   .modal-body {
     padding: 16px 14px;
+  }
+
+  .modal-header {
+    flex: 0 0 auto;
+    align-items: flex-start;
+    gap: 12px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 254, 0.96) 100%);
+  }
+
+  .modal-header h3 {
+    margin: 0;
+    color: #15314f;
+    font-size: 18px;
+    line-height: 1.25;
+  }
+
+  .modal-body {
+    flex: 0 1 auto;
+    max-height: calc(78svh - 86px);
+  }
+
+  .modal-card > .modal-actions,
+  .modal-card-sm > .modal-actions {
+    position: sticky;
+    bottom: 0;
+    flex: 0 0 auto;
+    margin-top: 0;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.98) 38%);
+    backdrop-filter: blur(10px);
+  }
+
+  .modal-body > .modal-actions {
+    position: sticky;
+    bottom: 0;
+    margin: 4px -14px -16px;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.98) 36%);
+    backdrop-filter: blur(10px);
+  }
+
+  .modal-actions {
+    justify-content: stretch;
+  }
+
+  .modal-actions > * {
+    flex: 1 1 0;
+    justify-content: center;
   }
 
   .modal-card-wizard {
@@ -4516,6 +4672,8 @@ textarea:focus-visible {
     max-height: 100svh;
     min-height: 100svh;
     height: 100svh;
+    border-radius: 18px 18px 0 0;
+    animation: none;
   }
 
   .modal-body-wizard {
@@ -4548,6 +4706,17 @@ textarea:focus-visible {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.94) 24%, #ffffff 54%);
     backdrop-filter: blur(10px);
     z-index: 1;
+  }
+
+  @keyframes mobile-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .wizard-premium-actions {

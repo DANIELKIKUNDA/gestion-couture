@@ -1,8 +1,8 @@
 <script setup>
 import CommandeMobileList from "./CommandeMobileList.vue";
+import MobileFloatingCreateButton from "../mobile/MobileFloatingCreateButton.vue";
 import MobileFilterBlock from "../mobile/MobileFilterBlock.vue";
 import MobilePageLayout from "../mobile/MobilePageLayout.vue";
-import MobilePrimaryActionBar from "../mobile/MobilePrimaryActionBar.vue";
 import MobileSectionHeader from "../mobile/MobileSectionHeader.vue";
 import MobileStateEmpty from "../mobile/MobileStateEmpty.vue";
 import MobileStateError from "../mobile/MobileStateError.vue";
@@ -72,7 +72,7 @@ function updateCommandeClientQuery(event) {
 
 <template>
   <section class="commandes-page">
-    <MobilePageLayout :has-action="isMobileViewport && canCreateCommande && commandeSection === 'liste'">
+    <MobilePageLayout>
       <template #header>
         <article class="panel panel-header">
           <MobileSectionHeader
@@ -382,20 +382,12 @@ function updateCommandeClientQuery(event) {
         </div>
       </article>
 
-      <template #action>
-        <MobilePrimaryActionBar
-          v-if="isMobileViewport && canCreateCommande && commandeSection === 'liste'"
-          title="Action principale"
-          subtitle="Creer rapidement une nouvelle commande."
-        >
-          <button class="action-btn blue" @click="emit('open-nouvelle-commande')">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path v-for="(path, i) in iconPaths.plus" :key="`new-cmd-mobile-${i}`" :d="path" />
-            </svg>
-            Nouvelle commande
-          </button>
-        </MobilePrimaryActionBar>
-      </template>
+      <MobileFloatingCreateButton
+        v-if="isMobileViewport && canCreateCommande && commandeSection === 'liste'"
+        label="Commande"
+        aria-label="Nouvelle commande"
+        @click="emit('open-nouvelle-commande')"
+      />
     </MobilePageLayout>
   </section>
 </template>

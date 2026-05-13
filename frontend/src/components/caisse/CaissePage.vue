@@ -1,7 +1,9 @@
 <script setup>
+import { ref } from "vue";
 import CaisseOperationMobileList from "./CaisseOperationMobileList.vue";
 import CaisseOverviewCards from "./CaisseOverviewCards.vue";
 import DateNavigator from "../DateNavigator.vue";
+import MobileFloatingCreateButton from "../mobile/MobileFloatingCreateButton.vue";
 import MobilePageLayout from "../mobile/MobilePageLayout.vue";
 import MobilePrimaryActionBar from "../mobile/MobilePrimaryActionBar.vue";
 import MobileSectionHeader from "../mobile/MobileSectionHeader.vue";
@@ -41,6 +43,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["ouvrir-caisse", "entree-manuelle-caisse", "depense-caisse", "cloturer-caisse", "update:selectedDate", "update:caisseQuickFilter"]);
+const movementSheetOpen = ref(false);
 
 const quickFilterOptions = [
   { value: "ALL", label: "Tous" },
@@ -83,11 +86,29 @@ function caisseUnavailableDescription() {
   if (state === "NOT_FOUND") return "La verification est terminee et aucune caisse n'existe pour cette date.";
   return props.caisseLoadError || "Aucune caisse du jour n'a ete chargee.";
 }
+
+function openMovementSheet() {
+  movementSheetOpen.value = true;
+}
+
+function closeMovementSheet() {
+  movementSheetOpen.value = false;
+}
+
+function chooseManualEntry() {
+  closeMovementSheet();
+  emit("entree-manuelle-caisse");
+}
+
+function chooseExpense() {
+  closeMovementSheet();
+  emit("depense-caisse");
+}
 </script>
 
 <template>
   <section class="commande-detail">
-    <MobilePageLayout :has-action="isMobileViewport && ((!caisseOuverte && canOpenCaisse) || (caisseOuverte && canRecordCaisseManualEntry) || (caisseOuverte && canRecordCaisseExpense) || (caisseOuverte && !canRecordCaisseExpense && !canRecordCaisseManualEntry && canCloseCaisse))">
+    <MobilePageLayout :has-action="isMobileViewport && ((!caisseOuverte && canOpenCaisse) || (caisseOuverte && !canRecordCaisseExpense && !canRecordCaisseManualEntry && canCloseCaisse))">
       <article class="panel panel-header detail-header" :class="{ 'caisse-header-closed': !caisseOuverte }">
         <div>
           <h3>Caisse du jour</h3>
@@ -486,6 +507,13 @@ function caisseUnavailableDescription() {
         </ResponsiveDataContainer>
       </template>
 
+      <MobileFloatingCreateButton
+        v-if="isMobileViewport && caisseOuverte && (canRecordCaisseManualEntry || canRecordCaisseExpense)"
+        label="Operation"
+        aria-label="Ajouter une operation de caisse"
+        @click="openMovementSheet"
+      />
+
       <template #action>
         <MobilePrimaryActionBar
           v-if="isMobileViewport && !caisseOuverte && canOpenCaisse"
@@ -493,18 +521,6 @@ function caisseUnavailableDescription() {
           subtitle="Ouvrez la caisse du jour pour autoriser les ecritures."
         >
           <button class="action-btn green" @click="emit('ouvrir-caisse')">Ouvrir la caisse</button>
-        </MobilePrimaryActionBar>
-
-        <MobilePrimaryActionBar
-          v-else-if="isMobileViewport && caisseOuverte && (canRecordCaisseManualEntry || canRecordCaisseExpense || canCloseCaisse)"
-          title="Actions caisse"
-          subtitle="Enregistrez l'entree ou la depense sans quitter la caisse."
-        >
-          <div class="caisse-mobile-actions">
-            <button v-if="canRecordCaisseManualEntry" class="action-btn blue" @click="emit('entree-manuelle-caisse')">+ Ajouter une entree</button>
-            <button v-if="canRecordCaisseExpense" class="action-btn amber" @click="emit('depense-caisse')">Enregistrer depense</button>
-            <button v-if="canCloseCaisse" class="action-btn red caisse-mobile-actions__close" @click="emit('cloturer-caisse')">Cloturer la caisse</button>
-          </div>
         </MobilePrimaryActionBar>
 
         <MobilePrimaryActionBar
@@ -516,6 +532,47 @@ function caisseUnavailableDescription() {
         </MobilePrimaryActionBar>
       </template>
     </MobilePageLayout>
+
+    <div v-if="movementSheetOpen" class="modal-backdrop caisse-movement-backdrop" @click.self="closeMovementSheet">
+      <div class="modal-card modal-card-sm caisse-movement-sheet">
+        <header class="modal-header">
+          <div>
+            <p class="mobile-overline">Caisse</p>
+            <h3>Nouvelle operation</h3>
+            <p class="helper">Choisissez si l'argent entre ou sort de la caisse.</p>
+          </div>
+          <button class="mini-btn" type="button" @click="closeMovementSheet">Fermer</button>
+        </header>
+        <section class="modal-body caisse-movement-body">
+          <button
+            v-if="canRecordCaisseManualEntry"
+            type="button"
+            class="caisse-movement-choice"
+            data-tone="in"
+            @click="chooseManualEntry"
+          >
+            <span class="caisse-movement-choice__icon">+</span>
+            <span>
+              <strong>Ajouter une entree</strong>
+              <small>Argent ajoute a la caisse hors commande, retouche ou vente.</small>
+            </span>
+          </button>
+          <button
+            v-if="canRecordCaisseExpense"
+            type="button"
+            class="caisse-movement-choice"
+            data-tone="out"
+            @click="chooseExpense"
+          >
+            <span class="caisse-movement-choice__icon">-</span>
+            <span>
+              <strong>Enregistrer une depense</strong>
+              <small>Argent sorti pour l'atelier, le stock ou une charge exceptionnelle.</small>
+            </span>
+          </button>
+        </section>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -576,6 +633,90 @@ function caisseUnavailableDescription() {
 
 .caisse-mobile-actions__close {
   grid-column: 1 / -1;
+}
+
+.caisse-movement-backdrop {
+  z-index: 70;
+}
+
+.caisse-movement-sheet {
+  border-color: rgba(198, 212, 229, 0.9);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(247, 250, 254, 0.99) 100%);
+}
+
+.caisse-movement-body {
+  gap: 10px;
+}
+
+.caisse-movement-choice {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 84px;
+  padding: 14px;
+  border: 1px solid rgba(203, 215, 229, 0.92);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.96) 100%);
+  color: #17314f;
+  font: inherit;
+  text-align: left;
+  box-shadow: 0 12px 30px rgba(18, 44, 76, 0.08);
+  cursor: pointer;
+}
+
+.caisse-movement-choice[data-tone="in"] {
+  border-color: rgba(36, 126, 76, 0.24);
+  background:
+    radial-gradient(circle at top right, rgba(47, 153, 82, 0.1), transparent 38%),
+    linear-gradient(180deg, #ffffff 0%, #f2fbf5 100%);
+}
+
+.caisse-movement-choice[data-tone="out"] {
+  border-color: rgba(190, 67, 54, 0.24);
+  background:
+    radial-gradient(circle at top right, rgba(190, 67, 54, 0.1), transparent 38%),
+    linear-gradient(180deg, #ffffff 0%, #fff6f5 100%);
+}
+
+.caisse-movement-choice__icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.caisse-movement-choice[data-tone="in"] .caisse-movement-choice__icon {
+  background: linear-gradient(180deg, #2f9952, #1f6f3d);
+}
+
+.caisse-movement-choice[data-tone="out"] .caisse-movement-choice__icon {
+  background: linear-gradient(180deg, #c24f44, #9f3028);
+}
+
+.caisse-movement-choice strong,
+.caisse-movement-choice small {
+  display: block;
+}
+
+.caisse-movement-choice strong {
+  font-size: 15px;
+  color: #15314f;
+}
+
+.caisse-movement-choice small {
+  margin-top: 4px;
+  color: #5f7590;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 @media (max-width: 380px) {
