@@ -1,7 +1,7 @@
 <script setup>
 import MobileFilterBlock from "../mobile/MobileFilterBlock.vue";
+import MobileFloatingCreateButton from "../mobile/MobileFloatingCreateButton.vue";
 import MobilePageLayout from "../mobile/MobilePageLayout.vue";
-import MobilePrimaryActionBar from "../mobile/MobilePrimaryActionBar.vue";
 import MobileSectionHeader from "../mobile/MobileSectionHeader.vue";
 import MobileStateEmpty from "../mobile/MobileStateEmpty.vue";
 import MobileStateError from "../mobile/MobileStateError.vue";
@@ -72,7 +72,7 @@ function updateRetoucheClientQuery(event) {
 
 <template>
   <section class="commandes-page">
-    <MobilePageLayout :has-action="isMobileViewport && canCreateRetouche && retoucheSection === 'liste'">
+    <MobilePageLayout>
       <template #header>
         <article class="panel panel-header">
           <MobileSectionHeader
@@ -388,20 +388,12 @@ function updateRetoucheClientQuery(event) {
         </div>
       </article>
 
-      <template #action>
-        <MobilePrimaryActionBar
-          v-if="isMobileViewport && canCreateRetouche && retoucheSection === 'liste'"
-          title="Action principale"
-          subtitle="Creer rapidement une nouvelle retouche."
-        >
-          <button class="action-btn blue" @click="emit('open-nouvelle-retouche')">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path v-for="(path, i) in iconPaths.plus" :key="`new-ret-mobile-${i}`" :d="path" />
-            </svg>
-            Nouvelle retouche
-          </button>
-        </MobilePrimaryActionBar>
-      </template>
+      <MobileFloatingCreateButton
+        v-if="isMobileViewport && canCreateRetouche && retoucheSection === 'liste'"
+        label="Retouche"
+        aria-label="Nouvelle retouche"
+        @click="emit('open-nouvelle-retouche')"
+      />
     </MobilePageLayout>
   </section>
 </template>

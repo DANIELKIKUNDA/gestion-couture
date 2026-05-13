@@ -1,4 +1,5 @@
 <script setup>
+import MobileFloatingCreateButton from "../mobile/MobileFloatingCreateButton.vue";
 import MobileSectionHeader from "../mobile/MobileSectionHeader.vue";
 import ResponsiveDataContainer from "../mobile/ResponsiveDataContainer.vue";
 import VoiceButton from "../voice/VoiceButton.vue";
@@ -57,11 +58,7 @@ function dossierKpiTone(key, dossier) {
             eyebrow="Dossiers"
             title="Centre des operations atelier"
             subtitle="Familles, groupes et operations mixtes commandes + retouches."
-          >
-            <template #actions>
-              <button class="action-btn blue dossier-btn dossier-btn-primary" @click="openCreateDossierModal">Nouveau dossier</button>
-            </template>
-          </MobileSectionHeader>
+          />
         </article>
 
         <article class="panel stack-form mobile-search-filter-panel mobile-modern-filter-panel">
@@ -146,6 +143,12 @@ function dossierKpiTone(key, dossier) {
           <h3>{{ dossierEmptyStateTitle }}</h3>
           <p>{{ dossierEmptyStateDescription }}</p>
         </article>
+
+        <MobileFloatingCreateButton
+          label="Dossier"
+          aria-label="Nouveau dossier"
+          @click="openCreateDossierModal"
+        />
       </template>
 
       <template #desktop>
