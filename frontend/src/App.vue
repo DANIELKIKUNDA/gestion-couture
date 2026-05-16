@@ -27,7 +27,7 @@ import {
   getOrFetchCommandeMediaBlob
 } from "./services/commande-media-cache-service.js";
 import { createOfflineCommande, createOfflineDossier, createOfflineRetouche } from "./services/offline-write-service.js";
-import { getNetworkState, subscribeToNetworkState, useNetwork } from "./services/network-service.js";
+import { getNetworkState, subscribeToNetworkState, useNetwork, verifyApiConnectivity } from "./services/network-service.js";
 import {
   OFFLINE_SESSION_MESSAGES,
   clearOfflineSessionSnapshot,
@@ -7543,9 +7543,28 @@ async function revalidateAuthSessionOnline() {
   }
 }
 
+async function restoreAuthenticatedOfflineSession() {
+  try {
+    const restored = await restoreOfflineSessionSnapshot();
+    if (!restored.session) return false;
+    applyAuthSession(restored.session);
+    sessionSource.value = "offline";
+    applyOfflineSessionContext(restored.session);
+    authError.value = "";
+    authMode.value = "login";
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function hydrateAuthSession() {
   if (hydrateAuthSessionPromise) return hydrateAuthSessionPromise;
   hydrateAuthSessionPromise = (async () => {
+    if (getNetworkState().browserOnline) {
+      await verifyApiConnectivity();
+    }
+
     if (!getNetworkState().online) {
       let restored = null;
       try {
@@ -7592,6 +7611,21 @@ async function hydrateAuthSession() {
       authMode.value = session ? "login" : "checking";
       return Boolean(session);
     } catch (err) {
+      if (isTemporaryConnectionError(err)) {
+        try {
+          const restored = await restoreOfflineSessionSnapshot();
+          if (restored.session) {
+            applyAuthSession(restored.session);
+            sessionSource.value = "offline";
+            applyOfflineSessionContext(restored.session);
+            authError.value = "";
+            authMode.value = "login";
+            return true;
+          }
+        } catch {
+          // fall through to the standard login state below
+        }
+      }
       applyAuthSession(null);
       const message = readableError(err);
       const lowered = message.toLowerCase();
@@ -7841,7 +7875,10 @@ async function loadInitialAuthenticatedWorkspace() {
     rememberAppRouteHistory(currentRoute.value, { replace: true });
     scheduleAuthenticatedPagePreload();
   } catch (err) {
-    errorMessage.value = readableError(err);
+    loading.value = false;
+    if (!isTemporaryConnectionError(err)) {
+      errorMessage.value = readableError(err);
+    }
   } finally {
     scheduleCrossDeviceRefresh();
   }
@@ -7853,7 +7890,12 @@ onMounted(async () => {
   lastKnownNetworkOnline = getNetworkState().online;
   unsubscribeNetworkState = subscribeToNetworkState((state) => {
     const reconnected = lastKnownNetworkOnline === false && state.online === true;
+    const wentOffline = lastKnownNetworkOnline === true && state.online === false;
     lastKnownNetworkOnline = state.online;
+    if (wentOffline && !isAuthenticated.value) {
+      void restoreAuthenticatedOfflineSession();
+      return;
+    }
     if (!reconnected) return;
     void refreshVisibleDataAfterReconnect();
   });
@@ -7873,7 +7915,8 @@ onMounted(async () => {
     if (Number(context?.status || 0) === 401 && getNetworkState().online) {
       void clearOfflineSessionSnapshot(currentAtelierId.value);
     }
-    authError.value = reason || "Session expiree. Reconnecte-toi.";
+    if (!getNetworkState().online || isTemporaryConnectionError({ message: reason, status: Number(context?.status || 0) })) return;
+    authError.value = sanitizeUserVisibleMessage(reason || "Session expiree. Reconnecte-toi.");
   });
   syncRouteFromLocation();
   loadClientConsultationSectionPreference();
@@ -8528,7 +8571,6 @@ watch(
 
 watch(isPwaOfflineReady, (ready) => {
   if (!ready) return;
-  notify("Interface hors ligne prete.");
   dismissPwaOfflineReady();
 });
 
@@ -10440,6 +10482,7 @@ async function loadAudit() {
 }
 
 function appendError(err) {
+  if (isTemporaryConnectionError(err)) return;
   const msg = readableError(err);
   if (!msg) return;
   setGlobalErrorMessage(msg);
@@ -10460,7 +10503,7 @@ function clearGlobalErrorMessage() {
 }
 
 function setGlobalErrorMessage(message, timeoutMs = 7000) {
-  const normalized = String(message || "").trim();
+  const normalized = sanitizeUserVisibleMessage(message);
   if (!normalized) {
     clearGlobalErrorMessage();
     return;
@@ -10929,11 +10972,49 @@ function appendAuditError(message) {
   auditError.value = parts.join(" | ");
 }
 
+function isTemporaryConnectionError(err) {
+  const status = err instanceof ApiError ? Number(err.status || 0) : 0;
+  const message = err instanceof Error ? err.message : String(err || "");
+  const lowered = String(message || "").toLowerCase();
+  return (
+    status === 0 ||
+    lowered.includes("connexion momentanement indisponible") ||
+    lowered.includes("connexion api impossible") ||
+    lowered.includes("failed to fetch") ||
+    lowered.includes("networkerror") ||
+    lowered.includes("load failed")
+  );
+}
+
+function sanitizeUserVisibleMessage(message = "") {
+  const value = String(message || "").trim();
+  if (!value) return "";
+  const lowered = value.toLowerCase();
+  if (
+    lowered.includes("connexion api impossible") ||
+    lowered.includes("frontend") ||
+    lowered.includes("backend") ||
+    lowered.includes("api") ||
+    lowered.includes("failed to fetch") ||
+    lowered.includes("networkerror") ||
+    lowered.includes("load failed")
+  ) {
+    return "Connexion momentanement indisponible. Veuillez reessayer.";
+  }
+  if (isTechnicalErrorMessage(value)) {
+    return "Une erreur est survenue. Veuillez reessayer.";
+  }
+  return value;
+}
+
 function readableError(err) {
   const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : String(err || "");
   const lowered = String(message || "").toLowerCase();
   if (!getNetworkState().online) {
     return "Connexion indisponible. Verifiez votre reseau puis reessayez.";
+  }
+  if (isTemporaryConnectionError(err)) {
+    return "Connexion momentanement indisponible. Veuillez reessayer.";
   }
   if (
     lowered.includes("failed to fetch") ||
@@ -10947,7 +11028,7 @@ function readableError(err) {
     return "Une erreur est survenue. Veuillez reessayer.";
   }
   if (message) {
-    const translated = translateErrorMessage(message);
+    const translated = translateErrorMessage(sanitizeUserVisibleMessage(message));
     if (translated) return translated;
   }
   return "Une erreur est survenue. Reessayez.";
@@ -11007,6 +11088,13 @@ function isTechnicalErrorMessage(message) {
   if (!normalized) return false;
 
   return [
+    /\bapi\b/i,
+    /\bfrontend\b/i,
+    /\bbackend\b/i,
+    /\bundefined\b/i,
+    /\bnot implemented\b/i,
+    /\bfailed to fetch\b/i,
+    /\bnetworkerror\b/i,
     /syntax error at or near/i,
     /\bcolumn\b.+\bdoes not exist\b/i,
     /\brelation\b.+\bdoes not exist\b/i,
@@ -15713,6 +15801,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         <div class="auth-loading-spinner" aria-hidden="true"></div>
         <p>Preparation de votre espace atelier...</p>
       </header>
+      <p class="auth-brand-signature">from VolcanoTech</p>
     </article>
   </div>
 
@@ -15785,6 +15874,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </button>
       </form>
       <div class="auth-tailor-scene" aria-hidden="true"></div>
+      <p class="auth-brand-signature">from VolcanoTech</p>
     </article>
   </div>
 

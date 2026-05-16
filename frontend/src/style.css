@@ -100,6 +100,20 @@ body {
   padding: 36px 28px;
 }
 
+.auth-brand-signature {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 2;
+  text-align: center;
+  color: rgba(139, 115, 85, 0.82);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: none;
+}
+
 .auth-shell-loading {
   align-items: center;
   justify-content: center;
@@ -114,6 +128,7 @@ body {
     radial-gradient(circle at top, rgba(183, 146, 85, 0.13), transparent 42%),
     rgba(255, 255, 255, 0.96);
   box-shadow: 0 26px 70px rgba(24, 27, 37, 0.16);
+  padding-bottom: 58px;
 }
 
 .auth-shell-loading .auth-logo-app {
