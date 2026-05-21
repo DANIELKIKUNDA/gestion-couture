@@ -121,7 +121,14 @@ function normalizeCaisse(caisse) {
     if (typeDepense === "QUOTIDIENNE") return sum + Number(op.montant || 0);
     return sum;
   }, 0);
-  const resultatJournalier = totalEntreesJour - totalSortiesQuotidiennesJour;
+  const totalSortiesExceptionnellesJour = operations.reduce((sum, op) => {
+    if (op.statutOperation === "ANNULEE") return sum;
+    if (op.typeOperation !== "SORTIE") return sum;
+    const typeDepense = String(op.typeDepense || "").trim().toUpperCase();
+    if (typeDepense === "EXCEPTIONNELLE") return sum + Number(op.montant || 0);
+    return sum;
+  }, 0);
+  const resultatJournalier = Math.max(0, totalEntreesJour - totalSortiesQuotidiennesJour);
   const totauxParSource = {
     totalCommandes: 0,
     totalRetouches: 0,
@@ -182,7 +189,9 @@ function normalizeCaisse(caisse) {
     totauxParSource.totalEntreesManuelles;
   totauxParActivite.totalGlobal = totauxParActivite.totalAtelier + totauxParActivite.totalStock;
   totauxParActivite.totalDepenses = totauxParActivite.depensesAtelier + totauxParActivite.depensesStock;
-  totauxParActivite.netJour = totauxParActivite.netAtelier + totauxParActivite.netStock;
+  totauxParActivite.netAtelier = Math.max(0, totauxParActivite.totalAtelier - totauxParActivite.depensesAtelier);
+  totauxParActivite.netStock = Math.max(0, totauxParActivite.totalStock - totauxParActivite.depensesStock);
+  totauxParActivite.netJour = resultatJournalier;
 
   return {
     idCaisseJour: caisse.idCaisseJour,
@@ -193,6 +202,7 @@ function normalizeCaisse(caisse) {
     soldeCourant,
     totalEntreesJour,
     totalSortiesQuotidiennesJour,
+    totalSortiesExceptionnellesJour,
     resultatJournalier,
     soldeJournalierRestant: resultatJournalier,
     ouvertePar: caisse.ouvertePar,

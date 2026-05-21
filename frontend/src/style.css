@@ -76,7 +76,7 @@ body {
 .auth-card {
   position: relative;
   width: min(410px, 100%);
-  min-height: min(720px, calc(100vh - 40px));
+  min-height: 0;
   max-height: calc(100dvh - 40px);
   overflow: hidden;
   overflow-y: auto;
@@ -87,7 +87,7 @@ body {
   border: 1px solid rgba(198, 174, 134, 0.22);
   border-radius: 30px;
   box-shadow: 0 26px 74px rgba(24, 27, 37, 0.14);
-  padding: 46px 30px 190px;
+  padding: 42px 30px 28px;
   display: grid;
   align-content: start;
   gap: 20px;
@@ -139,6 +139,8 @@ body {
   justify-items: center;
   gap: 8px;
   text-align: center;
+  position: relative;
+  z-index: 1;
 }
 
 .auth-card-head h2 {
@@ -278,6 +280,8 @@ body {
 .auth-form {
   display: grid;
   gap: 14px;
+  position: relative;
+  z-index: 1;
 }
 
 .auth-form label {
@@ -429,13 +433,12 @@ body {
 }
 
 .auth-tailor-scene {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 202px;
+  position: relative;
+  height: 142px;
+  margin: 6px -30px -28px;
   pointer-events: none;
   overflow: hidden;
+  z-index: 0;
   background:
     linear-gradient(180deg, rgba(255, 253, 249, 0) 0%, rgba(255, 253, 249, 0.2) 18%, rgba(255, 253, 249, 0.1) 100%),
     url("/images/auth-sewing-machine.png") center bottom / cover no-repeat;
@@ -2114,6 +2117,66 @@ body {
   position: relative;
 }
 
+.client-search::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  z-index: 2;
+  width: 13px;
+  height: 13px;
+  border: 2px solid #b58a44;
+  border-radius: 999px;
+  transform: translateY(-58%);
+  pointer-events: none;
+}
+
+.client-search::after {
+  content: "";
+  position: absolute;
+  left: 29px;
+  top: 50%;
+  z-index: 2;
+  width: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: #b58a44;
+  transform: translateY(6px) rotate(45deg);
+  transform-origin: left center;
+  pointer-events: none;
+}
+
+.client-search input[type="text"],
+.client-search input[type="search"] {
+  width: 100%;
+  min-height: 50px;
+  padding-left: 46px;
+  padding-right: 14px;
+  border: 1px solid rgba(181, 138, 68, 0.22);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(181, 138, 68, 0.08), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #fffaf1 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 12px 28px rgba(20, 33, 61, 0.07);
+  color: #101936;
+  font-weight: 750;
+  outline: none;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.client-search input[type="text"]::placeholder,
+.client-search input[type="search"]::placeholder {
+  color: #897f73;
+  font-weight: 650;
+}
+
+.client-search:focus-within input[type="text"],
+.client-search:focus-within input[type="search"] {
+  border-color: rgba(181, 138, 68, 0.58);
+  background: #ffffff;
+  box-shadow: 0 0 0 4px rgba(181, 138, 68, 0.14), 0 16px 34px rgba(20, 33, 61, 0.1);
+}
+
 .client-search-results {
   position: absolute;
   top: calc(100% + 6px);
@@ -2123,32 +2186,38 @@ body {
   max-height: 260px;
   overflow-y: auto;
   margin: 0;
-  padding: 4px;
+  padding: 6px;
   list-style: none;
-  border: 1px solid var(--stroke);
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+  border: 1px solid rgba(181, 138, 68, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 253, 248, 0.98);
+  box-shadow: 0 22px 52px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(14px);
 }
 
 .client-search-option {
   width: 100%;
   border: 0;
-  border-radius: 6px;
+  border-radius: 14px;
   background: transparent;
   text-align: left;
-  padding: 8px 10px;
+  padding: 11px 12px;
   cursor: pointer;
+  color: #16233f;
+  font-weight: 780;
 }
 
 .client-search-option:hover,
 .client-search-option.active {
-  background: #edf4ff;
+  background:
+    linear-gradient(180deg, rgba(22, 50, 77, 0.08), rgba(181, 138, 68, 0.09));
+  color: #0c1737;
 }
 
 .client-search-empty {
-  padding: 10px;
-  color: var(--muted);
+  padding: 12px;
+  color: #6d6258;
+  font-weight: 700;
 }
 
 .client-insight-card {
@@ -4148,7 +4217,7 @@ textarea:focus-visible {
     margin: 0 auto;
     min-height: min(100%, 720px);
     max-height: none;
-    padding: 28px 18px 152px;
+    padding: 28px 18px 18px;
     border-radius: 26px;
     gap: 13px;
     box-shadow: 0 18px 48px rgba(24, 27, 37, 0.1);
@@ -4235,6 +4304,7 @@ textarea:focus-visible {
 
   .auth-tailor-scene {
     height: 146px;
+    margin: 4px -18px -18px;
     background-position: center bottom;
   }
 

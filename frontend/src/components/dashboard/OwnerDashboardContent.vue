@@ -55,14 +55,15 @@ const actionsAtraiter = computed(() => {
   return Number(followUpTotal || 0) + props.alerts.length;
 });
 
-const netDuJour = computed(() => Number(props.financeMetrics.totalEncaissement || 0) - Number(props.financeMetrics.depensesJour || 0));
+const netDuJour = computed(() => Number(props.financeMetrics.resultatJour || 0));
+const atelierNet = computed(() => Number(props.financeMetrics.atelierNet || 0));
 
 const decisionCards = computed(() => [
   {
     label: "Resultat du jour",
     value: props.formatCurrency(netDuJour.value),
-    description: "Argent entre moins argent sorti.",
-    tone: netDuJour.value < 0 ? "danger" : "success"
+    description: "Entrees du jour moins depenses quotidiennes.",
+    tone: netDuJour.value > 0 ? "success" : "neutral"
   },
   {
     label: "Argent en caisse",
@@ -157,9 +158,9 @@ const attentionEmptyState = computed(() => {
 const moneyCards = computed(() => [
   { label: "Argent entre", value: props.formatCurrency(props.financeMetrics.totalEncaissement), tone: "success" },
   { label: "Argent sorti", value: props.formatCurrency(props.financeMetrics.depensesJour), tone: "danger" },
-  { label: "Resultat du jour", value: props.formatCurrency(netDuJour.value), tone: netDuJour.value < 0 ? "danger" : "success" },
+  { label: "Resultat du jour", value: props.formatCurrency(netDuJour.value), tone: netDuJour.value > 0 ? "success" : "neutral" },
   { label: "Argent en caisse", value: props.formatCurrency(props.financeMetrics.soldeCaisse), tone: "blue" },
-  { label: "Entrees atelier", value: props.formatCurrency(props.financeMetrics.acomptesEncaisses), tone: "neutral" }
+  { label: "Atelier net", value: props.formatCurrency(atelierNet.value), tone: atelierNet.value > 0 ? "blue" : "neutral" }
 ]);
 
 const workCards = computed(() => [

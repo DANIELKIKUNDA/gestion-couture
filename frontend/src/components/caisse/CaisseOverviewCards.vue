@@ -96,14 +96,14 @@ function resultItems() {
   return [
     {
       key: "atelier",
-      label: "Total atelier",
+      label: "Entrees atelier",
       value: props.formatCurrency(props.totals?.totalAtelier),
       emphasis: true,
       tone: "info"
     },
     {
       key: "stock",
-      label: "Total stock",
+      label: "Entrees stock",
       value: props.formatCurrency(props.totals?.totalStock),
       emphasis: true,
       tone: "success"
