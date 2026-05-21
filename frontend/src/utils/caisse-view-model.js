@@ -48,22 +48,21 @@ export function useCaisseViewModel({
 
   const caisseTotals = computed(() => {
     const ops = allCaisseOperations.value.filter((op) => op.statutOperation !== "ANNULEE");
-    const fallbackTotalEntrees = ops.filter((op) => op.typeOperation === "ENTREE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
-    const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
-    const fallbackSortiesQuotidiennes = ops
+    const totalEntrees = ops
+      .filter((op) => op.typeOperation === "ENTREE")
+      .reduce((sum, op) => sum + Number(op.montant || 0), 0);
+    const totalSorties = ops
+      .filter((op) => op.typeOperation === "SORTIE")
+      .reduce((sum, op) => sum + Number(op.montant || 0), 0);
+    const totalSortiesQuotidiennes = ops
       .filter((op) => op.typeOperation === "SORTIE" && String(op?.typeDepense || "QUOTIDIENNE").trim().toUpperCase() !== "EXCEPTIONNELLE")
       .reduce((sum, op) => sum + Number(op.montant || 0), 0);
-    const fallbackSortiesExceptionnelles = ops
+    const totalSortiesExceptionnelles = ops
       .filter((op) => op.typeOperation === "SORTIE" && String(op?.typeDepense || "").trim().toUpperCase() === "EXCEPTIONNELLE")
       .reduce((sum, op) => sum + Number(op.montant || 0), 0);
-    const rawTotalEntrees = Number(caisseJour.value?.totalEntreesJour ?? 0);
-    const rawSortiesQuotidiennes = Number(caisseJour.value?.totalSortiesQuotidiennesJour ?? 0);
-    const totalEntrees = rawTotalEntrees > 0 ? rawTotalEntrees : fallbackTotalEntrees;
-    const totalSortiesQuotidiennes = rawSortiesQuotidiennes > 0 ? rawSortiesQuotidiennes : fallbackSortiesQuotidiennes;
-    const resultatJournalier = Number(caisseJour.value?.resultatJournalier ?? (totalEntrees - totalSortiesQuotidiennes));
-    const soldeJournalierRestant = Number(caisseJour.value?.soldeJournalierRestant ?? resultatJournalier);
+    const resultatJournalier = Math.max(0, totalEntrees - totalSortiesQuotidiennes);
+    const soldeJournalierRestant = resultatJournalier;
     const sourceTotals = caisseJour.value?.totauxParSource || {};
-    const activityTotals = caisseJour.value?.totauxParActivite || {};
     const fallbackSourceTotals = ops.reduce(
       (acc, op) => {
         const sourceFlux = resolveSourceFlux(op);
@@ -90,19 +89,15 @@ export function useCaisseViewModel({
         if (activite === "STOCK") {
           if (op.typeOperation === "SORTIE") {
             acc.depensesStock += montant;
-            acc.netStock -= montant;
           } else {
             acc.totalStock += montant;
-            acc.netStock += montant;
           }
           return acc;
         }
         if (op.typeOperation === "SORTIE") {
           acc.depensesAtelier += montant;
-          acc.netAtelier -= montant;
         } else {
           acc.totalAtelier += montant;
-          acc.netAtelier += montant;
         }
         return acc;
       },
@@ -120,17 +115,13 @@ export function useCaisseViewModel({
       fallbackSourceTotals.totalRetouches +
       fallbackSourceTotals.totalVentes +
       fallbackSourceTotals.totalEntreesManuelles;
-    const totalAtelier = Number(activityTotals.totalAtelier ?? fallbackActivityTotals.totalAtelier);
-    const totalStock = Number(activityTotals.totalStock ?? fallbackActivityTotals.totalStock);
-    const depensesAtelier = Number(activityTotals.depensesAtelier ?? fallbackActivityTotals.depensesAtelier);
-    const depensesStock = Number(activityTotals.depensesStock ?? fallbackActivityTotals.depensesStock);
-    const netAtelier = totalAtelier - depensesAtelier;
-    const netStock = totalStock - depensesStock;
-    const netJour = totalEntrees - totalSortiesQuotidiennes;
-    const totalSortiesExceptionnelles = Math.max(
-      0,
-      Number(caisseJour.value?.totalSortiesExceptionnellesJour ?? caisseJour.value?.total_sorties_exceptionnelles_jour ?? fallbackSortiesExceptionnelles)
-    );
+    const totalAtelier = Number(fallbackActivityTotals.totalAtelier);
+    const totalStock = Number(fallbackActivityTotals.totalStock);
+    const depensesAtelier = Number(fallbackActivityTotals.depensesAtelier);
+    const depensesStock = Number(fallbackActivityTotals.depensesStock);
+    const netAtelier = Math.max(0, totalAtelier - depensesAtelier);
+    const netStock = Math.max(0, totalStock - depensesStock);
+    const netJour = resultatJournalier;
     return {
       totalEntrees,
       totalSorties,

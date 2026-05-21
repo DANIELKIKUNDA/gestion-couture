@@ -21,8 +21,18 @@ export function useDashboardFinanceMetrics({
     const ops = (caisseJour.value?.operations || []).filter((op) => op.statutOperation !== "ANNULEE");
     const totalEntrees = ops.filter((op) => op.typeOperation === "ENTREE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
     const totalSorties = ops.filter((op) => op.typeOperation === "SORTIE").reduce((sum, op) => sum + Number(op.montant || 0), 0);
+    const totalSortiesQuotidiennes = ops
+      .filter((op) => op.typeOperation === "SORTIE" && String(op?.typeDepense || "QUOTIDIENNE").trim().toUpperCase() !== "EXCEPTIONNELLE")
+      .reduce((sum, op) => sum + Number(op.montant || 0), 0);
+    const totalSortiesExceptionnelles = ops
+      .filter((op) => op.typeOperation === "SORTIE" && String(op?.typeDepense || "").trim().toUpperCase() === "EXCEPTIONNELLE")
+      .reduce((sum, op) => sum + Number(op.montant || 0), 0);
     const entreesAtelierCaisse = ops
       .filter((op) => op.typeOperation === "ENTREE")
+      .filter((op) => String(op.activite || "ATELIER").trim().toUpperCase() !== "STOCK")
+      .reduce((sum, op) => sum + Number(op.montant || 0), 0);
+    const sortiesAtelierCaisse = ops
+      .filter((op) => op.typeOperation === "SORTIE")
       .filter((op) => String(op.activite || "ATELIER").trim().toUpperCase() !== "STOCK")
       .reduce((sum, op) => sum + Number(op.montant || 0), 0);
     const isWithinDashboardPeriod = (dateRef) => {
@@ -39,10 +49,17 @@ export function useDashboardFinanceMetrics({
       .filter((retouche) => isWithinDashboardPeriod(dateOnly(retouche.dateDepot || retouche.datePrevue || "")))
       .reduce((sum, retouche) => sum + Number(retouche.montantPaye || 0), 0);
 
+    const resultatJour = Math.max(0, totalEntrees - totalSortiesQuotidiennes);
+    const atelierNet = Math.max(0, entreesAtelierCaisse - sortiesAtelierCaisse);
+
     return {
       soldeCaisse: Number(caisseJour.value?.soldeCourant || 0),
       totalEncaissement: totalEntrees,
       depensesJour: totalSorties,
+      depensesQuotidiennes: totalSortiesQuotidiennes,
+      depensesExceptionnelles: totalSortiesExceptionnelles,
+      resultatJour,
+      atelierNet,
       acomptesEncaisses: ops.length > 0 ? entreesAtelierCaisse : acomptesCommandes + acomptesRetouches
     };
   });

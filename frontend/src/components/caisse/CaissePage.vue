@@ -321,8 +321,8 @@ function chooseExpense() {
               </div>
               <div class="caisse-summary-col">
                 <h4>Resultat du jour</h4>
-                <p class="caisse-row"><strong>Total atelier:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalAtelier) }}</span></p>
-                <p class="caisse-row"><strong>Total stock:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalStock) }}</span></p>
+                <p class="caisse-row"><strong>Entrees atelier:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalAtelier) }}</span></p>
+                <p class="caisse-row"><strong>Entrees stock:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalStock) }}</span></p>
                 <p class="caisse-row"><strong>Depenses quotidiennes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</span></p>
                 <p class="caisse-row"><strong>Depenses exceptionnelles:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSortiesExceptionnelles) }}</span></p>
                 <p class="caisse-row"><strong>Resultat du jour:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalGlobal) }}</span></p>
