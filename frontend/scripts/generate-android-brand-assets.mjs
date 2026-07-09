@@ -8,6 +8,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const frontendDir = path.resolve(scriptDir, "..");
 const iconPath = path.join(frontendDir, "public", "icons", "icon-512.png");
 const resDir = path.join(frontendDir, "android", "app", "src", "main", "res");
+const drawableDir = path.join(resDir, "drawable");
 
 const launcherSizes = {
   mdpi: 48,
@@ -84,6 +85,40 @@ async function writeSplash(file) {
     .toFile(file);
 }
 
+async function writeSplashBranding() {
+  fs.mkdirSync(drawableDir, { recursive: true });
+  const width = 720;
+  const height = 128;
+  const fontSize = 34;
+  const branding = Buffer.from(`
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      <text
+        x="50%"
+        y="50%"
+        dominant-baseline="middle"
+        text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="${fontSize}"
+        font-weight="700"
+        letter-spacing="0.08em"
+        fill="#b58a44"
+      >from VolcanoTech</text>
+    </svg>
+  `);
+
+  await sharp({
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 255, g: 253, b: 248, alpha: 0 }
+    }
+  })
+    .composite([{ input: branding, gravity: "center" }])
+    .png()
+    .toFile(path.join(drawableDir, "splash_branding.png"));
+}
+
 function collectSplashFiles(dir, result = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const fullPath = path.join(dir, entry.name);
@@ -104,5 +139,6 @@ const splashFiles = collectSplashFiles(resDir);
 for (const file of splashFiles) {
   await writeSplash(file);
 }
+await writeSplashBranding();
 
-console.log(`Generated ${Object.keys(launcherSizes).length * 3} launcher assets and ${splashFiles.length} splash assets.`);
+console.log(`Generated ${Object.keys(launcherSizes).length * 3} launcher assets, ${splashFiles.length} splash assets and splash branding.`);

@@ -11,8 +11,12 @@ backend*.log
 
 # Env
 .env
+frontend/.env.android
 deploy/.env.production
 deploy/.env.staging
+frontend/android/keystore.properties
+frontend/android/app/*.jks
+frontend/android/app/*.keystore
 
 # Build
 /dist/

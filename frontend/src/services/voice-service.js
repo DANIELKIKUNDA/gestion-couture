@@ -1,5 +1,28 @@
+import { Capacitor, registerPlugin } from "@capacitor/core";
+
 const VOICE_ENABLED =
   typeof import.meta !== "undefined" ? String(import.meta.env?.VITE_VOICE_ENABLED ?? "true").toLowerCase() !== "false" : true;
+
+let nativeSpeechPlugin = null;
+let nativeSpeechPluginResolved = false;
+
+export function getNativeSpeechPlugin() {
+  if (nativeSpeechPluginResolved) return nativeSpeechPlugin;
+  nativeSpeechPluginResolved = true;
+  const isNative =
+    Boolean(Capacitor?.isNativePlatform?.()) ||
+    Boolean(Capacitor?.getPlatform?.() && Capacitor.getPlatform() !== "web");
+  if (!isNative || typeof registerPlugin !== "function") {
+    nativeSpeechPlugin = null;
+    return nativeSpeechPlugin;
+  }
+  nativeSpeechPlugin = registerPlugin("AtelierSpeech");
+  return nativeSpeechPlugin;
+}
+
+function isNativePlatformSync() {
+  return Boolean(Capacitor?.isNativePlatform?.() || (Capacitor?.getPlatform?.() && Capacitor.getPlatform() !== "web"));
+}
 
 const STATUS_WORDS = {
   prete: "TERMINEE",
@@ -39,15 +62,99 @@ export function getSpeechRecognitionConstructor() {
 export function getVoiceCapabilities() {
   const Recognition = getSpeechRecognitionConstructor();
   const secure = typeof window === "undefined" ? false : window.isSecureContext || window.location.hostname === "localhost";
+  const native = isNativePlatformSync();
   return {
     enabled: VOICE_ENABLED,
-    supported: Boolean(Recognition),
-    secure,
-    available: Boolean(VOICE_ENABLED && Recognition && secure)
+    supported: Boolean(Recognition || native),
+    secure: native || secure,
+    native,
+    available: Boolean(VOICE_ENABLED && ((Recognition && secure) || native))
   };
 }
 
+class NativeSpeechRecognizerAdapter {
+  constructor({ lang = "fr-FR" } = {}) {
+    this.lang = lang;
+    this.onresult = null;
+    this.onerror = null;
+    this.onend = null;
+    this.onstart = null;
+    this._plugin = null;
+    this._listeners = [];
+    this._active = false;
+  }
+
+  async start() {
+    this._plugin = getNativeSpeechPlugin();
+    if (!this._plugin) {
+      throw new Error("Native speech unavailable");
+    }
+
+    await this._removeListeners();
+    this._listeners = [
+      await this._plugin.addListener("start", () => {
+        this._active = true;
+        if (typeof this.onstart === "function") this.onstart();
+      }),
+      await this._plugin.addListener("partial", (event) => this._emitResult(event?.transcript || "", false)),
+      await this._plugin.addListener("result", (event) => this._emitResult(event?.transcript || "", true)),
+      await this._plugin.addListener("error", (event) => {
+        if (typeof this.onerror === "function") {
+          this.onerror({ error: event?.code || "native-error", message: event?.message || "Voix indisponible" });
+        }
+      }),
+      await this._plugin.addListener("end", () => {
+        this._active = false;
+        if (typeof this.onend === "function") this.onend();
+        void this._removeListeners();
+      })
+    ];
+
+    await this._plugin.start({ lang: this.lang });
+    this._active = true;
+  }
+
+  async stop() {
+    if (!this._plugin) return;
+    try {
+      await this._plugin.stop();
+    } finally {
+      this._active = false;
+      if (typeof this.onend === "function") this.onend();
+      await this._removeListeners();
+    }
+  }
+
+  async abort() {
+    await this.stop();
+  }
+
+  _emitResult(transcript, isFinal) {
+    const value = String(transcript || "").trim();
+    if (!value || typeof this.onresult !== "function") return;
+    const result = [{ transcript: value }];
+    result.isFinal = Boolean(isFinal);
+    this.onresult({
+      resultIndex: 0,
+      results: [result]
+    });
+  }
+
+  async _removeListeners() {
+    const listeners = this._listeners || [];
+    this._listeners = [];
+    for (const listener of listeners) {
+      try {
+        await listener?.remove?.();
+      } catch {}
+    }
+  }
+}
+
 export function createSpeechRecognizer({ lang = "fr-FR", interimResults = true } = {}) {
+  if (isNativePlatformSync()) {
+    return new NativeSpeechRecognizerAdapter({ lang, interimResults });
+  }
   const Recognition = getSpeechRecognitionConstructor();
   if (!Recognition) return null;
   const recognition = new Recognition();

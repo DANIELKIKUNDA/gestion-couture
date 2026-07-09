@@ -5,6 +5,9 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/
 const CONNECTIVITY_CHECK_INTERVAL_MS = 15000;
 const CONNECTIVITY_TIMEOUT_MS = 4500;
 const OFFLINE_ACTIVATION_DELAY_MS = 6000;
+const OFFLINE_CONFIRMATION_ATTEMPTS = 2;
+const API_FAILURES_BEFORE_OFFLINE = 2;
+const NETWORK_DEBUG = import.meta.env.DEV === true;
 
 function createRandomId() {
   if (typeof globalThis !== "undefined" && globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
@@ -41,8 +44,8 @@ const tabId = resolveTabId();
 
 let started = false;
 let currentState = {
-  online: resolveOnlineState(),
-  offline: !resolveOnlineState(),
+  online: true,
+  offline: false,
   browserOnline: resolveOnlineState(),
   apiReachable: true,
   tabId
@@ -52,12 +55,23 @@ const networkStateRef = ref({ ...currentState });
 let connectivityTimer = null;
 let connectivityCheckPromise = null;
 let offlineActivationTimer = null;
+let offlineConfirmationAttempts = 0;
+let pendingOfflineApiReachable = true;
+let consecutiveApiFailures = 0;
+let pendingOfflineReason = "";
+
+function debugNetwork(message, details = {}) {
+  if (!NETWORK_DEBUG) return;
+  console.info(`[NETWORK] ${message}`, details);
+}
 
 function clearOfflineActivationTimer() {
   if (offlineActivationTimer && typeof window !== "undefined") {
     window.clearTimeout(offlineActivationTimer);
   }
   offlineActivationTimer = null;
+  offlineConfirmationAttempts = 0;
+  pendingOfflineReason = "";
 }
 
 export function resolveConnectivityUrl() {
@@ -65,17 +79,21 @@ export function resolveConnectivityUrl() {
   return `${API_BASE_URL}/system/bootstrap-manager/status`;
 }
 
-function commitState({ apiReachable = currentState.apiReachable } = {}) {
-  const browserOnline = resolveOnlineState();
+function commitState({ apiReachable = currentState.apiReachable, browserOnline = resolveOnlineState(), reason = "" } = {}) {
+  const online = apiReachable || (browserOnline && apiReachable);
+  const changed = currentState.online !== online || currentState.browserOnline !== browserOnline || currentState.apiReachable !== apiReachable;
   currentState = {
-    online: browserOnline && apiReachable,
-    offline: !browserOnline || !apiReachable,
+    online,
+    offline: !online,
     browserOnline,
     apiReachable,
     tabId
   };
   onlineRef.value = currentState.online;
   networkStateRef.value = { ...currentState };
+  if (changed) {
+    debugNetwork("state changed", { ...currentState, reason });
+  }
 
   for (const listener of listeners) {
     try {
@@ -86,9 +104,9 @@ function commitState({ apiReachable = currentState.apiReachable } = {}) {
   }
 }
 
-function emitState({ apiReachable = currentState.apiReachable, immediate = false } = {}) {
+function confirmOfflineState() {
   const browserOnline = resolveOnlineState();
-  const nextOnline = browserOnline && apiReachable;
+  const nextOnline = pendingOfflineApiReachable || (browserOnline && pendingOfflineApiReachable);
 
   if (nextOnline) {
     clearOfflineActivationTimer();
@@ -96,26 +114,51 @@ function emitState({ apiReachable = currentState.apiReachable, immediate = false
     return;
   }
 
-  if (!currentState.online || immediate || typeof window === "undefined") {
-    clearOfflineActivationTimer();
-    commitState({ apiReachable });
+  offlineConfirmationAttempts += 1;
+  if (offlineConfirmationAttempts < OFFLINE_CONFIRMATION_ATTEMPTS && typeof window !== "undefined") {
+    offlineActivationTimer = window.setTimeout(confirmOfflineState, Math.ceil(OFFLINE_ACTIVATION_DELAY_MS / OFFLINE_CONFIRMATION_ATTEMPTS));
     return;
   }
 
+  offlineActivationTimer = null;
+  offlineConfirmationAttempts = 0;
+  commitState({ apiReachable: pendingOfflineApiReachable, browserOnline, reason: pendingOfflineReason || "offline_confirmed" });
+  pendingOfflineReason = "";
+}
+
+function emitState({ apiReachable = currentState.apiReachable, immediate = false, reason = "" } = {}) {
+  const browserOnline = resolveOnlineState();
+  const nextOnline = apiReachable || (browserOnline && apiReachable);
+
+  if (nextOnline) {
+    clearOfflineActivationTimer();
+    pendingOfflineApiReachable = true;
+    commitState({ apiReachable: true, browserOnline, reason: reason || "online_confirmed" });
+    return;
+  }
+
+  if (!currentState.online || immediate || typeof window === "undefined") {
+    clearOfflineActivationTimer();
+    pendingOfflineApiReachable = apiReachable;
+    commitState({ apiReachable, browserOnline, reason: reason || "offline_immediate" });
+    return;
+  }
+
+  pendingOfflineApiReachable = apiReachable;
+  pendingOfflineReason = reason || "offline_pending";
   if (offlineActivationTimer) return;
-  offlineActivationTimer = window.setTimeout(() => {
-    offlineActivationTimer = null;
-    commitState({ apiReachable: resolveOnlineState() ? false : apiReachable });
-  }, OFFLINE_ACTIVATION_DELAY_MS);
+  debugNetwork("offline confirmation scheduled", { browserOnline, apiReachable, reason: pendingOfflineReason });
+  offlineActivationTimer = window.setTimeout(confirmOfflineState, Math.ceil(OFFLINE_ACTIVATION_DELAY_MS / OFFLINE_CONFIRMATION_ATTEMPTS));
 }
 
 function handleOnline() {
-  emitState();
+  consecutiveApiFailures = 0;
+  emitState({ reason: "browser_online" });
   void verifyApiConnectivity();
 }
 
 function handleOffline() {
-  emitState({ apiReachable: false });
+  emitState({ apiReachable: false, reason: "browser_offline_event" });
 }
 
 export function initializeNetworkService() {
@@ -148,15 +191,12 @@ export function stopNetworkService() {
 
 export async function verifyApiConnectivity() {
   if (connectivityCheckPromise) return connectivityCheckPromise;
-  if (!resolveOnlineState()) {
-    emitState({ apiReachable: false });
-    return false;
-  }
 
   const connectivityUrl = resolveConnectivityUrl();
   if (!connectivityUrl) {
-    emitState({ apiReachable: true });
-    return true;
+    const browserOnline = resolveOnlineState();
+    emitState({ apiReachable: browserOnline, reason: "no_connectivity_url" });
+    return browserOnline;
   }
 
   connectivityCheckPromise = (async () => {
@@ -173,10 +213,23 @@ export async function verifyApiConnectivity() {
         signal: controller?.signal
       });
       const reachable = response.ok;
-      emitState({ apiReachable: reachable });
+      if (reachable) {
+        consecutiveApiFailures = 0;
+        emitState({ apiReachable: true, reason: "api_ping_ok" });
+      } else {
+        consecutiveApiFailures += 1;
+        emitState({
+          apiReachable: consecutiveApiFailures < API_FAILURES_BEFORE_OFFLINE,
+          reason: `api_ping_http_${response.status}`
+        });
+      }
       return reachable;
     } catch {
-      emitState({ apiReachable: false });
+      consecutiveApiFailures += 1;
+      emitState({
+        apiReachable: consecutiveApiFailures < API_FAILURES_BEFORE_OFFLINE,
+        reason: "api_ping_failed"
+      });
       return false;
     } finally {
       if (timeoutId) window.clearTimeout(timeoutId);

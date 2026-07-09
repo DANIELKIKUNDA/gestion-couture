@@ -19496,11 +19496,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
         </div>
 
         <div v-if="dossierDraft.mode === 'existing'" class="stack-form">
-          <label>🔍 Rechercher un responsable</label>
+          <label>Rechercher un responsable</label>
           <div class="client-search">
             <input
               :value="dossierClientSearchQuery"
-              type="text"
+              type="search"
               placeholder="Nom ou telephone du responsable"
               autocomplete="off"
               @input="onDossierClientSearchInput"
@@ -19595,7 +19595,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             <div v-if="!wizard.existingClientId" class="client-search">
               <input
                 :value="wizardClientSearchQuery"
-                type="text"
+                type="search"
                 placeholder="Nom, téléphone ou nouveau client"
                 autocomplete="off"
                 @input="commandeDirectErrors.client = ''; onWizardClientSearchInput($event)"
@@ -20297,7 +20297,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           <div v-if="!retoucheWizard.existingClientId" class="client-search">
             <input
               :value="retoucheClientSearchQueryWizard"
-              type="text"
+              type="search"
               placeholder="Nom, téléphone ou nouveau client"
               autocomplete="off"
               @input="retoucheDirectErrors.client = ''; onRetoucheClientSearchInput($event)"

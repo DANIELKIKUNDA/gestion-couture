@@ -2,6 +2,8 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/
 const CAISSE_JOUR_ID = import.meta.env.VITE_CAISSE_JOUR_ID || "";
 const CAISSE_USER = import.meta.env.VITE_CAISSE_USER || "frontend";
 const CAISSE_MODE_PAIEMENT = import.meta.env.VITE_CAISSE_MODE_PAIEMENT || "CASH";
+const TEMPORARY_CONNECTION_MESSAGE = "Connexion momentanement indisponible. Nouvelle tentative en cours.";
+const NETWORK_RETRY_DELAYS_MS = [350, 900];
 
 function assignIfPresent(target, key, value) {
   if (value !== null && value !== undefined && value !== "") {
@@ -66,6 +68,47 @@ export class ApiError extends Error {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
+}
+
+function requestMethod(options = {}) {
+  return String(options.method || "GET").trim().toUpperCase() || "GET";
+}
+
+function canRetryNetworkRequest(options = {}, { allowPostRetry = false } = {}) {
+  const method = requestMethod(options);
+  if (method === "GET" || method === "HEAD") return true;
+  return allowPostRetry && method === "POST" && !Object.prototype.hasOwnProperty.call(options, "body");
+}
+
+async function fetchWithNetworkStabilization(url, options = {}, retryOptions = {}) {
+  const retryable = canRetryNetworkRequest(options, retryOptions);
+  const delays = retryable ? NETWORK_RETRY_DELAYS_MS : [];
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      lastError = err;
+      if (attempt >= delays.length) break;
+      await sleep(delays[attempt]);
+    }
+  }
+
+  throw lastError;
+}
+
+function createNetworkApiError(path, err) {
+  return new ApiError(TEMPORARY_CONNECTION_MESSAGE, 0, {
+    path,
+    cause: String(err?.message || err || "network_error")
+  });
+}
+
 function getApiErrorMessage(payload, fallback) {
   return payload?.message || payload?.error || fallback;
 }
@@ -113,16 +156,16 @@ async function refreshAccessToken() {
   refreshPromise = (async () => {
     let response;
     try {
-      response = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        method: "POST",
-        credentials: "include"
-      });
-    } catch (err) {
-      throw new ApiError(
-        "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
-        0,
-        { path: "/auth/refresh", cause: String(err?.message || err || "network_error") }
+      response = await fetchWithNetworkStabilization(
+        `${API_BASE_URL}/auth/refresh`,
+        {
+          method: "POST",
+          credentials: "include"
+        },
+        { allowPostRetry: true }
       );
+    } catch (err) {
+      throw createNetworkApiError("/auth/refresh", err);
     }
 
     const text = await response.text();
@@ -183,17 +226,13 @@ async function fetchBlobWithAuthRetry(path, options = {}) {
     const { headers } = await withAuthHeaders(path, options, tokenOverride);
     let response;
     try {
-      response = await fetch(`${API_BASE_URL}${path}`, {
+      response = await fetchWithNetworkStabilization(`${API_BASE_URL}${path}`, {
         ...options,
         headers,
         credentials: "include"
       });
     } catch (err) {
-      throw new ApiError(
-        "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
-        0,
-        { path, cause: String(err?.message || err || "network_error") }
-      );
+      throw createNetworkApiError(path, err);
     }
 
     if (response.status === 401) {
@@ -252,17 +291,13 @@ async function requestWithRetry(path, options = {}) {
 
     let response;
     try {
-      response = await fetch(`${API_BASE_URL}${path}`, {
+      response = await fetchWithNetworkStabilization(`${API_BASE_URL}${path}`, {
         ...options,
         headers: baseHeaders,
         credentials: "include"
       });
     } catch (err) {
-      throw new ApiError(
-        "Connexion API impossible. Verifiez que le frontend et le backend sont demarres, puis rechargez la page.",
-        0,
-        { path, cause: String(err?.message || err || "network_error") }
-      );
+      throw createNetworkApiError(path, err);
     }
 
     const text = await response.text();

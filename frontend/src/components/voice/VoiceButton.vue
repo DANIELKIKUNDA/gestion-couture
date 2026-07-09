@@ -29,17 +29,17 @@ function cleanupRecognition() {
   recognition = null;
 }
 
-function stopListening() {
+async function stopListening() {
   if (!recognition) return;
   try {
-    recognition.stop();
+    await recognition.stop();
   } catch {
     cleanupRecognition();
     listening.value = false;
   }
 }
 
-function startListening() {
+async function startListening() {
   errorMessage.value = "";
   transcript.value = "";
 
@@ -80,7 +80,7 @@ function startListening() {
   };
 
   try {
-    recognition.start();
+    await recognition.start();
     listening.value = true;
   } catch (error) {
     listening.value = false;
@@ -92,14 +92,14 @@ function startListening() {
 
 function toggleVoice() {
   if (listening.value) {
-    stopListening();
+    void stopListening();
     return;
   }
-  startListening();
+  void startListening();
 }
 
 onBeforeUnmount(() => {
-  stopListening();
+  void stopListening();
   cleanupRecognition();
 });
 </script>
