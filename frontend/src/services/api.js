@@ -408,6 +408,41 @@ export const atelierApi = {
     return request("/auth/me", { method: "GET" });
   },
 
+  getAccount() {
+    return request("/auth/account", { method: "GET" });
+  },
+
+  async updateAccountProfile(payload = {}) {
+    const response = await request("/auth/account/profile", {
+      method: "PATCH",
+      body: JSON.stringify(payload || {})
+    });
+    if (response?.token) setAccessToken(response.token, { markMutation: true });
+    return response;
+  },
+
+  updateAccountPreferences(payload = {}) {
+    return request("/auth/account/preferences", {
+      method: "PUT",
+      body: JSON.stringify(payload || {})
+    });
+  },
+
+  async changeAccountPassword(payload = {}) {
+    const response = await request("/auth/account/password", {
+      method: "POST",
+      body: JSON.stringify(payload || {})
+    });
+    if (response?.token) setAccessToken(response.token, { markMutation: true });
+    return response;
+  },
+
+  async revokeOtherAccountSessions() {
+    const response = await request("/auth/account/sessions/revoke-others", { method: "POST" });
+    if (response?.token) setAccessToken(response.token, { markMutation: true });
+    return response;
+  },
+
   normalizeSession(payload) {
     if (!payload || typeof payload !== "object") return null;
     if (payload.user && Array.isArray(payload.permissions)) {
@@ -420,7 +455,8 @@ export const atelierApi = {
         roleId,
         roles: payload.user.roles || (roleId ? [roleId] : []),
         actif: payload.user.actif !== false,
-        permissions: payload.permissions || []
+        permissions: payload.permissions || [],
+        preferences: payload.preferences || null
       };
     }
     const roleId = payload.roleId || payload.role || "";
@@ -432,7 +468,8 @@ export const atelierApi = {
       roleId,
       roles: roleId ? [roleId] : [],
       actif: payload.actif !== false,
-      permissions: payload.permissions || []
+      permissions: payload.permissions || [],
+      preferences: payload.preferences || null
     };
   },
 
@@ -1023,6 +1060,20 @@ export const atelierApi = {
 
   getCaisseJour(idCaisseJour) {
     return request(`/caisse/${idCaisseJour}`, { method: "GET" });
+  },
+
+  getCaisseActivityBalances(date = "") {
+    const query = date ? `?date=${encodeURIComponent(date)}` : "";
+    return request(`/caisse/soldes-activite${query}`, { method: "GET" });
+  },
+
+  setCaisseInitialActivityAllocation({ dateReference = "", soldeAtelierInitial, soldeStockInitial }) {
+    const payload = { soldeAtelierInitial, soldeStockInitial };
+    assignIfPresent(payload, "dateReference", dateReference);
+    return request("/caisse/soldes-activite/repartition-initiale", {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
   },
 
   enregistrerEntreeManuelleCaisse({ idCaisseJour, montant, justification, modePaiement = "CASH", utilisateur = null, activite = "ATELIER", idempotencyKey = createIdempotencyKey() }) {

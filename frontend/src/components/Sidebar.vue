@@ -38,7 +38,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(["navigate", "logout"]);
+const emit = defineEmits(["navigate", "account", "logout"]);
 
 function isActiveMenuItem(itemId) {
   return props.currentRoute === itemId || (props.currentRoute === "systemAtelierDetail" && itemId === "systemAteliers");
@@ -75,10 +75,14 @@ function isActiveMenuItem(itemId) {
     </nav>
 
     <div class="sidebar-user">
-      <div class="sidebar-user-meta">
-        <strong>{{ authUser?.nom || "Utilisateur" }}</strong>
-        <span>{{ authUser?.roleId || "-" }}</span>
-      </div>
+      <button class="sidebar-user-account" type="button" title="Ouvrir mon compte" @click="emit('account')">
+        <span class="sidebar-user-avatar" aria-hidden="true">{{ (authUser?.nom || "U").trim().slice(0, 1).toUpperCase() }}</span>
+        <span class="sidebar-user-meta">
+          <strong>{{ authUser?.nom || "Utilisateur" }}</strong>
+          <span>{{ authUser?.roleId || "-" }}</span>
+          <small>Mon compte</small>
+        </span>
+      </button>
       <button class="mini-btn" @click="emit('logout')">Deconnexion</button>
     </div>
   </aside>

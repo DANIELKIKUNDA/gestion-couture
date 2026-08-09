@@ -1,4 +1,4 @@
-﻿import express from "express";
+import express from "express";
 import { randomUUID } from "node:crypto";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
@@ -17,6 +17,7 @@ import { sendPasswordResetNotification } from "../../infrastructure/notification
 import { UtilisateurRepoPg } from "../../infrastructure/repositories/utilisateur-repo-pg.js";
 import { RolePermissionAtelierRepoPg } from "../../infrastructure/repositories/role-permission-atelier-repo-pg.js";
 import { AuthSessionRepoPg } from "../../infrastructure/repositories/auth-session-repo-pg.js";
+import { UtilisateurPreferencesRepoPg } from "../../infrastructure/repositories/utilisateur-preferences-repo-pg.js";
 import { PasswordResetTokenRepoPg } from "../../infrastructure/repositories/password-reset-token-repo-pg.js";
 import { AccessTokenRevocationRepoPg } from "../../infrastructure/repositories/access-token-revocation-repo-pg.js";
 
@@ -39,6 +40,7 @@ const router = express.Router();
 const utilisateurRepo = new UtilisateurRepoPg();
 const rolePermissionRepo = new RolePermissionAtelierRepoPg();
 const authSessionRepo = new AuthSessionRepoPg();
+const utilisateurPreferencesRepo = new UtilisateurPreferencesRepoPg();
 const resetTokenRepo = new PasswordResetTokenRepoPg();
 const revocationRepo = new AccessTokenRevocationRepoPg();
 const atelierRepo = new AtelierRepoPg();
@@ -61,6 +63,21 @@ const REFRESH_COOKIE_MAX_AGE_MS = Math.max(
   Number(process.env.AUTH_REFRESH_COOKIE_MAX_AGE_MS || 1000 * 60 * 60 * 24 * 400)
 );
 const ALLOWED_ROLES = [ROLES.PROPRIETAIRE, ROLES.COUTURIER, ROLES.CAISSIER];
+const ACCOUNT_HOME_ROUTES = new Set([
+  "dashboard",
+  "dossiers",
+  "commandes",
+  "retouches",
+  "clientsMesures",
+  "caisse",
+  "stockVentes",
+  "facturation",
+  "parametres",
+  "audit",
+  "systemDashboard",
+  "systemAteliers",
+  "systemNotifications"
+]);
 
 if (!["lax", "strict", "none"].includes(COOKIE_SAMESITE)) {
   throw new Error("AUTH_COOKIE_SAMESITE invalide");
@@ -778,6 +795,20 @@ const refreshRateLimit = createAuthRateLimiter({
   max: 20,
   action: "AUTH_RATE_LIMIT_REFRESH",
   message: "Trop de rafraichissements de session. Reessayez dans une minute."
+});
+
+const accountPasswordRateLimit = createAuthRateLimiter({
+  windowMs: 60_000,
+  max: 5,
+  action: "AUTH_RATE_LIMIT_ACCOUNT_PASSWORD",
+  message: "Trop de tentatives de modification du mot de passe. Reessayez dans une minute."
+});
+
+const accountSessionRateLimit = createAuthRateLimiter({
+  windowMs: 60_000,
+  max: 10,
+  action: "AUTH_RATE_LIMIT_ACCOUNT_SESSIONS",
+  message: "Trop d'actions sur les sessions. Reessayez dans une minute."
 });
 
 router.post("/ateliers", async (req, res) => {
@@ -1963,7 +1994,8 @@ router.post("/auth/refresh", refreshRateLimit, async (req, res) => {
       sub: user.id,
       email: user.email,
       role: user.roleId,
-      atelierId: user.atelierId || LEGACY_ATELIER_ID
+      atelierId: user.atelierId || LEGACY_ATELIER_ID,
+      tokenVersion: Number(user.tokenVersion || 1)
     });
 
     setRefreshCookie(res, refreshToken);
@@ -2007,6 +2039,7 @@ router.get("/auth/me", requireAuth, async (req, res) => {
     if (me.etatCompte !== ACCOUNT_STATES.ACTIVE) {
       return res.status(401).json({ error: "Compte inactif: connexion refusee" });
     }
+    const preferences = await utilisateurPreferencesRepo.get(me.id, me.atelierId || LEGACY_ATELIER_ID);
     res.json({
       user: {
         id: me.id,
@@ -2019,8 +2052,282 @@ router.get("/auth/me", requireAuth, async (req, res) => {
         etatCompte: me.etatCompte,
         tokenVersion: Number(me.tokenVersion || 1)
       },
-      permissions: me.permissions || []
+      permissions: me.permissions || [],
+      preferences
     });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+
+router.get("/auth/account", requireAuth, async (req, res) => {
+  try {
+    const user = await utilisateurRepo.getById(req.auth.utilisateurId);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    const preferences = await utilisateurPreferencesRepo.get(user.id, user.atelierId || LEGACY_ATELIER_ID);
+    const [sessions, activeSessionCount] = await Promise.all([
+      authSessionRepo.listActiveByUtilisateurId(user.id, { limit: 10 }),
+      authSessionRepo.countActiveByUtilisateurId(user.id)
+    ]);
+    const currentRefreshToken = getCookie(req, REFRESH_COOKIE);
+    res.json({
+      profile: {
+        id: user.id,
+        nom: user.nom,
+        email: user.email || "",
+        telephone: user.telephone || "",
+        roleId: user.roleId,
+        atelierId: user.atelierId || LEGACY_ATELIER_ID,
+        actif: user.actif !== false,
+        etatCompte: normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE))
+      },
+      preferences,
+      security: {
+        activeSessions: sessions.map((session) => ({
+          createdAt: session.createdAt,
+          expiresAt: session.expiresAt,
+          current: Boolean(currentRefreshToken && session.refreshToken === currentRefreshToken)
+        })),
+        activeSessionCount
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch("/auth/account/profile", requireAuth, async (req, res) => {
+  try {
+    const schema = z
+      .object({
+        nom: z.string().trim().min(2).max(120),
+        telephone: z.string().trim().max(40).optional().default(""),
+        email: z.string().trim().email(),
+        motDePasseActuel: z.string().optional().default("")
+      })
+      .passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+
+    const user = await utilisateurRepo.getById(req.auth.utilisateurId);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    const nextEmail = String(parsed.data.email || "").trim().toLowerCase();
+    const nextTelephone = String(parsed.data.telephone || "").trim();
+    const emailChanged = nextEmail !== String(user.email || "").trim().toLowerCase();
+    const telephoneChanged = nextTelephone !== String(user.telephone || "").trim();
+    const loginIdentifierChanged = emailChanged || telephoneChanged;
+    if (loginIdentifierChanged) {
+      if (!parsed.data.motDePasseActuel || !verifyPassword(parsed.data.motDePasseActuel, user.motDePasseHash || "")) {
+        return res.status(400).json({ error: "Mot de passe actuel requis pour modifier un identifiant de connexion" });
+      }
+    }
+    if (emailChanged) {
+      const existing = await utilisateurRepo.findByEmailInAtelier(nextEmail, user.atelierId || LEGACY_ATELIER_ID);
+      if (existing && existing.id !== user.id) {
+        return res.status(409).json({ error: "Cette adresse email est deja utilisee dans cet atelier" });
+      }
+    }
+    if (nextTelephone) {
+      const matches = await utilisateurRepo.listByIdentifierInAtelier(nextTelephone, user.atelierId || LEGACY_ATELIER_ID);
+      if (matches.some((match) => match.id !== user.id)) {
+        return res.status(409).json({ error: "Ce numero de telephone est deja utilise dans cet atelier" });
+      }
+    }
+
+    const updated = await utilisateurRepo.save({
+      ...user,
+      nom: parsed.data.nom,
+      telephone: nextTelephone,
+      email: nextEmail
+    });
+    const token = signAccessToken({
+      sub: updated.id,
+      email: updated.email,
+      role: updated.roleId,
+      atelierId: updated.atelierId || LEGACY_ATELIER_ID,
+      tokenVersion: Number(updated.tokenVersion || 1)
+    });
+
+    await logSecurityAudit({
+      utilisateurId: updated.id,
+      role: updated.roleId,
+      atelierId: updated.atelierId || LEGACY_ATELIER_ID,
+      action: "SELF_PROFILE_UPDATED",
+      entite: "auth/account/profile",
+      entiteId: updated.id,
+      succes: true,
+      details: { emailChanged, telephoneChanged, telephoneRenseigne: Boolean(updated.telephone) }
+    });
+
+    res.json({
+      token,
+      profile: {
+        id: updated.id,
+        nom: updated.nom,
+        email: updated.email || "",
+        telephone: updated.telephone || "",
+        roleId: updated.roleId,
+        atelierId: updated.atelierId || LEGACY_ATELIER_ID,
+        actif: updated.actif !== false,
+        etatCompte: normalizeAccountState(updated.etatCompte || ACCOUNT_STATES.ACTIVE)
+      }
+    });
+  } catch (err) {
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: req.auth?.atelierId || null,
+      action: "SELF_PROFILE_UPDATE_FAILED",
+      entite: "auth/account/profile",
+      succes: false,
+      raison: err.message || "erreur_inconnue"
+    });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put("/auth/account/preferences", requireAuth, async (req, res) => {
+  try {
+    const schema = z
+      .object({
+        pageAccueil: z.string().trim().min(1),
+        restaurerDernierePage: z.boolean()
+      })
+      .passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    if (!ACCOUNT_HOME_ROUTES.has(parsed.data.pageAccueil)) {
+      return res.status(400).json({ error: "Page d'accueil invalide" });
+    }
+    const user = await utilisateurRepo.getById(req.auth.utilisateurId);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    const preferences = await utilisateurPreferencesRepo.save({
+      utilisateurId: user.id,
+      atelierId: user.atelierId || LEGACY_ATELIER_ID,
+      pageAccueil: parsed.data.pageAccueil,
+      restaurerDernierePage: parsed.data.restaurerDernierePage
+    });
+    await logSecurityAudit({
+      utilisateurId: user.id,
+      role: user.roleId,
+      atelierId: user.atelierId || LEGACY_ATELIER_ID,
+      action: "SELF_PREFERENCES_UPDATED",
+      entite: "auth/account/preferences",
+      entiteId: user.id,
+      succes: true,
+      details: preferences
+    });
+    res.json({ preferences });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/auth/account/password", accountPasswordRateLimit, requireAuth, async (req, res) => {
+  try {
+    const schema = z
+      .object({
+        motDePasseActuel: z.string().min(1),
+        nouveauMotDePasse: z.string().min(8)
+      })
+      .passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    const user = await utilisateurRepo.getById(req.auth.utilisateurId);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    if (!verifyPassword(parsed.data.motDePasseActuel, user.motDePasseHash || "")) {
+      return res.status(400).json({ error: "Mot de passe actuel incorrect" });
+    }
+    if (verifyPassword(parsed.data.nouveauMotDePasse, user.motDePasseHash || "")) {
+      return res.status(400).json({ error: "Le nouveau mot de passe doit etre different de l'ancien" });
+    }
+    validatePasswordPolicy(parsed.data.nouveauMotDePasse);
+
+    const oldAccessToken = getBearerToken(req);
+    const updated = await utilisateurRepo.save({
+      ...user,
+      motDePasseHash: hashPassword(parsed.data.nouveauMotDePasse),
+      tokenVersion: Number(user.tokenVersion || 1) + 1
+    });
+    await authSessionRepo.revokeByUtilisateurId(updated.id);
+    if (oldAccessToken) {
+      await revocationRepo.revoke({ token: oldAccessToken, utilisateurId: updated.id, reason: "password_changed" });
+    }
+
+    const refreshToken = createOpaqueToken();
+    await authSessionRepo.save({
+      refreshToken,
+      utilisateurId: updated.id,
+      expiresAt: "9999-12-31T23:59:59.000Z",
+      revokedAt: null
+    });
+    setRefreshCookie(res, refreshToken);
+    const token = signAccessToken({
+      sub: updated.id,
+      email: updated.email,
+      role: updated.roleId,
+      atelierId: updated.atelierId || LEGACY_ATELIER_ID,
+      tokenVersion: Number(updated.tokenVersion || 1)
+    });
+
+    await logSecurityAudit({
+      utilisateurId: updated.id,
+      role: updated.roleId,
+      atelierId: updated.atelierId || LEGACY_ATELIER_ID,
+      action: "SELF_PASSWORD_CHANGED",
+      entite: "auth/account/password",
+      entiteId: updated.id,
+      succes: true
+    });
+    res.json({ ok: true, token });
+  } catch (err) {
+    await logSecurityAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: req.auth?.atelierId || null,
+      action: "SELF_PASSWORD_CHANGE_FAILED",
+      entite: "auth/account/password",
+      succes: false,
+      raison: err.message || "erreur_inconnue"
+    });
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/auth/account/sessions/revoke-others", accountSessionRateLimit, requireAuth, async (req, res) => {
+  try {
+    const user = await utilisateurRepo.getById(req.auth.utilisateurId);
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    const currentRefreshToken = getCookie(req, REFRESH_COOKIE);
+    if (!currentRefreshToken) {
+      return res.status(400).json({ error: "Session actuelle introuvable" });
+    }
+
+    const updated = await utilisateurRepo.save({
+      ...user,
+      tokenVersion: Number(user.tokenVersion || 1) + 1
+    });
+    const revoked = await authSessionRepo.revokeOthersByUtilisateurId(updated.id, currentRefreshToken);
+    const token = signAccessToken({
+      sub: updated.id,
+      email: updated.email,
+      role: updated.roleId,
+      atelierId: updated.atelierId || LEGACY_ATELIER_ID,
+      tokenVersion: Number(updated.tokenVersion || 1)
+    });
+
+    await logSecurityAudit({
+      utilisateurId: updated.id,
+      role: updated.roleId,
+      atelierId: updated.atelierId || LEGACY_ATELIER_ID,
+      action: "SELF_OTHER_SESSIONS_REVOKED",
+      entite: "auth/account/sessions",
+      entiteId: updated.id,
+      succes: true,
+      details: { revoked }
+    });
+    res.json({ ok: true, revoked, token });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

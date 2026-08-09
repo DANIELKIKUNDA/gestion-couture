@@ -108,6 +108,21 @@ export class AuthSessionRepoPg {
     return Number(result.rows[0]?.total || 0);
   }
 
+  async revokeOthersByUtilisateurId(utilisateurId, keepRefreshToken = "") {
+    const userId = String(utilisateurId || "");
+    const keep = String(keepRefreshToken || "");
+    await ensureSchema();
+    const result = await pool.query(
+      `UPDATE auth_session
+       SET revoked_at = NOW()
+       WHERE utilisateur_id = $1
+         AND revoked_at IS NULL
+         AND ($2 = '' OR refresh_token <> $2)`,
+      [userId, keep]
+    );
+    return Number(result.rowCount || 0);
+  }
+
   async revokeByUtilisateurId(utilisateurId) {
     const userId = String(utilisateurId || "");
     await ensureSchema();

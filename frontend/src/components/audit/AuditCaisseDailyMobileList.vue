@@ -55,19 +55,24 @@ function metaItemsFor(row) {
       value: props.formatCurrency(row?.total_entrees)
     },
     {
+      key: "sorties-quotidiennes",
+      label: "Dep. quotidiennes",
+      value: props.formatCurrency(row?.total_sorties_quotidiennes)
+    },
+    {
+      key: "sorties-exceptionnelles",
+      label: "Dep. exceptionnelles",
+      value: props.formatCurrency(row?.total_sorties_exceptionnelles)
+    },
+    {
       key: "sorties",
-      label: "Sorties",
+      label: "Total depenses",
       value: props.formatCurrency(row?.total_sorties)
     },
     {
       key: "resultat",
-      label: "Resultat",
+      label: "Resultat du jour",
       value: props.formatCurrency(row?.resultat_journalier)
-    },
-    {
-      key: "restant",
-      label: "Solde rest.",
-      value: props.formatCurrency(row?.solde_journalier_restant)
     },
     {
       key: "cloture",

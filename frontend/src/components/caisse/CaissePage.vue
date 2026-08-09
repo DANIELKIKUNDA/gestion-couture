@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import CaisseOperationMobileList from "./CaisseOperationMobileList.vue";
 import CaisseOverviewCards from "./CaisseOverviewCards.vue";
 import DateNavigator from "../DateNavigator.vue";
@@ -18,6 +18,7 @@ const props = defineProps({
   canRecordCaisseManualEntry: { type: Boolean, default: false },
   canRecordCaisseExpense: { type: Boolean, default: false },
   canCloseCaisse: { type: Boolean, default: false },
+  canConfigureInitialAllocation: { type: Boolean, default: false },
   caisseJour: { type: Object, default: null },
   caisseLoadState: { type: String, default: "IDLE" },
   caisseLoadError: { type: String, default: "" },
@@ -42,8 +43,29 @@ const props = defineProps({
   caisseInfiniteSentinelRef: { type: Function, required: true }
 });
 
-const emit = defineEmits(["ouvrir-caisse", "entree-manuelle-caisse", "depense-caisse", "cloturer-caisse", "update:selectedDate", "update:caisseQuickFilter"]);
+const emit = defineEmits(["ouvrir-caisse", "entree-manuelle-caisse", "depense-caisse", "cloturer-caisse", "configure-initial-allocation", "update:selectedDate", "update:caisseQuickFilter"]);
 const movementSheetOpen = ref(false);
+const requiresInitialAllocation = computed(
+  () =>
+    props.caisseJour &&
+    props.caisseTotals?.soldesDonneesPresentes === true &&
+    props.caisseTotals?.allocationConfigured !== true &&
+    props.caisseTotals?.soldesAvantReference !== true
+);
+const hasBalanceConsistencyAlert = computed(
+  () => props.caisseJour && props.caisseTotals?.soldesDisponibles === true && props.caisseTotals?.soldesCoherentsAvecCaisse === false
+);
+const soldesUnavailableLabel = computed(() => {
+  if (props.caisseTotals?.soldesAvantReference === true) {
+    return props.caisseTotals?.dateReferenceSoldes
+      ? `Disponibles depuis ${props.caisseTotals.dateReferenceSoldes}`
+      : "Indisponibles avant la date de reference";
+  }
+  if (props.caisseTotals?.soldesDonneesPresentes === true && props.caisseTotals?.allocationConfigured !== true) {
+    return "Repartition initiale a definir";
+  }
+  return "Synchronisation...";
+});
 
 const quickFilterOptions = [
   { value: "ALL", label: "Tous" },
@@ -147,6 +169,34 @@ function chooseExpense() {
         </article>
       </div>
 
+      <article v-if="requiresInitialAllocation" class="panel caisse-allocation-warning" role="status">
+        <div>
+          <strong>Repartition initiale de la caisse a definir</strong>
+          <p>Le solde d'ouverture de reference du {{ caisseTotals.dateReferenceSoldes || caisseJour.date }} ({{ formatCurrency(caisseTotals.soldeOuvertureInitial) }}) n'est pas encore attribue entre Atelier et Stock. Aucun historique anterieur n'est devine : cette repartition devient le point de depart des soldes cumulatifs.</p>
+          <p v-if="!canConfigureInitialAllocation" class="helper">Pour securiser l'historique, la premiere repartition se configure depuis la caisse du jour par le proprietaire.</p>
+        </div>
+        <button
+          v-if="canConfigureInitialAllocation"
+          class="action-btn blue"
+          type="button"
+          @click="emit('configure-initial-allocation')"
+        >
+          Repartir le solde initial
+        </button>
+      </article>
+
+      <article v-if="hasBalanceConsistencyAlert" class="panel caisse-consistency-warning" role="alert">
+        <div>
+          <strong>Ecart de coherence detecte dans la caisse</strong>
+          <p>Le total reconstruit des soldes Atelier/Stock differe du solde global de {{ formatCurrency(Math.abs(Number(caisseTotals.ecartSoldeGlobal || 0))) }}. Aucune valeur n'est masquee : verifiez l'historique ou la repartition initiale avant toute correction de donnees.</p>
+        </div>
+      </article>
+
+      <article v-if="caisseJour && caisseTotals.soldesAvantReference" class="panel caisse-reference-info" role="status">
+        <strong>Soldes Atelier / Stock non reconstruits pour cette date</strong>
+        <p>La repartition fiable commence le {{ caisseTotals.dateReferenceSoldes }}. Les jours anterieurs restent consultables sans leur attribuer artificiellement un solde Atelier ou Stock.</p>
+      </article>
+
       <ResponsiveDataContainer v-if="!caisseJour" :mobile="isMobileViewport">
         <template #mobile>
           <MobileStateError
@@ -177,53 +227,8 @@ function chooseExpense() {
 
             <article class="panel">
               <MobileSectionHeader
-                title="Lecture journaliere"
-                subtitle="Synthese par activite pour le jour selectionne."
-              />
-              <div class="caisse-source-cards">
-                <article class="caisse-source-card" data-tone="blue">
-                  <span>Total atelier</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalAtelier) }}</strong>
-                </article>
-                <article class="caisse-source-card" :data-tone="Number(caisseTotals.netAtelier || 0) < 0 ? 'red' : 'blue'">
-                  <span>Atelier net</span>
-                  <strong>{{ formatCurrency(caisseTotals.netAtelier) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="teal">
-                  <span>Total stock</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalStock) }}</strong>
-                </article>
-                <article class="caisse-source-card" :data-tone="Number(caisseTotals.netStock || 0) < 0 ? 'red' : 'teal'">
-                  <span>Stock net</span>
-                  <strong>{{ formatCurrency(caisseTotals.netStock) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="red">
-                  <span>Depenses quotidiennes</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="red">
-                  <span>Depenses exceptionnelles</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalSortiesExceptionnelles) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="red">
-                  <span>Depenses toutes sorties</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="violet">
-                  <span>Entrees manuelles</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="green">
-                  <span>Resultat du jour</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
-                </article>
-              </div>
-            </article>
-
-            <article class="panel">
-              <MobileSectionHeader
                 title="Repartition des encaissements"
-                subtitle="Lecture nette de la caisse par source."
+                subtitle="Repartition des entrees de la caisse par source."
               />
               <div class="caisse-source-cards">
                 <article class="caisse-source-card" data-tone="blue">
@@ -307,73 +312,32 @@ function chooseExpense() {
                 <h4>Statut de la caisse</h4>
                 <p class="caisse-row"><strong>Etat:</strong> <span class="caisse-value">{{ caisseStatus }}</span></p>
                 <p class="caisse-row"><strong>Solde d'ouverture:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeOuverture) }}</span></p>
-                <p class="caisse-row"><strong>Solde courant:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
+                <p class="caisse-row"><strong>Solde global courant:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
                 <p class="caisse-row"><strong>Ouverte par:</strong> <span class="caisse-value">{{ formatCaisseOuvertePar(caisseJour) }}</span></p>
                 <p class="caisse-row"><strong>Date d'ouverture:</strong> <span class="caisse-value">{{ formatDateTime(caisseJour.dateOuverture) }}</span></p>
-                <p class="caisse-row"><strong>Cloturee par:</strong> <span class="caisse-value">{{ formatCaisseClotureePar(caisseJour) }}</span></p>
-                <p class="caisse-row"><strong>Date de cloture:</strong> <span class="caisse-value">{{ formatDateTime(caisseJour.dateCloture) }}</span></p>
               </div>
               <div class="caisse-summary-col">
-                <h4>Resume financier</h4>
-                <p class="caisse-row"><strong>Total entrees:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
-                <p class="caisse-row"><strong>Sorties caisse:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSorties) }}</span></p>
-                <p class="caisse-row"><strong>Solde:</strong> <span class="caisse-value">{{ formatCurrency(caisseJour.soldeCourant) }}</span></p>
+                <h4>Soldes par activite</h4>
+                <p class="caisse-row"><strong>Solde Atelier:</strong> <span class="caisse-value">{{ caisseTotals.soldesDisponibles ? formatCurrency(caisseTotals.soldeAtelier) : soldesUnavailableLabel }}</span></p>
+                <p class="caisse-row"><strong>Solde Stock:</strong> <span class="caisse-value">{{ caisseTotals.soldesDisponibles ? formatCurrency(caisseTotals.soldeStock) : soldesUnavailableLabel }}</span></p>
+                <p v-if="Math.abs(Number(caisseTotals.soldeNonReparti || 0)) > 0.005" class="caisse-row"><strong>Initial non reparti:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.soldeNonReparti) }}</span></p>
+                <p class="helper">Ces soldes sont cumulatifs et representent l'argent encore disponible par activite.</p>
+                <button
+                  v-if="canConfigureInitialAllocation && caisseTotals.soldesDisponibles"
+                  class="mini-btn"
+                  type="button"
+                  @click="emit('configure-initial-allocation')"
+                >
+                  {{ caisseTotals.allocationConfigured ? "Ajuster la repartition initiale" : "Repartir le solde initial" }}
+                </button>
               </div>
               <div class="caisse-summary-col">
                 <h4>Resultat du jour</h4>
-                <p class="caisse-row"><strong>Entrees atelier:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalAtelier) }}</span></p>
-                <p class="caisse-row"><strong>Entrees stock:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalStock) }}</span></p>
+                <p class="caisse-row"><strong>Total entrees:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalEntrees) }}</span></p>
                 <p class="caisse-row"><strong>Depenses quotidiennes:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</span></p>
                 <p class="caisse-row"><strong>Depenses exceptionnelles:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSortiesExceptionnelles) }}</span></p>
-                <p class="caisse-row"><strong>Resultat du jour:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalGlobal) }}</span></p>
-              </div>
-            </article>
-
-            <article class="panel caisse-source-panel">
-              <div class="panel-header detail-panel-header caisse-source-panel-header">
-                <div>
-                  <h4>Lecture journaliere</h4>
-                  <p class="helper">Vue analytique simple par activite, sans modifier les calculs de caisse existants.</p>
-                </div>
-                <span class="status-pill" data-tone="info">ATELIER / STOCK</span>
-              </div>
-              <div class="caisse-source-cards caisse-source-cards-desktop">
-                <article class="caisse-source-card" data-tone="blue">
-                  <span>Total atelier</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalAtelier) }}</strong>
-                </article>
-                <article class="caisse-source-card" :data-tone="Number(caisseTotals.netAtelier || 0) < 0 ? 'red' : 'blue'">
-                  <span>Atelier net</span>
-                  <strong>{{ formatCurrency(caisseTotals.netAtelier) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="teal">
-                  <span>Total stock</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalStock) }}</strong>
-                </article>
-                <article class="caisse-source-card" :data-tone="Number(caisseTotals.netStock || 0) < 0 ? 'red' : 'teal'">
-                  <span>Stock net</span>
-                  <strong>{{ formatCurrency(caisseTotals.netStock) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="red">
-                  <span>Depenses quotidiennes</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalSortiesQuotidiennes) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="red">
-                  <span>Depenses exceptionnelles</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalSortiesExceptionnelles) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="red">
-                  <span>Depenses toutes sorties</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalDepenses) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="violet">
-                  <span>Entrees manuelles</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalEntreesManuelles) }}</strong>
-                </article>
-                <article class="caisse-source-card" data-tone="green">
-                  <span>Resultat du jour</span>
-                  <strong>{{ formatCurrency(caisseTotals.totalGlobal) }}</strong>
-                </article>
+                <p class="caisse-row"><strong>Total depenses:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.totalSorties) }}</span></p>
+                <p class="caisse-row"><strong>Resultat du jour:</strong> <span class="caisse-value">{{ formatCurrency(caisseTotals.resultatJournalier) }}</span></p>
               </div>
             </article>
 
@@ -381,7 +345,7 @@ function chooseExpense() {
               <div class="panel-header detail-panel-header caisse-source-panel-header">
                 <div>
                   <h4>Repartition des encaissements</h4>
-                  <p class="helper">Lecture nette de la caisse par source, sans melanger les flux automatiques et manuels.</p>
+                  <p class="helper">Repartition des entrees de la caisse par source, sans melanger les flux automatiques et manuels.</p>
                 </div>
                 <span class="status-pill" data-tone="info">Vue financiere</span>
               </div>
@@ -834,5 +798,36 @@ function chooseExpense() {
     justify-items: center;
     text-align: center;
   }
+}
+
+.caisse-consistency-warning {
+  display: grid;
+  gap: 5px;
+  border-color: #efb8b8;
+  background: #fff6f6;
+}
+.caisse-consistency-warning strong { color: #9a2f2f; }
+.caisse-consistency-warning p { margin: 0; color: #754545; line-height: 1.5; }
+.caisse-reference-info { border-color: #bfd2e8; background: #f5f9fe; }
+.caisse-reference-info strong { color: #234f7f; }
+.caisse-reference-info p { margin: 5px 0 0; color: #526a83; line-height: 1.5; }
+
+.caisse-allocation-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-color: rgba(217, 143, 35, 0.34);
+  background: linear-gradient(145deg, #fffdf7 0%, #fff7e8 100%);
+}
+
+.caisse-allocation-warning > div { display: grid; gap: 5px; }
+.caisse-allocation-warning strong { color: #7a4b08; }
+.caisse-allocation-warning p { margin: 0; color: #765d37; line-height: 1.5; }
+.caisse-allocation-warning .action-btn { flex: 0 0 auto; }
+
+@media (max-width: 767px) {
+  .caisse-allocation-warning { align-items: stretch; flex-direction: column; }
+  .caisse-allocation-warning .action-btn { width: 100%; justify-content: center; }
 }
 </style>

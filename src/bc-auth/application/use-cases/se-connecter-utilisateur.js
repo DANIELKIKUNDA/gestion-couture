@@ -28,7 +28,8 @@ export async function seConnecterUtilisateur({ utilisateurRepo, rolePermissionRe
     sub: user.id,
     email: user.email,
     role: user.roleId,
-    atelierId: user.atelierId || LEGACY_ATELIER_ID
+    atelierId: user.atelierId || LEGACY_ATELIER_ID,
+    tokenVersion: Number(user.tokenVersion || 1)
   });
 
   const refreshToken = createOpaqueToken();

@@ -3,34 +3,13 @@ import MobileEntityCard from "../mobile/MobileEntityCard.vue";
 import MobileMetaList from "../mobile/MobileMetaList.vue";
 
 const props = defineProps({
-  caisse: {
-    type: Object,
-    default: null
-  },
-  status: {
-    type: String,
-    default: "INCONNUE"
-  },
-  totals: {
-    type: Object,
-    default: () => ({})
-  },
-  formatCurrency: {
-    type: Function,
-    required: true
-  },
-  formatDateTime: {
-    type: Function,
-    required: true
-  },
-  formatOpenedBy: {
-    type: Function,
-    required: true
-  },
-  formatClosedBy: {
-    type: Function,
-    required: true
-  }
+  caisse: { type: Object, default: null },
+  status: { type: String, default: "INCONNUE" },
+  totals: { type: Object, default: () => ({}) },
+  formatCurrency: { type: Function, required: true },
+  formatDateTime: { type: Function, required: true },
+  formatOpenedBy: { type: Function, required: true },
+  formatClosedBy: { type: Function, required: true }
 });
 
 function statusTone() {
@@ -48,63 +27,60 @@ function statusItems() {
     },
     {
       key: "courant",
-      label: "Solde courant",
+      label: "Solde global courant",
       value: props.formatCurrency(props.caisse?.soldeCourant),
       emphasis: true,
       tone: props.status === "OUVERTE" ? "success" : "warning"
     },
-    {
-      key: "ouvertePar",
-      label: "Ouverte par",
-      value: props.formatOpenedBy(props.caisse)
-    },
-    {
-      key: "dateOuverture",
-      label: "Date d'ouverture",
-      value: props.formatDateTime(props.caisse?.dateOuverture)
-    }
+    { key: "ouvertePar", label: "Ouverte par", value: props.formatOpenedBy(props.caisse) },
+    { key: "dateOuverture", label: "Date d'ouverture", value: props.formatDateTime(props.caisse?.dateOuverture) }
   ];
 }
 
-function financeItems() {
-  return [
+function balanceItems() {
+  if (props.totals?.soldesDisponibles !== true) {
+    if (props.totals?.soldesAvantReference === true) {
+      return [{ key: "reference", label: "Soldes Atelier / Stock", value: `Disponibles depuis ${props.totals?.dateReferenceSoldes || "la date de reference"}`, emphasis: true, tone: "info" }];
+    }
+    if (props.totals?.soldesDonneesPresentes === true && props.totals?.allocationConfigured !== true) {
+      return [{ key: "allocation", label: "Soldes Atelier / Stock", value: "Repartition initiale a definir", emphasis: true, tone: "warning" }];
+    }
+    return [{ key: "sync", label: "Soldes Atelier / Stock", value: "Synchronisation...", emphasis: true, tone: "warning" }];
+  }
+  const rows = [
     {
-      key: "entrees",
-      label: "Total entrees",
-      value: props.formatCurrency(props.totals?.totalEntrees),
+      key: "soldeAtelier",
+      label: "Solde Atelier",
+      value: props.formatCurrency(props.totals?.soldeAtelier),
       emphasis: true,
-      tone: "success"
+      tone: Number(props.totals?.soldeAtelier || 0) < 0 ? "warning" : "info"
     },
     {
-      key: "sorties",
-      label: "Sorties caisse",
-      value: props.formatCurrency(props.totals?.totalSorties),
+      key: "soldeStock",
+      label: "Solde Stock",
+      value: props.formatCurrency(props.totals?.soldeStock),
       emphasis: true,
-      tone: "warning"
-    },
-    {
-      key: "solde",
-      label: "Solde",
-      value: props.formatCurrency(props.caisse?.soldeCourant),
-      emphasis: true,
-      tone: props.status === "OUVERTE" ? "success" : "warning"
+      tone: Number(props.totals?.soldeStock || 0) < 0 ? "warning" : "success"
     }
   ];
+  if (Math.abs(Number(props.totals?.soldeNonReparti || 0)) > 0.005) {
+    rows.push({
+      key: "nonReparti",
+      label: "Solde initial non reparti",
+      value: props.formatCurrency(props.totals?.soldeNonReparti),
+      emphasis: true,
+      tone: "warning"
+    });
+  }
+  return rows;
 }
 
 function resultItems() {
   return [
     {
-      key: "atelier",
-      label: "Entrees atelier",
-      value: props.formatCurrency(props.totals?.totalAtelier),
-      emphasis: true,
-      tone: "info"
-    },
-    {
-      key: "stock",
-      label: "Entrees stock",
-      value: props.formatCurrency(props.totals?.totalStock),
+      key: "entrees",
+      label: "Entrees du jour",
+      value: props.formatCurrency(props.totals?.totalEntrees),
       emphasis: true,
       tone: "success"
     },
@@ -115,28 +91,26 @@ function resultItems() {
       tone: "warning"
     },
     {
-      key: "resultat",
+      key: "sortiesExceptionnelles",
       label: "Depenses exceptionnelles",
       value: props.formatCurrency(props.totals?.totalSortiesExceptionnelles),
       tone: "warning"
     },
     {
-      key: "clotureePar",
-      label: "Cloturee par",
-      value: props.formatClosedBy(props.caisse)
+      key: "totalSorties",
+      label: "Total depenses",
+      value: props.formatCurrency(props.totals?.totalSorties),
+      tone: "warning"
     },
     {
-      key: "dateCloture",
-      label: "Date de cloture",
-      value: props.formatDateTime(props.caisse?.dateCloture)
-    },
-    {
-      key: "totalGlobal",
+      key: "resultat",
       label: "Resultat du jour",
-      value: props.formatCurrency(props.totals?.totalGlobal),
+      value: props.formatCurrency(props.totals?.resultatJournalier),
       emphasis: true,
-      tone: Number(props.totals?.totalGlobal || 0) < 0 ? "warning" : "success"
-    }
+      tone: Number(props.totals?.resultatJournalier || 0) < 0 ? "warning" : "success"
+    },
+    { key: "clotureePar", label: "Cloturee par", value: props.formatClosedBy(props.caisse) },
+    { key: "dateCloture", label: "Date de cloture", value: props.formatDateTime(props.caisse?.dateCloture) }
   ];
 }
 </script>
@@ -146,47 +120,35 @@ function resultItems() {
     <MobileEntityCard
       eyebrow="Statut de la caisse"
       title="Caisse du jour"
-      subtitle="Vision rapide de l'etat actuel"
+      subtitle="Etat et disponibilite globale"
       :tone="statusTone()"
     >
       <template #badge>
-        <span class="status-pill" :data-status="status">
-          {{ status }}
-        </span>
+        <span class="status-pill" :data-status="status">{{ status }}</span>
       </template>
-
-      <template #meta>
-        <MobileMetaList :items="statusItems()" />
-      </template>
+      <template #meta><MobileMetaList :items="statusItems()" /></template>
     </MobileEntityCard>
 
     <MobileEntityCard
-      eyebrow="Resume financier"
-      title="Flux et solde"
-      subtitle="Entrees, sorties et solde courant"
+      eyebrow="Soldes cumulatifs"
+      title="Atelier et Stock"
+      subtitle="Argent encore disponible par activite"
       tone="default"
     >
-      <template #meta>
-        <MobileMetaList :items="financeItems()" />
-      </template>
+      <template #meta><MobileMetaList :items="balanceItems()" /></template>
     </MobileEntityCard>
 
     <MobileEntityCard
-      eyebrow="Resultat du jour"
-      title="Synthese journaliere"
+      eyebrow="Activite du jour"
+      title="Resultat journalier"
       subtitle="Entrees du jour moins depenses quotidiennes"
       tone="info"
     >
-      <template #meta>
-        <MobileMetaList :items="resultItems()" />
-      </template>
+      <template #meta><MobileMetaList :items="resultItems()" /></template>
     </MobileEntityCard>
   </div>
 </template>
 
 <style scoped>
-.caisse-overview-cards {
-  display: grid;
-  gap: 12px;
-}
+.caisse-overview-cards { display: grid; gap: 12px; }
 </style>

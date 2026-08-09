@@ -2,6 +2,7 @@ import express from "express";
 import { pool } from "../../../shared/infrastructure/db.js";
 import { CaisseRepoPg } from "../../infrastructure/repositories/caisse-repo-pg.js";
 import { BilanCaisseRepoPg } from "../../infrastructure/repositories/bilan-caisse-repo-pg.js";
+import { CaisseActivityBalanceRepoPg } from "../../infrastructure/repositories/caisse-activity-balance-repo-pg.js";
 import { AtelierParametresRepoPg } from "../../../bc-parametres/infrastructure/repositories/atelier-parametres-repo-pg.js";
 import { ouvrirCaisseDuJour } from "../../application/use-cases/ouvrir-caisse-du-jour.js";
 import { preparerOuvertureCaisseDuJour } from "../../application/use-cases/preparer-ouverture-caisse.js";
@@ -23,6 +24,7 @@ import { PermissionInsuffisante } from "../../domain/errors.js";
 const router = express.Router();
 const caisseRepo = new CaisseRepoPg();
 const bilanRepo = new BilanCaisseRepoPg();
+const caisseActivityBalanceRepo = new CaisseActivityBalanceRepoPg();
 const parametresRepo = new AtelierParametresRepoPg();
 const requireCaisseOpenAccess = requireAnyPermission([
   PERMISSIONS.OUVRIR_CAISSE,
@@ -76,6 +78,10 @@ function scopedBilanRepo(req) {
   return bilanRepo.forAtelier(atelierIdFromReq(req));
 }
 
+function scopedActivityBalanceRepo(req) {
+  return caisseActivityBalanceRepo.forAtelier(atelierIdFromReq(req));
+}
+
 function scopedParametresRepo(req) {
   return parametresRepo.forAtelier(atelierIdFromReq(req));
 }
@@ -101,7 +107,7 @@ function resolveCaisseOperationSource(op = {}) {
   return typeOperation === "ENTREE" ? "AUTRE_ENTREE" : "AUTRE";
 }
 
-function normalizeCaisse(caisse) {
+function normalizeCaisse(caisse, soldesParActivite = null) {
   const operations = caisse.operations || [];
   const soldeCourant = operations.reduce((sum, op) => {
     if (op.statutOperation === "ANNULEE") return sum;
@@ -128,7 +134,7 @@ function normalizeCaisse(caisse) {
     if (typeDepense === "EXCEPTIONNELLE") return sum + Number(op.montant || 0);
     return sum;
   }, 0);
-  const resultatJournalier = Math.max(0, totalEntreesJour - totalSortiesQuotidiennesJour);
+  const resultatJournalier = totalEntreesJour - totalSortiesQuotidiennesJour;
   const totauxParSource = {
     totalCommandes: 0,
     totalRetouches: 0,
@@ -189,9 +195,25 @@ function normalizeCaisse(caisse) {
     totauxParSource.totalEntreesManuelles;
   totauxParActivite.totalGlobal = totauxParActivite.totalAtelier + totauxParActivite.totalStock;
   totauxParActivite.totalDepenses = totauxParActivite.depensesAtelier + totauxParActivite.depensesStock;
-  totauxParActivite.netAtelier = Math.max(0, totauxParActivite.totalAtelier - totauxParActivite.depensesAtelier);
-  totauxParActivite.netStock = Math.max(0, totauxParActivite.totalStock - totauxParActivite.depensesStock);
+  totauxParActivite.netAtelier = totauxParActivite.totalAtelier - totauxParActivite.depensesAtelier;
+  totauxParActivite.netStock = totauxParActivite.totalStock - totauxParActivite.depensesStock;
   totauxParActivite.netJour = resultatJournalier;
+
+  const soldesAvecControle = soldesParActivite
+    ? (() => {
+        const canCheck = soldesParActivite.available !== false && Number.isFinite(Number(soldesParActivite.soldeGlobalCalcule));
+        if (!canCheck) {
+          return { ...soldesParActivite, ecartSoldeGlobal: null, coherentAvecCaisse: null };
+        }
+        const soldeGlobalCalcule = Number(soldesParActivite.soldeGlobalCalcule);
+        const ecartSoldeGlobal = soldeGlobalCalcule - soldeCourant;
+        return {
+          ...soldesParActivite,
+          ecartSoldeGlobal,
+          coherentAvecCaisse: Math.abs(ecartSoldeGlobal) <= 0.005
+        };
+      })()
+    : null;
 
   return {
     idCaisseJour: caisse.idCaisseJour,
@@ -214,7 +236,8 @@ function normalizeCaisse(caisse) {
     autoriseePar: caisse.autoriseePar || null,
     operations: normalizedOperations,
     totauxParSource,
-    totauxParActivite
+    totauxParActivite,
+    soldesParActivite: soldesAvecControle
   };
 }
 
@@ -253,14 +276,66 @@ router.get("/caisse", async (req, res) => {
 
 // Get caisse day by id with operations
 router.get("/caisse/:id", async (req, res, next) => {
-  const reserved = new Set(["bilans", "audit", "ouvrir", "ouverture-info"]);
+  const reserved = new Set(["bilans", "audit", "ouvrir", "ouverture-info", "soldes-activite"]);
   if (reserved.has(String(req.params.id || "").toLowerCase())) return next();
   try {
     const caisse = await scopedCaisseRepo(req).getById(req.params.id);
     if (!caisse) return res.status(404).json({ error: "Caisse introuvable" });
-    res.json(normalizeCaisse(caisse));
+    const soldes = await scopedActivityBalanceRepo(req).getBalances({ dateFin: caisse.date });
+    res.json(normalizeCaisse(caisse, soldes));
   } catch (err) {
     res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
+  }
+});
+
+router.get("/caisse/soldes-activite", async (req, res) => {
+  try {
+    const dateFin = req.query.date ? normalizeDateOnly(req.query.date) : null;
+    const soldes = await scopedActivityBalanceRepo(req).getBalances({ dateFin });
+    res.json(soldes);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put("/caisse/soldes-activite/repartition-initiale", async (req, res) => {
+  try {
+    const role = String(req.auth?.roleId || req.auth?.role || "").trim().toUpperCase();
+    if (role !== "PROPRIETAIRE") {
+      return res.status(403).json({ error: "Seul le proprietaire peut definir la repartition initiale de la caisse" });
+    }
+    const schema = z
+      .object({
+        dateReference: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        soldeAtelierInitial: z.coerce.number().min(0),
+        soldeStockInitial: z.coerce.number().min(0)
+      })
+      .passthrough();
+    const parsed = validateSchema(schema, req.body || {});
+    if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    const soldes = await scopedActivityBalanceRepo(req).saveInitialAllocation({
+      dateReference: parsed.data.dateReference || null,
+      soldeAtelierInitial: parsed.data.soldeAtelierInitial,
+      soldeStockInitial: parsed.data.soldeStockInitial,
+      configuredBy: req.auth?.utilisateurId || null
+    });
+    await enregistrerEvenementAudit({
+      utilisateurId: req.auth?.utilisateurId || null,
+      role: req.auth?.roleId || req.auth?.role || null,
+      atelierId: req.auth?.atelierId || null,
+      action: "CONFIGURER_REPARTITION_INITIALE_CAISSE",
+      entite: "CAISSE_REPARTITION_INITIALE",
+      entiteId: req.auth?.atelierId || null,
+      payload: {
+        dateReference: soldes.dateReference || null,
+        soldeOuvertureInitial: soldes.soldeOuvertureInitial,
+        soldeAtelierInitial: soldes.soldeAtelierInitial,
+        soldeStockInitial: soldes.soldeStockInitial
+      }
+    });
+    res.json(soldes);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -341,6 +416,7 @@ router.get("/caisse/audit/journalier", requirePermission(PERMISSIONS.VOIR_BILANS
         COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' AND op.type_operation = 'ENTREE' THEN op.montant ELSE 0 END), 0) AS total_entrees,
         COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' AND op.type_operation = 'SORTIE' THEN op.montant ELSE 0 END), 0) AS total_sorties,
         COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' AND op.type_operation = 'SORTIE' AND (op.type_depense = 'QUOTIDIENNE' OR op.type_depense IS NULL) THEN op.montant ELSE 0 END), 0) AS total_sorties_quotidiennes,
+        COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' AND op.type_operation = 'SORTIE' AND op.type_depense = 'EXCEPTIONNELLE' THEN op.montant ELSE 0 END), 0) AS total_sorties_exceptionnelles,
         COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' AND op.type_operation = 'ENTREE' THEN op.montant ELSE 0 END), 0)
           - COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' AND op.type_operation = 'SORTIE' AND (op.type_depense = 'QUOTIDIENNE' OR op.type_depense IS NULL) THEN op.montant ELSE 0 END), 0) AS resultat_journalier,
         COALESCE(SUM(CASE WHEN op.statut_operation <> 'ANNULEE' AND op.type_operation = 'ENTREE' THEN op.montant ELSE 0 END), 0)

@@ -31,10 +31,6 @@ export function useDashboardFinanceMetrics({
       .filter((op) => op.typeOperation === "ENTREE")
       .filter((op) => String(op.activite || "ATELIER").trim().toUpperCase() !== "STOCK")
       .reduce((sum, op) => sum + Number(op.montant || 0), 0);
-    const sortiesAtelierCaisse = ops
-      .filter((op) => op.typeOperation === "SORTIE")
-      .filter((op) => String(op.activite || "ATELIER").trim().toUpperCase() !== "STOCK")
-      .reduce((sum, op) => sum + Number(op.montant || 0), 0);
     const isWithinDashboardPeriod = (dateRef) => {
       if (!dateRef) return true;
       if (dashboardPeriod.value === "TODAY") return dateRef === today;
@@ -49,8 +45,21 @@ export function useDashboardFinanceMetrics({
       .filter((retouche) => isWithinDashboardPeriod(dateOnly(retouche.dateDepot || retouche.datePrevue || "")))
       .reduce((sum, retouche) => sum + Number(retouche.montantPaye || 0), 0);
 
-    const resultatJour = Math.max(0, totalEntrees - totalSortiesQuotidiennes);
-    const atelierNet = Math.max(0, entreesAtelierCaisse - sortiesAtelierCaisse);
+    const resultatJour = totalEntrees - totalSortiesQuotidiennes;
+    const soldes = caisseJour.value?.soldesParActivite || null;
+    const soldesDisponibles = Boolean(
+      soldes &&
+        soldes.available !== false &&
+        soldes.soldeAtelier !== null &&
+        soldes.soldeAtelier !== undefined &&
+        soldes.soldeStock !== null &&
+        soldes.soldeStock !== undefined &&
+        Number.isFinite(Number(soldes.soldeAtelier)) &&
+        Number.isFinite(Number(soldes.soldeStock))
+    );
+    const soldeAtelier = soldesDisponibles ? Number(soldes.soldeAtelier) : 0;
+    const soldeStock = soldesDisponibles ? Number(soldes.soldeStock) : 0;
+    const soldeNonReparti = soldesDisponibles ? Number(soldes.soldeNonReparti ?? 0) : 0;
 
     return {
       soldeCaisse: Number(caisseJour.value?.soldeCourant || 0),
@@ -59,7 +68,16 @@ export function useDashboardFinanceMetrics({
       depensesQuotidiennes: totalSortiesQuotidiennes,
       depensesExceptionnelles: totalSortiesExceptionnelles,
       resultatJour,
-      atelierNet,
+      soldesDisponibles,
+      soldesDonneesPresentes: Boolean(soldes),
+      soldesAvantReference: soldes?.beforeReference === true,
+      dateReferenceSoldes: soldes?.dateReference || null,
+      soldeAtelier,
+      soldeStock,
+      soldeNonReparti,
+      allocationConfigured: soldes?.allocationConfigured === true,
+      // Alias de compatibilite pendant la migration des vues.
+      atelierNet: soldeAtelier,
       acomptesEncaisses: ops.length > 0 ? entreesAtelierCaisse : acomptesCommandes + acomptesRetouches
     };
   });

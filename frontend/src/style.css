@@ -6298,3 +6298,44 @@ textarea:focus-visible {
     font-size: 1.7rem;
   }
 }
+
+/* Account entry point */
+.sidebar-user-account {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-user-account:hover,
+.sidebar-user-account:focus-visible {
+  border-color: rgba(31, 79, 135, 0.2);
+  background: rgba(31, 79, 135, 0.07);
+  outline: none;
+}
+
+.sidebar-user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #2b619c, #1f4a7b);
+  color: #fff;
+  font-weight: 900;
+}
+
+.sidebar-user-account .sidebar-user-meta small {
+  color: #58708f;
+  font-size: 0.72rem;
+  font-weight: 700;
+}

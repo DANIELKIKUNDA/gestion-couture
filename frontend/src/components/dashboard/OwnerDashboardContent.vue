@@ -56,7 +56,8 @@ const actionsAtraiter = computed(() => {
 });
 
 const netDuJour = computed(() => Number(props.financeMetrics.resultatJour || 0));
-const atelierNet = computed(() => Number(props.financeMetrics.atelierNet || 0));
+const soldeAtelier = computed(() => Number(props.financeMetrics.soldeAtelier || 0));
+const soldeStock = computed(() => Number(props.financeMetrics.soldeStock || 0));
 
 const decisionCards = computed(() => [
   {
@@ -155,13 +156,30 @@ const attentionEmptyState = computed(() => {
   };
 });
 
-const moneyCards = computed(() => [
-  { label: "Argent entre", value: props.formatCurrency(props.financeMetrics.totalEncaissement), tone: "success" },
-  { label: "Argent sorti", value: props.formatCurrency(props.financeMetrics.depensesJour), tone: "danger" },
-  { label: "Resultat du jour", value: props.formatCurrency(netDuJour.value), tone: netDuJour.value > 0 ? "success" : "neutral" },
-  { label: "Argent en caisse", value: props.formatCurrency(props.financeMetrics.soldeCaisse), tone: "blue" },
-  { label: "Atelier net", value: props.formatCurrency(atelierNet.value), tone: atelierNet.value > 0 ? "blue" : "neutral" }
-]);
+const moneyCards = computed(() => {
+  const rows = [
+    { label: "Entrees du jour", value: props.formatCurrency(props.financeMetrics.totalEncaissement), tone: "success" },
+    { label: "Depenses quotidiennes", value: props.formatCurrency(props.financeMetrics.depensesQuotidiennes), tone: Number(props.financeMetrics.depensesQuotidiennes || 0) > 0 ? "danger" : "neutral" },
+    { label: "Depenses exceptionnelles", value: props.formatCurrency(props.financeMetrics.depensesExceptionnelles), tone: Number(props.financeMetrics.depensesExceptionnelles || 0) > 0 ? "warning" : "neutral" },
+    { label: "Total depenses", value: props.formatCurrency(props.financeMetrics.depensesJour), tone: Number(props.financeMetrics.depensesJour || 0) > 0 ? "danger" : "neutral" },
+    { label: "Resultat du jour", value: props.formatCurrency(netDuJour.value), tone: netDuJour.value < 0 ? "danger" : netDuJour.value > 0 ? "success" : "neutral" },
+    { label: "Solde global caisse", value: props.formatCurrency(props.financeMetrics.soldeCaisse), tone: "blue" }
+  ];
+  if (props.financeMetrics.soldesDisponibles === true) {
+    rows.splice(rows.length - 1, 0,
+      { label: "Solde Atelier", value: props.formatCurrency(soldeAtelier.value), tone: soldeAtelier.value < 0 ? "danger" : "blue" },
+      { label: "Solde Stock", value: props.formatCurrency(soldeStock.value), tone: soldeStock.value < 0 ? "danger" : "teal" }
+    );
+  } else if (props.financeMetrics.soldesAvantReference === true) {
+    const reference = props.financeMetrics.dateReferenceSoldes ? ` depuis ${props.financeMetrics.dateReferenceSoldes}` : " a partir de la date de reference";
+    rows.splice(rows.length - 1, 0, { label: "Soldes Atelier / Stock", value: `Disponibles${reference}`, tone: "neutral" });
+  } else if (props.financeMetrics.soldesDonneesPresentes === true && props.financeMetrics.allocationConfigured !== true) {
+    rows.splice(rows.length - 1, 0, { label: "Soldes Atelier / Stock", value: "Repartition initiale a definir", tone: "warning" });
+  } else {
+    rows.splice(rows.length - 1, 0, { label: "Soldes Atelier / Stock", value: "Synchronisation...", tone: "warning" });
+  }
+  return rows;
+});
 
 const workCards = computed(() => [
   { label: "Commandes en cours", value: commandesEnCours.value, tone: "blue" },
@@ -241,7 +259,7 @@ function showOwnerSection(section) {
       <div class="owner-section-head">
         <div>
           <p class="owner-overline">Argent</p>
-          <h3 id="owner-money-title">Argent de l'atelier</h3>
+          <h3 id="owner-money-title">Caisse et resultats</h3>
         </div>
       </div>
       <div class="owner-money-grid">

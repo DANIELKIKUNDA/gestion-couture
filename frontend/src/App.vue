@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { atelierApi, ApiError, resolveMediaUrl, setAuthLostHandler } from "./services/api.js";
 import {
@@ -89,6 +89,7 @@ import {
   parseVoiceSearch
 } from "./services/voice-service.js";
 
+const AccountPage = defineAsyncComponent(() => import("./components/account/AccountPage.vue"));
 const CommandesPage = defineAsyncComponent(() => import("./components/commandes/CommandesPage.vue"));
 const CommandeDetailPage = defineAsyncComponent(() => import("./components/commandes/CommandeDetailPage.vue"));
 const CommandeMobileList = defineAsyncComponent(() => import("./components/commandes/CommandeMobileList.vue"));
@@ -127,6 +128,7 @@ const SystemAteliersPage = defineAsyncComponent(() => import("./components/syste
 const SystemNotificationsPage = defineAsyncComponent(() => import("./components/system/SystemNotificationsPage.vue"));
 
 const authenticatedPagePreloaders = {
+  account: () => import("./components/account/AccountPage.vue"),
   dashboard: () => import("./components/dashboard/DashboardPage.vue"),
   commandes: () => import("./components/commandes/CommandesPage.vue"),
   commandeDetail: () => import("./components/commandes/CommandeDetailPage.vue"),
@@ -231,6 +233,8 @@ const AUTH_ATELIER_SLUG_STORAGE_KEY = "atelier.auth.slug.v1";
 const AUTH_INVALID_CREDENTIALS_MESSAGE = "Email ou mot de passe incorrect";
 const AUTH_DISABLED_ATELIER_MESSAGE = "Votre atelier est désactivé. Veuillez contacter l’administrateur.";
 const MOBILE_BREAKPOINT = 768;
+const ACCOUNT_PREFERENCES_STORAGE_PREFIX = "atelier.account.preferences.v1";
+const ACCOUNT_LAST_ROUTE_STORAGE_PREFIX = "atelier.account.last_route.v1";
 
 function getInitialRoute() {
   if (typeof window !== "undefined" && window.localStorage.getItem(AUTH_PORTAL_STORAGE_KEY) === "system") {
@@ -266,6 +270,184 @@ const loginSelection = reactive({
   ateliers: []
 });
 const forbiddenMessage = ref("Acces refuse: permissions insuffisantes.");
+
+function accountStorageKey(prefix, userId = authUser.value?.id || "") {
+  const id = String(userId || "anonymous").trim() || "anonymous";
+  return `${prefix}:${id}`;
+}
+
+function loadCachedAccountPreferences(userId = "") {
+  if (typeof window === "undefined") return { pageAccueil: "dashboard", restaurerDernierePage: true };
+  try {
+    const raw = window.localStorage.getItem(accountStorageKey(ACCOUNT_PREFERENCES_STORAGE_PREFIX, userId));
+    const parsed = raw ? JSON.parse(raw) : null;
+    return {
+      pageAccueil: String(parsed?.pageAccueil || "dashboard"),
+      restaurerDernierePage: parsed?.restaurerDernierePage !== false
+    };
+  } catch {
+    return { pageAccueil: "dashboard", restaurerDernierePage: true };
+  }
+}
+
+function persistCachedAccountPreferences(preferences = accountPreferences.value) {
+  if (typeof window === "undefined" || !authUser.value?.id) return;
+  try {
+    window.localStorage.setItem(
+      accountStorageKey(ACCOUNT_PREFERENCES_STORAGE_PREFIX),
+      JSON.stringify({
+        pageAccueil: String(preferences?.pageAccueil || "dashboard"),
+        restaurerDernierePage: preferences?.restaurerDernierePage !== false
+      })
+    );
+  } catch {
+    // Preferences server-side remain authoritative; local cache is best effort.
+  }
+}
+
+function rememberAccountLastRoute(routeId = "") {
+  if (typeof window === "undefined" || !authUser.value?.id) return;
+  const route = String(routeId || "").trim();
+  if (!route || route === "account" || route === "forbidden" || route.includes("-detail")) return;
+  try {
+    window.localStorage.setItem(accountStorageKey(ACCOUNT_LAST_ROUTE_STORAGE_PREFIX), route);
+  } catch {
+    // Non bloquant.
+  }
+}
+
+function readAccountLastRoute() {
+  if (typeof window === "undefined" || !authUser.value?.id) return "";
+  try {
+    return String(window.localStorage.getItem(accountStorageKey(ACCOUNT_LAST_ROUTE_STORAGE_PREFIX)) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function applyPreferredAccountStartRoute() {
+  if (!isAuthenticated.value) return;
+  const preferences = accountPreferences.value || {};
+  const lastRoute = preferences.restaurerDernierePage !== false ? readAccountLastRoute() : "";
+  const preferred = lastRoute || String(preferences.pageAccueil || "").trim();
+  if (preferred && canAccessRoute(preferred)) {
+    currentRoute.value = preferred;
+  }
+}
+
+function showAccountSuccess(message) {
+  accountSuccess.value = String(message || "").trim();
+  if (accountSuccessTimer) window.clearTimeout(accountSuccessTimer);
+  accountSuccessTimer = window.setTimeout(() => {
+    accountSuccess.value = "";
+    accountSuccessTimer = null;
+  }, 4200);
+}
+
+async function loadAccount() {
+  if (!isAuthenticated.value || accountLoading.value) return;
+  accountLoading.value = true;
+  accountError.value = "";
+  try {
+    if (!getNetworkState().online) {
+      accountProfile.value = {
+        ...(accountProfile.value || {}),
+        id: authUser.value?.id || "",
+        nom: authUser.value?.nom || "",
+        email: authUser.value?.email || "",
+        roleId: authUser.value?.roleId || "",
+        atelierId: authUser.value?.atelierId || "",
+        actif: true
+      };
+      accountPreferences.value = loadCachedAccountPreferences(authUser.value?.id || "");
+      accountError.value = "Mode hors ligne : les informations locales sont affichees. Les modifications du compte exigent une connexion.";
+      return;
+    }
+    const payload = await atelierApi.getAccount();
+    accountProfile.value = payload?.profile || null;
+    accountPreferences.value = {
+      pageAccueil: String(payload?.preferences?.pageAccueil || "dashboard"),
+      restaurerDernierePage: payload?.preferences?.restaurerDernierePage !== false
+    };
+    accountSecurity.value = payload?.security || { activeSessions: [], activeSessionCount: 0 };
+    persistCachedAccountPreferences(accountPreferences.value);
+  } catch (err) {
+    accountError.value = readableError(err);
+  } finally {
+    accountLoading.value = false;
+  }
+}
+
+async function saveAccountProfile(payload) {
+  if (accountSaving.value) return;
+  accountSaving.value = true;
+  accountError.value = "";
+  try {
+    const result = await atelierApi.updateAccountProfile(payload);
+    accountProfile.value = result?.profile || accountProfile.value;
+    if (result?.profile && authUser.value) {
+      authUser.value = {
+        ...authUser.value,
+        nom: result.profile.nom || authUser.value.nom,
+        email: result.profile.email || authUser.value.email
+      };
+      settingsUser.nom = authUser.value.nom || "";
+      await persistCurrentVerifiedOfflineSession();
+    }
+    showAccountSuccess("Profil mis a jour avec succes.");
+  } catch (err) {
+    accountError.value = readableError(err);
+  } finally {
+    accountSaving.value = false;
+  }
+}
+
+async function saveAccountPreferences(payload) {
+  if (accountSaving.value) return;
+  accountSaving.value = true;
+  accountError.value = "";
+  try {
+    const result = await atelierApi.updateAccountPreferences(payload);
+    accountPreferences.value = result?.preferences || payload;
+    persistCachedAccountPreferences(accountPreferences.value);
+    showAccountSuccess("Preferences enregistrees.");
+  } catch (err) {
+    accountError.value = readableError(err);
+  } finally {
+    accountSaving.value = false;
+  }
+}
+
+async function changeAccountPassword(payload) {
+  if (accountSaving.value) return;
+  accountSaving.value = true;
+  accountError.value = "";
+  try {
+    await atelierApi.changeAccountPassword(payload);
+    showAccountSuccess("Mot de passe modifie. Les autres sessions ont ete invalidees.");
+    await loadAccount();
+    await persistCurrentVerifiedOfflineSession();
+  } catch (err) {
+    accountError.value = readableError(err);
+  } finally {
+    accountSaving.value = false;
+  }
+}
+
+async function revokeOtherAccountSessions() {
+  if (accountSaving.value) return;
+  accountSaving.value = true;
+  accountError.value = "";
+  try {
+    const result = await atelierApi.revokeOtherAccountSessions();
+    showAccountSuccess(`${Number(result?.revoked || 0)} autre(s) session(s) deconnectee(s).`);
+    await loadAccount();
+  } catch (err) {
+    accountError.value = readableError(err);
+  } finally {
+    accountSaving.value = false;
+  }
+}
 const loginForm = reactive({
   email: "",
   motDePasse: ""
@@ -273,6 +455,14 @@ const loginForm = reactive({
 const showPassword = ref(false);
 const authUser = ref(null);
 const authPermissions = ref([]);
+const accountProfile = ref(null);
+const accountPreferences = ref({ pageAccueil: "dashboard", restaurerDernierePage: true });
+const accountSecurity = ref({ activeSessions: [], activeSessionCount: 0 });
+const accountLoading = ref(false);
+const accountSaving = ref(false);
+const accountError = ref("");
+const accountSuccess = ref("");
+let accountSuccessTimer = null;
 let hydrateAuthSessionPromise = null;
 const bootstrapInitializing = ref(false);
 let authModeDetectionTimer = null;
@@ -4010,6 +4200,7 @@ function canAccessAuditPath(path = "/audit") {
 
 function canAccessModule(moduleId) {
   if (!isAuthenticated.value) return false;
+  if (moduleId === "account") return true;
   if (moduleId === "notifications") {
     return !isSystemManager.value && currentRole.value === "PROPRIETAIRE" && Boolean(currentAtelierId.value);
   }
@@ -4051,6 +4242,9 @@ const systemMenuItems = [
 ];
 const menuItems = computed(() => (isSystemManager.value ? systemMenuItems : atelierMenuItems));
 const visibleMenuItems = computed(() => menuItems.value.filter((item) => canAccessModule(item.id)));
+const accountHomeRouteOptions = computed(() =>
+  visibleMenuItems.value.map((item) => ({ id: item.id, label: item.label }))
+);
 
 function resolveAccessibleRoute(preferredRoute = "dashboard") {
   if (canAccessRoute(preferredRoute)) return preferredRoute;
@@ -4064,11 +4258,11 @@ function uniquePreloadKeys(keys = []) {
 function getAuthenticatedPagePreloadKeys() {
   if (!isAuthenticated.value) return [];
   if (isSystemManager.value) {
-    return uniquePreloadKeys(["systemDashboard", "systemAteliers", "systemAtelierDetail", "systemNotifications"]);
+    return uniquePreloadKeys(["systemDashboard", "systemAteliers", "systemAtelierDetail", "systemNotifications", "account"]);
   }
 
   const role = currentRole.value;
-  const keys = ["dashboard"];
+  const keys = ["dashboard", "account"];
   if (role === "COUTURIER") {
     keys.push("commandes", "commandeDetail", "commandeMobileList", "commandeMediaGallery", "retouches", "retoucheDetail");
     return uniquePreloadKeys(keys);
@@ -5560,6 +5754,7 @@ function selectVenteArticle(idArticle) {
 }
 
 const currentTitle = computed(() => {
+  if (currentRoute.value === "account") return "Mon compte";
   if (currentRoute.value === "systemDashboard") return "Vue Globale";
   if (currentRoute.value === "systemAteliers") return "Ateliers";
   if (currentRoute.value === "systemNotifications") return "Notifications";
@@ -7064,14 +7259,23 @@ const {
 
 const dailyDecisionPills = computed(() => {
   if (!caisseJour.value) return [];
-  const netAtelier = Number(caisseTotals.value.netAtelier || 0);
-  const netStock = Number(caisseTotals.value.netStock || 0);
-  return [
-    {
-      label: "Entrees jour",
-      value: formatCurrency(caisseTotals.value.totalEntrees),
-      tone: "in"
-    },
+  const rows = [];
+  if (caisseTotals.value.soldesDisponibles) {
+    rows.push(
+      {
+        label: "Solde Atelier",
+        value: formatCurrency(caisseTotals.value.soldeAtelier),
+        tone: Number(caisseTotals.value.soldeAtelier || 0) < 0 ? "out" : "neutral"
+      },
+      {
+        label: "Solde Stock",
+        value: formatCurrency(caisseTotals.value.soldeStock),
+        tone: Number(caisseTotals.value.soldeStock || 0) < 0 ? "out" : "neutral"
+      }
+    );
+  }
+  rows.push(
+    { label: "Entrees du jour", value: formatCurrency(caisseTotals.value.totalEntrees), tone: "in" },
     {
       label: "Depenses quotidiennes",
       value: formatCurrency(caisseTotals.value.totalSortiesQuotidiennes),
@@ -7083,21 +7287,12 @@ const dailyDecisionPills = computed(() => {
       tone: Number(caisseTotals.value.totalSortiesExceptionnelles || 0) > 0 ? "out" : "neutral"
     },
     {
-      label: "Atelier net",
-      value: formatCurrency(netAtelier),
-      tone: netAtelier < 0 ? "out" : "neutral"
-    },
-    {
-      label: "Stock net",
-      value: formatCurrency(netStock),
-      tone: netStock < 0 ? "out" : "neutral"
-    },
-    {
       label: "Resultat du jour",
-      value: formatCurrency(caisseTotals.value.totalGlobal),
-      tone: "in"
+      value: formatCurrency(caisseTotals.value.resultatJournalier),
+      tone: Number(caisseTotals.value.resultatJournalier || 0) < 0 ? "out" : "in"
     }
-  ];
+  );
+  return rows;
 });
 const {
   cashierDashboardCards,
@@ -7496,6 +7691,11 @@ function applyAuthSession(session) {
     preloadedAuthenticatedPages.clear();
     authUser.value = null;
     authPermissions.value = [];
+    accountProfile.value = null;
+    accountPreferences.value = { pageAccueil: "dashboard", restaurerDernierePage: true };
+    accountSecurity.value = { activeSessions: [], activeSessionCount: 0 };
+    accountError.value = "";
+    accountSuccess.value = "";
     sessionSource.value = "";
     settingsUser.nom = "";
     settingsUser.role = "COUTURIER";
@@ -7510,6 +7710,14 @@ function applyAuthSession(session) {
     roleId: String(session.roleId || session.roles?.[0] || "").toUpperCase()
   };
   authPermissions.value = Array.from(new Set((session.permissions || []).map((p) => String(p || "").toUpperCase())));
+  const serverPreferences = session.preferences && typeof session.preferences === "object" ? session.preferences : null;
+  accountPreferences.value = serverPreferences
+    ? {
+        pageAccueil: String(serverPreferences.pageAccueil || "dashboard"),
+        restaurerDernierePage: serverPreferences.restaurerDernierePage !== false
+      }
+    : loadCachedAccountPreferences(authUser.value.id);
+  if (serverPreferences) persistCachedAccountPreferences(accountPreferences.value);
   settingsUser.nom = authUser.value.nom || "";
   settingsUser.role = authUser.value.roleId || "COUTURIER";
 }
@@ -7730,6 +7938,7 @@ async function completeLoginSession() {
     await loadAtelierRuntimeSettings();
     await persistCurrentVerifiedOfflineSession();
     await reloadAll();
+    applyPreferredAccountStartRoute();
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute(currentRoute.value);
     rememberAppRouteHistory(currentRoute.value, { replace: true });
     scheduleAuthenticatedPagePreload();
@@ -7919,6 +8128,7 @@ async function loadInitialAuthenticatedWorkspace() {
     await loadAtelierRuntimeSettings();
     await persistCurrentVerifiedOfflineSession();
     await reloadAll();
+    applyPreferredAccountStartRoute();
     if (currentRoute.value === "audit" && canAccessRoute("audit")) loadAuditPage(auditSubRoute.value);
     if (!canAccessRoute(currentRoute.value)) currentRoute.value = resolveAccessibleRoute();
     rememberAppRouteHistory(currentRoute.value, { replace: true });
@@ -8027,6 +8237,7 @@ onUnmounted(() => {
   if (authModeDetectionTimer) window.clearTimeout(authModeDetectionTimer);
   if (syncUiRefreshTimer) window.clearTimeout(syncUiRefreshTimer);
   if (authenticatedPagePreloadTimer) window.clearTimeout(authenticatedPagePreloadTimer);
+  if (accountSuccessTimer) window.clearTimeout(accountSuccessTimer);
   clearCrossDeviceRefreshTimer();
   clearGlobalErrorMessage();
   clearSystemAteliersSearchDebounce();
@@ -8722,6 +8933,10 @@ async function openRoute(routeId) {
   }
   currentRoute.value = routeId;
   rememberAppRouteHistory(routeId);
+  rememberAccountLastRoute(routeId);
+  if (routeId === "account") {
+    void loadAccount();
+  }
   if (routeId === "clientsMesures" && selectedClientConsultationId.value) {
     loadClientConsultation(selectedClientConsultationId.value);
   }
@@ -8731,6 +8946,11 @@ async function handlePrimaryNavigation(routeId) {
   if (!routeId) return;
   closeSidebarDrawer();
   await openRoute(routeId);
+}
+
+async function handleAccountNavigation() {
+  closeSidebarDrawer();
+  await openRoute("account");
 }
 
 async function handleSidebarLogout() {
@@ -11987,6 +12207,8 @@ function normalizeFacture(raw) {
 function normalizeCaisse(raw) {
   const sourceTotals = raw?.totauxParSource || raw?.totaux_par_source || {};
   const activiteTotals = raw?.totauxParActivite || raw?.totaux_par_activite || {};
+  const hasSoldesActivite = Boolean(raw?.soldesParActivite || raw?.soldes_par_activite);
+  const soldesActivite = raw?.soldesParActivite || raw?.soldes_par_activite || {};
   return {
     idCaisseJour: raw.idCaisseJour || raw.id_caisse_jour,
     date: raw.date || raw.date_jour,
@@ -12025,6 +12247,31 @@ function normalizeCaisse(raw) {
       totalDepenses: Number(activiteTotals.totalDepenses ?? activiteTotals.total_depenses ?? 0),
       netJour: Number(activiteTotals.netJour ?? activiteTotals.net_jour ?? 0)
     },
+    soldesParActivite: hasSoldesActivite ? {
+      hasCaisse: soldesActivite.hasCaisse !== false,
+      available: soldesActivite.available !== false,
+      beforeReference: soldesActivite.beforeReference === true || soldesActivite.before_reference === true,
+      allocationConfigured: soldesActivite.allocationConfigured === true || soldesActivite.allocation_configured === true,
+      dateReference: soldesActivite.dateReference || soldesActivite.date_reference || null,
+      dateFin: soldesActivite.dateFin || soldesActivite.date_fin || null,
+      soldeOuvertureInitial: Number(soldesActivite.soldeOuvertureInitial ?? soldesActivite.solde_ouverture_initial ?? 0),
+      soldeAtelierInitial: Number(soldesActivite.soldeAtelierInitial ?? soldesActivite.solde_atelier_initial ?? 0),
+      soldeStockInitial: Number(soldesActivite.soldeStockInitial ?? soldesActivite.solde_stock_initial ?? 0),
+      soldeNonReparti: Number(soldesActivite.soldeNonReparti ?? soldesActivite.solde_non_reparti ?? 0),
+      mouvementAtelier: Number(soldesActivite.mouvementAtelier ?? soldesActivite.mouvement_atelier ?? 0),
+      mouvementStock: Number(soldesActivite.mouvementStock ?? soldesActivite.mouvement_stock ?? 0),
+      soldeAtelier: soldesActivite.soldeAtelier == null && soldesActivite.solde_atelier == null ? null : Number(soldesActivite.soldeAtelier ?? soldesActivite.solde_atelier),
+      soldeStock: soldesActivite.soldeStock == null && soldesActivite.solde_stock == null ? null : Number(soldesActivite.soldeStock ?? soldesActivite.solde_stock),
+      soldeGlobalCalcule: soldesActivite.soldeGlobalCalcule == null && soldesActivite.solde_global_calcule == null ? null : Number(soldesActivite.soldeGlobalCalcule ?? soldesActivite.solde_global_calcule),
+      ecartSoldeGlobal: soldesActivite.ecartSoldeGlobal == null && soldesActivite.ecart_solde_global == null ? null : Number(soldesActivite.ecartSoldeGlobal ?? soldesActivite.ecart_solde_global),
+      coherentAvecCaisse: soldesActivite.coherentAvecCaisse ?? soldesActivite.coherent_avec_caisse ?? null,
+      totalEntreesAtelier: Number(soldesActivite.totalEntreesAtelier ?? soldesActivite.total_entrees_atelier ?? 0),
+      totalSortiesAtelier: Number(soldesActivite.totalSortiesAtelier ?? soldesActivite.total_sorties_atelier ?? 0),
+      totalEntreesStock: Number(soldesActivite.totalEntreesStock ?? soldesActivite.total_entrees_stock ?? 0),
+      totalSortiesStock: Number(soldesActivite.totalSortiesStock ?? soldesActivite.total_sorties_stock ?? 0),
+      configuredBy: soldesActivite.configuredBy || soldesActivite.configuree_par || null,
+      configuredAt: soldesActivite.configuredAt || soldesActivite.date_configuration || null
+    } : null,
     operations: (raw.operations || []).map((op) => ({
       idOperation: op.idOperation || op.id_operation,
       typeOperation: op.typeOperation || op.type_operation,
@@ -14758,7 +15005,7 @@ async function onDepenseCaisse() {
 
   const payload = await openActionModal({
     title: "Enregistrer une depense",
-    message: "Verifier le type de depense avant confirmation.",
+    message: "Choisissez le fonds qui finance la depense. Une depense quotidienne reduit le resultat du jour; une depense exceptionnelle reduit seulement le solde du fonds choisi et la caisse globale.",
     confirmLabel: "Confirmer la depense",
     tone: "amber",
     fields: [
@@ -14766,13 +15013,13 @@ async function onDepenseCaisse() {
       { key: "montant", label: "Montant (FC)", type: "number", required: true, min: 1, defaultValue: 5000 },
       {
         key: "activite",
-        label: "Activite",
+        label: "Fonds a debiter",
         type: "select",
         required: true,
         defaultValue: "ATELIER",
         options: [
-          { value: "ATELIER", label: "Atelier" },
-          { value: "STOCK", label: "Stock" }
+          { value: "ATELIER", label: "Solde Atelier" },
+          { value: "STOCK", label: "Solde Stock" }
         ]
       },
       {
@@ -14834,20 +15081,20 @@ async function onEntreeManuelleCaisse() {
 
   const payload = await openActionModal({
     title: "Ajouter une entree manuelle",
-    message: "Enregistrez une entree controlee dans la caisse du jour.",
+    message: "Enregistrez une entree controlee et attribuez-la au solde auquel cet argent appartient.",
     confirmLabel: "Enregistrer l'entree",
     tone: "blue",
     fields: [
       { key: "montant", label: "Montant (FC)", type: "number", required: true, min: 1, defaultValue: 5000 },
       {
         key: "activite",
-        label: "Activite",
+        label: "Solde a crediter",
         type: "select",
         required: true,
         defaultValue: "ATELIER",
         options: [
-          { value: "ATELIER", label: "Atelier" },
-          { value: "STOCK", label: "Stock" }
+          { value: "ATELIER", label: "Solde Atelier" },
+          { value: "STOCK", label: "Solde Stock" }
         ]
       },
       { key: "justification", label: "Justification", type: "textarea", required: true, defaultValue: "" }
@@ -14898,6 +15145,56 @@ async function onCloturerCaisse() {
     await atelierApi.cloturerCaisse(caisseJour.value.idCaisseJour);
     await reloadAll();
     notify("Caisse cloturee.");
+  } catch (err) {
+    notify(readableError(err));
+  }
+}
+
+async function configureInitialCaisseAllocation() {
+  if (currentRole.value !== "PROPRIETAIRE") {
+    notify("Seul le proprietaire peut repartir le solde initial de la caisse.");
+    return;
+  }
+  if (!networkIsOnline.value) {
+    notify("Connexion requise pour enregistrer la repartition initiale.");
+    return;
+  }
+  const opening = Number(caisseTotals.value.soldeOuvertureInitial || 0);
+  const suggestedAtelier = Number(caisseTotals.value.soldeAtelierInitial || opening);
+  const suggestedStock = Number(caisseTotals.value.soldeStockInitial || 0);
+  const payload = await openActionModal({
+    title: "Repartir le solde initial",
+    message: `Le solde d'ouverture de reference (${caisseTotals.value.dateReferenceSoldes || dateOnly(caisseJour.value?.date || selectedBusinessDate.value)}) est de ${formatCurrency(opening)}. Indiquez quelle part appartient a l'Atelier et quelle part appartient au Stock. Cette photo de depart evite de deviner l'historique anterieur.`,
+    confirmLabel: "Enregistrer la repartition",
+    tone: "blue",
+    stacked: true,
+    fields: [
+      { key: "soldeAtelierInitial", label: "Part initiale Atelier (FC)", type: "number", min: 0, required: true, defaultValue: suggestedAtelier },
+      { key: "soldeStockInitial", label: "Part initiale Stock (FC)", type: "number", min: 0, required: true, defaultValue: suggestedStock }
+    ],
+    summaryBuilder: (values) => {
+      const atelier = Number(values?.soldeAtelierInitial || 0);
+      const stock = Number(values?.soldeStockInitial || 0);
+      return `Atelier ${formatCurrency(atelier)} + Stock ${formatCurrency(stock)} = ${formatCurrency(atelier + stock)} / attendu ${formatCurrency(opening)}`;
+    }
+  });
+  if (!payload) return;
+
+  const atelier = Number(payload.soldeAtelierInitial || 0);
+  const stock = Number(payload.soldeStockInitial || 0);
+  if (Math.abs(atelier + stock - opening) > 0.005) {
+    notify(`Repartition invalide: Atelier + Stock doit etre exactement egal a ${formatCurrency(opening)}.`);
+    return;
+  }
+
+  try {
+    await atelierApi.setCaisseInitialActivityAllocation({
+      dateReference: caisseTotals.value.dateReferenceSoldes || dateOnly(caisseJour.value?.date || selectedBusinessDate.value),
+      soldeAtelierInitial: atelier,
+      soldeStockInitial: stock
+    });
+    await loadCaisseForSelectedDate();
+    notify("Repartition initiale enregistree. Les soldes Atelier et Stock sont maintenant cumulatifs.");
   } catch (err) {
     notify(readableError(err));
   }
@@ -16068,6 +16365,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
       :is-system-manager="isSystemManager"
       :auth-user="authUser"
       @navigate="handlePrimaryNavigation"
+      @account="handleAccountNavigation"
       @logout="handleSidebarLogout"
     />
 
@@ -16174,6 +16472,25 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :build-whatsapp-href="(telephone) => buildWhatsAppAppHref(telephone, 'Bonjour, ici l administration systeme AtelierPro.')"
           @refresh="loadSystemNotifications"
           @submit-notification="submitSystemNotification"
+        />
+
+        <AccountPage
+          v-if="currentRoute === 'account'"
+          :profile="accountProfile"
+          :preferences="accountPreferences"
+          :security="accountSecurity"
+          :loading="accountLoading"
+          :saving="accountSaving"
+          :error="accountError"
+          :success="accountSuccess"
+          :network-is-online="networkIsOnline"
+          :home-route-options="accountHomeRouteOptions"
+          :format-date-time="formatDateTime"
+          @refresh="loadAccount"
+          @save-profile="saveAccountProfile"
+          @save-preferences="saveAccountPreferences"
+          @change-password="changeAccountPassword"
+          @revoke-sessions="revokeOtherAccountSessions"
         />
 
         <AtelierNotificationsPage
@@ -18614,6 +18931,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           :can-record-caisse-manual-entry="canRecordCaisseManualEntry && selectedBusinessDateIsToday"
           :can-record-caisse-expense="canRecordCaisseExpense && selectedBusinessDateIsToday"
           :can-close-caisse="canCloseCaisse && selectedBusinessDateIsToday"
+          :can-configure-initial-allocation="currentRole === 'PROPRIETAIRE' && selectedBusinessDateIsToday"
           :caisse-jour="caisseJour"
           :caisse-load-state="caisseLoadState"
           :caisse-load-error="caisseLoadError"
@@ -18640,6 +18958,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
           @entree-manuelle-caisse="onEntreeManuelleCaisse"
           @depense-caisse="onDepenseCaisse"
           @cloturer-caisse="onCloturerCaisse"
+          @configure-initial-allocation="configureInitialCaisseAllocation"
           @update:selected-date="selectedBusinessDate = $event"
           @update:caisse-quick-filter="caisseQuickFilter = $event; resetCaisseOperationsVisibleCount()"
         />
@@ -18765,9 +19084,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <th>Jour</th>
                     <th>Solde ouverture</th>
                     <th>Total entrees</th>
-                    <th>Total sorties</th>
-                    <th>Resultat journalier</th>
-                    <th>Solde journalier restant</th>
+                    <th>Depenses quotidiennes</th>
+                    <th>Depenses exceptionnelles</th>
+                    <th>Total depenses</th>
+                    <th>Resultat du jour</th>
                     <th>Solde cloture</th>
                     <th>Nb operations</th>
                   </tr>
@@ -18781,9 +19101,10 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <td>{{ formatWeekdayFr(row.jour_semaine) }}</td>
                     <td>{{ formatCurrency(row.solde_ouverture) }}</td>
                     <td>{{ formatCurrency(row.total_entrees) }}</td>
+                    <td>{{ formatCurrency(row.total_sorties_quotidiennes) }}</td>
+                    <td>{{ formatCurrency(row.total_sorties_exceptionnelles) }}</td>
                     <td>{{ formatCurrency(row.total_sorties) }}</td>
                     <td>{{ formatCurrency(row.resultat_journalier) }}</td>
-                    <td>{{ formatCurrency(row.solde_journalier_restant) }}</td>
                     <td>{{ formatCurrency(row.solde_cloture) }}</td>
                     <td>{{ row.nombre_operations }}</td>
                   </tr>
