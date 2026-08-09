@@ -24,6 +24,7 @@ import { generateArticleId } from "../../../shared/domain/id-generator.js";
 import { CaisseRepoPg } from "../../../bc-caisse/infrastructure/repositories/caisse-repo-pg.js";
 import { FournisseurRepoPg } from "../../infrastructure/repositories/fournisseur-repo-pg.js";
 import { z } from "zod";
+import { resolveAchatMontants } from "../../domain/prix-achat.js";
 import { PERMISSIONS } from "../../../bc-auth/domain/permissions.js";
 import { requireAnyPermission } from "../../../bc-auth/interfaces/http/middlewares/require-permission.js";
 
@@ -274,7 +275,7 @@ router.put("/stock/fournisseurs/:id", requireStockArticleAdminAccess, async (req
 router.get("/stock/articles/:id/prix-historique", requireStockArticleAdminAccess, async (req, res) => {
   try {
     const result = await pool.query(
-       `SELECT id_historique, id_article, ancien_prix, nouveau_prix, date_modification, modifie_par
+       `SELECT id_historique, id_article, ancien_prix, nouveau_prix, type_prix, motif_correction, date_modification, modifie_par
        FROM stock_prix_historique
        WHERE id_article = $1 AND atelier_id = $2
        ORDER BY date_modification DESC`,
@@ -286,6 +287,8 @@ router.get("/stock/articles/:id/prix-historique", requireStockArticleAdminAccess
         idArticle: row.id_article,
         ancienPrix: Number(row.ancien_prix),
         nouveauPrix: Number(row.nouveau_prix),
+        typePrix: row.type_prix || "VENTE",
+        motifCorrection: row.motif_correction || null,
         dateModification: row.date_modification,
         modifiePar: row.modifie_par || null
       }))
@@ -324,6 +327,8 @@ router.post("/stock/articles", requireStockArticleAdminAccess, async (req, res) 
       uniteStock: z.string().min(1),
       quantiteDisponible: z.coerce.number().optional(),
       prixAchatInitial: z.coerce.number().optional(),
+      prixAchatInitialUnitaire: z.coerce.number().optional(),
+      montantAchatInitialTotal: z.coerce.number().optional(),
       prixVenteUnitaire: z.coerce.number().optional(),
       seuilAlerte: z.coerce.number().optional()
     })
@@ -333,14 +338,18 @@ router.post("/stock/articles", requireStockArticleAdminAccess, async (req, res) 
   const body = parsed.data;
   const r1 = requireFields(body, ["nomArticle", "categorieArticle", "uniteStock"]);
   if (!r1.ok) return res.status(400).json({ error: r1.error });
-  if (body.prixAchatInitial !== undefined && (Number.isNaN(body.prixAchatInitial) || body.prixAchatInitial < 0)) {
-    return res.status(400).json({ error: "prixAchatInitial invalide" });
-  }
-
   try {
+    const quantiteInitiale = Number(body.quantiteDisponible ?? 0);
+    const prixUnitaireInitial = body.prixAchatInitialUnitaire ?? body.prixAchatInitial;
+    const achatInitial = resolveAchatMontants({
+      quantite: quantiteInitiale,
+      prixAchatUnitaire: prixUnitaireInitial,
+      montantAchatTotal: body.montantAchatInitialTotal,
+      allowEmpty: true
+    });
     const article = creerArticle({
       ...body,
-      prixAchatMoyen: body.prixAchatInitial ?? 0,
+      prixAchatMoyen: achatInitial.prixAchatUnitaire,
       idArticle: generateArticleId()
     });
     await scopedArticleRepo(req).save(article);
@@ -350,13 +359,15 @@ router.post("/stock/articles", requireStockArticleAdminAccess, async (req, res) 
   }
 });
 
-// Update article metadata (price, seuil, etc.)
+// Update article metadata and auditable prices.
 router.put("/stock/articles/:id", requireStockArticleAdminAccess, async (req, res) => {
   const schema = z
     .object({
       nomArticle: z.string().min(1).optional(),
       categorieArticle: z.string().min(1).optional(),
       uniteStock: z.string().min(1).optional(),
+      prixAchatMoyen: z.coerce.number().optional(),
+      motifCorrectionPrixAchat: z.string().max(500).optional(),
       prixVenteUnitaire: z.coerce.number().optional(),
       seuilAlerte: z.coerce.number().optional(),
       actif: z.boolean().optional(),
@@ -367,11 +378,14 @@ router.put("/stock/articles/:id", requireStockArticleAdminAccess, async (req, re
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
   const body = parsed.data;
 
-  const hasChanges = ["nomArticle", "categorieArticle", "uniteStock", "prixVenteUnitaire", "seuilAlerte", "actif"].some(
+  const hasChanges = ["nomArticle", "categorieArticle", "uniteStock", "prixAchatMoyen", "prixVenteUnitaire", "seuilAlerte", "actif"].some(
     (field) => body[field] !== undefined
   );
   if (!hasChanges) return res.status(400).json({ error: "Aucune modification fournie" });
 
+  if (body.prixAchatMoyen !== undefined && (Number.isNaN(body.prixAchatMoyen) || body.prixAchatMoyen < 0)) {
+    return res.status(400).json({ error: "prixAchatMoyen invalide" });
+  }
   if (body.prixVenteUnitaire !== undefined && (Number.isNaN(body.prixVenteUnitaire) || body.prixVenteUnitaire < 0)) {
     return res.status(400).json({ error: "prixVenteUnitaire invalide" });
   }
@@ -379,29 +393,68 @@ router.put("/stock/articles/:id", requireStockArticleAdminAccess, async (req, re
     return res.status(400).json({ error: "seuilAlerte invalide" });
   }
 
+  let client = null;
   try {
-    const article = await scopedArticleRepo(req).getById(req.params.id);
-    if (!article) return res.status(404).json({ error: "Article introuvable" });
-    const oldPrice = Number(article.prixVenteUnitaire || 0);
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const atelierId = atelierIdFromReq(req);
+    const scopedRepo = new ArticleRepoPg(atelierId, client);
+    const article = await scopedRepo.getById(req.params.id);
+    if (!article) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Article introuvable" });
+    }
+
+    const oldSalePrice = Number(article.prixVenteUnitaire || 0);
+    const oldPurchaseCost = Number(article.prixAchatMoyen || 0);
+    const purchaseCostChanges = body.prixAchatMoyen !== undefined && oldPurchaseCost !== Number(body.prixAchatMoyen);
+    const correctionReason = String(body.motifCorrectionPrixAchat || "").trim();
+    if (purchaseCostChanges && correctionReason.length < 3) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Le motif de correction du cout d'achat est obligatoire" });
+    }
 
     if (body.nomArticle !== undefined) article.nomArticle = body.nomArticle;
     if (body.categorieArticle !== undefined) article.categorieArticle = body.categorieArticle;
     if (body.uniteStock !== undefined) article.uniteStock = body.uniteStock;
+    if (body.prixAchatMoyen !== undefined) article.corrigerPrixAchatMoyen(body.prixAchatMoyen);
     if (body.prixVenteUnitaire !== undefined) article.prixVenteUnitaire = body.prixVenteUnitaire;
     if (body.seuilAlerte !== undefined) article.seuilAlerte = body.seuilAlerte;
     if (body.actif !== undefined) article.actif = body.actif;
 
-    await scopedArticleRepo(req).save(article);
-    if (body.prixVenteUnitaire !== undefined && oldPrice !== body.prixVenteUnitaire) {
-      await pool.query(
-        `INSERT INTO stock_prix_historique (id_historique, atelier_id, id_article, ancien_prix, nouveau_prix, modifie_par)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [generatePriceHistoryId(), atelierIdFromReq(req), article.idArticle, oldPrice, body.prixVenteUnitaire, body.updatedBy || null]
+    await scopedRepo.save(article);
+    const acteur = resolveActeur(req, body.updatedBy);
+    const modifiePar = acteur.utilisateur || body.updatedBy || null;
+
+    if (body.prixVenteUnitaire !== undefined && oldSalePrice !== Number(body.prixVenteUnitaire)) {
+      await client.query(
+        `INSERT INTO stock_prix_historique (id_historique, atelier_id, id_article, ancien_prix, nouveau_prix, type_prix, motif_correction, modifie_par)
+         VALUES ($1, $2, $3, $4, $5, 'VENTE', NULL, $6)`,
+        [generatePriceHistoryId(), atelierId, article.idArticle, oldSalePrice, body.prixVenteUnitaire, modifiePar]
       );
     }
+
+    if (purchaseCostChanges) {
+      await client.query(
+        `INSERT INTO stock_prix_historique (id_historique, atelier_id, id_article, ancien_prix, nouveau_prix, type_prix, motif_correction, modifie_par)
+         VALUES ($1, $2, $3, $4, $5, 'ACHAT_MOYEN', $6, $7)`,
+        [generatePriceHistoryId(), atelierId, article.idArticle, oldPurchaseCost, body.prixAchatMoyen, correctionReason, modifiePar]
+      );
+    }
+
+    await client.query("COMMIT");
     res.json(article);
   } catch (err) {
+    if (client) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Keep the original error.
+      }
+    }
     res.status(err.statusCode || 400).json({ error: err.message, code: err.code });
+  } finally {
+    client?.release();
   }
 });
 
@@ -418,6 +471,7 @@ router.post("/stock/articles/:id/entrees", requireStockPurchaseAccess, async (re
       fournisseur: z.string().optional(),
       referenceAchat: z.string().optional(),
       prixAchatUnitaire: z.coerce.number().optional(),
+      montantAchatTotal: z.coerce.number().optional(),
       sourceFinancement: z.string().optional(),
       idempotencyKey: z.string().optional()
     })
@@ -429,11 +483,18 @@ router.post("/stock/articles/:id/entrees", requireStockPurchaseAccess, async (re
   if (!r1.ok) return res.status(400).json({ error: r1.error });
   const r2 = requireNumber(body, "quantite");
   if (!r2.ok) return res.status(400).json({ error: r2.error });
-  if (String(body.motif || "").toUpperCase() === "ACHAT" && (body.prixAchatUnitaire === undefined || body.prixAchatUnitaire === null)) {
-    return res.status(400).json({ error: "prixAchatUnitaire requis pour motif ACHAT" });
+  if (
+    String(body.motif || "").toUpperCase() === "ACHAT" &&
+    body.prixAchatUnitaire === undefined &&
+    body.montantAchatTotal === undefined
+  ) {
+    return res.status(400).json({ error: "Prix d'achat unitaire ou montant total du lot requis" });
   }
   if (body.prixAchatUnitaire !== undefined && (Number.isNaN(body.prixAchatUnitaire) || body.prixAchatUnitaire < 0)) {
     return res.status(400).json({ error: "prixAchatUnitaire invalide" });
+  }
+  if (body.montantAchatTotal !== undefined && (Number.isNaN(body.montantAchatTotal) || body.montantAchatTotal < 0)) {
+    return res.status(400).json({ error: "montantAchatTotal invalide" });
   }
 
   try {
@@ -449,6 +510,7 @@ router.post("/stock/articles/:id/entrees", requireStockPurchaseAccess, async (re
         fournisseur: body.fournisseur || null,
         referenceAchat: body.referenceAchat || null,
         prixAchatUnitaire: body.prixAchatUnitaire === undefined ? null : body.prixAchatUnitaire,
+        montantAchatTotal: body.montantAchatTotal === undefined ? null : body.montantAchatTotal,
         sourceFinancement: body.sourceFinancement || null,
         idempotencyKey: body.idempotencyKey || null
       },

@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS stock_prix_historique (
   id_article TEXT NOT NULL REFERENCES articles(id_article),
   ancien_prix NUMERIC(12,2) NOT NULL,
   nouveau_prix NUMERIC(12,2) NOT NULL,
+  type_prix TEXT NOT NULL DEFAULT 'VENTE' CHECK (type_prix IN ('VENTE','ACHAT_MOYEN')),
+  motif_correction TEXT NULL,
   date_modification TIMESTAMP NOT NULL DEFAULT NOW(),
   modifie_par TEXT NULL
 );
@@ -111,9 +113,14 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'stock_prix_historique'
   ) THEN
     ALTER TABLE stock_prix_historique ADD COLUMN IF NOT EXISTS atelier_id TEXT;
+    ALTER TABLE stock_prix_historique ADD COLUMN IF NOT EXISTS type_prix TEXT;
+    ALTER TABLE stock_prix_historique ADD COLUMN IF NOT EXISTS motif_correction TEXT;
     UPDATE stock_prix_historique SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
+    UPDATE stock_prix_historique SET type_prix = 'VENTE' WHERE type_prix IS NULL OR BTRIM(type_prix) = '';
     ALTER TABLE stock_prix_historique ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
     ALTER TABLE stock_prix_historique ALTER COLUMN atelier_id SET NOT NULL;
+    ALTER TABLE stock_prix_historique ALTER COLUMN type_prix SET DEFAULT 'VENTE';
+    ALTER TABLE stock_prix_historique ALTER COLUMN type_prix SET NOT NULL;
   END IF;
 
   IF EXISTS (
@@ -134,6 +141,19 @@ BEGIN
     UPDATE vente_lignes SET atelier_id = 'ATELIER' WHERE atelier_id IS NULL OR BTRIM(atelier_id) = '';
     ALTER TABLE vente_lignes ALTER COLUMN atelier_id SET DEFAULT 'ATELIER';
     ALTER TABLE vente_lignes ALTER COLUMN atelier_id SET NOT NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'stock_prix_historique_type_prix_check'
+      AND conrelid = 'public.stock_prix_historique'::regclass
+  ) THEN
+    ALTER TABLE stock_prix_historique
+      ADD CONSTRAINT stock_prix_historique_type_prix_check
+      CHECK (type_prix IN ('VENTE','ACHAT_MOYEN'));
   END IF;
 END $$;
 

@@ -38,7 +38,7 @@ async function run() {
     idCaisseJour: "CJ-1",
     date: "2026-02-20",
     statutCaisse: "OUVERTE",
-    soldeOuverture: 100
+    soldeOuverture: 200
   });
   const articleRepo = {
     async getById(id) {
@@ -73,6 +73,26 @@ async function run() {
   assert.equal(caisse.operations[0].montant, 30);
   assert.equal(caisse.operations[0].referenceMetier, "M-ACHAT-1");
   assert.equal(caisse.operations[0].activite, "STOCK");
+
+  await entrerStock({
+    idArticle: "A-ACHAT",
+    input: {
+      idMouvement: "M-ACHAT-LOT",
+      quantite: 3,
+      motif: "ACHAT",
+      utilisateur: "admin",
+      montantAchatTotal: 100
+    },
+    articleRepo,
+    caisseRepo,
+    idCaisseJour: "CJ-1"
+  });
+  assert.equal(articleAchat.quantiteDisponible, 5);
+  assert.equal(Number(articleAchat.prixAchatMoyen.toFixed(2)), 26);
+  assert.equal(caisse.operations[1].montant, 100);
+  const lotMovement = articleAchat.mouvements.find((movement) => movement.idMouvement === "M-ACHAT-LOT");
+  assert.equal(lotMovement.montantAchatTotal, 100);
+  assert.equal(Number(lotMovement.prixAchatUnitaire.toFixed(2)), 33.33);
 }
 
 run()

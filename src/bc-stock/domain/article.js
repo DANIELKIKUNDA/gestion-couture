@@ -1,5 +1,6 @@
-﻿import { TypeMouvement, assertPositive } from "./value-objects.js";
+import { TypeMouvement, assertPositive } from "./value-objects.js";
 import { StockInsuffisant, ArticleInactif } from "./errors.js";
+import { resolveAchatMontants } from "./prix-achat.js";
 
 export class Article {
   constructor({
@@ -41,14 +42,22 @@ export class Article {
     fournisseurId,
     fournisseur,
     referenceAchat,
-    prixAchatUnitaire
+    prixAchatUnitaire,
+    montantAchatTotal
   }) {
     this.assertActif();
     assertPositive(quantite, "quantite");
 
     const quantiteAvant = Number(this.quantiteDisponible || 0);
     this.quantiteDisponible += quantite;
-    const prixAchat = typeof prixAchatUnitaire === "number" && !Number.isNaN(prixAchatUnitaire) ? prixAchatUnitaire : null;
+    const hasPurchaseValue =
+      (prixAchatUnitaire !== null && prixAchatUnitaire !== undefined && prixAchatUnitaire !== "") ||
+      (montantAchatTotal !== null && montantAchatTotal !== undefined && montantAchatTotal !== "");
+    const achat = hasPurchaseValue
+      ? resolveAchatMontants({ quantite, prixAchatUnitaire, montantAchatTotal })
+      : null;
+    const prixAchat = achat?.prixAchatUnitaire ?? null;
+    const montantAchat = achat?.montantAchatTotal ?? null;
     this.mouvements.push({
       idMouvement,
       typeMouvement: TypeMouvement.ENTREE,
@@ -61,12 +70,12 @@ export class Article {
       fournisseur: fournisseur || null,
       referenceAchat: referenceAchat || null,
       prixAchatUnitaire: prixAchat,
-      montantAchatTotal: prixAchat === null ? null : quantite * prixAchat
+      montantAchatTotal: montantAchat
     });
 
     if (prixAchat !== null) {
       const valeurAvant = quantiteAvant * Number(this.prixAchatMoyen || 0);
-      const valeurEntree = quantite * prixAchat;
+      const valeurEntree = montantAchat;
       const nouvelleQuantite = quantiteAvant + quantite;
       this.prixAchatMoyen = nouvelleQuantite <= 0 ? 0 : (valeurAvant + valeurEntree) / nouvelleQuantite;
     }
@@ -103,6 +112,14 @@ export class Article {
     } else {
       this.sortirStock({ idMouvement, quantite: Math.abs(quantite), motif, utilisateur, referenceMetier, fournisseurId, fournisseur, referenceAchat });
     }
+  }
+
+  corrigerPrixAchatMoyen(nouveauPrix) {
+    const value = Number(nouveauPrix);
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error("prixAchatMoyen invalide");
+    }
+    this.prixAchatMoyen = value;
   }
 
   activer() {

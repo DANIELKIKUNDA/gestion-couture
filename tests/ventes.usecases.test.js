@@ -55,6 +55,7 @@ async function run() {
     categorieArticle: "TISSU",
     uniteStock: "METRE",
     quantiteDisponible: 10,
+    prixAchatMoyen: 100,
     prixVenteUnitaire: 500
   });
   await articleRepo.save(article);
@@ -103,6 +104,8 @@ async function run() {
 
   assert.equal(validated.statut, StatutVente.VALIDEE);
   assert.ok(validated.referenceCaisse);
+  assert.equal(validated.lignesVente[0].prixAchatUnitaire, 100);
+  assert.equal(validated.lignesVente[0].beneficeTotal, 1200);
 
   const savedArticle = await articleRepo.getById("ART-1");
   assert.equal(savedArticle.quantiteDisponible, 7);
@@ -114,6 +117,28 @@ async function run() {
   assert.equal(savedCaisse.operations[0].montant, 1500);
   assert.equal(savedCaisse.operations[0].motif, "VENTE_STOCK");
   assert.equal(savedCaisse.operations[0].activite, "STOCK");
+
+  savedArticle.corrigerPrixAchatMoyen(200);
+  await articleRepo.save(savedArticle);
+  assert.equal(validated.lignesVente[0].prixAchatUnitaire, 100, "une vente validee conserve son cout historique");
+  assert.equal(validated.lignesVente[0].beneficeTotal, 1200, "le benefice historique ne doit pas etre recalcule");
+
+  const createdAfterCorrection = await creerVente({
+    input: { lignesVente: [{ idArticle: "ART-1", quantite: 1 }] },
+    articleRepo,
+    venteRepo
+  });
+  const validatedAfterCorrection = await validerVente({
+    idVente: createdAfterCorrection.idVente,
+    idCaisseJour: "CJ-1",
+    modePaiement: "CASH",
+    utilisateur: "tester",
+    venteRepo,
+    articleRepo,
+    caisseRepo
+  });
+  assert.equal(validatedAfterCorrection.lignesVente[0].prixAchatUnitaire, 200, "une nouvelle vente utilise le cout corrige");
+  assert.equal(validatedAfterCorrection.lignesVente[0].beneficeTotal, 300);
 
   const vente = new Vente({
     idVente: "V-2",

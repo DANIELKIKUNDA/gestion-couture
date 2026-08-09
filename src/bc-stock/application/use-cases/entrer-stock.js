@@ -1,4 +1,5 @@
 import { generateMouvementId, generateOperationId } from "../../../shared/domain/id-generator.js";
+import { resolveAchatMontants } from "../../domain/prix-achat.js";
 import { assertCaisseDateDuJour } from "../../../bc-caisse/application/services/caisse-date-guard.js";
 import {
   findAndAssertIdempotentOperation,
@@ -33,16 +34,20 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
     fournisseurId: input?.fournisseurId || null,
     fournisseur: fournisseurNom,
     referenceAchat: input?.referenceAchat || null,
-    prixAchatUnitaire: input?.prixAchatUnitaire === undefined ? null : input.prixAchatUnitaire
+    prixAchatUnitaire: input?.prixAchatUnitaire === undefined ? null : input.prixAchatUnitaire,
+    montantAchatTotal: input?.montantAchatTotal === undefined ? null : input.montantAchatTotal
   };
 
   let caisse = null;
   const idempotencyKey = normalizeIdempotencyKey(input?.idempotencyKey);
   if (isAchat) {
-    const prixAchatUnitaire = Number(mouvementInput.prixAchatUnitaire);
-    if (!Number.isFinite(prixAchatUnitaire) || prixAchatUnitaire < 0) {
-      throw new Error("prixAchatUnitaire requis pour motif ACHAT");
-    }
+    const achat = resolveAchatMontants({
+      quantite: mouvementInput.quantite,
+      prixAchatUnitaire: mouvementInput.prixAchatUnitaire,
+      montantAchatTotal: mouvementInput.montantAchatTotal
+    });
+    mouvementInput.prixAchatUnitaire = achat.prixAchatUnitaire;
+    mouvementInput.montantAchatTotal = achat.montantAchatTotal;
     if (!caisseRepo) {
       throw new Error("Configuration caisse manquante");
     }
@@ -69,7 +74,7 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
     if (
       findAndAssertIdempotentOperation(caisse, idempotencyKey, {
         typeOperation: "SORTIE",
-        montant: Number(mouvementInput.quantite || 0) * prixAchatUnitaire,
+        montant: mouvementInput.montantAchatTotal,
         motif: "ACHAT_STOCK",
         referenceMetier: mouvementInput.idMouvement || null,
         activite: activiteAchat
@@ -85,7 +90,7 @@ export async function entrerStock({ idArticle, input, articleRepo, caisseRepo, i
     }
     caisse.enregistrerSortie({
       idOperation: generateOperationId(),
-      montant: Number(mouvementInput.quantite || 0) * prixAchatUnitaire,
+      montant: mouvementInput.montantAchatTotal,
       motif: "ACHAT_STOCK",
       referenceMetier: mouvementInput.idMouvement || null,
       utilisateur: mouvementInput.utilisateur,
