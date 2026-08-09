@@ -333,9 +333,51 @@ async function testEntreeManuelleRefuseMemeClePayloadDifferent() {
   assert.equal(c.operations.length, 1);
 }
 
+function testResultatDuJourIgnoreDepenseExceptionnelleMaisSoldeGlobalLaDeduit() {
+  const c = new CaisseJour({
+    idCaisseJour: "2026-08-09",
+    date: "2026-08-09",
+    statutCaisse: StatutCaisse.OUVERTE,
+    soldeOuverture: 500000
+  });
+
+  c.enregistrerEntree({
+    idOperation: "OP-RJ-1",
+    montant: 50000,
+    modePaiement: "CASH",
+    motif: "PAIEMENT_COMMANDE",
+    utilisateur: "owner"
+  });
+  c.enregistrerSortie({
+    idOperation: "OP-RJ-2",
+    montant: 10000,
+    motif: "DEPENSE_JOUR",
+    utilisateur: "owner",
+    typeDepense: "QUOTIDIENNE"
+  });
+  c.enregistrerSortie({
+    idOperation: "OP-RJ-3",
+    montant: 80000,
+    motif: "DEPENSE_EXCEPTIONNELLE",
+    utilisateur: "owner",
+    typeDepense: "EXCEPTIONNELLE",
+    justification: "Investissement exceptionnel",
+    role: "ADMIN",
+    rolesAutorises: []
+  });
+
+  const totals = c.totauxJour();
+  assert.equal(totals.totalEntrees, 50000);
+  assert.equal(totals.totalSorties, 90000);
+  assert.equal(totals.totalSortiesQuotidiennes, 10000);
+  assert.equal(totals.resultatJournalier, 40000);
+  assert.equal(c.soldeCourant(), 460000);
+}
+
 run();
 testSortieQuotidienneRefuseSiResultatJournalierInsuffisant();
 testSortieExceptionnelleExigeJustificationEtNimpactePasLeResultatJournalier();
+testResultatDuJourIgnoreDepenseExceptionnelleMaisSoldeGlobalLaDeduit();
 testActiviteCaisseAccepteSeulementAtelierOuStock();
 await testEntreeManuelleExigeJustificationEtResteUneEntreeStandard();
 await testEntreeManuelleRefuseCaissePasseeQuandControleJourActif();
