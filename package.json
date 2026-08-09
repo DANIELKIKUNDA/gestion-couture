@@ -6,8 +6,8 @@
     "scripts": {
         "prepare": "node scripts/prepare-husky.mjs",
         "start": "node src/interfaces/http/server.js",
-        "test": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/caisse.bilans.audit.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js",
-        "test:backend:stable": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js",
+        "test": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/caisse.bilans.audit.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/stock.purchase-price.test.js && node tests/ventes.usecases.test.js && node tests/stock.finance.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js",
+        "test:backend:stable": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/stock.purchase-price.test.js && node tests/ventes.usecases.test.js && node tests/stock.finance.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js",
         "test:e2e": "playwright test",
         "test:e2e:serial": "playwright test --workers=1",
         "test:e2e:headed": "playwright test --headed",
@@ -29,7 +29,8 @@
         "app:open": "powershell -ExecutionPolicy Bypass -File scripts/atelier-couture-launcher.ps1",
         "app:install-icon": "powershell -ExecutionPolicy Bypass -File scripts/install-atelier-couture-icon.ps1",
         "seed": "node scripts/seed.js",
-        "verify:flows": "node scripts/verify-commandes-retouches-flow.js"
+        "verify:flows": "node scripts/verify-commandes-retouches-flow.js",
+        "test:e2e:stock": "playwright test tests/e2e/stock.spec.ts --workers=1"
     },
     "dependencies": {
         "cors": "^2.8.5",
