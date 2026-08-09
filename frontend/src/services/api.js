@@ -914,6 +914,7 @@ export const atelierApi = {
       fournisseur = null,
       referenceAchat = null,
       prixAchatUnitaire = null,
+      montantAchatTotal = null,
       sourceFinancement = null,
       idempotencyKey = createIdempotencyKey()
     } = {}
@@ -926,6 +927,7 @@ export const atelierApi = {
     assignIfPresent(payload, "fournisseurId", fournisseurId);
     assignIfPresent(payload, "referenceAchat", referenceAchat);
     assignIfPresent(payload, "prixAchatUnitaire", prixAchatUnitaire);
+    assignIfPresent(payload, "montantAchatTotal", montantAchatTotal);
     assignIfPresent(payload, "sourceFinancement", sourceFinancement);
     assignIfPresent(payload, "idempotencyKey", idempotencyKey);
     return request(`/stock/articles/${idArticle}/entrees`, {

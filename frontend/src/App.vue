@@ -75,6 +75,11 @@ import { useDashboardPresentation } from "./utils/dashboard-presentation.js";
 import { hasActionEntry, readActionEntry, useEntityActions } from "./utils/list-actions-loader.js";
 import { useRetoucheDetailViewModel } from "./utils/retouche-detail-view-model.js";
 import { useRetouchesListViewModel } from "./utils/retouches-list-view-model.js";
+import {
+  PURCHASE_PRICE_MODES,
+  calculateStockFinancialSummary,
+  resolvePurchaseEntry
+} from "./utils/stock-finance.js";
 import { getPasswordPolicyError } from "./utils/password-policy.js";
 import {
   parseDossierVoiceDraft,
@@ -112,6 +117,7 @@ const FactureDetailOverviewCards = defineAsyncComponent(() => import("./componen
 const RetoucheDetailPage = defineAsyncComponent(() => import("./components/retouches/RetoucheDetailPage.vue"));
 const RetouchesPage = defineAsyncComponent(() => import("./components/retouches/RetouchesPage.vue"));
 const StockArticleMobileList = defineAsyncComponent(() => import("./components/stock/StockArticleMobileList.vue"));
+const StockFinancialSummary = defineAsyncComponent(() => import("./components/stock/StockFinancialSummary.vue"));
 const VenteDraftMobileList = defineAsyncComponent(() => import("./components/stock/VenteDraftMobileList.vue"));
 const VenteMobileList = defineAsyncComponent(() => import("./components/stock/VenteMobileList.vue"));
 const AtelierNotificationsPage = defineAsyncComponent(() => import("./components/notifications/AtelierNotificationsPage.vue"));
@@ -377,12 +383,20 @@ const newArticle = reactive({
   categorieArticle: "TISSU",
   uniteStock: "METRE",
   quantiteDisponible: "",
-  prixAchatInitial: "",
+  prixAchatMode: PURCHASE_PRICE_MODES.UNIT,
+  prixAchatSaisi: "",
   prixVenteUnitaire: "",
   seuilAlerte: ""
 });
 const showNewArticle = ref(false);
 const stockListRef = ref(null);
+const stockPriceHistoryModal = reactive({
+  open: false,
+  loading: false,
+  error: "",
+  article: null,
+  rows: []
+});
 
 const filters = reactive({
   statut: "ALL",
@@ -1612,7 +1626,17 @@ const actionModal = reactive({
   stacked: false,
   fields: [],
   values: {},
+  summaryBuilder: null,
   error: ""
+});
+const actionModalSummary = computed(() => {
+  if (typeof actionModal.summaryBuilder !== "function") return [];
+  try {
+    const rows = actionModal.summaryBuilder(actionModal.values);
+    return Array.isArray(rows) ? rows.filter((row) => row?.label && row?.value !== undefined) : [];
+  } catch {
+    return [];
+  }
 });
 let settingsConfirmResolver = null;
 let actionModalResolver = null;
@@ -3576,7 +3600,8 @@ function openActionModal({
   cancelLabel = "Annuler",
   tone = "blue",
   fields = [],
-  stacked = false
+  stacked = false,
+  summaryBuilder = null
 }) {
   actionModal.title = title;
   actionModal.message = message;
@@ -3585,6 +3610,7 @@ function openActionModal({
   actionModal.tone = tone;
   actionModal.stacked = stacked === true;
   actionModal.fields = fields;
+  actionModal.summaryBuilder = typeof summaryBuilder === "function" ? summaryBuilder : null;
   actionModal.error = "";
   actionModal.values = fields.reduce((acc, field) => {
     acc[field.key] = field.defaultValue ?? "";
@@ -3600,6 +3626,7 @@ function openActionModal({
 function closeActionModal(payload) {
   actionModal.open = false;
   actionModal.stacked = false;
+  actionModal.summaryBuilder = null;
   if (actionModalResolver) {
     actionModalResolver(payload);
     actionModalResolver = null;
@@ -6945,6 +6972,28 @@ const retoucheMeasuresConfigError = computed(() => {
   if (!retoucheMeasuresRequired.value) return "";
   if (retoucheMesureFields.value.length > 0) return "";
   return "Configuration invalide: aucune mesure n'est definie pour ce type de retouche.";
+});
+
+const stockFinancialSummary = computed(() => calculateStockFinancialSummary(stockArticles.value));
+const newArticlePurchasePreview = computed(() =>
+  resolvePurchaseEntry({
+    quantity: newArticle.quantiteDisponible,
+    mode: newArticle.prixAchatMode,
+    amount: newArticle.prixAchatSaisi
+  })
+);
+const newArticleFinancialPreview = computed(() => {
+  const purchase = newArticlePurchasePreview.value;
+  const rawSalePrice = newArticle.prixVenteUnitaire;
+  const hasSalePrice = rawSalePrice !== "" && rawSalePrice !== null && rawSalePrice !== undefined;
+  const saleUnitPrice = Number(rawSalePrice);
+  const salePriceReady = hasSalePrice && Number.isFinite(saleUnitPrice) && saleUnitPrice >= 0;
+  const potentialSaleValue = purchase.valid && salePriceReady ? purchase.quantity * saleUnitPrice : 0;
+  return {
+    salePriceReady,
+    potentialSaleValue,
+    potentialGrossProfit: potentialSaleValue - (purchase.valid ? purchase.totalAmount : 0)
+  };
 });
 
 const lowStockArticles = computed(() =>
@@ -11883,6 +11932,8 @@ function normalizeStockArticle(raw) {
   return {
     idArticle: raw.idArticle || raw.id_article,
     nomArticle: raw.nomArticle || raw.nom_article,
+    categorieArticle: raw.categorieArticle || raw.categorie_article || "",
+    uniteStock: raw.uniteStock || raw.unite_stock || "",
     quantiteDisponible: Number(raw.quantiteDisponible ?? raw.quantite_disponible ?? 0),
     prixAchatMoyen: Number(raw.prixAchatMoyen ?? raw.prix_achat_moyen ?? 0),
     prixVenteUnitaire: Number(raw.prixVenteUnitaire ?? raw.prix_vente_unitaire ?? 0),
@@ -13819,7 +13870,8 @@ function resetNewArticle() {
   newArticle.categorieArticle = "TISSU";
   newArticle.uniteStock = "METRE";
   newArticle.quantiteDisponible = "";
-  newArticle.prixAchatInitial = "";
+  newArticle.prixAchatMode = PURCHASE_PRICE_MODES.UNIT;
+  newArticle.prixAchatSaisi = "";
   newArticle.prixVenteUnitaire = "";
   newArticle.seuilAlerte = "";
 }
@@ -13839,7 +13891,11 @@ async function onCreateArticle() {
     return;
   }
   const quantite = Number(newArticle.quantiteDisponible || 0);
-  const prixAchatInitial = Number(newArticle.prixAchatInitial || 0);
+  const achatInitial = resolvePurchaseEntry({
+    quantity: quantite,
+    mode: newArticle.prixAchatMode,
+    amount: newArticle.prixAchatSaisi
+  });
   const prix = Number(newArticle.prixVenteUnitaire || 0);
   const seuil = Number(newArticle.seuilAlerte || 0);
 
@@ -13855,8 +13911,8 @@ async function onCreateArticle() {
     notify("Prix unitaire invalide.");
     return;
   }
-  if (Number.isNaN(prixAchatInitial) || prixAchatInitial < 0) {
-    notify("Prix d'achat initial invalide.");
+  if (!achatInitial.valid) {
+    notify(achatInitial.error || "Cout d'achat initial invalide.");
     return;
   }
   if (Number.isNaN(seuil) || seuil < 0) {
@@ -13870,10 +13926,14 @@ async function onCreateArticle() {
       categorieArticle: newArticle.categorieArticle,
       uniteStock: newArticle.uniteStock,
       quantiteDisponible: quantite,
-      prixAchatInitial,
       prixVenteUnitaire: prix,
       seuilAlerte: seuil
     };
+    if (achatInitial.mode === PURCHASE_PRICE_MODES.LOT_TOTAL) {
+      payload.montantAchatInitialTotal = achatInitial.totalAmount;
+    } else {
+      payload.prixAchatInitialUnitaire = achatInitial.unitPrice;
+    }
     const created = await atelierApi.createArticle(payload);
     stockArticles.value.unshift(normalizeStockArticle(created));
     resetNewArticle();
@@ -14087,11 +14147,32 @@ async function onAcheterStock(article) {
   }
   const payload = await openActionModal({
     title: "Acheter du stock",
-    message: `Cet achat augmentera le stock de ${article.nomArticle} et enregistrera une sortie de caisse.`,
-    confirmLabel: "Confirmer l'achat",
+    message: `Enregistrez l'achat de ${article.nomArticle}. Vous pouvez saisir soit le prix d'une unite, soit le montant total paye pour le lot.`,
+    confirmLabel: "Enregistrer l'achat",
     fields: [
-      { key: "quantite", label: "Quantite", type: "number", required: true, min: 1, defaultValue: 1 },
-      { key: "prixAchatUnitaire", label: "Prix d'achat unitaire", type: "number", required: true, min: 0, defaultValue: 0 },
+      { key: "quantite", label: "Quantite achetee", type: "number", required: true, min: 0.01, step: "0.01", defaultValue: 1 },
+      {
+        key: "prixAchatMode",
+        label: "Mode de saisie du cout",
+        type: "select",
+        required: true,
+        defaultValue: PURCHASE_PRICE_MODES.UNIT,
+        options: [
+          { value: PURCHASE_PRICE_MODES.UNIT, label: "Prix d'achat pour 1 unite" },
+          { value: PURCHASE_PRICE_MODES.LOT_TOTAL, label: "Montant total paye pour le lot" }
+        ],
+        help: "Choisissez le montant que vous connaissez reellement sur la facture ou le recu."
+      },
+      {
+        key: "prixAchatSaisi",
+        label: `Montant d'achat (${atelierDevise.value})`,
+        type: "number",
+        required: true,
+        min: 0,
+        step: "0.01",
+        defaultValue: 0,
+        help: "AtelierPro calculera automatiquement le cout unitaire et le total correspondant."
+      },
       {
         key: "sourceFinancement",
         label: "Argent a utiliser",
@@ -14106,38 +14187,52 @@ async function onAcheterStock(article) {
       },
       { key: "fournisseur", label: "Fournisseur (optionnel)", type: "text", defaultValue: "" },
       { key: "referenceAchat", label: "Reference achat (optionnel)", type: "text", defaultValue: "" }
-    ]
+    ],
+    summaryBuilder: (values) => {
+      const preview = resolvePurchaseEntry({
+        quantity: values.quantite,
+        mode: values.prixAchatMode,
+        amount: values.prixAchatSaisi
+      });
+      if (!preview.valid) return [{ label: "A verifier", value: preview.error }];
+      return [
+        { label: "Cout d'achat unitaire", value: formatCurrency(preview.unitPrice) },
+        { label: "Montant total du lot", value: formatCurrency(preview.totalAmount) }
+      ];
+    }
   });
   if (!payload) return;
 
-  const quantite = Number(payload.quantite);
-  const prixAchatUnitaire = Number(payload.prixAchatUnitaire);
-  if (Number.isNaN(quantite) || quantite <= 0) {
-    notify("Quantite invalide.");
+  const achat = resolvePurchaseEntry({
+    quantity: payload.quantite,
+    mode: payload.prixAchatMode,
+    amount: payload.prixAchatSaisi
+  });
+  if (!achat.valid || achat.quantity <= 0) {
+    notify(achat.error || "Quantite ou cout d'achat invalide.");
     return;
   }
-  if (Number.isNaN(prixAchatUnitaire) || prixAchatUnitaire < 0) {
-    notify("Prix d'achat invalide.");
-    return;
-  }
-  const montantAchat = quantite * prixAchatUnitaire;
+
   const soldeDisponible = currentCaisseAvailableAmount();
-  if (montantAchat > soldeDisponible) {
-    notify(`Achat impossible : la caisse disponible est de ${formatCurrency(soldeDisponible)} alors que l'achat demande ${formatCurrency(montantAchat)}.`);
+  if (achat.totalAmount > soldeDisponible) {
+    notify(`Achat impossible : la caisse disponible est de ${formatCurrency(soldeDisponible)} alors que l'achat demande ${formatCurrency(achat.totalAmount)}.`);
     return;
   }
 
   try {
-    await atelierApi.entrerStockArticle(article.idArticle, {
-      quantite,
+    const achatPayload = {
+      quantite: achat.quantity,
       motif: "ACHAT",
-      prixAchatUnitaire,
       sourceFinancement: String(payload.sourceFinancement || "SOLDE_CAISSE").trim().toUpperCase(),
       fournisseur: String(payload.fournisseur || "").trim() || null,
       referenceAchat: String(payload.referenceAchat || "").trim() || null
-    });
+    };
+    if (achat.mode === PURCHASE_PRICE_MODES.LOT_TOTAL) achatPayload.montantAchatTotal = achat.totalAmount;
+    else achatPayload.prixAchatUnitaire = achat.unitPrice;
+
+    await atelierApi.entrerStockArticle(article.idArticle, achatPayload);
     await reloadAll();
-    notify(`Achat enregistre: ${article.nomArticle}`);
+    notify(`Achat enregistre: ${article.nomArticle} - ${formatCurrency(achat.totalAmount)}`);
   } catch (err) {
     const message = readableError(err);
     if (isCaisseClosedMessage(message)) {
@@ -14181,24 +14276,100 @@ async function onCreerVenteEtFacturer() {
   }
 }
 
+async function onVoirHistoriquePrixStock(article) {
+  if (!canManageStockArticles.value) {
+    notify("Acces refuse: historique des prix reserve a la gestion du stock.");
+    return;
+  }
+  stockPriceHistoryModal.open = true;
+  stockPriceHistoryModal.loading = true;
+  stockPriceHistoryModal.error = "";
+  stockPriceHistoryModal.article = article;
+  stockPriceHistoryModal.rows = [];
+  try {
+    const rows = await atelierApi.listHistoriquePrixArticle(article.idArticle);
+    stockPriceHistoryModal.rows = Array.isArray(rows) ? rows : [];
+  } catch (err) {
+    stockPriceHistoryModal.error = readableError(err);
+  } finally {
+    stockPriceHistoryModal.loading = false;
+  }
+}
+
+function closeStockPriceHistoryModal() {
+  stockPriceHistoryModal.open = false;
+  stockPriceHistoryModal.loading = false;
+  stockPriceHistoryModal.error = "";
+  stockPriceHistoryModal.article = null;
+  stockPriceHistoryModal.rows = [];
+}
+
+function stockPriceHistoryTypeLabel(row) {
+  return row?.typePrix === "ACHAT_MOYEN" ? "Cout d'achat moyen" : "Prix de vente";
+}
+
 async function onModifierArticleStock(article) {
   if (!canManageStockArticles.value) {
     notify("Acces refuse: gestion de stock reservee.");
     return;
   }
+  const currentPurchaseCost = Number(article.prixAchatMoyen || 0);
   const payload = await openActionModal({
     title: "Modifier l'article",
-    message: `Mettre a jour le prix de vente et le seuil d'alerte pour ${article.nomArticle}.`,
+    message: `Corrigez les valeurs actuelles de ${article.nomArticle}. Une correction du cout d'achat est journalisee et ne modifie jamais les ventes deja validees.`,
     confirmLabel: "Enregistrer",
     fields: [
-      { key: "prixVenteUnitaire", label: "Prix de vente unitaire", type: "number", required: true, min: 0, defaultValue: Number(article.prixVenteUnitaire || 0) },
-      { key: "seuilAlerte", label: "Seuil d'alerte", type: "number", required: true, min: 0, defaultValue: Number(article.seuilAlerte || 0) }
-    ]
+      {
+        key: "prixAchatMoyen",
+        label: `Cout d'achat moyen unitaire (${atelierDevise.value})`,
+        type: "number",
+        required: true,
+        min: 0,
+        step: "0.01",
+        defaultValue: currentPurchaseCost,
+        help: "Corrigez uniquement si la valeur actuellement enregistree est erronee."
+      },
+      {
+        key: "motifCorrectionPrixAchat",
+        label: "Motif de correction du cout d'achat",
+        type: "textarea",
+        required: false,
+        placeholder: "Ex. Le montant total du lot avait ete saisi comme prix unitaire.",
+        help: "Obligatoire uniquement si le cout d'achat change."
+      },
+      { key: "prixVenteUnitaire", label: `Prix de vente unitaire (${atelierDevise.value})`, type: "number", required: true, min: 0, step: "0.01", defaultValue: Number(article.prixVenteUnitaire || 0) },
+      { key: "seuilAlerte", label: "Seuil d'alerte", type: "number", required: true, min: 0, step: "0.01", defaultValue: Number(article.seuilAlerte || 0) }
+    ],
+    summaryBuilder: (values) => {
+      const nextCost = Number(values.prixAchatMoyen);
+      const quantity = Number(article.quantiteDisponible || 0);
+      if (!Number.isFinite(nextCost) || nextCost < 0) return [];
+      const potentialSaleValue = quantity * Number(values.prixVenteUnitaire || 0);
+      const stockPurchaseValue = quantity * nextCost;
+      return [
+        { label: "Ancien cout unitaire", value: formatCurrency(currentPurchaseCost) },
+        { label: "Nouveau cout unitaire", value: formatCurrency(nextCost) },
+        { label: "Valeur du stock apres correction", value: formatCurrency(stockPurchaseValue) },
+        { label: "Benefice brut potentiel du stock", value: formatCurrency(potentialSaleValue - stockPurchaseValue) }
+      ];
+    }
   });
   if (!payload) return;
 
+  const prixAchatMoyen = Number(payload.prixAchatMoyen);
   const prixVenteUnitaire = Number(payload.prixVenteUnitaire);
   const seuilAlerte = Number(payload.seuilAlerte);
+  const costChanges = prixAchatMoyen !== currentPurchaseCost;
+  const motifCorrectionPrixAchat = String(payload.motifCorrectionPrixAchat || "").trim();
+
+  if (!Number.isFinite(prixAchatMoyen) || prixAchatMoyen < 0) {
+    notify("Cout d'achat moyen invalide.");
+    return;
+  }
+  if (costChanges && motifCorrectionPrixAchat.length < 3) {
+    notify("Indiquez le motif de la correction du cout d'achat.");
+    return;
+  }
   if (Number.isNaN(prixVenteUnitaire) || prixVenteUnitaire < 0) {
     notify("Prix de vente invalide.");
     return;
@@ -14209,9 +14380,14 @@ async function onModifierArticleStock(article) {
   }
 
   try {
-    await atelierApi.updateStockArticle(article.idArticle, { prixVenteUnitaire, seuilAlerte });
+    await atelierApi.updateStockArticle(article.idArticle, {
+      prixAchatMoyen,
+      motifCorrectionPrixAchat: costChanges ? motifCorrectionPrixAchat : undefined,
+      prixVenteUnitaire,
+      seuilAlerte
+    });
     await reloadAll();
-    notify(`Article mis a jour: ${article.nomArticle}`);
+    notify(costChanges ? `Article et cout d'achat corriges: ${article.nomArticle}` : `Article mis a jour: ${article.nomArticle}`);
   } catch (err) {
     notify(readableError(err));
   }
@@ -16616,6 +16792,11 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             <button class="mini-btn" @click="scrollToStockList">Voir la liste</button>
           </article>
 
+          <StockFinancialSummary
+            :summary="stockFinancialSummary"
+            :format-currency="formatCurrency"
+          />
+
           <article class="panel">
             <div class="panel-header">
               <h3>Gestion articles</h3>
@@ -16653,8 +16834,37 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   <input v-model="newArticle.quantiteDisponible" type="number" min="0" />
                 </div>
                 <div class="form-row">
-                  <label>Prix d'achat initial</label>
-                  <input v-model="newArticle.prixAchatInitial" type="number" min="0" step="0.01" />
+                  <label>Mode de saisie du cout d'achat</label>
+                  <select v-model="newArticle.prixAchatMode">
+                    <option :value="PURCHASE_PRICE_MODES.UNIT">Prix d'achat pour 1 unite</option>
+                    <option :value="PURCHASE_PRICE_MODES.LOT_TOTAL">Montant total du lot</option>
+                  </select>
+                  <p class="helper">Choisissez la valeur que vous connaissez reellement. AtelierPro calcule l'autre automatiquement.</p>
+                </div>
+                <div class="form-row">
+                  <label>
+                    {{ newArticle.prixAchatMode === PURCHASE_PRICE_MODES.LOT_TOTAL ? `Montant total du lot (${atelierDevise})` : `Prix d'achat unitaire initial (${atelierDevise})` }}
+                  </label>
+                  <input v-model="newArticle.prixAchatSaisi" type="number" min="0" step="0.01" />
+                  <div v-if="newArticlePurchasePreview.valid" class="action-modal-summary" aria-live="polite">
+                    <div class="action-modal-summary__row">
+                      <span>Cout d'achat unitaire</span>
+                      <strong>{{ formatCurrency(newArticlePurchasePreview.unitPrice) }}</strong>
+                    </div>
+                    <div class="action-modal-summary__row">
+                      <span>Valeur d'achat du stock initial</span>
+                      <strong>{{ formatCurrency(newArticlePurchasePreview.totalAmount) }}</strong>
+                    </div>
+                    <div v-if="newArticleFinancialPreview.salePriceReady" class="action-modal-summary__row">
+                      <span>Valeur de vente potentielle</span>
+                      <strong>{{ formatCurrency(newArticleFinancialPreview.potentialSaleValue) }}</strong>
+                    </div>
+                    <div v-if="newArticleFinancialPreview.salePriceReady" class="action-modal-summary__row">
+                      <span>Benefice brut potentiel</span>
+                      <strong>{{ formatCurrency(newArticleFinancialPreview.potentialGrossProfit) }}</strong>
+                    </div>
+                  </div>
+                  <p v-else class="auth-error">{{ newArticlePurchasePreview.error }}</p>
                 </div>
                 <div class="form-row">
                   <label>Prix de vente unitaire</label>
@@ -16696,6 +16906,7 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                   @adjust="onApprovisionnerStock"
                   @buy="onAcheterStock"
                   @edit="onModifierArticleStock"
+                  @history="onVoirHistoriquePrixStock"
                 />
               </template>
 
@@ -16705,8 +16916,8 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                     <tr>
                       <th>Article</th>
                       <th>Quantite</th>
-                      <th>Prix achat moyen</th>
-                      <th>Prix vente</th>
+                      <th>Cout achat moyen / unite</th>
+                      <th>Prix vente / unite</th>
                       <th>Seuil</th>
                       <th>Etat</th>
                       <th>Approvisionnement</th>
@@ -16753,12 +16964,13 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
                           <button v-if="canManageStockAdjustments" class="mini-btn" @click="onApprovisionnerStock(article)">Entrer</button>
                           <button v-if="canManageStockPurchases" class="mini-btn" @click="onAcheterStock(article)">Acheter</button>
                           <button v-if="canManageStockArticles" class="mini-btn" @click="onModifierArticleStock(article)">Modifier</button>
+                          <button v-if="canManageStockArticles" class="mini-btn" @click="onVoirHistoriquePrixStock(article)">Historique</button>
                         </template>
                         <span v-else class="helper">Lecture seule</span>
                       </td>
                     </tr>
                     <tr v-if="stockArticles.length === 0">
-                      <td colspan="6">{{ networkIsOnline ? "Aucun article en stock." : "Aucun article disponible hors ligne." }}</td>
+                      <td colspan="7">{{ networkIsOnline ? "Aucun article en stock." : "Aucun article disponible hors ligne." }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -21000,6 +21212,39 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
     </div>
   </div>
 
+  <div v-if="stockPriceHistoryModal.open" class="modal-backdrop" @click.self="closeStockPriceHistoryModal">
+    <div class="modal-card">
+      <header class="modal-header">
+        <div>
+          <h3>Historique des prix</h3>
+          <p class="helper">{{ stockPriceHistoryModal.article?.nomArticle || "Article" }}</p>
+        </div>
+        <button type="button" class="mini-btn" @click="closeStockPriceHistoryModal">Fermer</button>
+      </header>
+      <section class="modal-body stack-form">
+        <p class="helper">Chaque correction conserve l'ancienne valeur, la nouvelle valeur, la date, l'utilisateur et le motif lorsqu'il s'agit du cout d'achat.</p>
+        <p v-if="stockPriceHistoryModal.loading" class="helper" role="status">Chargement de l'historique...</p>
+        <p v-else-if="stockPriceHistoryModal.error" class="auth-error">{{ stockPriceHistoryModal.error }}</p>
+        <p v-else-if="stockPriceHistoryModal.rows.length === 0" class="helper">Aucune modification de prix enregistree pour cet article.</p>
+        <div v-else class="stock-price-history-list">
+          <article v-for="row in stockPriceHistoryModal.rows" :key="row.idHistorique" class="stock-price-history-item">
+            <div class="stock-price-history-item__head">
+              <strong>{{ stockPriceHistoryTypeLabel(row) }}</strong>
+              <span>{{ formatDateTime(row.dateModification) }}</span>
+            </div>
+            <div class="stock-price-history-values">
+              <span>{{ formatCurrency(row.ancienPrix) }}</span>
+              <span aria-hidden="true">→</span>
+              <strong>{{ formatCurrency(row.nouveauPrix) }}</strong>
+            </div>
+            <p v-if="row.motifCorrection" class="helper"><strong>Motif :</strong> {{ row.motifCorrection }}</p>
+            <p class="helper"><strong>Par :</strong> {{ row.modifiePar || "Utilisateur non renseigne" }}</p>
+          </article>
+        </div>
+      </section>
+    </div>
+  </div>
+
   <div
     v-if="actionModal.open"
     class="modal-backdrop"
@@ -21028,9 +21273,17 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
             v-model="actionModal.values[field.key]"
             :type="field.type || 'text'"
             :min="field.min"
+            :step="field.step"
             :placeholder="field.placeholder || ''"
           />
+          <small v-if="field.help" class="helper">{{ field.help }}</small>
         </label>
+        <div v-if="actionModalSummary.length" class="action-modal-summary" aria-live="polite">
+          <div v-for="row in actionModalSummary" :key="row.label" class="action-modal-summary__row">
+            <span>{{ row.label }}</span>
+            <strong>{{ row.value }}</strong>
+          </div>
+        </div>
         <p v-if="actionModal.error" class="auth-error">{{ actionModal.error }}</p>
         <div class="modal-actions">
           <button ref="actionCancelButtonRef" class="mini-btn" @click="closeActionModal(null)">{{ actionModal.cancelLabel }}</button>
@@ -21468,6 +21721,65 @@ async function loadRetoucheDetail(idRetouche, { preserveExisting = true } = {}) 
 .audit-journal-line strong[data-tone="out"],
 .audit-signed-amount[data-tone="out"] {
   color: #b74235;
+}
+
+.stock-price-history-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(60vh, 560px);
+  overflow: auto;
+}
+
+.stock-price-history-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d9e4ef;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.stock-price-history-item__head,
+.stock-price-history-values {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stock-price-history-item__head span {
+  font-size: 0.82rem;
+  opacity: 0.72;
+}
+
+.stock-price-history-values {
+  justify-content: flex-start;
+  font-size: 0.95rem;
+}
+
+.action-modal-summary {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d9e4ef;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.action-modal-summary__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.action-modal-summary__row span {
+  font-size: 0.86rem;
+  opacity: 0.78;
+}
+
+.action-modal-summary__row strong {
+  text-align: right;
 }
 </style>
 

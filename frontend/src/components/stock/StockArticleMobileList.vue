@@ -29,7 +29,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(["adjust", "buy", "edit"]);
+const emit = defineEmits(["adjust", "buy", "edit", "history"]);
 
 function toneFor(article) {
   if (article?.actif === false) return "default";
@@ -65,13 +65,18 @@ function metaItemsFor(article) {
     },
     {
       key: "achat",
-      label: "Prix achat",
+      label: "Cout achat / unite",
       value: props.formatCurrency(article?.prixAchatMoyen)
     },
     {
       key: "vente",
-      label: "Prix vente",
+      label: "Prix vente / unite",
       value: props.formatCurrency(article?.prixVenteUnitaire)
+    },
+    {
+      key: "valeur-stock",
+      label: "Valeur du stock au cout d'achat",
+      value: props.formatCurrency(Number(article?.quantiteDisponible || 0) * Number(article?.prixAchatMoyen || 0))
     },
     {
       key: "seuil",
@@ -132,6 +137,7 @@ function inputFor(article) {
             <div class="stock-article-mobile-list__secondary">
               <button v-if="canManageStockPurchases" type="button" class="mini-btn" @click="emit('buy', article)">Acheter</button>
               <button v-if="canManageStockArticles" type="button" class="mini-btn" @click="emit('edit', article)">Modifier</button>
+              <button v-if="canManageStockArticles" type="button" class="mini-btn" @click="emit('history', article)">Historique</button>
             </div>
           </div>
 
