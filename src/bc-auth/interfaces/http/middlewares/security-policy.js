@@ -62,22 +62,6 @@ export async function securityPolicy(req, res, next) {
     return authError(res, "Session invalide");
   }
 
-  // Les nouveaux jetons portent une version de session. Les anciens jetons sans
-  // version restent acceptes pendant la transition de production afin d'eviter
-  // une deconnexion massive au deploiement.
-  if (req.auth.tokenVersion !== null && Number(req.auth.tokenVersion) !== Number(user.tokenVersion || 1)) {
-    await logSecurityAudit({
-      utilisateurId: user.id,
-      role: user.roleId,
-      atelierId: user.atelierId || null,
-      action: "TOKEN_VERSION_REFUS",
-      entite: req.path,
-      succes: false,
-      raison: "token_version_obsolete"
-    });
-    return authError(res, "Session invalide");
-  }
-
   const etatCompte = normalizeAccountState(user.etatCompte || (user.actif === false ? ACCOUNT_STATES.DISABLED : ACCOUNT_STATES.ACTIVE));
   if (etatCompte !== ACCOUNT_STATES.ACTIVE) {
     await logSecurityAudit({
@@ -134,6 +118,22 @@ export async function securityPolicy(req, res, next) {
       });
       return authError(res, "Atelier inactif");
     }
+  }
+
+  // Les nouveaux jetons portent une version de session. Les anciens jetons sans
+  // version restent acceptes pendant la transition de production afin d'eviter
+  // une deconnexion massive au deploiement.
+  if (req.auth.tokenVersion !== null && Number(req.auth.tokenVersion) !== Number(user.tokenVersion || 1)) {
+    await logSecurityAudit({
+      utilisateurId: user.id,
+      role: user.roleId,
+      atelierId: user.atelierId || null,
+      action: "TOKEN_VERSION_REFUS",
+      entite: req.path,
+      succes: false,
+      raison: "token_version_obsolete"
+    });
+    return authError(res, "Session invalide");
   }
 
   const rolePerm = await rolePermissionRepo.get(userAtelierId, user.roleId);

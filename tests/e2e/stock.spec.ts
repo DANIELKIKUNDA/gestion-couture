@@ -40,7 +40,7 @@ test("affiche la valorisation et audite une correction du cout d'achat", async (
   await gotoStock(page);
 
   await expect(page.getByText(/Valeur actuelle au cout d'achat/i)).toBeVisible();
-  await expect(page.getByText(/Valeur de vente potentielle/i)).toBeVisible();
+  await expect(page.getByText("Valeur de vente potentielle", { exact: true })).toBeVisible();
   await expect(page.getByText(/Benefice brut potentiel/i)).toBeVisible();
   await expect(page.getByText(/8[\s\u202f]?000\s*FC/i)).toBeVisible();
   await expect(page.getByText(/12[\s\u202f]?000\s*FC/i)).toBeVisible();

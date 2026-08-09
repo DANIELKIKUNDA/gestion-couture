@@ -326,7 +326,7 @@ function readAccountLastRoute() {
 }
 
 function applyPreferredAccountStartRoute() {
-  if (!isAuthenticated.value) return;
+  if (!isAuthenticated.value || currentRoute.value !== "dashboard") return;
   const preferences = accountPreferences.value || {};
   const lastRoute = preferences.restaurerDernierePage !== false ? readAccountLastRoute() : "";
   const preferred = lastRoute || String(preferences.pageAccueil || "").trim();

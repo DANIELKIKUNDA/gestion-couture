@@ -38,7 +38,7 @@ defineEmits(["click"]);
 <style scoped>
 .mobile-floating-create {
   position: fixed;
-  top: 52%;
+  bottom: calc(76px + env(safe-area-inset-bottom));
   right: max(12px, env(safe-area-inset-right));
   z-index: 35;
   display: inline-flex;
@@ -59,7 +59,6 @@ defineEmits(["click"]);
   box-shadow: 0 18px 42px rgba(13, 35, 68, 0.24);
   backdrop-filter: blur(16px);
   cursor: pointer;
-  transform: translateY(-50%);
   animation: mobile-floating-create-in 0.2s ease;
 }
 
@@ -94,11 +93,11 @@ defineEmits(["click"]);
 @keyframes mobile-floating-create-in {
   from {
     opacity: 0;
-    transform: translate(8px, -50%) scale(0.96);
+    transform: translate(8px, 0) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translate(0, -50%) scale(1);
+    transform: translate(0, 0) scale(1);
   }
 }
 

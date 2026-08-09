@@ -13,13 +13,13 @@ test("ouvre Mon compte et enregistre des preferences personnelles", async ({ pag
   const actor = await createActor("account");
   await loginInBrowser(page, actor);
 
-  await page.getByRole("button", { name: /Ouvrir mon compte/i }).click();
+  await page.getByTitle("Ouvrir mon compte").click();
   await expect(page.getByText(/ESPACE PERSONNEL/i)).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("button", { name: /^Profil$/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Securite$/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Preferences$/i })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /^Profil$/i })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /^Securite$/i })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /^Preferences$/i })).toBeVisible();
 
-  await page.getByRole("button", { name: /^Preferences$/i }).click();
+  await page.getByRole("tab", { name: /^Preferences$/i }).click();
   const homeSelect = page.getByLabel(/Page d'accueil preferee/i);
   await expect(homeSelect).toBeVisible();
   await homeSelect.selectOption("caisse");
