@@ -6,6 +6,7 @@ import {
   fingerprintDirectory,
   parseEnvFile,
   parseProperties,
+  removeEmptyCapacitorPlaceholders,
   validateAndroidApiUrl,
   verifyCopiedAssets
 } from "./android-release-lib.mjs";
@@ -113,6 +114,10 @@ async function buildAndSync() {
   writeFileSync(releaseInfoFile, `${JSON.stringify(releaseInfo, null, 2)}\n`, "utf8");
 
   runNpm(["exec", "--", "cap", "sync", "android"]);
+  const removedPlaceholders = await removeEmptyCapacitorPlaceholders(androidPublicRoot);
+  if (removedPlaceholders.length) {
+    console.log(`[AtelierPro Android] Placeholders Capacitor vides retires: ${removedPlaceholders.join(", ")}`);
+  }
   const verification = await verifyCopiedAssets(distRoot, androidPublicRoot);
   if (!verification.ok) {
     console.error(verification.mismatches.slice(0, 20));

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 
 export function parseProperties(text = "") {
@@ -125,4 +125,16 @@ export async function verifyCopiedAssets(distRoot, androidPublicRoot) {
     copiedFileCount: copied.files.length,
     mismatches
   };
+}
+
+export async function removeEmptyCapacitorPlaceholders(androidPublicRoot) {
+  const removed = [];
+  for (const file of ["cordova.js", "cordova_plugins.js"]) {
+    const filePath = path.join(androidPublicRoot, file);
+    const fileStat = await stat(filePath).catch(() => null);
+    if (!fileStat?.isFile() || fileStat.size !== 0) continue;
+    await unlink(filePath);
+    removed.push(file);
+  }
+  return removed;
 }

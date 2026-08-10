@@ -7,6 +7,7 @@ import {
   fingerprintDirectory,
   parseEnvFile,
   parseProperties,
+  removeEmptyCapacitorPlaceholders,
   validateAndroidApiUrl,
   verifyCopiedAssets
 } from "../frontend/scripts/android-release-lib.mjs";
@@ -36,6 +37,18 @@ async function run() {
     const fingerprint = await fingerprintDirectory(dist);
     assert.equal(fingerprint.files.length, 2);
     assert.equal((await verifyCopiedAssets(dist, copied)).ok, true);
+
+    await writeFile(path.join(copied, "cordova.js"), "");
+    await writeFile(path.join(copied, "cordova_plugins.js"), "");
+    assert.deepEqual(await removeEmptyCapacitorPlaceholders(copied), ["cordova.js", "cordova_plugins.js"]);
+    assert.equal((await verifyCopiedAssets(dist, copied)).ok, true);
+
+    await writeFile(path.join(copied, "cordova.js"), "plugin-content");
+    assert.deepEqual(await removeEmptyCapacitorPlaceholders(copied), []);
+    const nonEmptyPlaceholder = await verifyCopiedAssets(dist, copied);
+    assert.equal(nonEmptyPlaceholder.ok, false);
+    assert.ok(nonEmptyPlaceholder.mismatches.some((entry) => entry.reason === "unexpected" && entry.file === "cordova.js"));
+    await rm(path.join(copied, "cordova.js"), { force: true });
 
     await writeFile(path.join(copied, "assets", "app.js"), "console.log('old')");
     const stale = await verifyCopiedAssets(dist, copied);
