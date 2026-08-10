@@ -7,21 +7,24 @@
     "dev": "vite",
     "build": "vite build",
     "build:local": "node scripts/build-local.mjs",
-    "build:android": "vite build --mode android",
+    "build:android": "node scripts/android-release.mjs prepare",
     "cap:sync": "npx cap sync android",
     "cap:open": "npx cap open android",
-    "android:apk": "cd android && gradlew.bat assembleDebug",
-    "android:aab": "cd android && gradlew.bat bundleRelease",
-    "preview": "vite preview"
+    "android:apk": "node scripts/android-release.mjs apk",
+    "android:aab": "node scripts/android-release.mjs aab",
+    "preview": "vite preview",
+    "build:android:web": "vite build --mode android",
+    "android:prepare": "node scripts/android-release.mjs prepare",
+    "android:verify-assets": "node scripts/android-release.mjs verify"
   },
   "dependencies": {
     "dexie": "^4.3.0",
     "vue": "^3.4.0"
   },
   "devDependencies": {
-    "@capacitor/android": "^8.3.2",
+    "@capacitor/android": "^7.6.3",
     "@capacitor/cli": "^7.6.3",
-    "@capacitor/core": "^8.3.2",
+    "@capacitor/core": "^7.6.3",
     "@vitejs/plugin-vue": "^5.0.0",
     "vite": "^5.0.0",
     "vite-plugin-pwa": "^1.2.0"

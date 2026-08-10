@@ -6,8 +6,8 @@
     "scripts": {
         "prepare": "node scripts/prepare-husky.mjs",
         "start": "node src/interfaces/http/server.js",
-        "test": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.activity-balances.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/caisse.bilans.audit.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/stock.purchase-price.test.js && node tests/ventes.usecases.test.js && node tests/stock.finance.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js",
-        "test:backend:stable": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.activity-balances.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/stock.purchase-price.test.js && node tests/ventes.usecases.test.js && node tests/stock.finance.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js",
+        "test": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.activity-balances.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/caisse.bilans.audit.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/stock.purchase-price.test.js && node tests/ventes.usecases.test.js && node tests/stock.finance.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js && node tests/account.preferences.test.js && node tests/android.release.test.js && node tests/theme.service.test.js",
+        "test:backend:stable": "node tests/commandes.usecases.test.js && node tests/retouches.usecases.test.js && node tests/mesures.rules.test.js && node tests/caisse.usecases.test.js && node tests/caisse.activity-balances.test.js && node tests/caisse.automations.test.js && node tests/caisse.ouverture-auto.test.js && node tests/clients.usecases.test.js && node tests/clients.consultation.service.test.js && node tests/auth.password-policy.test.js && node tests/auth.reset.usecases.test.js && node tests/stock.usecases.test.js && node tests/stock.purchase-price.test.js && node tests/ventes.usecases.test.js && node tests/stock.finance.test.js && node tests/facturation.usecases.test.js && node tests/dashboard.metrics.test.js && node tests/account.preferences.test.js",
         "test:e2e": "playwright test",
         "test:e2e:serial": "playwright test --workers=1",
         "test:e2e:headed": "playwright test --headed",
@@ -33,7 +33,10 @@
         "test:e2e:stock": "playwright test tests/e2e/stock.spec.ts --workers=1",
         "test:integration:account": "node tests/integration.auth.account.test.js",
         "test:e2e:account": "playwright test tests/e2e/account.spec.ts --workers=1",
-        "test:e2e:caisse-finance": "playwright test tests/e2e/caisse-finance.spec.ts --workers=1"
+        "test:e2e:caisse-finance": "playwright test tests/e2e/caisse-finance.spec.ts --workers=1",
+        "test:account-preferences": "node tests/account.preferences.test.js",
+        "test:android-release": "node tests/android.release.test.js",
+        "test:theme": "node tests/theme.service.test.js"
     },
     "dependencies": {
         "cors": "^2.8.5",
