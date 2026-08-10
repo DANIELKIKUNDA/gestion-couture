@@ -24,7 +24,7 @@ test("ouvre Mon compte et enregistre des preferences personnelles", async ({ pag
   await expect(homeMode).toBeVisible();
   await homeMode.check();
 
-  const homeSelect = page.getByLabel(/Page d'accueil/i);
+  const homeSelect = page.getByRole("combobox", { name: /Page d'accueil/i });
   await expect(homeSelect).toBeEnabled();
   await homeSelect.selectOption("caisse");
 
