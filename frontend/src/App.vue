@@ -82,6 +82,13 @@ import {
 } from "./utils/stock-finance.js";
 import { getPasswordPolicyError } from "./utils/password-policy.js";
 import {
+  DEFAULT_ACCOUNT_PREFERENCES,
+  normalizeAccountPreferences,
+  resolveAccountStartRoute,
+  toAccountPreferencesPayload
+} from "./utils/account-preferences.js";
+import { applyThemePreference, resetThemePreference } from "./services/theme-service.js";
+import {
   parseDossierVoiceDraft,
   parseCommandeVoiceDraft,
   parseRetoucheVoiceDraft,
@@ -277,16 +284,13 @@ function accountStorageKey(prefix, userId = authUser.value?.id || "") {
 }
 
 function loadCachedAccountPreferences(userId = "") {
-  if (typeof window === "undefined") return { pageAccueil: "dashboard", restaurerDernierePage: true };
+  if (typeof window === "undefined") return { ...DEFAULT_ACCOUNT_PREFERENCES };
   try {
     const raw = window.localStorage.getItem(accountStorageKey(ACCOUNT_PREFERENCES_STORAGE_PREFIX, userId));
     const parsed = raw ? JSON.parse(raw) : null;
-    return {
-      pageAccueil: String(parsed?.pageAccueil || "dashboard"),
-      restaurerDernierePage: parsed?.restaurerDernierePage !== false
-    };
+    return normalizeAccountPreferences(parsed || DEFAULT_ACCOUNT_PREFERENCES);
   } catch {
-    return { pageAccueil: "dashboard", restaurerDernierePage: true };
+    return { ...DEFAULT_ACCOUNT_PREFERENCES };
   }
 }
 
@@ -295,10 +299,7 @@ function persistCachedAccountPreferences(preferences = accountPreferences.value)
   try {
     window.localStorage.setItem(
       accountStorageKey(ACCOUNT_PREFERENCES_STORAGE_PREFIX),
-      JSON.stringify({
-        pageAccueil: String(preferences?.pageAccueil || "dashboard"),
-        restaurerDernierePage: preferences?.restaurerDernierePage !== false
-      })
+      JSON.stringify(toAccountPreferencesPayload(preferences))
     );
   } catch {
     // Preferences server-side remain authoritative; local cache is best effort.
@@ -308,7 +309,7 @@ function persistCachedAccountPreferences(preferences = accountPreferences.value)
 function rememberAccountLastRoute(routeId = "") {
   if (typeof window === "undefined" || !authUser.value?.id) return;
   const route = String(routeId || "").trim();
-  if (!route || route === "account" || route === "forbidden" || route.includes("-detail")) return;
+  if (!route || route === "account" || route === "forbidden" || route === "systemAtelierDetail" || route.includes("-detail")) return;
   try {
     window.localStorage.setItem(accountStorageKey(ACCOUNT_LAST_ROUTE_STORAGE_PREFIX), route);
   } catch {
@@ -326,13 +327,16 @@ function readAccountLastRoute() {
 }
 
 function applyPreferredAccountStartRoute() {
-  if (!isAuthenticated.value || currentRoute.value !== "dashboard") return;
-  const preferences = accountPreferences.value || {};
-  const lastRoute = preferences.restaurerDernierePage !== false ? readAccountLastRoute() : "";
-  const preferred = lastRoute || String(preferences.pageAccueil || "").trim();
-  if (preferred && canAccessRoute(preferred)) {
-    currentRoute.value = preferred;
-  }
+  if (!isAuthenticated.value) return;
+  const defaultRoute = isSystemManager.value ? "systemDashboard" : "dashboard";
+  if (currentRoute.value !== defaultRoute) return;
+  const preferred = resolveAccountStartRoute({
+    preferences: accountPreferences.value,
+    lastRoute: readAccountLastRoute(),
+    canAccessRoute,
+    fallbackRoute: resolveAccessibleRoute(defaultRoute)
+  });
+  if (preferred) currentRoute.value = preferred;
 }
 
 function showAccountSuccess(message) {
@@ -365,12 +369,10 @@ async function loadAccount() {
     }
     const payload = await atelierApi.getAccount();
     accountProfile.value = payload?.profile || null;
-    accountPreferences.value = {
-      pageAccueil: String(payload?.preferences?.pageAccueil || "dashboard"),
-      restaurerDernierePage: payload?.preferences?.restaurerDernierePage !== false
-    };
+    accountPreferences.value = normalizeAccountPreferences(payload?.preferences || DEFAULT_ACCOUNT_PREFERENCES);
     accountSecurity.value = payload?.security || { activeSessions: [], activeSessionCount: 0 };
     persistCachedAccountPreferences(accountPreferences.value);
+    applyThemePreference(accountPreferences.value.theme);
   } catch (err) {
     accountError.value = readableError(err);
   } finally {
@@ -407,9 +409,16 @@ async function saveAccountPreferences(payload) {
   accountSaving.value = true;
   accountError.value = "";
   try {
-    const result = await atelierApi.updateAccountPreferences(payload);
-    accountPreferences.value = result?.preferences || payload;
+    const submitted = toAccountPreferencesPayload(payload);
+    const result = await atelierApi.updateAccountPreferences(submitted);
+    accountPreferences.value = normalizeAccountPreferences(result?.preferences || submitted);
     persistCachedAccountPreferences(accountPreferences.value);
+    applyThemePreference(accountPreferences.value.theme);
+    try {
+      await persistCurrentVerifiedOfflineSession();
+    } catch {
+      // La preference serveur reste valide meme si le snapshot hors ligne local est temporairement indisponible.
+    }
     showAccountSuccess("Preferences enregistrees.");
   } catch (err) {
     accountError.value = readableError(err);
@@ -456,7 +465,7 @@ const showPassword = ref(false);
 const authUser = ref(null);
 const authPermissions = ref([]);
 const accountProfile = ref(null);
-const accountPreferences = ref({ pageAccueil: "dashboard", restaurerDernierePage: true });
+const accountPreferences = ref({ ...DEFAULT_ACCOUNT_PREFERENCES });
 const accountSecurity = ref({ activeSessions: [], activeSessionCount: 0 });
 const accountLoading = ref(false);
 const accountSaving = ref(false);
@@ -7692,7 +7701,8 @@ function applyAuthSession(session) {
     authUser.value = null;
     authPermissions.value = [];
     accountProfile.value = null;
-    accountPreferences.value = { pageAccueil: "dashboard", restaurerDernierePage: true };
+    accountPreferences.value = { ...DEFAULT_ACCOUNT_PREFERENCES };
+    resetThemePreference();
     accountSecurity.value = { activeSessions: [], activeSessionCount: 0 };
     accountError.value = "";
     accountSuccess.value = "";
@@ -7712,12 +7722,10 @@ function applyAuthSession(session) {
   authPermissions.value = Array.from(new Set((session.permissions || []).map((p) => String(p || "").toUpperCase())));
   const serverPreferences = session.preferences && typeof session.preferences === "object" ? session.preferences : null;
   accountPreferences.value = serverPreferences
-    ? {
-        pageAccueil: String(serverPreferences.pageAccueil || "dashboard"),
-        restaurerDernierePage: serverPreferences.restaurerDernierePage !== false
-      }
+    ? normalizeAccountPreferences(serverPreferences)
     : loadCachedAccountPreferences(authUser.value.id);
   if (serverPreferences) persistCachedAccountPreferences(accountPreferences.value);
+  applyThemePreference(accountPreferences.value.theme);
   settingsUser.nom = authUser.value.nom || "";
   settingsUser.role = authUser.value.roleId || "COUTURIER";
 }
@@ -7747,7 +7755,8 @@ async function persistCurrentVerifiedOfflineSession() {
     ...authUser.value,
     roleId: currentRole.value,
     roles: currentRole.value ? [currentRole.value] : [],
-    permissions: authPermissions.value
+    permissions: authPermissions.value,
+    preferences: toAccountPreferencesPayload(accountPreferences.value)
   });
 }
 

@@ -34,10 +34,34 @@ async function run() {
   const preferences = await agentOne
     .put("/api/auth/account/preferences")
     .set("Authorization", `Bearer ${tokenOne}`)
-    .send({ pageAccueil: "caisse", restaurerDernierePage: false });
+    .send({ pageAccueil: "caisse", modeDemarrage: "PAGE_ACCUEIL", restaurerDernierePage: false, theme: "SOMBRE" });
   assert.equal(preferences.status, 200);
   assert.equal(preferences.body.preferences.pageAccueil, "caisse");
+  assert.equal(preferences.body.preferences.modeDemarrage, "PAGE_ACCUEIL");
   assert.equal(preferences.body.preferences.restaurerDernierePage, false);
+  assert.equal(preferences.body.preferences.theme, "SOMBRE");
+
+  const persistedPreferences = await agentOne.get("/api/auth/account").set("Authorization", `Bearer ${tokenOne}`);
+  assert.equal(persistedPreferences.status, 200);
+  assert.equal(persistedPreferences.body.preferences.pageAccueil, "caisse");
+  assert.equal(persistedPreferences.body.preferences.modeDemarrage, "PAGE_ACCUEIL");
+  assert.equal(persistedPreferences.body.preferences.theme, "SOMBRE");
+
+  // Compatibility gate for an already-installed APK that still sends the legacy boolean only.
+  const legacyPreferences = await agentOne
+    .put("/api/auth/account/preferences")
+    .set("Authorization", `Bearer ${tokenOne}`)
+    .send({ pageAccueil: "caisse", restaurerDernierePage: true });
+  assert.equal(legacyPreferences.status, 200);
+  assert.equal(legacyPreferences.body.preferences.modeDemarrage, "DERNIERE_PAGE");
+  assert.equal(legacyPreferences.body.preferences.restaurerDernierePage, true);
+  assert.equal(legacyPreferences.body.preferences.theme, "SOMBRE", "un ancien APK ne doit pas ecraser le theme moderne");
+
+  const restoreHomeMode = await agentOne
+    .put("/api/auth/account/preferences")
+    .set("Authorization", `Bearer ${tokenOne}`)
+    .send({ pageAccueil: "caisse", modeDemarrage: "PAGE_ACCUEIL", theme: "SOMBRE" });
+  assert.equal(restoreHomeMode.status, 200);
 
   const profile = await agentOne
     .patch("/api/auth/account/profile")

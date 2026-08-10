@@ -9,6 +9,7 @@ import { DEFAULT_ROLE_PERMISSIONS } from "../../domain/default-role-permissions.
 import { ACCOUNT_STATES, normalizeAccountState } from "../../domain/account-state.js";
 import { resolveGrantedPermissions } from "../../domain/granted-permissions.js";
 import { validatePasswordPolicy } from "../../domain/password-policy.js";
+import { STARTUP_MODES, USER_THEMES } from "../../domain/utilisateur-preferences.js";
 import { Utilisateur } from "../../domain/utilisateur.js";
 import { hashPassword, verifyPassword } from "../../infrastructure/security/password-hasher.js";
 import { signAccessToken, verifyAccessToken, createOpaqueToken } from "../../infrastructure/security/jwt-service.js";
@@ -2192,7 +2193,10 @@ router.put("/auth/account/preferences", requireAuth, async (req, res) => {
     const schema = z
       .object({
         pageAccueil: z.string().trim().min(1),
-        restaurerDernierePage: z.boolean()
+        modeDemarrage: z.enum(Object.values(STARTUP_MODES)).optional(),
+        theme: z.enum(Object.values(USER_THEMES)).optional(),
+        // Kept so already-installed APKs can update preferences during the rollout.
+        restaurerDernierePage: z.boolean().optional()
       })
       .passthrough();
     const parsed = validateSchema(schema, req.body || {});
@@ -2202,11 +2206,22 @@ router.put("/auth/account/preferences", requireAuth, async (req, res) => {
     }
     const user = await utilisateurRepo.getById(req.auth.utilisateurId);
     if (!user) return res.status(404).json({ error: "Utilisateur introuvable" });
+    const atelierId = user.atelierId || LEGACY_ATELIER_ID;
+    const currentPreferences = await utilisateurPreferencesRepo.get(user.id, atelierId);
+    const legacyMode =
+      typeof parsed.data.restaurerDernierePage === "boolean"
+        ? parsed.data.restaurerDernierePage
+          ? STARTUP_MODES.LAST_PAGE
+          : STARTUP_MODES.HOME_PAGE
+        : null;
+    const modeDemarrage = parsed.data.modeDemarrage || legacyMode || currentPreferences.modeDemarrage;
     const preferences = await utilisateurPreferencesRepo.save({
       utilisateurId: user.id,
-      atelierId: user.atelierId || LEGACY_ATELIER_ID,
+      atelierId,
       pageAccueil: parsed.data.pageAccueil,
-      restaurerDernierePage: parsed.data.restaurerDernierePage
+      modeDemarrage,
+      restaurerDernierePage: modeDemarrage === STARTUP_MODES.LAST_PAGE,
+      theme: parsed.data.theme || currentPreferences.theme
     });
     await logSecurityAudit({
       utilisateurId: user.id,

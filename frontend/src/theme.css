@@ -1,0 +1,378 @@
+/*
+ * AtelierPro account themes.
+ * style.css keeps the historical light design. This file layers a small semantic
+ * token set on top so dark/system modes can be applied without duplicating the app.
+ */
+:root {
+  --surface-app: #e6eaf0;
+  --surface-sidebar: #f2f5f9;
+  --surface-raised: #ffffff;
+  --surface-soft: #f8fafc;
+  --surface-muted: #eef3f8;
+  --field-bg: #ffffff;
+  --field-border: #cdd5e1;
+  --row-alt: #f9fbfe;
+  --row-hover: #eef5ff;
+  --overlay: rgba(14, 28, 46, 0.42);
+}
+
+html[data-theme="dark"] {
+  --bg: #0f1724;
+  --panel: #182334;
+  --stroke: #33445b;
+  --text: #e7eef8;
+  --muted: #9fb0c6;
+  --nav: #9cc8ff;
+  --nav-soft: #7eb4f4;
+  --blue: #78b5ff;
+  --green: #6fd392;
+  --teal: #66d2cf;
+  --slate: #9db8dc;
+  --red: #ff8b82;
+  --amber: #f4b96b;
+  --shadow: 0 12px 30px rgba(0, 0, 0, 0.26);
+  --surface-app: #0f1724;
+  --surface-sidebar: #121d2c;
+  --surface-raised: #182334;
+  --surface-soft: #1d2a3d;
+  --surface-muted: #233149;
+  --field-bg: #111b2a;
+  --field-border: #3a4d67;
+  --row-alt: #1b283a;
+  --row-hover: #22344c;
+  --overlay: rgba(2, 8, 18, 0.72);
+}
+
+html[data-theme="dark"],
+html[data-theme="dark"] body,
+html[data-theme="dark"] #app,
+html[data-theme="dark"] .workspace,
+html[data-theme="dark"] .main,
+html[data-theme="dark"] .content-scroll {
+  background-color: var(--surface-app);
+  color: var(--text);
+}
+
+html[data-theme="dark"] body {
+  background: var(--surface-app);
+}
+
+html[data-theme="dark"] .sidebar {
+  background: var(--surface-sidebar);
+  border-color: var(--stroke);
+}
+
+html[data-theme="dark"] .sidebar-user {
+  background: #162438;
+  border-color: var(--stroke);
+}
+
+html[data-theme="dark"] .sidebar-user-meta strong,
+html[data-theme="dark"] .menu-item,
+html[data-theme="dark"] .mobile-header-copy h2,
+html[data-theme="dark"] .activity-copy strong,
+html[data-theme="dark"] .detail-summary-heading,
+html[data-theme="dark"] .detail-item-title {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .sidebar-user-meta span,
+html[data-theme="dark"] .mobile-header-kicker,
+html[data-theme="dark"] .activity-copy small {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .menu-item:not(.active):hover {
+  background: var(--surface-muted);
+}
+
+html[data-theme="dark"] :where(
+  .panel,
+  .nested-panel,
+  .subtle-panel,
+  .dossier-card,
+  .dossier-workspace-card,
+  .dossier-workspace-card-simple,
+  .client-compact-card,
+  .client-smart-card,
+  .client-insight-card,
+  .detail-item-card,
+  .detail-photo-card,
+  .measure-card,
+  .system-atelier-card,
+  .summary-pill-card,
+  .caisse-source-card,
+  .wizard-item-card,
+  .wizard-inline-client-card,
+  .wizard-measure-progress-card,
+  .beneficiary-card,
+  .order-line-card,
+  .commande-media-card,
+  .modal-card,
+  .modal-card-sm,
+  .modal-card-wizard
+) {
+  background: var(--surface-raised) !important;
+  border-color: var(--stroke) !important;
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+html[data-theme="dark"] :where(
+  .dashboard-hero,
+  .dashboard-role-cashier .dashboard-hero,
+  .dashboard-role-tailor .dashboard-hero,
+  .audit-hub-card,
+  .measure-sidebar,
+  .info-panel,
+  .mobile-modern-filter-panel,
+  .mobile-search-filter-panel,
+  .detail-summary-shell,
+  .detail-items-shell,
+  .vente-pos-panel,
+  .vente-cart-panel
+) {
+  background: linear-gradient(145deg, #1a293d 0%, #172335 100%);
+  border-color: var(--stroke);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .dashboard-hero h3,
+html[data-theme="dark"] .dashboard-hero-eyebrow,
+html[data-theme="dark"] .dashboard-hero-subtitle,
+html[data-theme="dark"] :where(.dashboard-highlight-card strong, .dashboard-focus-panel h3) {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .dashboard-hero-subtitle,
+html[data-theme="dark"] .dashboard-hero-eyebrow {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .mobile-header {
+  background: rgba(24, 35, 52, 0.98);
+  border-color: var(--stroke);
+  box-shadow: var(--shadow);
+}
+
+html[data-theme="dark"] :where(.mobile-header-menu, .mobile-header-notification) {
+  background: linear-gradient(180deg, #23344c 0%, #18283d 100%);
+  border-color: var(--stroke);
+  color: var(--blue);
+}
+
+html[data-theme="dark"] .bottom-nav {
+  background: rgba(18, 29, 44, 0.98);
+  border-color: var(--stroke);
+  box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.28);
+}
+
+html[data-theme="dark"] .bottom-nav-item:not(.active) {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] :where(
+  input:not([type="radio"]):not([type="checkbox"]),
+  select,
+  textarea,
+  .table-filter
+) {
+  background-color: var(--field-bg) !important;
+  border-color: var(--field-border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] :where(input, textarea)::placeholder {
+  color: #788ba5;
+}
+
+html[data-theme="dark"] select option {
+  background: var(--field-bg);
+  color: var(--text);
+}
+
+html[data-theme="dark"] :where(button, input, select, textarea):focus-visible {
+  outline-color: var(--blue);
+}
+
+html[data-theme="dark"] .table-filters th,
+html[data-theme="dark"] .data-table thead th {
+  background: #172437;
+  color: var(--text);
+  border-color: var(--stroke);
+}
+
+html[data-theme="dark"] .data-table :where(th, td) {
+  border-color: var(--stroke);
+}
+
+html[data-theme="dark"] .data-table tbody tr:nth-child(even) {
+  background: var(--row-alt);
+}
+
+html[data-theme="dark"] .data-table tbody tr:hover,
+html[data-theme="dark"] .data-table tr.selected {
+  background: var(--row-hover);
+}
+
+html[data-theme="dark"] :where(
+  .account-session-row,
+  .detail-finance-row,
+  .detail-numbered-list > li,
+  .detail-measures-list > li,
+  .system-recent-list > li,
+  .system-activity-list > li,
+  .plain-list > li
+) {
+  background: var(--surface-soft);
+  border-color: var(--stroke);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .modal-backdrop,
+html[data-theme="dark"] .modal-backdrop-front,
+html[data-theme="dark"] .detail-photo-dialog-backdrop {
+  background: var(--overlay);
+}
+
+html[data-theme="dark"] .modal-header {
+  background: linear-gradient(135deg, #1c2b40 0%, #172337 100%);
+  border-color: var(--stroke);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .atelier-premium-form {
+  background: linear-gradient(180deg, rgba(24, 35, 52, .98), rgba(16, 26, 40, .98));
+}
+
+html[data-theme="dark"] .atelier-premium-form :where(
+  .wizard-stage-head,
+  .client-smart-card,
+  .wizard-form-section,
+  .beneficiary-card,
+  .order-line-card,
+  .client-insight-card
+) {
+  background: linear-gradient(180deg, #1e2d42 0%, #182538 100%);
+  border-color: var(--stroke);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .auth-shell {
+  background:
+    radial-gradient(circle at 50% 112%, rgba(165, 126, 66, .14) 0 18%, transparent 42%),
+    linear-gradient(180deg, #0e1622 0%, #101a28 48%, #111b2a 100%);
+}
+
+html[data-theme="dark"] .auth-card,
+html[data-theme="dark"] .auth-shell-loading .auth-loading-card {
+  background: linear-gradient(180deg, rgba(25, 37, 55, .98), rgba(18, 28, 43, .98));
+  border-color: #3b475a;
+  box-shadow: 0 28px 76px rgba(0, 0, 0, .38);
+}
+
+html[data-theme="dark"] :where(.auth-card-head h2, .auth-selection-head h3, .auth-link-btn) {
+  color: var(--text);
+}
+
+html[data-theme="dark"] :where(.auth-card-head p, .auth-selection-head p, .auth-selection-item small) {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] :where(.auth-field, .auth-selection-item) {
+  background: #141f30;
+  border-color: var(--field-border);
+  color: var(--text);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .16);
+}
+
+html[data-theme="dark"] .auth-form input {
+  background: transparent;
+  color: var(--text);
+}
+
+html[data-theme="dark"] .auth-portal-switch {
+  background: #17263a;
+  border-color: var(--stroke);
+}
+
+html[data-theme="dark"] :where(
+  .helper,
+  .table-filter-placeholder,
+  .account-form small,
+  .account-session-row small,
+  .account-facts dt,
+  .dashboard-highlight-card small,
+  .detail-summary-list small
+) {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] :where(
+  .settings-logo-preview img,
+  .dossier-modal-preview-grid,
+  .detail-photo-placeholder
+) {
+  background: var(--surface-soft);
+  border-color: var(--stroke);
+}
+
+html[data-theme="dark"] .account-guidance-card {
+  background: linear-gradient(145deg, #173252 0%, #214873 100%);
+}
+
+html[data-theme="dark"] .account-success {
+  background: rgba(67, 151, 94, .16);
+  color: #9be0af;
+  border-color: rgba(111, 211, 146, .25);
+}
+
+html[data-theme="dark"] .account-offline-note {
+  background: rgba(183, 122, 31, .16);
+  color: #f4c67b;
+  border-color: rgba(244, 185, 107, .28);
+}
+
+/* Keep browser-native controls, scrollbars and autofill aligned with the selected theme. */
+html[data-theme="dark"] {
+  scrollbar-color: #4a607e #121d2c;
+}
+
+html[data-theme="dark"] input:-webkit-autofill,
+html[data-theme="dark"] input:-webkit-autofill:hover,
+html[data-theme="dark"] input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  box-shadow: 0 0 0 1000px var(--field-bg) inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme] *,
+  html[data-theme] *::before,
+  html[data-theme] *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html[data-theme="dark"] .account-hero {
+  background:
+    radial-gradient(circle at top right, rgba(120, 181, 255, .12), transparent 36%),
+    linear-gradient(145deg, #1b2a3e 0%, #152235 100%) !important;
+  border-color: var(--stroke) !important;
+  box-shadow: var(--shadow);
+}
+
+html[data-theme="dark"] .account-tabs {
+  background: rgba(24, 35, 52, .9) !important;
+  border-color: var(--stroke) !important;
+}
+
+html[data-theme="dark"] .account-facts div {
+  border-color: var(--stroke);
+}
+
+html[data-theme="dark"] .account-page .account-form :is(input:not([type="radio"]):not([type="checkbox"]), select, textarea) {
+  background: var(--field-bg) !important;
+  border-color: var(--field-border) !important;
+  color: var(--text) !important;
+}

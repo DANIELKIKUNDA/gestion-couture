@@ -4,7 +4,9 @@ import { initializeLocalDb } from "./services/local-db.js";
 import { initializeNetworkService } from "./services/network-service.js";
 import { initializePwaService } from "./services/pwa-service.js";
 import { initializeSyncEngine } from "./services/sync-engine.js";
+import { initializeThemeService } from "./services/theme-service.js";
 import "./style.css";
+import "./theme.css";
 
 let appMounted = false;
 
@@ -52,6 +54,7 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 try {
+  initializeThemeService();
   initializeNetworkService();
   void initializeLocalDb();
   initializeSyncEngine();
