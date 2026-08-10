@@ -128,3 +128,17 @@ Manual start without shortcut:
 ```powershell
 npm run app:open
 ```
+
+## Android
+
+Le frontend est embarque dans l'APK/AAB via Capacitor. Un simple deploiement PWA ne met donc pas a jour une APK deja installee.
+Pour preparer une release Android avec verification des assets :
+
+```powershell
+cd frontend
+npm run android:prepare
+npm run android:apk
+# ou, pour le Play Store : npm run android:aab
+```
+
+Voir `docs/android-play-store.md` pour la procedure complete et la gestion de `VERSION_CODE`.
