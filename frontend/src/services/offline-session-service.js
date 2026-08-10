@@ -1,9 +1,10 @@
+import { normalizeAccountPreferences } from "../utils/account-preferences.js";
 import { initializeLocalDb, metaStore } from "./local-db.js";
 
 const OFFLINE_SESSION_META_KEY = "auth.offline_session.v1";
 const OFFLINE_SESSION_ATELIER_KEY = "atelier.offline.session.atelier_id.v1";
 const OFFLINE_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const OFFLINE_SESSION_SCHEMA_VERSION = 1;
+const OFFLINE_SESSION_SCHEMA_VERSION = 2;
 const SYSTEM_MANAGER_ROLE = "MANAGER_SYSTEME";
 const CLOCK_DRIFT_TOLERANCE_MS = 5 * 60 * 1000;
 
@@ -64,6 +65,7 @@ function normalizeSessionSnapshot(raw) {
     roleId,
     roles: [roleId],
     permissions: normalizePermissions(raw.permissions),
+    preferences: raw.preferences && typeof raw.preferences === "object" ? normalizeAccountPreferences(raw.preferences) : null,
     atelierId,
     atelierSlug: normalizeString(raw.atelierSlug),
     atelierNom: normalizeString(raw.atelierNom),
@@ -105,6 +107,7 @@ function toAuthSession(snapshot) {
     roles: snapshot.roles,
     actif: true,
     permissions: snapshot.permissions,
+    preferences: snapshot.preferences || null,
     offline: true,
     offlineSession: {
       atelierSlug: snapshot.atelierSlug,

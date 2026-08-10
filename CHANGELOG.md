@@ -1,5 +1,14 @@
 # Changelog
 
+## Non publie - Preferences utilisateur et Android
+
+- Rend le mode de demarrage explicite: page d'accueil ou reprise de la derniere page, sans priorite implicite.
+- Ajoute les themes personnels Systeme, Clair et Sombre avec persistance serveur et cache local.
+- Le mode Systeme suit automatiquement le theme Android/Windows.
+- Ajoute une migration idempotente pour `mode_demarrage` et `theme`.
+- Conserve la compatibilite avec les APK deja installes qui envoient encore `restaurerDernierePage`.
+- Securise les releases Android: build Vite, `cap sync`, verification SHA-256 des assets, versionCode/versionName suivis et preuve de provenance embarquee.
+
 ## Auth (connexion / session)
 
 - `4cac6fa` - Corrige le bug principal: l'atelier reste initialise apres redemarrage, et un compte inactif ne peut plus se connecter.
